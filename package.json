@@ -25,9 +25,21 @@
     "commands": [
       {
         "command": "codexBlackEd.openPanel",
-        "title": "Claude Codex Black: Open Panel"
+        "title": "Claude Codex Black: Open Panel",
+        "icon": {
+          "light": "assets/icon-light.png",
+          "dark": "resources/icon-dark.png"
+        }
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "codexBlackEd.openPanel",
+          "group": "navigation"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "codexBlackEd.openPanel",
@@ -42,6 +54,9 @@
     "README.md",
     "panel/**",
     "assets/label-alpha.png",
-    "resources/icon.png"
+    "resources/icon.png",
+    "resources/icon-dark.png",
+    "assets/icon-light.png",
+    "resources/icon.svg"
   ]
 }
