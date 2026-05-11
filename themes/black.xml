@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<theme name="black" label="Claude Codex Black Edition">
+
+  <!-- ── Accent / brand ─────────────────────────────────────────── -->
+  <color name="accent">#E8621A</color>
+  <color name="accentBorder">rgba(232,98,26,0.85)</color>
+  <color name="accentGlow">rgba(232,98,26,0.18)</color>
+  <color name="accentTopBorder">rgba(232,98,26,0.60)</color>
+  <color name="accentToolbar">rgba(249,115,22,0.18)</color>
+
+  <!-- ── Footer / toolbar ───────────────────────────────────────── -->
+  <gradient name="footerBg">linear-gradient(90deg, #b83c00 0%, #e8621a 55%, #ff7a1a 100%)</gradient>
+  <color name="footerBlur">0px</color>
+
+  <!-- ── Page / chat background — diamond tile ──────────────────── -->
+  <color name="bodyBg">#1c1c1e</color>
+  <image name="bodyPattern" repeat="repeat" size="48px 48px">data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Crect width='48' height='48' fill='%231e1e20'/%3E%3Cpolygon points='24,3 45,24 24,45 3,24' fill='%23252527' stroke='%23323235' stroke-width='0.8'/%3E%3C/svg%3E</image>
+
+  <!-- ── Input / prompt textarea ────────────────────────────────── -->
+  <color name="inputBg">#0d0d0d</color>
+  <color name="inputText">#e8e8e8</color>
+  <color name="inputFont">monospace</color>
+  <color name="inputRadius">6px</color>
+  <color name="inputBorderRadius">8px</color>
+
+  <!-- ── Drop shadows ───────────────────────────────────────────── -->
+  <effect name="inputShadow" type="box-shadow">
+    <x>0px</x><y>4px</y><blur>14px</blur><spread>0px</spread>
+    <color>rgba(0,0,0,0.45)</color>
+  </effect>
+
+  <effect name="panelShadow" type="box-shadow">
+    <x>0px</x><y>-2px</y><blur>12px</blur><spread>0px</spread>
+    <color>rgba(232,98,26,0.30)</color>
+  </effect>
+
+  <effect name="badgeShadow" type="drop-shadow">
+    <x>0px</x><y>2px</y><blur>6px</blur><spread>0px</spread>
+    <color>rgba(0,0,0,0.55)</color>
+  </effect>
+
+  <effect name="iconShadow" type="drop-shadow">
+    <x>0px</x><y>1px</y><blur>3px</blur><spread>0px</spread>
+    <color>rgba(0,0,0,0.60)</color>
+  </effect>
+
+  <!-- ── Icon buttons ───────────────────────────────────────────── -->
+  <color name="iconFg">rgba(255,255,255,0.55)</color>
+
+  <!-- ── CBE badge / label ──────────────────────────────────────── -->
+  <color name="badgeBg">#1a1a1a</color>
+  <color name="badgeFg">#ffffff</color>
+  <color name="badgeBorder">rgba(255,255,255,0.15)</color>
+
+  <!-- ── Stop button ────────────────────────────────────────────── -->
+  <gradient name="stopBg">linear-gradient(135deg, #1a0a00 0%, #3d1a00 100%)</gradient>
+  <color name="stopBorder">rgba(232,98,26,0.50)</color>
+  <color name="stopFg">#ff6b1a</color>
+
+  <!-- ── Menus / dropdowns ──────────────────────────────────────── -->
+  <color name="menuBg">#1e1e20</color>
+  <color name="menuFg">#e8e8e8</color>
+  <color name="menuBorder">rgba(255,255,255,0.10)</color>
+  <color name="menuHoverBg">#2a2a2e</color>
+
+  <!-- ── Read-aloud ─────────────────────────────────────────────── -->
+  <color name="spinRing">#e8621a</color>
+
+</theme>

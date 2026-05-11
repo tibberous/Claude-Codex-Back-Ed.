@@ -1,0 +1,96 @@
+{
+  "name": "codex-black-ed",
+  "displayName": "Claude Codex Black Ed.",
+  "description": "Black Edition voice + UI layer for Claude Code — mic input, read-aloud, black borders, hot-reload inject system. Coded by Claude. Copyright 2026 Trenton Tompkins.",
+  "version": "1.0.0",
+  "publisher": "TrentonTompkins",
+  "author": {
+    "name": "Trenton Tompkins",
+    "email": "trenttompkins@gmail.com",
+    "url": "https://www.trentontompkins.com"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/tibberous",
+  "bugs": {
+    "url": "https://github.com/tibberous"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "AI"
+  ],
+  "keywords": [
+    "claude",
+    "voice",
+    "speech",
+    "black edition",
+    "inject"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "icon": "resources/icon.png",
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codexBlackEd.startRecording",
+        "title": "Codex Black Ed.: Open Chat",
+        "icon": {
+          "light": "resources/icon-light.png",
+          "dark": "resources/icon-dark.png"
+        }
+      },
+      {
+        "command": "codexBlackEd.toggleSpeech",
+        "title": "Codex Black Ed.: Toggle Voice Input"
+      },
+      {
+        "command": "codexBlackEd.injectClaudeMd",
+        "title": "Codex Black Ed.: Copy CLAUDE.md Path",
+        "icon": "$(file)"
+      }
+    ],
+    "configuration": {
+      "title": "Codex Black Ed.",
+      "properties": {
+        "codexBlackEd.language": {
+          "type": "string",
+          "default": "en-US",
+          "description": "Speech recognition language (BCP-47), e.g. en-US, en-GB, fr-FR"
+        },
+        "codexBlackEd.autoSend": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically submit after voice transcription"
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "codexBlackEd.startRecording",
+        "key": "ctrl+shift+b",
+        "mac": "cmd+shift+b"
+      },
+      {
+        "command": "codexBlackEd.toggleSpeech",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "codexBlackEd.startRecording",
+          "group": "navigation",
+          "when": "true"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "sharp": "^0.34.5"
+  }
+}

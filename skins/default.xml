@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<skin name="default" label="Claude Codex Black Edition">
+
+  <!-- Accent / brand color (orange) -->
+  <color name="accent">#E8621A</color>
+  <color name="accentBorder">rgba(232,98,26,0.70)</color>
+  <color name="accentGlow">rgba(232,98,26,0.18)</color>
+  <color name="accentTopBorder">rgba(232,98,26,0.85)</color>
+  <color name="accentToolbar">rgba(249,115,22,0.30)</color>
+
+  <!-- Footer / toolbar gradient stops -->
+  <color name="footerGrad1">rgba(180,60,0,0.55)</color>
+  <color name="footerGrad2">rgba(232,98,26,0.82)</color>
+  <color name="footerGrad3">rgba(255,120,30,0.72)</color>
+  <color name="footerBlur">12px</color>
+  <color name="footerShadow">rgba(232,98,26,0.38)</color>
+
+  <!-- Footer gradient (assembled — used directly in CSS) -->
+  <gradient name="footerBg">linear-gradient(180deg, rgba(180,60,0,0.55) 0%, rgba(232,98,26,0.82) 60%, rgba(255,120,30,0.72) 100%)</gradient>
+
+  <!-- Stop button gradient -->
+  <gradient name="stopBg">linear-gradient(135deg, rgba(0,0,0,0.90) 0%, rgba(30,20,20,0.85) 100%)</gradient>
+
+  <!-- Page body wash (subtle orange at bottom) -->
+  <gradient name="bodyBg">linear-gradient(180deg, rgba(255,255,255,0) 60%, rgba(249,115,22,0.09) 100%)</gradient>
+
+  <!-- Page body background end-stop (for CSS var reference) -->
+  <color name="bodyGradEnd">rgba(249,115,22,0.09)</color>
+
+  <!-- Prompt / textarea — retro black terminal -->
+  <color name="inputBg">#0d0d0d</color>
+  <color name="inputText">#e8e8e8</color>
+  <color name="inputFont">monospace</color>
+  <color name="inputRadius">6px</color>
+  <color name="inputBorderRadius">8px</color>
+  <color name="inputShadowDark">rgba(0,0,0,0.38)</color>
+  <color name="inputShadowLight">rgba(0,0,0,0.22)</color>
+
+  <!-- Icon buttons (toolbar / footer) -->
+  <color name="iconFg">#ffffff</color>
+
+  <!-- CBE badge -->
+  <color name="badgeBg">rgba(0,0,0,0.85)</color>
+  <color name="badgeFg">#ffffff</color>
+  <color name="badgeBorder">rgba(255,255,255,0.22)</color>
+  <color name="badgeShadow">rgba(0,0,0,0.40)</color>
+
+  <!-- Stop button color stops (kept for reference / custom skin authoring) -->
+  <color name="stopGrad1">rgba(0,0,0,0.90)</color>
+  <color name="stopGrad2">rgba(30,20,20,0.85)</color>
+  <color name="stopBorder">rgba(255,255,255,0.15)</color>
+  <color name="stopShadow">rgba(0,0,0,0.40)</color>
+
+  <!-- Menus / dropdowns / popovers -->
+  <color name="menuBg">#ffffff</color>
+  <color name="menuFg">#000000</color>
+  <color name="menuBorder">#000000</color>
+  <color name="menuHoverBg">#f0f0f0</color>
+
+  <!-- Read-aloud spin ring -->
+  <color name="spinRing">#0070f3</color>
+
+</skin>
