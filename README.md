@@ -48,7 +48,7 @@ code --extensionDevelopmentPath="path\to\Claude Codex Black"
 | Setting | Default | Description |
 |---|---|---|
 | `codexBlackEd.language` | `en-US` | Speech language (BCP-47) |
-| `codexBlackEd.autoSend` | `true` | Auto-submit after transcription |
+| `codexBlackEd.autoSend` | `false` | Auto-submit after transcription (off by default — edit before sending) |
 
 ---
 

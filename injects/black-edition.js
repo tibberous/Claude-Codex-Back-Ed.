@@ -45,22 +45,48 @@
     var s = document.createElement('style');
     s.id = id;
     s.textContent = [
-      /* outer orange border removed per user request — inner orange toolbar stays. */
+      /* outer card — drop shadow + dark grey backing.
+         Orange lives ONLY on the inputActions strip below, never on this card itself. */
       '[class*="inputContainer"],[class*="InputContainer"]{' +
         'border:none!important;' +
         'border-radius:8px!important;' +
-        'box-shadow:none!important;overflow:hidden!important;}',
+        'background:var(--cb-cardBg,#2a2a2e)!important;' +
+        'box-shadow:0 -2px 8px rgba(0,0,0,0.5)!important;' +
+        'overflow:hidden!important;}',
 
-      /* footer / toolbar — orange gradient, matches inputContainer width (70%) */
+      /* inputFooter is CC's WHOLE bottom wrapper (input row + toolbar) — keep
+         transparent so the card's dark grey shows through. The orange gradient
+         is applied below ONLY on [class*="inputActions"] (the button strip). */
       '[class*="footer"],[class*="Footer"],[class*="inputFooter"],[class*="InputFooter"]{' +
-        'background:var(--cb-footerBg,linear-gradient(90deg,#b83c00 0%,#e8621a 55%,#ff7a1a 100%))!important;' +
-        'background-image:linear-gradient(90deg,#b83c00 0%,#e8621a 55%,#ff7a1a 100%)!important;' +
-        'width:70%!important;max-width:70%!important;' +
-        'margin-left:auto!important;margin-right:auto!important;' +
+        'background:transparent!important;' +
+        'background-image:none!important;' +
         'border-top:none!important;' +
         'backdrop-filter:none!important;' +
         '-webkit-backdrop-filter:none!important;' +
-        'box-shadow:0 -2px 8px rgba(0,0,0,0.5)!important;}',
+        'box-shadow:none!important;}',
+
+      /* THE orange strip — bottom action bar only (Stop / + / mic / icons).
+         Aligned to the same 70% column as the inputContainer card above. If
+         inputActions is a child of the card it inherits the card's width; if it
+         renders as a sibling at panel root, the width:70%; margin:auto centers
+         it under the card. Rounded bottom corners match the card. */
+      '[class*="inputActions"],[class*="InputActions"]{' +
+        'background:var(--cb-footerBg,linear-gradient(90deg,#b83c00 0%,#e8621a 55%,#ff7a1a 100%))!important;' +
+        'background-image:linear-gradient(90deg,#b83c00 0%,#e8621a 55%,#ff7a1a 100%)!important;' +
+        'border-top:1px solid rgba(0,0,0,0.4)!important;' +
+        'width:100%!important;max-width:100%!important;' +
+        'box-sizing:border-box!important;' +
+        'margin-left:0!important;margin-right:0!important;' +
+        'border-bottom-left-radius:8px!important;' +
+        'border-bottom-right-radius:8px!important;' +
+        'overflow:hidden!important;}',
+      /* If inputActions is a sibling of inputContainer (rendered outside the
+         70% card), pin it to the same 70% column. Outer-only selector — nested
+         instances stay 100% of their parent. */
+      '[class*="inputActions"]:not([class*="inputContainer"] *):not([class*="InputContainer"] *),' +
+      '[class*="InputActions"]:not([class*="inputContainer"] *):not([class*="InputContainer"] *){' +
+        'width:70%!important;max-width:70%!important;' +
+        'margin-left:auto!important;margin-right:auto!important;}',
 
       /* input wrapper — dark bg so the input box sits inside the orange toolbar */
       '[class*="inputWrapper"],[class*="InputWrapper"],' +

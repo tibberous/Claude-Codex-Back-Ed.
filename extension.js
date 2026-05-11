@@ -362,8 +362,11 @@ async function stopAndTranscribe() {
         notifyPanel({ type: 'result', text: text || '' });
         if (text) {
             pendingText = text; /* legacy fallback for /speech/status pollers */
-            /* Drive the paste directly — no chat-panel poller exists post-pivot. */
-            submitText(text);
+            /* Drive the paste directly — no chat-panel poller exists post-pivot.
+               STT defaults to paste-only so the user can edit before sending;
+               set codexBlackEd.autoSend = true to auto-submit. */
+            const autoSend = vscode.workspace.getConfiguration('codexBlackEd').get('autoSend', false);
+            submitText(text, autoSend);
         } else {
             cvLog('empty transcript — nothing to submit');
             notifyPanel({ type: 'error', message: 'No speech detected' });
@@ -662,8 +665,8 @@ function transcribeGemini(audioPath, apiKey) {
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function submitText(text) {
-    cvLog('submitText: ' + JSON.stringify(text.slice(0, 80)));
+async function submitText(text, submit = true) {
+    cvLog('submitText: ' + JSON.stringify(text.slice(0, 80)) + ' submit=' + submit);
     try {
         cvLog('focusing Claude Codex Black Ed....');
         try { await vscode.commands.executeCommand('claude-vscode.focus'); } catch (e) { cvLog('focus err: ' + e.message); }
@@ -673,6 +676,7 @@ async function submitText(text) {
         await delay(80);
         cvLog('pasting...');
         await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
+        if (!submit) { cvLog('submitText complete (paste-only, autoSend off)'); return; }
         await delay(180);
         cvLog('typing enter...');
         require('child_process').execSync('python C:/Users/moren/claude-tools/mouse.py key enter', { timeout: 3000 });

@@ -63,8 +63,8 @@
         },
         "codexBlackEd.autoSend": {
           "type": "boolean",
-          "default": true,
-          "description": "Automatically submit after voice transcription"
+          "default": false,
+          "description": "Automatically submit after voice transcription (off by default so you can edit before sending)"
         }
       }
     },
