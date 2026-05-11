@@ -2,3 +2,4 @@ node_modules/
 *.vsix
 *.post-pivot.bak
 collision_report.json
+config.ini

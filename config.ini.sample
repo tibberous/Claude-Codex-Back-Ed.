@@ -1,0 +1,7 @@
+[api_keys]
+openai_api_key = sk-proj-REPLACE_WITH_YOUR_OPENAI_KEY
+gemini_api_key = AIza-REPLACE_WITH_YOUR_GEMINI_KEY
+
+[stt]
+; provider options: openai | gemini
+provider = openai
