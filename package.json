@@ -16,9 +16,6 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [
-    "onCommand:codexBlackEd.openPanel"
-  ],
   "icon": "resources/icon.png",
   "main": "./extension.js",
   "contributes": {
