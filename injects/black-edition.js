@@ -361,8 +361,13 @@
   }
 
   function forceTextareaDark() {
-    /* CSS !important can be beaten by CC's own scoped styles — force via JS */
-    document.querySelectorAll('textarea,[contenteditable="true"],[role="textbox"]').forEach(function(ta) {
+    /* CSS !important can be beaten by CC's own scoped styles — force via JS.
+       Scope to the chat input only: code diffs, dialogs etc. also use contenteditable
+       and were getting the orange-border / 70%-width treatment by mistake. */
+    var candidates = document.querySelectorAll('textarea,[contenteditable="true"],[role="textbox"]');
+    Array.prototype.filter.call(candidates, function(ta) {
+      return ta.closest('[class*="inputContainer"],[class*="InputContainer"],[class*="composer"],[class*="Composer"]');
+    }).forEach(function(ta) {
       ta.style.setProperty('background', '#0d0d0d', 'important');
       ta.style.setProperty('background-color', '#0d0d0d', 'important');
       ta.style.setProperty('background-image', 'none', 'important');
