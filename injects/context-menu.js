@@ -119,7 +119,7 @@
         '-',
         { label: '🛠 Open DevTools', shortcut: 'F12', action: openDevTools },
         { label: '♻️  Reload WebView', action: function(){
-            fetch('http://127.0.0.1:57835/command', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({command:'workbench.action.webview.reloadWebviewAction'}) }).catch(function(){});
+            fetch(CTRL + '/command', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({command:'workbench.action.webview.reloadWebviewAction'}) }).catch(function(){});
         }},
         { label: '📜 View Page Source', action: function(){
             var html = document.documentElement.outerHTML;
@@ -130,13 +130,15 @@
   }
 
   function openDevTools() {
-    fetch('http://127.0.0.1:57835/command', {
+    fetch(CTRL + '/command', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ command: 'workbench.action.webview.openDeveloperTools' })
+    }).then(function(r){
+      if (!r || !r.ok) throw new Error('bad status');
     }).catch(function(){
-      /* fallback: try the general toggle */
-      fetch('http://127.0.0.1:57835/command', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({command:'workbench.action.toggleDevTools'}) }).catch(function(){});
+      /* fallback: try the general toggle (VSCode window devtools, not webview's) */
+      fetch(CTRL + '/command', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({command:'workbench.action.toggleDevTools'}) }).catch(function(){});
     });
   }
 

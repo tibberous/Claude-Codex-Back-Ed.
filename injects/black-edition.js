@@ -45,13 +45,13 @@
     var s = document.createElement('style');
     s.id = id;
     s.textContent = [
-      /* input container — orange border wraps input + toolbar as one frame (good.png parity) */
+      /* outer orange border removed per user request — inner orange toolbar stays. */
       '[class*="inputContainer"],[class*="InputContainer"]{' +
-        'border:4px solid var(--cb-accentBorder,#ff6b1a)!important;' +
+        'border:none!important;' +
         'border-radius:8px!important;' +
         'box-shadow:none!important;overflow:hidden!important;}',
 
-      /* footer / toolbar — orange gradient, matches inputContainer width (good.png) */
+      /* footer / toolbar — orange gradient, matches inputContainer width (70%) */
       '[class*="footer"],[class*="Footer"],[class*="inputFooter"],[class*="InputFooter"]{' +
         'background:var(--cb-footerBg,linear-gradient(90deg,#b83c00 0%,#e8621a 55%,#ff7a1a 100%))!important;' +
         'background-image:linear-gradient(90deg,#b83c00 0%,#e8621a 55%,#ff7a1a 100%)!important;' +
@@ -89,10 +89,37 @@
       '[class*="toolbar"] button:not(#__cb_black_edition_label),[class*="Toolbar"] button:not(#__cb_black_edition_label),[class*="footer"] button:not(#__cb_black_edition_label),[class*="Footer"] button:not(#__cb_black_edition_label),' +
       '[class*="inputActions"] button:not(#__cb_black_edition_label),[class*="InputActions"] button:not(#__cb_black_edition_label){color:rgba(255,255,255,0.75)!important;background:transparent!important;}',
 
-      /* prompt box at 70% panel width, centered */
-      '[class*="inputContainer"],[class*="InputContainer"]{' +
+      /* prompt box at 70% panel width, centered — outermost inputContainer only.
+         Children (background, messageInput chain, footer) are 100% of THIS, so the
+         whole input frame stays at 70% panel width with side gutters. */
+      '[class*="inputContainer"]:not([class*="inputContainer"] *),' +
+      '[class*="InputContainer"]:not([class*="InputContainer"] *){' +
         'width:70%!important;max-width:70%!important;' +
         'margin-left:auto!important;margin-right:auto!important;' +
+        'box-sizing:border-box!important;}',
+      /* nested inputContainer fills its parent so no inner column appears */
+      '[class*="inputContainer"] [class*="inputContainer"],' +
+      '[class*="InputContainer"] [class*="InputContainer"]{' +
+        'width:100%!important;max-width:100%!important;margin:0!important;}',
+
+      /* inputContainerBackground — stretch to full width of its parent */
+      '[class*="inputContainerBackground"],[class*="InputContainerBackground"]{' +
+        'width:100%!important;max-width:100%!important;' +
+        'left:0!important;right:0!important;' +
+        'margin-left:0!important;margin-right:0!important;' +
+        'box-sizing:border-box!important;}',
+
+      /* children of inputContainerBackground — fill parent.
+         Direct-child selector so we don't blow up inline button/svg widths. */
+      '[class*="inputContainerBackground"] > *,[class*="InputContainerBackground"] > *{' +
+        'width:100%!important;max-width:100%!important;' +
+        'margin-left:0!important;margin-right:0!important;' +
+        'box-sizing:border-box!important;}',
+
+      /* message input chain — same parent, also stretch to 100% */
+      '[class*="messageInputContainer"],[class*="MessageInputContainer"],' +
+      '[class*="messageInput"],[class*="MessageInput"]{' +
+        'width:100%!important;max-width:100%!important;' +
         'box-sizing:border-box!important;}',
 
 
@@ -107,18 +134,28 @@
       '[class*="inputActions"] button:not(#__cb_monitor_btn) svg path{' +
         'fill:rgba(255,255,255,0.55)!important;color:rgba(255,255,255,0.55)!important;}',
 
+      /* HAMMER: dedicated monospace rule for the actual contenteditable input —
+         DOM confirmed via DevTools: <div class="messageInput_cKsPxg" contenteditable
+         data-placeholder="..."> is THE input. Covers element, all descendants, and
+         the ::before/::after pseudo (placeholder uses ::before with attr(data-placeholder)). */
+      '[class*="messageInput"],[class*="MessageInput"],' +
+      '[class*="messageInput"] *,[class*="MessageInput"] *,' +
+      '[class*="messageInput"]::before,[class*="MessageInput"]::before,' +
+      '[class*="messageInput"]::after,[class*="MessageInput"]::after{' +
+        'font-family:ui-monospace,Consolas,"Cascadia Code","Source Code Pro",monospace!important;}',
+
       /* prompt textarea — black terminal style matching good.png */
       'textarea,[class*="inputTextarea"],[class*="InputTextarea"],' +
       '[class*="inputContainer"] textarea,[class*="InputContainer"] textarea,' +
-      '[class*="inputContainer"] [contenteditable="true"],[class*="InputContainer"] [contenteditable="true"],' +
-      '[class*="inputContainer"] [contenteditable=""],[class*="InputContainer"] [contenteditable=""],' +
+      '[class*="inputContainer"] [contenteditable],[class*="InputContainer"] [contenteditable],' +
       '[class*="composer"] textarea,[class*="Composer"] textarea,' +
       '[class*="composer"] [contenteditable],[class*="Composer"] [contenteditable],' +
+      '[class*="messageInput"],[class*="MessageInput"],' +
       '[class*="promptInput"],[class*="PromptInput"],' +
       '[role="textbox"]{' +
-        'background:var(--cb-inputBg,#0d0d0d)!important;' +
+        'background:var(--cb-inputBg,ghostwhite)!important;' +
         'background-image:none!important;' +
-        'color:var(--cb-inputText,#e8e8e8)!important;' +
+        'color:var(--cb-inputText,#000)!important;' +
         'font-family:var(--cb-inputFont,ui-monospace,Consolas,"Cascadia Code","Source Code Pro",monospace)!important;' +
         'caret-color:var(--cb-accent,#E8621A)!important;' +
         'box-shadow:inset 0 2px 6px rgba(0,0,0,0.5)!important;' +
@@ -129,26 +166,61 @@
         'border-radius:var(--cb-inputRadius,6px)!important;' +
         'background:transparent!important;}',
 
-      /* placeholder */
-      'textarea::placeholder,[class*="inputTextarea"]::placeholder,' +
-      '[class*="inputContainer"] [contenteditable]:empty:before{' +
-        'color:rgba(232,98,26,0.5)!important;' +
-        'font-family:var(--cb-inputFont,ui-monospace,Consolas,monospace)!important;}',
+      /* placeholder — CC's real selector confirmed via DOM probe:
+         <div class="messageInput_cKsPxg" placeholder="..." contenteditable>
+         placeholder rendered via :empty::before { content: attr(placeholder) }. */
+      'textarea::placeholder,textarea::-webkit-input-placeholder,' +
+      '[class*="inputTextarea"]::placeholder,[class*="inputTextarea"]::-webkit-input-placeholder,' +
+      'div[placeholder]:empty::before,div[placeholder]:empty:before,' +
+      '[contenteditable][placeholder]:empty::before,[contenteditable][placeholder]:empty:before,' +
+      '[class*="messageInput"]:empty::before,[class*="messageInput"]:empty:before,' +
+      '[data-placeholder]::before,[data-placeholder]:empty::before,' +
+      '[role="textbox"][data-placeholder]::before,' +
+      '[role="textbox"]:empty::before,' +
+      '[class*="inputContainer"] [contenteditable]:empty::before,' +
+      '[class*="InputContainer"] [contenteditable]:empty::before,' +
+      '[class*="placeholder"],[class*="Placeholder"]{' +
+        'color:rgba(0,0,0,0.55)!important;' +
+        'font-family:var(--cb-inputFont,ui-monospace,Consolas,"Cascadia Code","Source Code Pro",monospace)!important;' +
+        'font-size:inherit!important;' +
+        'opacity:1!important;' +
+        'pointer-events:none!important;}',
 
-      /* menus / dropdowns */
-      '[role="menu"],[role="listbox"],[class*="menu"],[class*="Menu"],[class*="dropdown"],[class*="Dropdown"],[class*="popover"],[class*="Popover"]{' +
+      /* nuclear option: ALL ::before/::after pseudos inside the input/composer.
+         CC's placeholder is a pseudo with `content:"Queue another message…"` and the
+         exact bearing element is hard to pin without DevTools. */
+      '[class*="inputContainer"] *::before,[class*="InputContainer"] *::before,' +
+      '[class*="inputContainer"] *::after,[class*="InputContainer"] *::after,' +
+      '[class*="composer"] *::before,[class*="Composer"] *::before,' +
+      '[class*="composer"] *::after,[class*="Composer"] *::after,' +
+      '[class*="inputContainer"]::before,[class*="InputContainer"]::before,' +
+      '[class*="composer"]::before,[class*="Composer"]::before{' +
+        'font-family:var(--cb-inputFont,ui-monospace,Consolas,"Cascadia Code","Source Code Pro",monospace)!important;' +
+        'color:rgba(0,0,0,0.55)!important;}',
+
+      /* force monospace cascade on everything inside the prompt input */
+      '[class*="inputContainer"] textarea,[class*="InputContainer"] textarea,' +
+      '[class*="inputContainer"] [contenteditable],[class*="InputContainer"] [contenteditable],' +
+      '[class*="inputContainer"] textarea *,[class*="InputContainer"] textarea *,' +
+      '[class*="inputContainer"] [contenteditable] *,[class*="InputContainer"] [contenteditable] *{' +
+        'font-family:var(--cb-inputFont,ui-monospace,Consolas,"Cascadia Code","Source Code Pro",monospace)!important;}',
+
+      /* menus / dropdowns — skin OUR injected menus only.
+         CC's slash-command popover, command palette, and autocomplete suggestions
+         are left to CC's own styling — we'd otherwise repaint them white-on-white
+         and break their internal layout. Match by our own __cb_ id prefix. */
+      '[id^="__cb_"][role="menu"],[id^="__cb_"][role="listbox"]{' +
         'background:var(--cb-menuBg,#fff)!important;' +
         'color:var(--cb-menuFg,#000)!important;' +
         'font-family:var(--cb-inputFont,monospace)!important;' +
         'border:1.5px solid var(--cb-menuBorder,#000)!important;' +
         'border-radius:6px!important;}',
 
-      '[role="menu"] *,[role="listbox"] *,[class*="menu"] [role="menuitem"],[class*="Menu"] [role="menuitem"],' +
-      '[class*="dropdown"] li,[class*="Dropdown"] li{' +
+      '[id^="__cb_"][role="menu"] *,[id^="__cb_"][role="listbox"] *{' +
         'color:var(--cb-menuFg,#000)!important;' +
         'font-family:var(--cb-inputFont,monospace)!important;background:transparent!important;}',
 
-      '[role="menuitem"]:hover,[role="option"]:hover,[class*="menu"] [role="menuitem"]:hover{' +
+      '[id^="__cb_"] [role="menuitem"]:hover,[id^="__cb_"] [role="option"]:hover{' +
         'background:var(--cb-menuHoverBg,#f0f0f0)!important;color:var(--cb-menuFg,#000)!important;}',
 
       /* stop button — black glass */
@@ -282,31 +354,53 @@
     }
     if (!anchor) return;
 
+    /* data URLs may not be loaded yet — aa-label-data.js can be ordered AFTER us in
+       the live bundle (Injector insertion-order, not alphabetic). Bail and let the
+       interval retry once globals are populated. */
+    if (!window.__CB_LABEL_NORMAL) return;
+
     var existing = document.getElementById(LABEL_ID);
-    if (existing && existing.tagName !== 'BUTTON') existing.remove(); /* drop old span badge */
+    /* drop old badge unless it's already at current rev. Bump the sentinel ('data-cb-img'
+       value) whenever BTN_H or visual styling changes — that forces stale labels left over
+       from prior bundle versions to be removed and re-created. */
+    var isCurrentRev = existing && existing.getAttribute('data-cb-img') === '4';
+    if (existing && (existing.tagName !== 'BUTTON' || !isCurrentRev)) {
+      existing.remove();
+    }
     if (!document.getElementById(LABEL_ID)) {
       var label = document.createElement('button');
       label.id = LABEL_ID;
       label.type = 'button';
       label.title = 'Claude Codex Black Edition — click for STT provider';
-      label.innerHTML =
-        '<span style="font-weight:600;letter-spacing:.02em">Claude Codex — Black Edition</span>' +
-        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:4px;flex-shrink:0"><polyline points="3 4.5 6 8 9 4.5"/></svg>';
+      label.setAttribute('aria-label', 'Claude Codex Black Edition');
+      label.setAttribute('data-cb-img', '4'); /* sentinel rev 4: tight-cropped PNG (932x148), BTN_H=32 */
+      var normalUrl = window.__CB_LABEL_NORMAL;
+      var hoverUrl  = window.__CB_LABEL_HOVER  || normalUrl;
+      var imgW = window.__CB_LABEL_W || 964;
+      var imgH = window.__CB_LABEL_H || 793;
+      /* size button to image aspect ratio at toolbar height */
+      var BTN_H = 32;
+      var BTN_W = Math.round(BTN_H * (imgW / imgH));
       label.style.cssText = [
         'all:unset',
         'cursor:pointer',
-        'font-size:11px','font-weight:600',
-        'color:var(--cb-badgeFg,#fff)',
-        'background:var(--cb-badgeBg,#1a1a1a)',
-        'border:1px solid var(--cb-badgeBorder,rgba(255,255,255,0.18))',
-        'border-radius:14px','padding:3px 10px','margin:0 6px',
-        'white-space:nowrap','display:inline-flex','align-items:center','justify-content:center','gap:2px',
-        'height:22px','line-height:1',
-        'user-select:none','flex-shrink:0',
-        'transition:background .12s,border-color .12s',
+        'display:inline-block',
+        'width:'  + BTN_W + 'px',
+        'height:' + BTN_H + 'px',
+        'background-image:url("' + normalUrl + '")',
+        'background-size:contain',
+        'background-repeat:no-repeat',
+        'background-position:center',
+        'flex-shrink:0',
+        'margin:0 6px',
+        'transition:filter .12s',
       ].join(';');
-      label.addEventListener('mouseover', function(){ label.style.background = '#2a2a2a'; });
-      label.addEventListener('mouseout',  function(){ label.style.background = '#1a1a1a'; });
+      label.addEventListener('mouseover', function(){
+        label.style.backgroundImage = 'url("' + hoverUrl + '")';
+      });
+      label.addEventListener('mouseout',  function(){
+        label.style.backgroundImage = 'url("' + normalUrl + '")';
+      });
       label.addEventListener('click', function(e) {
         e.preventDefault(); e.stopPropagation();
         var rect = label.getBoundingClientRect();
@@ -323,6 +417,70 @@
     mountReadAloud(anchor);
   }
 
+  /* ── Send-button skin: replace CC's submit-button icon with our 3-state PNGs.
+        Anchor to top-right of the textarea's immediate wrapper (= the orange-bordered
+        box), not the wider inputContainer. ── */
+  function mountSendButton() {
+    if (!window.__CB_SEND_NORMAL) return;
+    var btns = document.querySelectorAll('button[type="submit"]');
+    var SZ = 28; /* must be reachable from the geometry block below */
+    for (var i = 0; i < btns.length; i++) {
+      var btn = btns[i];
+      var SZ = 28;
+      var isNew = btn.getAttribute('data-cb-send') !== '4';
+      if (isNew) {
+        btn.setAttribute('data-cb-send', '4');
+        Array.prototype.forEach.call(btn.children, function(ch){
+          ch.style.setProperty('display', 'none', 'important');
+        });
+        btn.style.setProperty('width',  SZ + 'px', 'important');
+        btn.style.setProperty('height', SZ + 'px', 'important');
+        btn.style.setProperty('min-width',  SZ + 'px', 'important');
+        btn.style.setProperty('min-height', SZ + 'px', 'important');
+        btn.style.setProperty('padding', '0', 'important');
+        btn.style.setProperty('border', 'none', 'important');
+        btn.style.setProperty('border-radius', '50%', 'important');
+        btn.style.setProperty('background-color', 'transparent', 'important');
+        btn.style.setProperty('background-image', 'url("' + window.__CB_SEND_NORMAL + '")', 'important');
+        btn.style.setProperty('background-size', 'contain', 'important');
+        btn.style.setProperty('background-repeat', 'no-repeat', 'important');
+        btn.style.setProperty('background-position', 'center', 'important');
+        btn.style.setProperty('box-shadow', 'none', 'important');
+        btn.style.setProperty('outline', 'none', 'important');
+        btn.style.setProperty('cursor', 'pointer', 'important');
+        (function(b){
+          var setBg = function(u){ b.style.setProperty('background-image', 'url("' + u + '")', 'important'); };
+          b.addEventListener('mouseenter', function(){ setBg(window.__CB_SEND_HOVER); });
+          b.addEventListener('mouseleave', function(){ setBg(window.__CB_SEND_NORMAL); });
+          b.addEventListener('mousedown',  function(){ setBg(window.__CB_SEND_CLICK); });
+          b.addEventListener('mouseup',    function(){ setBg(window.__CB_SEND_HOVER); });
+        })(btn);
+      }
+      /* recompute geometry each tick — textarea wrapper size changes with content */
+      var ic = btn.closest('[class*="inputContainer"],[class*="InputContainer"]');
+      var ta = ic && ic.querySelector('textarea,[contenteditable="true"],[contenteditable=""],[role="textbox"]');
+      var wrap = ta ? ta.parentElement : null;
+      if (ic && wrap) {
+        if (getComputedStyle(ic).position === 'static') {
+          ic.style.setProperty('position', 'relative', 'important');
+        }
+        var icRect   = ic.getBoundingClientRect();
+        var wrapRect = wrap.getBoundingClientRect();
+        var rightOffset = Math.max(8, (icRect.right - wrapRect.right) + 8);
+        /* vertically center the button inside the textarea-row wrapper, then nudge up 3px */
+        var topOffset = Math.max(0,
+          (wrapRect.top - icRect.top) + Math.max(0, (wrapRect.height - SZ) / 2) - 3
+        );
+        btn.style.setProperty('position', 'absolute', 'important');
+        btn.style.setProperty('top',   topOffset   + 'px', 'important');
+        btn.style.setProperty('right', rightOffset + 'px', 'important');
+        btn.style.setProperty('left',   'auto', 'important');
+        btn.style.setProperty('bottom', 'auto', 'important');
+        btn.style.setProperty('z-index', '20', 'important');
+      }
+    }
+  }
+
   if (window.__cbBlackEditionInterval) clearInterval(window.__cbBlackEditionInterval);
   var _oldBtn = document.getElementById(READALOUD_ID);
   if (_oldBtn) _oldBtn.remove();
@@ -332,7 +490,45 @@
   /* only apply background/border styles in the CC chat webview, not the CBE panel */
   var isCCChat = !!document.querySelector('[class*="messagesContainer"],[class*="inputContainer"],[class*="inputFooter"]');
   if (isCCChat) applyBlackBorders();
+
+  /* Late-stage font override: appended to <body> AFTER all of CC's own styles + ours,
+     with maximum-specificity selector chain so it wins the cascade.
+     CC's .messageInput_<hash> has `font-family:inherit`, ::before has no font-family
+     — both end up using `--vscode-chat-font-family` (system sans-serif). Override here. */
+  function applyMonoOverride() {
+    var id = '__cb_font_override';
+    if (document.getElementById(id)) return;
+    var s = document.createElement('style');
+    s.id = id;
+    var MONO = 'Consolas, "Cascadia Mono", "JetBrains Mono", "Source Code Pro", ui-monospace, monospace';
+    s.textContent = [
+      'html body [class*="inputContainer"] [class*="messageInput"],',
+      'html body [class*="inputContainer"] [class*="messageInput"] *,',
+      'html body [class*="inputContainer"] [contenteditable],',
+      'html body [class*="inputContainer"] [contenteditable] *,',
+      'html body [class*="inputContainer"] [role="textbox"],',
+      'html body [class*="inputContainer"] [role="textbox"] *{',
+      '  font-family:' + MONO + '!important;',
+      '  color:#000!important;',
+      '}',
+      'html body [class*="inputContainer"] [class*="messageInput"]::before,',
+      'html body [class*="inputContainer"] [class*="messageInput"]:before,',
+      'html body [class*="inputContainer"] [contenteditable]::before,',
+      'html body [class*="inputContainer"] [contenteditable]:before,',
+      'html body [class*="inputContainer"] [role="textbox"]::before,',
+      'html body [class*="inputContainer"] [role="textbox"]:before,',
+      'html body [class*="inputContainer"] [data-placeholder]::before,',
+      'html body [class*="inputContainer"] [data-placeholder]:before{',
+      '  font-family:' + MONO + '!important;',
+      '  color:rgba(0,0,0,0.55)!important;',
+      '  opacity:1!important;',
+      '}',
+    ].join('\n');
+    (document.body || document.documentElement).appendChild(s);
+  }
+  applyMonoOverride();
   mountLabel();
+  mountSendButton();
 
   function hideFilePill() {
     /* hide any toolbar button/role-button/link/div that represents an open-file/context pill */
@@ -344,11 +540,10 @@
       var txt = (el.textContent || '').trim();
       if (!txt || txt.length < 3 || txt.length > 80) return;
       if (KEEP_TEXT.test(txt)) return;
-      /* file-like patterns: Untitled-N, .ext, "tool output", "name (id)" */
-      if (/untitled/i.test(txt) ||
-          /\.\w{1,5}$/.test(txt) ||
-          /tool output/i.test(txt) ||
-          /\([\w]{3,}\)\s*$/.test(txt)) {
+      /* hide CC's auto-shown editor file pill (Untitled-N, tool output).
+         Don't match generic .ext$ — that catches user-attached files like good.png. */
+      if (/^untitled[\s-]?\d/i.test(txt) ||
+          /^tool output/i.test(txt)) {
         el.classList.add('cb-hide-file-pill');
         el.style.setProperty('display', 'none', 'important');
         var p = el.parentElement;
@@ -364,15 +559,41 @@
     /* CSS !important can be beaten by CC's own scoped styles — force via JS.
        Scope to the chat input only: code diffs, dialogs etc. also use contenteditable
        and were getting the orange-border / 70%-width treatment by mistake. */
-    var candidates = document.querySelectorAll('textarea,[contenteditable="true"],[role="textbox"]');
+    /* match textarea, ANY contenteditable variant, and role=textbox.
+       CC uses <div contenteditable=""> (no value), so [contenteditable="true"] misses it. */
+    var candidates = document.querySelectorAll('textarea,[contenteditable],[role="textbox"]');
+    var MONO = 'ui-monospace,Consolas,"Cascadia Code","Source Code Pro",monospace';
+
+    /* CC renders the placeholder as a sibling element (not a real ::placeholder).
+       Find it by its known text and force monospace + black on it. */
+    var PH_RE = /^(?:Queue another message|Ask Claude to edit|(?:ctrl esc|⌘\s*Esc)\s+to\s+(?:focus|unfocus|attach))/i;
+    document.querySelectorAll('[class*="inputContainer"] *,[class*="InputContainer"] *').forEach(function(el){
+      if (el.children.length !== 0) return; /* only leaf text nodes */
+      var t = (el.textContent || '').trim();
+      if (!t || !PH_RE.test(t)) return;
+      el.style.setProperty('font-family', MONO, 'important');
+      el.style.setProperty('color', 'rgba(0,0,0,0.55)', 'important');
+      el.style.setProperty('opacity', '1', 'important');
+    });
+
     Array.prototype.filter.call(candidates, function(ta) {
       return ta.closest('[class*="inputContainer"],[class*="InputContainer"],[class*="composer"],[class*="Composer"]');
     }).forEach(function(ta) {
-      ta.style.setProperty('background', '#0d0d0d', 'important');
-      ta.style.setProperty('background-color', '#0d0d0d', 'important');
+      ta.style.setProperty('background', 'ghostwhite', 'important');
+      ta.style.setProperty('background-color', 'ghostwhite', 'important');
       ta.style.setProperty('background-image', 'none', 'important');
-      ta.style.setProperty('color', '#e8e8e8', 'important');
+      ta.style.setProperty('color', '#000', 'important');
+      ta.style.setProperty('font-family', MONO, 'important');
       ta.style.setProperty('caret-color', '#E8621A', 'important');
+      /* the contenteditable wraps typed text in spans/divs that inherit nothing —
+         force font-family + color on every descendant element too.
+         SKIP anything inside CC's slash-command / autocomplete popover — its items
+         have role=option/menuitem/listbox and our black color makes them invisible. */
+      ta.querySelectorAll('*').forEach(function(child){
+        if (child.closest('[role="menu"],[role="listbox"],[role="option"],[role="menuitem"],[role="dialog"],[class*="popover"],[class*="Popover"],[class*="suggestion"],[class*="Suggestion"],[class*="autocomplete"],[class*="Autocomplete"],[class*="commandMenu"],[class*="CommandMenu"],[class*="slashMenu"],[class*="SlashMenu"]')) return;
+        child.style.setProperty('font-family', MONO, 'important');
+        child.style.setProperty('color', '#000', 'important');
+      });
       /* walk up until inputContainer and force every wrapper transparent;
          on the wrapper whose width is < 70% of inputContainer width, put the orange border */
       var p = ta.parentElement;
@@ -383,27 +604,31 @@
         var cls = (p.className || '') + '';
         if (/inputContainer|InputContainer/.test(cls)) {
           inputContainerWidth = p.getBoundingClientRect().width;
-          /* fallback: if no narrower wrapper found, put border on inputContainer with a max-width to make it tight */
-          if (!borderTarget) borderTarget = p;
+          /* always target the outermost wrapper (inputContainer) — avoids the
+             nested-border bug where an inner wrapper also gets the orange ring */
+          borderTarget = p;
           break;
-        }
-        if (!borderTarget) {
-          var w = p.getBoundingClientRect().width;
-          if (w > 50) borderTarget = p; /* first non-trivial wrapper above textarea */
         }
         p.style.setProperty('background', 'transparent', 'important');
         p.style.setProperty('background-color', 'transparent', 'important');
         p.style.setProperty('background-image', 'none', 'important');
+        /* strip any stale orange border we set on inner wrappers in a previous pass */
+        if (p.style && p.style.borderColor === 'rgb(255, 107, 26)') {
+          p.style.removeProperty('border');
+          p.style.removeProperty('border-radius');
+          p.style.removeProperty('width');
+          p.style.removeProperty('max-width');
+        }
         p = p.parentElement;
         depth++;
       }
       if (borderTarget) {
-        borderTarget.style.setProperty('border', '4px solid #ff6b1a', 'important');
+        /* outer orange border removed per user request — keep sizing only */
+        borderTarget.style.setProperty('border', 'none', 'important');
         borderTarget.style.setProperty('border-radius', '8px', 'important');
         borderTarget.style.setProperty('box-sizing', 'border-box', 'important');
-        /* 70% of container, NOT 80vw. vw is viewport-relative and overflows narrow
-           sidebar panels. Clear ancestor max-widths (don't force width:100% — that
-           was what bled past panel edges before) so 70% lands on the panel width.
+        /* outer frame at 70% panel width, centered. Children remain 100% of THIS,
+           so the input chain fills the frame but the frame itself has gutters.
            NOTE: never set flex-basis — parent is column-direction, so
            flex-basis becomes height and the input balloons to fill the panel. */
         borderTarget.style.setProperty('width', '70%', 'important');
@@ -423,6 +648,31 @@
       ta.style.setProperty('width', '100%', 'important');
       ta.style.setProperty('max-width', 'none', 'important');
       ta.style.setProperty('box-sizing', 'border-box', 'important');
+    });
+    /* hammer monospace on every descendant of inputContainer / composer / inputFooter.
+       Also scan textContent for the placeholder string since CC renders the placeholder
+       as a positioned sibling that may live outside inputContainer entirely. */
+    var MONO = 'ui-monospace,Consolas,"Cascadia Code","Source Code Pro",monospace';
+    var WRAP_SEL = '[class*="inputContainer"],[class*="InputContainer"],' +
+                   '[class*="composer"],[class*="Composer"]';
+    document.querySelectorAll(WRAP_SEL).forEach(function(ic){
+      ic.style.setProperty('font-family', MONO, 'important');
+      ic.querySelectorAll('*').forEach(function(el){
+        if (el.id && /^__cb_/.test(el.id)) return;
+        if (el.tagName === 'SVG' || el.tagName === 'svg' || el.tagName === 'IMG') return;
+        if (el.closest('[role="menu"],[role="listbox"],[role="option"],[role="menuitem"],[role="dialog"],[class*="popover"],[class*="Popover"],[class*="suggestion"],[class*="Suggestion"],[class*="autocomplete"],[class*="Autocomplete"],[class*="commandMenu"],[class*="CommandMenu"],[class*="slashMenu"],[class*="SlashMenu"]')) return;
+        el.style.setProperty('font-family', MONO, 'important');
+      });
+    });
+    /* catch placeholder elements rendered as overlays outside inputContainer */
+    var PLACEHOLDER_RE = /^(queue another message|send a message|ctrl esc to focus|type a message)/i;
+    document.querySelectorAll('div,span,p,label').forEach(function(el){
+      if (el.children.length) return; /* leaf only */
+      var t = (el.textContent || '').trim();
+      if (t && PLACEHOLDER_RE.test(t)) {
+        el.style.setProperty('font-family', MONO, 'important');
+        el.style.setProperty('color', 'rgba(0,0,0,0.55)', 'important');
+      }
     });
     /* force footer orange gradient via JS too (matches CSS) */
     document.querySelectorAll('[class*="footer"],[class*="Footer"],[class*="inputFooter"]').forEach(function(f) {
@@ -448,10 +698,35 @@
     }
   }
 
+  /* CC builds the placeholder via JSX (var x1 in webview/index.js). It renders as a
+     sibling overlay element with default font-family, NOT a real textarea::placeholder.
+     Match by known placeholder text and force monospace+black inline (beats CC's CSS). */
+  function forceMonoOnPlaceholders() {
+    var MONO = 'ui-monospace,Consolas,"Cascadia Code","Source Code Pro",monospace';
+    var PAT = /(focus or unfocus|queue another message|attach selected text|ask claude to edit)/i;
+    document.querySelectorAll('div,span,p').forEach(function(el) {
+      if (el.children.length > 0) return;
+      var t = (el.textContent || '').trim();
+      if (!t || t.length > 80) return;
+      if (!PAT.test(t)) return;
+      el.style.setProperty('font-family', MONO, 'important');
+      el.style.setProperty('color', 'rgba(0,0,0,0.55)', 'important');
+      el.style.setProperty('opacity', '1', 'important');
+    });
+  }
+
   window.__cbBlackEditionInterval = setInterval(function () {
     document.title = 'Claude Code Black Ed.';
+    /* ensure our stylesheet stays installed — CC re-renders can drop it,
+       and the initial call at startup can run before inputContainer exists. */
+    if (!document.getElementById('__cb_black_borders')) {
+      var nowIsCC = !!document.querySelector('[class*="messagesContainer"],[class*="inputContainer"],[class*="inputFooter"]');
+      if (nowIsCC) applyBlackBorders();
+    }
     if (!document.getElementById(LABEL_ID) || !document.getElementById(READALOUD_ID)) mountLabel();
+    mountSendButton();
     hideFilePill();
     forceTextareaDark();
+    forceMonoOnPlaceholders();
   }, 1000);
 })();

@@ -213,15 +213,19 @@ for (const dir of dirs) {
 
     let extChanged = false;
 
-    // 1. Rename panel title
-    const OLD_TITLE = '"claudeVSCodePanel","Claude Code"';
-    const NEW_TITLE = '"claudeVSCodePanel","Claude Codex Black Ed."';
-    if (extSrc.includes(OLD_TITLE)) {
-        extSrc = extSrc.replace(OLD_TITLE, NEW_TITLE);
+    // 1. Panel title rename — Anthropic's panel is renamed to "Claude Codex Black Ed."
+    //    so it's clear at a glance that CBE is active. CBE no longer has its own
+    //    panel (it patches Anthropic's), so there's no collision risk.
+    const ORIG_TITLE = '"claudeVSCodePanel","Claude Code"';
+    const NEW_TITLE  = '"claudeVSCodePanel","Claude Codex Black Ed."';
+    if (extSrc.includes(ORIG_TITLE)) {
+        extSrc = extSrc.replace(ORIG_TITLE, NEW_TITLE);
         extChanged = true;
-        console.log('PATCHED extension.js: panel title → "Claude Codex Black Ed."');
+        console.log('PATCHED extension.js: panel title renamed to "Claude Codex Black Ed."');
+    } else if (extSrc.includes(NEW_TITLE)) {
+        console.log('extension.js: panel title already renamed');
     } else {
-        console.log('extension.js: panel title marker not found (already patched or changed)');
+        console.log('WARN extension.js: panel title marker not found — rename skipped');
     }
 
     // 2. Inject bootstrap as inline <script nonce="${q}"> in the HTML template.

@@ -9,7 +9,14 @@ const { execFile, exec, spawn } = require('child_process');
 
 const LOG_PORT       = 57836;
 const CTRL_PORT      = 57837;
-const LOG_FILE       = path.join(os.homedir(), 'codex-black-errors.log');
+const LOG_FILE       = path.join(os.homedir(), 'debug.log');
+function chatLogFile() {
+    const d = new Date();
+    const ymd = d.getFullYear() + '-' +
+                String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                String(d.getDate()).padStart(2, '0');
+    return path.join(os.homedir(), 'chat-' + ymd + '.log');
+}
 const EXT_ROOT       = path.join(os.homedir(), '.vscode', 'extensions');
 const INJECTS_DIR    = path.join(__dirname, 'injects');
 const FFMPEG         = findFfmpeg();
@@ -46,10 +53,15 @@ let pendingText  = null;   // transcribed text waiting for webview to consume
 
 // ── Logging ────────────────────────────────────────────────────────────────
 
-function cvLog(msg) {
+function cvLog(msg, isErr) {
     const line = `[${new Date().toISOString()}] ${msg}\n`;
     try { fs.appendFileSync(LOG_FILE, line); } catch (e) {}
-    console.error('[codex-black]', msg);
+    (isErr ? console.error : console.log)('[codex-black]', msg);
+}
+
+function cvChat(role, msg) {
+    const line = `[${new Date().toISOString()}] [${role}] ${msg}\n`;
+    try { fs.appendFileSync(chatLogFile(), line); } catch (e) {}
 }
 
 // ── Inject / Injector ─────────────────────────────────────────────────────
@@ -168,7 +180,18 @@ function startLogServer() {
         if (req.method === 'POST') {
             let body = '';
             req.on('data', c => body += c);
-            req.on('end', () => { cvLog('[webview] ' + body); res.writeHead(200); res.end('ok'); });
+            req.on('end', () => {
+                if (req.url === '/chat') {
+                    /* body format: ROLE\tMESSAGE  (ROLE = USER | CLAUDE | SYSTEM) */
+                    const tab = body.indexOf('\t');
+                    const role = tab > -1 ? body.slice(0, tab) : 'UNKNOWN';
+                    const text = tab > -1 ? body.slice(tab + 1) : body;
+                    cvChat(role, text);
+                } else {
+                    cvLog('[webview] ' + body);
+                }
+                res.writeHead(200); res.end('ok');
+            });
         } else { res.writeHead(404); res.end(); }
     });
     logServer.on('error', e => {
@@ -665,187 +688,47 @@ function notifyPanel(msg) {
     try { if (panel) panel.webview.postMessage(msg); } catch (e) {}
 }
 
-// ── Panel (Black Edition chat buddy) ──────────────────────────────────────
+// ── Panel (REMOVED) ───────────────────────────────────────────────────────
+//
+// CBE used to define its own webview panel ('codexBlackEd.panel') with
+// bindPanel / openCBEPanel / CodexBlackPanelSerializer / panelHtml. That panel
+// rendered "CLAUDE CODEX BLACK ED.X — BLACK EDITION" and a separate chat surface,
+// which collided with Anthropic's panel and confused the user.
+//
+// CBE's actual UI is the orange "label-alpha" pill + injects that run INSIDE
+// Anthropic's Claude Code webview (see patch-webview.js + injects/aa-*-data.js +
+// injects/black-edition.js). There is no second CBE panel — Anthropic owns the
+// surface, CBE owns the look. `panel` stays declared so the legacy notifyPanel()
+// no-op guard `if (panel)` is safe; nothing ever assigns to it now.
 
 let panel = null;
-
-function bindPanel(p) {
-    panel = p;
-    panel.webview.html = panelHtml();
-    panel.webview.onDidReceiveMessage(async (msg) => {
-        cvLog('panel msg: ' + JSON.stringify(msg));
-        switch (msg.type) {
-            case 'start':  startRecording(); break;
-            case 'stop':   stopRecording(); break;
-            case 'cancel':
-                recState = 'idle';
-                if (ffmpegProc) { try { ffmpegProc.kill(); } catch (e) {} ffmpegProc = null; }
-                setIdle();
-                break;
-            case 'sendText':
-                if (msg.text) submitText(msg.text);
-                break;
-        }
-    });
-    panel.onDidDispose(() => { panel = null; });
-}
-
-function openCBEPanel() {
-    if (panel) { panel.reveal(); return; }
-    // Serializer may not have fired yet — scan for an existing CBE tab and focus it.
-    for (const group of vscode.window.tabGroups.all) {
-        for (const tab of group.tabs) {
-            if (tab.input instanceof vscode.TabInputWebview &&
-                tab.input.viewType === 'mainThreadWebview-codexBlackEd.panel') {
-                vscode.window.tabGroups.activeTabGroup.activeTab; // just checking
-                vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
-                return; // existing tab is already visible; don't spawn a new one
-            }
-        }
-    }
-    bindPanel(vscode.window.createWebviewPanel(
-        'codexBlackEd.panel',
-        'Claude Codex Black Ed.x Black Ed.',
-        { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
-        { enableScripts: true, retainContextWhenHidden: true }
-    ));
-}
-
-class CodexBlackPanelSerializer {
-    async deserializeWebviewPanel(webviewPanel, _state) {
-        cvLog('serializer: rebinding persisted panel');
-        bindPanel(webviewPanel);
-    }
-}
-
-function panelHtml() {
-    return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; background: #0d0d0d; color: #e0e0e0;
-    font-family: 'Consolas', 'Courier New', monospace; }
-  #app { display: flex; flex-direction: column; height: 100vh; }
-  #header { display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 16px; background: #111; border-bottom: 1px solid #2a2a2a;
-    flex-shrink: 0; }
-  #header-title { font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
-    color: #888; text-transform: uppercase; }
-  #status { font-size: 11px; color: #555; }
-  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex;
-    flex-direction: column; gap: 10px; }
-  .msg { padding: 8px 12px; border-radius: 6px; font-size: 13px; line-height: 1.5;
-    max-width: 90%; word-break: break-word; }
-  .msg.sent { background: #1a1a2e; border: 1px solid #2a2a4a; align-self: flex-end; color: #c0c8e0; }
-  .msg.info  { background: #1a1a1a; border: 1px solid #2a2a2a; align-self: flex-start; color: #666;
-    font-size: 11px; font-style: italic; }
-  #bottom { display: flex; align-items: center; gap: 8px; padding: 10px 12px;
-    background: #111; border-top: 1px solid #2a2a2a; flex-shrink: 0; }
-  #orb { width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
-    background: radial-gradient(circle at 35% 35%, #fc8181, #c0392b);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 18px; cursor: pointer; user-select: none; transition: transform .1s, box-shadow .1s; }
-  #orb:hover { transform: scale(1.08); }
-  .recording #orb { box-shadow: 0 0 0 4px rgba(192,57,43,.4); animation: pulse 1s ease-out infinite; }
-  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(192,57,43,.5)} 70%{box-shadow:0 0 0 14px rgba(192,57,43,0)} 100%{box-shadow:0 0 0 0 rgba(192,57,43,0)} }
-  #textInput { flex: 1; padding: 8px 12px; border: 1px solid #2a2a2a; border-radius: 6px;
-    font-size: 13px; font-family: 'Consolas', 'Courier New', monospace;
-    background: #1a1a1a; color: #e0e0e0; resize: none; outline: none;
-    min-height: 38px; max-height: 120px; line-height: 1.4; }
-  #textInput:focus { border-color: #444; }
-  #sendBtn { padding: 8px 14px; border: 1px solid #333; border-radius: 6px; cursor: pointer;
-    font-size: 12px; font-weight: 600; white-space: nowrap; flex-shrink: 0;
-    background: #1e1e2e; color: #8888cc; transition: background .1s; }
-  #sendBtn:hover { background: #252538; }
-  #messages::-webkit-scrollbar { width: 4px; }
-  #messages::-webkit-scrollbar-track { background: transparent; }
-  #messages::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
-</style>
-</head>
-<body>
-<div id="app">
-  <div id="header">
-    <span id="header-title">Claude Codex Black Ed.x — Black Edition</span>
-    <span id="status">ready</span>
-  </div>
-  <div id="messages">
-    <div class="msg info">Voice or type to send to Claude Codex Black Ed..</div>
-  </div>
-  <div id="bottom">
-    <div id="orb">🎙</div>
-    <textarea id="textInput" placeholder="Type a message…" rows="1"></textarea>
-    <button id="sendBtn" onclick="sendText()">Send</button>
-  </div>
-</div>
-<script>
-const vscode = acquireVsCodeApi();
-let state = 'idle';
-const msgs = document.getElementById('messages');
-const status = document.getElementById('status');
-const orb = document.getElementById('orb');
-const app = document.getElementById('app');
-
-function addMsg(text, cls) {
-    const d = document.createElement('div');
-    d.className = 'msg ' + cls;
-    d.textContent = text;
-    msgs.appendChild(d);
-    msgs.scrollTop = msgs.scrollHeight;
-}
-
-document.getElementById('orb').onclick = () => {
-    if (state === 'idle') vscode.postMessage({ type: 'start' });
-    else if (state === 'recording') vscode.postMessage({ type: 'stop' });
-};
-
-function sendText() {
-    const inp = document.getElementById('textInput');
-    const txt = (inp.value || '').trim();
-    if (!txt) return;
-    addMsg(txt, 'sent');
-    vscode.postMessage({ type: 'sendText', text: txt });
-    inp.value = '';
-    inp.style.height = '';
-}
-
-document.getElementById('textInput').addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); }
-});
-
-document.getElementById('textInput').addEventListener('input', function() {
-    this.style.height = '';
-    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
-});
-
-window.addEventListener('message', e => {
-    const m = e.data;
-    if (m.type === 'recording') {
-        state = 'recording'; app.className = 'recording';
-        orb.textContent = '🔴'; status.textContent = 'recording…';
-    } else if (m.type === 'transcribing') {
-        state = 'transcribing'; app.className = '';
-        orb.textContent = '⏳'; status.textContent = 'transcribing…';
-    } else if (m.type === 'result') {
-        state = 'idle'; app.className = ''; orb.textContent = '🎙';
-        status.textContent = 'ready';
-        if (m.text) addMsg(m.text, 'sent');
-    } else if (m.type === 'error') {
-        state = 'idle'; app.className = ''; orb.textContent = '🎙';
-        status.textContent = 'error';
-        addMsg('Error: ' + m.message, 'info');
-        setTimeout(() => { status.textContent = 'ready'; }, 4000);
-    }
-});
-</script>
-</body>
-</html>`;
-}
 
 // ── Control server ────────────────────────────────────────────────────────
 
 async function handleControl(url, p, res) {
+    // ── About (read [about] section from config.ini, fresh each call) ────
+    if (url === '/about') {
+        const ini = readCbeConfig();
+        const aboutBlock = ini.split(/^\[about\][\r\n]+/m)[1] || '';
+        const section = aboutBlock.split(/^\[/m)[0] || '';
+        function pick(key) {
+            const re = new RegExp('^\\s*' + key + '\\s*=\\s*([^\\r\\n]+)', 'm');
+            const m = section.match(re);
+            return m ? m[1].trim() : '';
+        }
+        const about = {
+            repo:    pick('repo'),
+            author:  pick('author'),
+            email:   pick('email'),
+            version: pick('version'),
+        };
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.writeHead(200);
+        res.end(JSON.stringify(about));
+        return null;
+    }
+
     // ── Inject routes (served outside JSON wrapper) ──────────────────────
     if (url === '/injects/manifest') {
         const manifest = injector ? injector.getManifest() : { version: 0, files: [] };
@@ -1192,7 +1075,7 @@ function watchClaudeCodeExtension() {
 
 // ── Status bar ─────────────────────────────────────────────────────────────
 
-function setIdle()         { statusBarItem.text = '⬛ $(comment-discussion) CBE';         statusBarItem.backgroundColor = undefined; statusBarItem.tooltip = 'Claude Codex Black Ed.x Black Ed. — Click to open chat (Ctrl+Shift+B). Speech: Ctrl+Shift+M'; }
+function setIdle()         { statusBarItem.text = '⬛ $(comment-discussion) CBE';         statusBarItem.backgroundColor = undefined; statusBarItem.tooltip = 'Codex Black Ed. — Click to open chat (Ctrl+Shift+B). Speech: Ctrl+Shift+M'; }
 function setListening()    { statusBarItem.text = '⬛ $(mic-filled) 🔴';  statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground'); statusBarItem.tooltip = 'Codex Black: Recording — click to stop'; }
 function setTranscribing() { statusBarItem.text = '⬛ $(loading~spin)';   statusBarItem.backgroundColor = undefined; statusBarItem.tooltip = 'Codex Black: Transcribing…'; }
 
@@ -1352,18 +1235,42 @@ function clearVSCodeCache() {
     }
     cvLog('clearVSCodeCache: removed ' + cleared + ' entries');
 
-    // Trace: verify Anthropic extension.js patch is in place
+    // Trace: verify Anthropic webview bundle is patched (bootstrap present).
+    // We don't rename Anthropic's panel title anymore, so check the bootstrap sentinel.
     try {
         const extBase = path.join(os.homedir(), '.vscode', 'extensions');
-        const claudeDir = fs.readdirSync(extBase).filter(d => d.startsWith('codex.claude-code')).sort().reverse()[0];
+        const claudeDir = fs.readdirSync(extBase).filter(d => d.startsWith('anthropic.claude-code-')).sort().reverse()[0];
         if (claudeDir) {
-            const extJs = path.join(extBase, claudeDir, 'extension.js');
-            const src = fs.readFileSync(extJs, 'utf8');
-            const hasBlack = src.includes('Claude Codex Black Ed.x Black Ed.');
-            const hasClaude = src.includes('"claudeVSCodePanel","Claude Codex Black Ed."');
-            cvLog('codex ext.js patch check — hasBlackEd=' + hasBlack + ' hasOriginal=' + hasClaude);
+            const bundlePath = path.join(extBase, claudeDir, 'webview', 'index.js');
+            const extJsPath  = path.join(extBase, claudeDir, 'extension.js');
+            const bundleOk = fs.existsSync(bundlePath) && fs.readFileSync(bundlePath, 'utf8').includes('__cbPoller');
+            const extOk    = fs.existsSync(extJsPath)  && fs.readFileSync(extJsPath, 'utf8').includes('__cbPoller');
+            cvLog('anthropic patch check — bundle=' + bundleOk + ' extension=' + extOk + ' dir=' + claudeDir);
+        } else {
+            cvLog('anthropic patch check — no anthropic.claude-code-* dir found');
         }
     } catch(e) { cvLog('patch check failed: ' + e.message); }
+}
+
+// Re-run the patcher synchronously at activation if Anthropic's bundle is unpatched
+// (e.g. user reinstalled Claude Code while CBE was off, so the file watcher never
+// fired). Idempotent: patch-webview.js no-ops on already-patched bundles.
+function ensurePatchedAtStartup() {
+    try {
+        const extBase = path.join(os.homedir(), '.vscode', 'extensions');
+        const claudeDir = fs.readdirSync(extBase).filter(d => d.startsWith('anthropic.claude-code-')).sort().reverse()[0];
+        if (!claudeDir) { cvLog('ensurePatched: no anthropic dir'); return; }
+        const bundle = path.join(extBase, claudeDir, 'webview', 'index.js');
+        if (!fs.existsSync(bundle)) { cvLog('ensurePatched: no bundle'); return; }
+        const needsPatch = !fs.readFileSync(bundle, 'utf8').includes('__cbPoller');
+        if (!needsPatch) { cvLog('ensurePatched: already patched'); return; }
+        const patchScript = path.join(__dirname, 'patch-webview.js');
+        cvLog('ensurePatched: bundle unpatched — running ' + patchScript);
+        execFile('node', [patchScript], (err, stdout) => {
+            if (err) { cvLog('ensurePatched FAIL: ' + err.message); return; }
+            cvLog('ensurePatched OK: ' + (stdout || '').trim().split('\n').pop());
+        });
+    } catch(e) { cvLog('ensurePatched err: ' + e.message); }
 }
 
 function activate(context) {
@@ -1390,6 +1297,7 @@ function activate(context) {
 
         try { startLogServer(); cvLog('logServer started'); } catch(e) { cvLog('logServer FAILED: ' + e.message); }
         try { startControlServer(); cvLog('ctrlServer started'); } catch(e) { cvLog('ctrlServer FAILED: ' + e.message); }
+        try { ensurePatchedAtStartup(); } catch(e) { cvLog('ensurePatched FAILED: ' + e.message); }
         try { watchClaudeCodeExtension(); } catch(e) { cvLog('watchClaude FAILED: ' + e.message); }
 
         statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
@@ -1399,9 +1307,11 @@ function activate(context) {
         context.subscriptions.push(statusBarItem);
 
         context.subscriptions.push(
-            /* Icon / status-bar / Ctrl+Shift+B — open Claude Codex Black Ed. chat. */
+            /* Icon / status-bar / Ctrl+Shift+B — focus Anthropic's Claude Code chat
+               (the surface where CBE's label-alpha pill + injects already render).
+               CBE has no separate panel; the injects ARE the CBE UI. */
             vscode.commands.registerCommand('codexBlackEd.startRecording', () => {
-                cvLog('startRecording (icon-click) command → focusing Claude Codex Black Ed. chat');
+                cvLog('startRecording (icon-click) → focusing Claude Code chat');
                 vscode.commands.executeCommand('claude-vscode.editor.open').catch(() =>
                     vscode.commands.executeCommand('claude-vscode.sidebar.open').catch(() =>
                         vscode.commands.executeCommand('claude-vscode.focus').catch(() => {})
@@ -1418,15 +1328,19 @@ function activate(context) {
             vscode.commands.registerCommand('codexBlackEd.injectClaudeMd', () => injectClaudeMd()),
             vscode.commands.registerCommand('codexBlackEd.changeSkin', () => pickAndApplySkin()),
             vscode.commands.registerCommand('codexBlackEd.pickAudioDevice', () => pickAudioDevice()),
-            /* Legacy alias — VSCode caches menu contributions across extension restarts. The editor/title
-               icon may still be bound to the OLD openPanel command from a prior package.json version.
-               Route it to startRecording so existing bindings keep working without a window reload. */
+            /* Legacy alias kept for older menu/keybinding contributions. CBE has no
+               panel of its own; route this to Anthropic's Claude Code chat. */
             vscode.commands.registerCommand('codexBlackEd.openPanel', () => {
                 vscode.commands.executeCommand('claude-vscode.editor.open').catch(() =>
                     vscode.commands.executeCommand('claude-vscode.sidebar.open').catch(() =>
                         vscode.commands.executeCommand('claude-vscode.focus').catch(() => {})
                     )
                 );
+            }),
+            vscode.commands.registerCommand('codexBlackEd.sendWakeup', () => {
+                const sentKey = WAKE_UP_SENT_FILE + '.' + process.pid;
+                try { if (fs.existsSync(sentKey)) fs.unlinkSync(sentKey); } catch(e) {}
+                return sendWakeUp(context);
             }),
         );
 
@@ -1447,7 +1361,6 @@ function activate(context) {
 function deactivate() {
     cvLog('deactivate');
     if (ffmpegProc) { try { ffmpegProc.kill(); } catch (e) {} }
-    if (panel)      panel.dispose();
     if (logServer)  logServer.close();
     if (ctrlServer) ctrlServer.close();
     if (injector)   injector.dispose();

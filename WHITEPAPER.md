@@ -405,3 +405,175 @@ This was the fix for the auto-wakeup "pasted but never submitted" bug.
 
 ### reloadWindow timing
 `workbench.action.reloadWindow` tears down the extension hosting the ctrl server. Port 57837 goes dark for 10–30 seconds during teardown + re-activation. **Send the reload curl once.** Do not retry just because the port hasn't returned — each new reload kills the freshly-activating extension and resets the boot timer.
+
+---
+
+## Logging Discipline — why DevTools keeps lighting up red
+
+DevTools "Errors" pane filling with `[codex-black]` and `[monitor-btn]` lines was **not** an actual exception. It is a self-inflicted reporting bug: every routine log line was emitted via `console.error()`, so Chromium classified routine traces as errors. Two facts conspired:
+
+1. **Chromium splits console output by *severity*, not by *content*.** A `console.error("hello")` shows up red with a stack trace; a `console.log("hello")` shows up grey. The string is irrelevant. DevTools' "Errors" counter only ever counted `console.error` calls.
+2. **CBE used `console.error` as the universal trace channel.** Both `extension.js` (`cvLog`) and `injects/monitor-btn.js` (`trace`) routed *everything* through `console.error` so it would be cheap to find. That made every status poll, every HTTP request log, every `getStatus` tick look like an exception in DevTools.
+
+### Rules going forward
+
+**1. Severity must reflect intent.**
+
+| Channel | Use for |
+|---|---|
+| `console.debug` | Routine traces, polling, status responses, "I attempted X" |
+| `console.log`   | One-shot informational events: "server up on 57836", "patch applied" |
+| `console.warn`  | Recoverable anomalies: stale state, retry attempts, missing optional config |
+| `console.error` | Genuine failures: thrown exceptions, fetch rejections, fatal init errors |
+
+**2. Logger functions must take an `isErr` flag** so callers can opt-in to the error channel. The corrected pattern (now in `extension.js:cvLog` and `monitor-btn.js:trace`):
+
+```js
+function cvLog(msg, isErr) {
+    fs.appendFileSync(LOG_FILE, line);
+    (isErr ? console.error : console.log)('[codex-black]', msg);
+}
+```
+
+Callers pass `true` only for actual failures. Everything else is silent in the Errors pane.
+
+**3. Persistent traces go to disk, not console.** DevTools is for the moment you're debugging. The append-only files are the audit trail.
+
+| File (`%USERPROFILE%\…`) | Contents |
+|---|---|
+| `debug.log` | Every `cvLog` line. Append-only across runs. |
+| `chat-YYYY-MM-DD.log` | One file per day. Captures USER messages + CLAUDE responses via `injects/chat-logger.js`. |
+
+The webview side calls `window.__cbChatLog(role, text)` (exposed by `chat-logger.js`); the inject POSTs to `http://127.0.0.1:57836/chat` with body `ROLE\tMESSAGE`. The log server (in `extension.js:startLogServer`) routes `/chat` POSTs to `cvChat()` and everything else to `cvLog()`.
+
+**4. Never `console.error` something you're going to handle.** If a `fetch` is wrapped in `.catch(function(){})`, the rejection is not an error — it's an expected failure mode. Logging it as `console.error` is noise. Log it as `console.debug` if you log it at all.
+
+**5. When you see DevTools red, fix the call site, not the symptom.** Don't filter DevTools to hide errors; that hides the legitimate ones too. Find the `console.error` call and re-classify it. Grep for `console.error` periodically; any new one needs a justification.
+
+### Anti-patterns to grep for before each release
+
+```bash
+# inside injects/
+grep -nP 'console\.error.*(?:status|response|tick|poll|getStatus|attempting|trying|found|attached)' injects/
+# inside extension.js
+grep -nP 'console\.error\([^)]*(?:up on|patched|loaded|spawning|started)' extension.js
+```
+
+A match in either grep means a routine event is being logged as an error. Re-route to `console.debug` / `console.log`.
+
+### "Session not found: 2jdxejmolc2"
+
+This one is **not** ours. It comes from `anthropic.claude-code-2.1.138/webview/index.js` — Claude Code's own React layer warning about a missing session ID during webview rehydration. CBE has no hook into that path; the warning is harmless and cannot be suppressed without re-patching the upstream bundle (which the patcher already does for other purposes — we deliberately leave this alone because the warning is informative if a future bug correlates with it).
+
+---
+
+## Naming Collisions With the Host Extension
+
+CBE rides on top of Anthropic's `claude-code` extension. Both register commands, both create webview panels, both put tabs in the editor. Any time the two pick **the same human or machine-readable name**, the user can't tell them apart and tools can't route between them correctly. Three live collisions bit us in 2026-05; this section documents them and the rule that prevents them.
+
+### Collision 1 — duplicate panel titles
+
+**Symptom:** User clicks the CBE icon or runs `Codex Black Ed.: Open Chat` and a tab labelled "Claude Codex Black Ed." opens. They click "Open Claude Code" and a tab labelled "Claude Codex Black Ed." also opens. They cannot tell which panel they are looking at.
+
+**Cause:** `patch-webview.js` rewrote Anthropic's panel title in their `extension.js`:
+
+```js
+// WRONG — every Anthropic-created panel now displays CBE's title
+const OLD_TITLE = '"claudeVSCodePanel","Claude Code"';
+const NEW_TITLE = '"claudeVSCodePanel","Claude Codex Black Ed."';
+extSrc = extSrc.replace(OLD_TITLE, NEW_TITLE);
+```
+
+CBE's own panel also used the title `"Claude Codex Black Ed.x Black Ed."` (typo'd duplicate) — visually indistinguishable from the patched Anthropic title.
+
+**Fix:** Anthropic's panel stays `"Claude Code"`. CBE's own panel is `"Codex Black Ed."`. The patcher now *un-renames* any stale rewrite from older builds:
+
+```js
+// patch-webview.js — current
+const STALE_TITLE = '"claudeVSCodePanel","Claude Codex Black Ed."';
+const ORIG_TITLE  = '"claudeVSCodePanel","Claude Code"';
+if (extSrc.includes(STALE_TITLE)) extSrc = extSrc.replace(STALE_TITLE, ORIG_TITLE);
+```
+
+```js
+// extension.js — current
+vscode.window.createWebviewPanel(
+    'codexBlackEd.panel',
+    'Codex Black Ed.',           // distinct from "Claude Code"
+    ...
+);
+```
+
+### Collision 2 — second panel rendering "CLAUDE CODEX BLACK ED.X — BLACK EDITION"
+
+**Symptom:** Pressing `Ctrl+Shift+B` opens a second panel with a dark header reading "CLAUDE CODEX BLACK ED.X — BLACK EDITION" and an empty chat area saying "Voice or type to send to Claude Codex Black Ed.." That panel sits next to Anthropic's real Claude Code tab; the user can't tell which one is the chat they actually use.
+
+**Cause:** An earlier iteration tried to fix collision 1 by giving CBE its own webview panel (`codexBlackEd.panel`, registered via `vscode.window.createWebviewPanel`, fed by an `openCBEPanel()` + `panelHtml()` + `CodexBlackPanelSerializer`). That panel was a parallel chat surface — but CBE's actual UI is the orange "label-alpha" pill + injects that already render *inside* Anthropic's webview. Two surfaces meant two competing UIs with the same brand and no clear ownership.
+
+```js
+// WRONG — registers a parallel CBE-owned surface
+vscode.commands.registerCommand('codexBlackEd.startRecording', () => openCBEPanel());
+function openCBEPanel() {
+    vscode.window.createWebviewPanel('codexBlackEd.panel', 'Codex Black Ed.', ...);
+}
+function panelHtml() { return `<!DOCTYPE html>...<span id="header-title">Claude Codex Black Ed.x — Black Edition</span>...`; }
+```
+
+**Fix:** Delete the panel entirely (`bindPanel`, `openCBEPanel`, `CodexBlackPanelSerializer`, `panelHtml`, the `if (panel) panel.dispose()` in `deactivate`). Route every CBE command back to Anthropic's chat — that's where the label-alpha pill + dark theme + mic button live:
+
+```js
+// extension.js — current
+vscode.commands.registerCommand('codexBlackEd.startRecording', () => {
+    vscode.commands.executeCommand('claude-vscode.editor.open').catch(() =>
+        vscode.commands.executeCommand('claude-vscode.sidebar.open').catch(() =>
+            vscode.commands.executeCommand('claude-vscode.focus').catch(() => {})
+        )
+    );
+});
+```
+
+**Architectural takeaway:** if your extension's value is a *look-and-feel layer* on top of another extension, you usually do **not** want your own webview panel. The panel is two-source-of-truth incarnate. Pick one surface (theirs), inject your layer onto it, and route your commands to that surface.
+
+### Collision 3 — reinstall wipes the patch
+
+**Symptom:** "Reinstalling Claude Code breaks my extension." After Anthropic publishes an update, `webview/index.js` is rewritten to vanilla and the inject bootstrap is gone — but CBE's `fs.watch(...)` only fires if CBE is *running* during the rewrite. If the rewrite happens while VSCode is closed, CBE never re-patches on next start.
+
+**Cause:** Single-trigger watcher with no startup-time idempotent check.
+
+**Fix:** Add `ensurePatchedAtStartup()` to `activate()`. It checks whether the `__cbPoller` sentinel is present in Anthropic's bundle and re-runs `patch-webview.js` if not. Idempotent — silent no-op when already patched:
+
+```js
+function ensurePatchedAtStartup() {
+    const bundle = path.join(extBase, claudeDir, 'webview', 'index.js');
+    if (fs.readFileSync(bundle, 'utf8').includes('__cbPoller')) return;
+    execFile('node', [path.join(__dirname, 'patch-webview.js')], (err, stdout) => {
+        if (err) return cvLog('ensurePatched FAIL: ' + err.message);
+        cvLog('ensurePatched OK');
+    });
+}
+```
+
+### The rule
+
+**Every CBE identifier — command ID, viewType, panel title, status-bar tooltip, log tag, global variable — must contain `codexBlackEd` or `cb`/`CBE` and must not contain the substrings `claude`, `Claude`, or `claudeVSCode` *as a name*.** Using the word "Claude" in a *human-readable description* is fine ("Codex Black Ed. for Claude Code"); using it in an *identifier* is not.
+
+| Layer | Anthropic's namespace | CBE's namespace |
+|---|---|---|
+| Extension ID | `anthropic.claude-code` | `TrentonTompkins.codex-black-ed` |
+| Command prefix | `claude-vscode.*`, `claude-code.*` | `codexBlackEd.*` |
+| Configuration key | `claudeCode.*` | `codexBlackEd.*` |
+| Webview viewType | `claudeVSCodePanel`, `claudeVSCodeSidebar` | `codexBlackEd.panel` |
+| Activity-bar container | `claude-sidebar` | (CBE has none — uses status bar) |
+| Panel title (display) | `"Claude Code"` | `"Codex Black Ed."` |
+| Webview globals | `window.__claude*` (Anthropic's, do not touch) | `window.__cb*` |
+| Localhost ports | (none) | 57836 (log), 57837 (ctrl) |
+| Sentinel marker | (none) | `__cbPoller` in patched files |
+
+### Rules of engagement when patching a third-party extension
+
+1. **Never replace a host string with a string that already means something on your side.** If you have a panel called "Codex Black Ed.", do not rename the host's panel to anything containing "Codex Black Ed.".
+2. **Every patch must be reversible.** Keep `<file>.original.bak` and check it in the patcher. Provide an `unpatch` path (the `STALE_TITLE → ORIG_TITLE` revert above is the pattern).
+3. **Every patch must be idempotent.** Run the patcher twice — output must be byte-identical. Check for a sentinel (`__cbPoller`) before applying.
+4. **Every patch must re-apply automatically.** Host updates wipe the patch. Both `fs.watch()` and an activation-time `ensurePatchedAtStartup()` check are needed — the watcher catches updates while CBE is running, the startup check catches updates that happened while CBE was off.
+5. **Never call the host's commands from your own commands.** `codexBlackEd.X` must invoke CBE code; if you also want to expose Anthropic's command, register it under a clearly-separate name like `codexBlackEd.openAnthropicChat`. Mixing them in one handler means your command's behavior breaks when the host's command changes.
+6. **Pick names that grep cleanly.** `codexBlackEd` returns only CBE code. `claude` returns Anthropic + CBE + user text. Use the long name in identifiers; use `CBE`/`cb`/`cv` only as short prefixes inside CBE-owned scopes.

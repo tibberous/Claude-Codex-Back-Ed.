@@ -3,3 +3,5 @@ node_modules/
 *.post-pivot.bak
 collision_report.json
 config.ini
+__pycache__/
+*.pyc

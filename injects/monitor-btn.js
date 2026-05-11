@@ -46,9 +46,9 @@
     if (old) old.remove();
   }
 
-  function trace(m) {
+  function trace(m, isErr) {
     fetch('http://127.0.0.1:57836', { method: 'POST', headers: {'Content-Type':'text/plain'}, body: '[monitor-btn] ' + m }).catch(function(){});
-    console.error('[monitor-btn] ' + m);
+    (isErr ? console.error : console.debug)('[monitor-btn] ' + m);
   }
 
   /* ── status fetch ── */
@@ -63,7 +63,7 @@
         var b = document.getElementById(BTN_ID);
         trace('after setActive: btn color=' + (b ? b.style.color : 'NO BTN') + ' fill=' + (b ? b.style.fill : 'N/A'));
       })
-      .catch(function(e){ trace('getStatus fetch error: ' + e); });
+      .catch(function(e){ trace('getStatus fetch error: ' + e, true); });
   }
 
   function setActive(val) {

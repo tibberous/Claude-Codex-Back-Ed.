@@ -27,10 +27,10 @@
   <!-- Page body background end-stop (for CSS var reference) -->
   <color name="bodyGradEnd">rgba(249,115,22,0.09)</color>
 
-  <!-- Prompt / textarea — retro black terminal -->
-  <color name="inputBg">#0d0d0d</color>
-  <color name="inputText">#e8e8e8</color>
-  <color name="inputFont">monospace</color>
+  <!-- Prompt / textarea — ghostwhite paper, monospace black ink -->
+  <color name="inputBg">ghostwhite</color>
+  <color name="inputText">#000000</color>
+  <color name="inputFont">Consolas, "Cascadia Mono", "JetBrains Mono", "Source Code Pro", ui-monospace, monospace</color>
   <color name="inputRadius">6px</color>
   <color name="inputBorderRadius">8px</color>
   <color name="inputShadowDark">rgba(0,0,0,0.38)</color>
