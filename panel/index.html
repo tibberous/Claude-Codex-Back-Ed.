@@ -64,7 +64,7 @@
   #sendBtn:hover { transform: scale(1.06); }
   #sendBtn[disabled] { background: #444; cursor: not-allowed; transform: none; }
 
-  /* ── Context menu (Agent 1 + Agent 2 unified) ──────────────── */
+  /* ── Context menu (View Source + DevTools) ────────────────── */
   #cbe-ctx-menu {
     position: fixed; z-index: 2147483647;
     background: #1e1e1e; border: 1.5px solid #444;
@@ -142,6 +142,63 @@
     display: table-cell; padding-left: 14px;
     white-space: pre-wrap; word-break: break-word;
   }
+
+  /* ── Code block rendering (Prism wrappers, orange CBE theme) ───────── */
+  .msg.assistant .cv-code-wrap { border-radius: 6px; overflow: hidden;
+    margin: .6em 0; box-shadow: 0 2px 8px rgba(0,0,0,.45); }
+  .msg.assistant .cv-code-bar { display: flex; align-items: center;
+    justify-content: space-between; padding: 5px 12px;
+    background: linear-gradient(90deg, #b83c00 0%, #d44e0a 50%, #e8621a 100%);
+    border-bottom: 1px solid rgba(0,0,0,.25); }
+  .msg.assistant .cv-code-lang { font-family: 'Consolas','Fira Code',monospace;
+    font-size: 11px; color: #fff; letter-spacing: .06em;
+    text-transform: uppercase; font-weight: 700;
+    text-shadow: 0 1px 2px rgba(0,0,0,.4); }
+  .msg.assistant .cv-copy-btn { display: inline-flex; align-items: center;
+    gap: 4px; background: rgba(0,0,0,.20);
+    border: 1px solid rgba(255,255,255,.30); border-radius: 4px;
+    color: #ffe0d0; font-size: 11px; font-weight: 600; cursor: pointer;
+    padding: 2px 8px; letter-spacing: .04em;
+    transition: background .15s, color .15s; }
+  .msg.assistant .cv-copy-btn:hover { background: rgba(0,0,0,.35); color: #fff; }
+  .msg.assistant .cv-copy-btn.copied { color: #6ee7b7; border-color: #6ee7b7; }
+  /* Reset Prism's brown bg/borders to dark VS Code style. */
+  .msg.assistant pre[class*="language-"],
+  .msg.assistant code[class*="language-"] {
+    background: #1e1e1e !important; text-shadow: none !important;
+    color: #d4d4d4 !important;
+    font-family: 'Consolas','Fira Code',monospace !important; font-size: 12px; }
+  .msg.assistant pre[class*="language-"] {
+    margin: 0 !important; padding: 12px !important;
+    border-radius: 0 0 6px 6px !important; overflow: auto !important;
+    border: none !important; box-shadow: none !important;
+    white-space: pre; }
+  /* VS Code dark+ token colours */
+  .msg.assistant .token.comment    { color: #6a9955 !important; }
+  .msg.assistant .token.keyword    { color: #569cd6 !important; }
+  .msg.assistant .token.string     { color: #ce9178 !important; }
+  .msg.assistant .token.number     { color: #b5cea8 !important; }
+  .msg.assistant .token.function   { color: #dcdcaa !important; }
+  .msg.assistant .token.class-name { color: #4ec9b0 !important; }
+  .msg.assistant .token.operator,
+  .msg.assistant .token.punctuation { color: #d4d4d4 !important; }
+  .msg.assistant .token.builtin    { color: #4ec9b0 !important; }
+  .msg.assistant .token.boolean    { color: #569cd6 !important; }
+  .msg.assistant .token.property   { color: #9cdcfe !important; }
+  .msg.assistant .token.tag        { color: #569cd6 !important; }
+  .msg.assistant .token.attr-name  { color: #9cdcfe !important; }
+  .msg.assistant .token.attr-value { color: #ce9178 !important; }
+  .msg.assistant .token.selector   { color: #d7ba7d !important; }
+  .msg.assistant .token.atrule     { color: #c586c0 !important; }
+  .msg.assistant .token.variable   { color: #9cdcfe !important; }
+  /* Inline `code` (single-backtick, non-fenced) */
+  .msg.assistant code.cv-inline {
+    background: #2a2a2e; color: #ce9178;
+    padding: 1px 5px; border-radius: 3px;
+    font-family: 'Consolas','Fira Code',monospace; font-size: 12px; }
+  /* Final-rendered assistant msg should not pre-wrap (mixed block/inline) */
+  .msg.assistant.rendered { white-space: normal; }
+  .msg.assistant.rendered .cv-prose { white-space: pre-wrap; }
 </style>
 </head>
 <body>
@@ -189,6 +246,155 @@ function addMsg(text, cls) {
   return d;
 }
 
+/* ── Markdown fence rendering ────────────────────────────────────────── */
+const LANG_MAP = {
+  'powershell':'powershell','posh':'powershell','ps1':'powershell','ps':'powershell','psm1':'powershell',
+  'bash':'bash','sh':'bash','shell':'bash','zsh':'bash',
+  'xml':'xml','html':'markup','htm':'markup','xhtml':'markup',
+  'svg':'svg',
+  'css':'css','scss':'css','less':'css',
+  'python':'python','py':'python',
+  'js':'javascript','javascript':'javascript',
+  'ts':'typescript','typescript':'typescript',
+  'php':'php',
+  'json':'json','yaml':'yaml','yml':'yaml'
+};
+const LANG_LABEL = {
+  'powershell':'PowerShell','bash':'Bash','markup':'HTML','xml':'XML','svg':'SVG',
+  'css':'CSS','python':'Python','javascript':'JavaScript','typescript':'TypeScript',
+  'php':'PHP','json':'JSON','yaml':'YAML'
+};
+
+function makeCopyBtn(rawCode) {
+  const btn = document.createElement('button');
+  btn.className = 'cv-copy-btn';
+  btn.type = 'button';
+  btn.textContent = 'Copy';
+  btn.onclick = () => {
+    const done = () => {
+      btn.classList.add('copied');
+      btn.textContent = 'Copied!';
+      setTimeout(() => {
+        btn.classList.remove('copied');
+        btn.textContent = 'Copy';
+      }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(rawCode).then(done, () => {
+        /* Fallback: textarea + execCommand */
+        const ta = document.createElement('textarea');
+        ta.value = rawCode;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
+        done();
+      });
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = rawCode;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      done();
+    }
+  };
+  return btn;
+}
+
+function makeCodeBlock(rawLang, rawCode) {
+  /* Normalize lang. Unknown lang -> plain (no highlighting, but still wrap). */
+  const key = (rawLang || '').trim().toLowerCase();
+  const lang = LANG_MAP[key] || (key && /^[a-z0-9+#-]+$/i.test(key) ? key : '');
+  const label = LANG_LABEL[lang] || (rawLang || 'TEXT').toUpperCase();
+
+  const wrap = document.createElement('div');
+  wrap.className = 'cv-code-wrap';
+
+  const bar = document.createElement('div');
+  bar.className = 'cv-code-bar';
+
+  const langSpan = document.createElement('span');
+  langSpan.className = 'cv-code-lang';
+  langSpan.textContent = label;
+  bar.appendChild(langSpan);
+  bar.appendChild(makeCopyBtn(rawCode));
+
+  const pre = document.createElement('pre');
+  pre.className = 'line-numbers' + (lang ? ' language-' + lang : '');
+  const codeEl = document.createElement('code');
+  codeEl.className = lang ? 'language-' + lang : '';
+  codeEl.textContent = rawCode;  /* textContent escapes safely */
+  pre.appendChild(codeEl);
+
+  wrap.appendChild(bar);
+  wrap.appendChild(pre);
+
+  /* Run Prism if it loaded and lang is known. */
+  if (lang && window.Prism && Prism.languages && Prism.languages[lang]) {
+    try { Prism.highlightElement(codeEl); }
+    catch (e) { /* swallow — leave plain */ }
+  }
+  return wrap;
+}
+
+/* Inline `code` (single-backtick) — only on prose chunks, not inside fences. */
+function renderInlineCode(textNode, container) {
+  const text = textNode;
+  /* Simple single-backtick pass. Skip empty matches. */
+  const parts = text.split(/(`[^`\r\n]+?`)/g);
+  parts.forEach(part => {
+    if (!part) return;
+    const m = /^`([^`\r\n]+)`$/.exec(part);
+    if (m) {
+      const c = document.createElement('code');
+      c.className = 'cv-inline';
+      c.textContent = m[1];
+      container.appendChild(c);
+    } else {
+      const span = document.createElement('span');
+      span.className = 'cv-prose';
+      span.textContent = part;
+      container.appendChild(span);
+    }
+  });
+}
+
+/* Parse the full assistant reply into a sequence of prose + fenced blocks.
+   Handles unclosed trailing fences by treating remainder as a code block
+   with whatever lang was specified (or plaintext). */
+function renderAssistantMarkdown(el, fullText) {
+  el.textContent = '';  /* clear prior plain text */
+  el.classList.add('rendered');
+
+  const fenceRe = /```([ \t]*[A-Za-z0-9+#_.\-]*)[ \t]*\r?\n([\s\S]*?)(?:```|$)/g;
+  let lastIndex = 0;
+  let m;
+  while ((m = fenceRe.exec(fullText)) !== null) {
+    /* Prose before this fence */
+    if (m.index > lastIndex) {
+      renderInlineCode(fullText.slice(lastIndex, m.index), el);
+    }
+    const lang = m[1] || '';
+    let body = m[2] || '';
+    /* Strip a single trailing newline that's part of the fence sep, not the code. */
+    if (body.endsWith('\n')) body = body.slice(0, -1);
+    if (body.endsWith('\r')) body = body.slice(0, -1);
+    el.appendChild(makeCodeBlock(lang, body));
+    lastIndex = fenceRe.lastIndex;
+  }
+  /* Trailing prose after last fence */
+  if (lastIndex < fullText.length) {
+    renderInlineCode(fullText.slice(lastIndex), el);
+  }
+  thread.scrollTop = thread.scrollHeight;
+}
+
 function setBusy(b) {
   busy = b;
   ti.disabled = b;
@@ -231,7 +437,15 @@ window.addEventListener('message', e => {
   } else if (m.type === 'assistantDone') {
     if (streamingEl) {
       streamingEl.classList.remove('streaming');
-      if (m.text) streamingEl.textContent = m.text;  /* canonical final */
+      const fullText = (typeof m.text === 'string' && m.text)
+        ? m.text
+        : (streamingEl.textContent || '');
+      try {
+        renderAssistantMarkdown(streamingEl, fullText);
+      } catch (e) {
+        /* Rendering failed — fall back to plain text so the user still sees the reply. */
+        streamingEl.textContent = fullText;
+      }
       streamingEl = null;
     }
     setBusy(false);
