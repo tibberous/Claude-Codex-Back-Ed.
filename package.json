@@ -1,7 +1,7 @@
 {
   "name": "codex-black-ed",
   "displayName": "Claude Codex Black Ed.",
-  "description": "Standalone Claude Codex Black panel. Opens its own webview and renders the Codex Black label.",
+  "description": "Standalone Claude Codex Black panel with direct Anthropic API streaming.",
   "version": "1.0.0",
   "publisher": "TrentonTompkins",
   "author": {
@@ -14,7 +14,8 @@
     "vscode": "^1.85.0"
   },
   "categories": [
-    "Other"
+    "Other",
+    "AI"
   ],
   "icon": "resources/icon.png",
   "main": "./extension.js",
@@ -27,6 +28,22 @@
           "light": "assets/icon-light.png",
           "dark": "resources/icon-dark.png"
         }
+      },
+      {
+        "command": "codexBlackEd.setApiKey",
+        "title": "Claude Codex Black: Set API Key"
+      },
+      {
+        "command": "codexBlackEd.clearApiKey",
+        "title": "Claude Codex Black: Clear API Key"
+      },
+      {
+        "command": "codexBlackEd.resetConversation",
+        "title": "Claude Codex Black: Reset Conversation"
+      },
+      {
+        "command": "codexBlackEd.showTrace",
+        "title": "Claude Codex Black: Show Trace"
       }
     ],
     "menus": {
@@ -43,7 +60,32 @@
         "key": "ctrl+shift+b",
         "mac": "cmd+shift+b"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Claude Codex Black",
+      "properties": {
+        "codexBlackEd.model": {
+          "type": "string",
+          "default": "claude-sonnet-4-6",
+          "enum": [
+            "claude-opus-4-7",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5-20251001"
+          ],
+          "description": "Anthropic model to use for chat."
+        },
+        "codexBlackEd.maxTokens": {
+          "type": "number",
+          "default": 4096,
+          "minimum": 256,
+          "maximum": 16384,
+          "description": "Max output tokens per response."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.65.0"
   },
   "files": [
     "extension.js",
@@ -54,6 +96,7 @@
     "resources/icon.png",
     "resources/icon-dark.png",
     "assets/icon-light.png",
-    "resources/icon.svg"
+    "resources/icon.svg",
+    "node_modules/**"
   ]
 }
