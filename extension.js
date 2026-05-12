@@ -387,11 +387,13 @@ function buildSettingsPayload(context) {
        hears sounds at the same volume the agent originally wired (0.55). */
     const sfxEnabled = context.workspaceState.get('codexBlackEd.sfxEnabled');
     const sfxVolume  = context.workspaceState.get('codexBlackEd.sfxVolume');
+    const bigFont    = context.workspaceState.get('codexBlackEd.bigFont');
     return {
         providers,
         active,
         sfxEnabled: (typeof sfxEnabled === 'boolean') ? sfxEnabled : true,
         sfxVolume:  (typeof sfxVolume  === 'number')  ? sfxVolume  : 0.55,
+        bigFont:    (typeof bigFont    === 'boolean') ? bigFont    : false,
     };
 }
 
@@ -451,6 +453,9 @@ function bindPanel(context, panel) {
                     break;
                 case 'openSettings':
                     panel.webview.postMessage({ type: 'openSettings', ...buildSettingsPayload(context) });
+                    break;
+                case 'setBigFont':
+                    await context.workspaceState.update('codexBlackEd.bigFont', !!msg.value);
                     break;
                 case 'setProvider':
                     await context.workspaceState.update(STATE_PROVIDER, msg.provider);

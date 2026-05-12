@@ -6,40 +6,70 @@
 <link rel="stylesheet" href="{{PRISM_CSS_URI}}" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; background: #0a0a0a; color: #e8e8e8;
-    font-family: 'Consolas', 'Courier New', monospace; }
-  #app { display: flex; flex-direction: column; height: 100vh; }
+  /* Page background — transparent so the host VSCode theme shows through;
+     the visible panel is the inner #app card with drop shadow. Padding gives
+     the floating effect (the card has space around it). */
+  html, body {
+    width: 100%; height: 100%;
+    background: transparent;
+    color: var(--vscode-foreground, #e8e8e8);
+    font-family: var(--vscode-font-family, 'Segoe UI', system-ui, sans-serif);
+    --cb-font-scale: 1;
+  }
+  body { padding: 14px; }
+  body.cb-big { --cb-font-scale: 1.8; }   /* Font-Size button toggles this */
+
+  /* The floating panel itself — VSCode editor surface, rounded, drop-shadowed. */
+  #app {
+    display: flex; flex-direction: column;
+    height: calc(100vh - 28px);  /* matches body padding so card fits */
+    background: var(--vscode-editor-background, #1e1e1e);
+    color: var(--vscode-editor-foreground, #d4d4d4);
+    border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.08));
+    border-radius: 10px;
+    box-shadow:
+      0 14px 38px rgba(0, 0, 0, 0.55),
+      0 6px 14px rgba(0, 0, 0, 0.40),
+      0 0 0 1px rgba(255,122,26,0.08) inset;
+    overflow: hidden;
+  }
 
   #thread { flex: 1; overflow-y: auto; padding: 18px; display: flex;
     flex-direction: column; gap: 12px; }
-  .msg { padding: 10px 14px; border-radius: 6px; font-size: 13px;
+  .msg { padding: 10px 14px; border-radius: 6px;
+    font-size: calc(13px * var(--cb-font-scale));
     line-height: 1.55; max-width: 92%; word-break: break-word;
-    white-space: pre-wrap; }
-  .msg.sent      { background: #1c1c1c; border: 1px solid #2a2a2a;
-                   align-self: flex-end; color: #e8e8e8; }
-  .msg.assistant { background: #15171c; border: 1px solid #232a37;
-                   align-self: flex-start; color: #d9e2f3; }
-  .msg.info      { background: #131313; border: 1px solid #1f1f1f;
-                   align-self: flex-start; color: #777; font-size: 11px; font-style: italic; }
-  .msg.error     { background: #2a1212; border: 1px solid #5a1f1f;
-                   align-self: flex-start; color: #ff9b9b; }
+    white-space: pre-wrap;
+    background: var(--vscode-editorWidget-background, #252526);
+    border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border, #333));
+    color: var(--vscode-foreground, #d4d4d4); }
+  .msg.sent      { align-self: flex-end;   background: var(--vscode-input-background, #3c3c3c); }
+  .msg.assistant { align-self: flex-start; background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526)); }
+  .msg.info      { align-self: flex-start; opacity: 0.72; font-size: calc(11px * var(--cb-font-scale)); font-style: italic;
+                   color: var(--vscode-descriptionForeground, #999); border-color: transparent; }
+  .msg.error     { align-self: flex-start; color: var(--vscode-errorForeground, #ff9b9b);
+                   background: var(--vscode-inputValidation-errorBackground, #2a1212);
+                   border-color: var(--vscode-inputValidation-errorBorder, #5a1f1f); }
   .msg.assistant.streaming::after { content: '▍'; opacity: .6; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 0%,50% { opacity: .6 } 51%,100% { opacity: 0 } }
-  #thread::-webkit-scrollbar { width: 4px; }
-  #thread::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+  #thread::-webkit-scrollbar { width: 6px; }
+  #thread::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background, #2a2a2a); border-radius: 3px; }
+  #thread::-webkit-scrollbar-thumb:hover { background: var(--vscode-scrollbarSlider-hoverBackground, #3a3a3a); }
 
-  #input-wrap { padding: 10px 12px; background: #0a0a0a; }
+  #input-wrap { padding: 10px 12px; background: var(--vscode-editor-background, #1e1e1e); }
   #input-box { border: 2px solid #ff7a1a; border-radius: 10px;
-    background: #111; padding: 10px 12px;
+    background: var(--vscode-input-background, #111); padding: 10px 12px;
     box-shadow: 0 0 0 1px rgba(255,122,26,0.15) inset; }
   #input-box.busy { border-color: #d69e2e;
     box-shadow: 0 0 0 1px rgba(214,158,46,0.15) inset; }
   #textInput { width: 100%; border: none; outline: none; background: transparent;
-    color: #e8e8e8; font-family: 'Consolas', 'Courier New', monospace;
-    font-size: 13px; line-height: 1.5; resize: none; min-height: 24px;
+    color: var(--vscode-input-foreground, #e8e8e8);
+    font-family: var(--vscode-editor-font-family, 'Consolas', 'Courier New', monospace);
+    font-size: calc(13px * var(--cb-font-scale));
+    line-height: 1.5; resize: none; min-height: 24px;
     max-height: 140px; }
-  #textInput::placeholder { color: #555; }
-  #textInput:disabled { color: #555; cursor: not-allowed; }
+  #textInput::placeholder { color: var(--vscode-input-placeholderForeground, #555); }
+  #textInput:disabled { color: var(--vscode-disabledForeground, #555); cursor: not-allowed; }
 
   /* Toolbar — single-row orange strip styled to match good.png exactly.
      Buttons use blank.png/blank_over.png/blank_click.png as the round face;
@@ -92,6 +122,7 @@
   .ic-vscode_monitor    { -webkit-mask-image: url('{{ASSETS_BASE}}/vscode_monitor.svg');         mask-image: url('{{ASSETS_BASE}}/vscode_monitor.svg'); }
   .ic-git               { -webkit-mask-image: url('{{ASSETS_BASE}}/git.svg');                    mask-image: url('{{ASSETS_BASE}}/git.svg'); }
   .ic-github            { -webkit-mask-image: url('{{ASSETS_BASE}}/github.svg');                 mask-image: url('{{ASSETS_BASE}}/github.svg'); }
+  .ic-font_size         { -webkit-mask-image: url('{{ASSETS_BASE}}/font_size.svg');              mask-image: url('{{ASSETS_BASE}}/font_size.svg'); }
 
   #label-pill { flex: 0 0 auto; height: 32px; width: 220px;
     background-image: url('{{LABEL_ALPHA_URI}}');
@@ -323,6 +354,7 @@
     <button type="button" class="tb-btn" id="monitorBtn"        title="VSCode Monitor — trace channel"><span class="cb-icon ic-vscode_monitor"></span></button>
     <button type="button" class="tb-btn" id="gitBtn"            title="Git"><span class="cb-icon ic-git"></span></button>
     <button type="button" class="tb-btn" id="githubBtn"         title="GitHub"><span class="cb-icon ic-github"></span></button>
+    <button type="button" class="tb-btn" id="fontSizeBtn"       title="Font Size — toggle 80% bigger text"><span class="cb-icon ic-font_size"></span></button>
 
     <div id="spacer"></div>
     <button type="button" id="sendBtn" title="Send"><span class="cb-icon"></span></button>
@@ -733,6 +765,24 @@ const tts = (function() {
   bind('githubBtn',         'openGitHub');
 })();
 
+/* Font Size toggle — adds/removes .cb-big on <body>, which flips
+   --cb-font-scale from 1 to 1.8 (80% bigger) via the rules at the top of
+   <style>. Persists via the host's workspaceState as `cbe.bigFont`. */
+(function() {
+  const btn = document.getElementById('fontSizeBtn');
+  if (!btn) return;
+  function applyBig(b) {
+    document.body.classList.toggle('cb-big', !!b);
+    btn.classList.toggle('autoread', !!b);   /* reuse the existing "active" affordance */
+  }
+  btn.addEventListener('click', () => {
+    const next = !document.body.classList.contains('cb-big');
+    applyBig(next);
+    if (api) api.postMessage({ type: 'setBigFont', value: next });
+  });
+  window.__cbApplyBig = applyBig;            /* called from init hydration */
+})();
+
 /* ── Settings modal ──────────────────────────────────────────────────── */
 let __cbeProviders = [];   /* {id,label,models[],current,haveKey} */
 let __cbeActive = null;
@@ -951,6 +1001,7 @@ window.addEventListener('message', e => {
     /* Hydrate persisted SFX settings; window defaults apply if absent. */
     if (typeof m.sfxEnabled === 'boolean') { setSfxEnabled(m.sfxEnabled); __cbeSavedSfxEnabled = m.sfxEnabled; }
     if (typeof m.sfxVolume  === 'number')  { setSfxVolume(m.sfxVolume);   __cbeSavedSfxVolume  = m.sfxVolume; }
+    if (typeof m.bigFont    === 'boolean' && window.__cbApplyBig) { window.__cbApplyBig(m.bigFont); }
     if (!__cbeOpenAppPlayed) {
       __cbeOpenAppPlayed = true;
       playSfx('open_and_close_application');
