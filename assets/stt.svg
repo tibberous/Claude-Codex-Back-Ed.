@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-label="Speech to Text">
+  <!-- Microphone capsule -->
+  <rect x="7.5" y="2.5" width="5.5" height="11" rx="2.75"/>
+  <!-- Stand arc -->
+  <path d="M4.5 11a5.75 5.75 0 0 0 11.5 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+  <line x1="10.25" y1="17" x2="10.25" y2="20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+  <line x1="7.5" y1="20" x2="13" y2="20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+  <!-- Aa label -->
+  <text x="14.5" y="11.2" font-family="system-ui,sans-serif" font-size="7" font-weight="700" fill="currentColor">Aa</text>
+</svg>

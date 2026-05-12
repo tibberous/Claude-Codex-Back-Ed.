@@ -116,5 +116,11 @@
     "bridge/browser-bridge.js",
     "bridge/dom-scripts.js",
     "bridge/supergrok-bridge.js"
-  ]
+  ],
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
+    "eslint": "^10.3.0",
+    "knip": "^6.13.0",
+    "typescript": "^6.0.3"
+  }
 }

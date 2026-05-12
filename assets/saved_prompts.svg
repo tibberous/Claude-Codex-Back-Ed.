@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-label="Saved Prompts">
+  <!-- Document with star cut out (user's starred prompts) -->
+  <path fill-rule="evenodd" d="M5.25 2.5h8.5L19 7.75V20.5a1 1 0 0 1-1 1H5.25a1 1 0 0 1-1-1v-17a1 1 0 0 1 1-1zm.4 1.6v15.8h12.7V8.5h-4.5a.7.7 0 0 1-.7-.7V4.1zm6 5.6-1.36 2.76-3.04.44 2.2 2.14-.52 3.04 2.72-1.44 2.72 1.44-.52-3.04 2.2-2.14-3.04-.44z"/>
+  <path d="M14.4 4.2 18 7.8h-3.6z"/>
+</svg>

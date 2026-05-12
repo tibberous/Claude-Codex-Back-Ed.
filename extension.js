@@ -272,13 +272,34 @@ async function activate(context) {
         outChan,
     );
 
+    /* Serializer intentionally disposes any restored panel instead of rebinding it
+       so closing the tab keeps it closed across window reloads. The old behavior
+       (`bindPanel(context, webviewPanel)`) made the panel auto-resurrect on every
+       reload — see handbook §0822 "VSCode Extension Writing > WebviewPanelSerializer
+       makes panels resurrect themselves" for the rationale. */
     if (vscode.window.registerWebviewPanelSerializer) {
         context.subscriptions.push(
             vscode.window.registerWebviewPanelSerializer('codexBlackEd.panel', {
-                async deserializeWebviewPanel(webviewPanel) { bindPanel(context, webviewPanel); }
+                async deserializeWebviewPanel(webviewPanel) {
+                    try { webviewPanel.dispose(); } catch (e) { traceErr('deserialize-dispose', e); }
+                }
             })
         );
     }
+    /* On activate, also close any stale instances of this panel type that
+       VSCode tried to restore before the dispose-on-deserialize hook fired.
+       This is the "delete the old panels" guarantee. */
+    try {
+        for (const grp of (vscode.window.tabGroups && vscode.window.tabGroups.all) || []) {
+            for (const tab of (grp.tabs || [])) {
+                const vt = tab.input && tab.input.viewType;
+                if (typeof vt === 'string' && vt.endsWith('codexBlackEd.panel')) {
+                    try { vscode.window.tabGroups.close(tab, true); }
+                    catch (e) { traceErr('close-stale-panel', e); }
+                }
+            }
+        }
+    } catch (e) { traceErr('stale-panel-sweep', e); }
 
     trace('activate complete');
 }
@@ -475,11 +496,19 @@ function bindPanel(context, panel) {
 function getPanelHtml(context, webview) {
     const htmlPath = path.join(context.extensionPath, 'panel', 'index.html');
     let html = fs.readFileSync(htmlPath, 'utf8');
+    const assetsBase    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets')));
     const labelUri      = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets', 'label-alpha.png')));
+    const blankUri      = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets', 'blank.png')));
+    const blankOverUri  = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets', 'blank_over.png')));
+    const blankClickUri = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets', 'blank_click.png')));
     const prismJsUri    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism.min.js')));
     const prismLangsUri = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-langs.min.js')));
     const prismCssUri   = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-dark.min.css')));
+    html = html.split('{{ASSETS_BASE}}').join(assetsBase.toString());
     html = html.split('{{LABEL_ALPHA_URI}}').join(labelUri.toString());
+    html = html.split('{{BLANK_URI}}').join(blankUri.toString());
+    html = html.split('{{BLANK_OVER_URI}}').join(blankOverUri.toString());
+    html = html.split('{{BLANK_CLICK_URI}}').join(blankClickUri.toString());
     html = html.split('{{PRISM_JS_URI}}').join(prismJsUri.toString());
     html = html.split('{{PRISM_LANGS_URI}}').join(prismLangsUri.toString());
     html = html.split('{{PRISM_CSS_URI}}').join(prismCssUri.toString());

@@ -41,34 +41,75 @@
   #textInput::placeholder { color: #555; }
   #textInput:disabled { color: #555; cursor: not-allowed; }
 
-  #toolbar { display: flex; align-items: center; gap: 8px;
-    padding: 8px 12px;
+  /* Toolbar — single-row orange strip styled to match good.png exactly.
+     Buttons use blank.png/blank_over.png/blank_click.png as the round face;
+     the icon overlay is an inline <span> masked with the matching SVG so
+     `currentColor` on the button tints it via CSS state transitions. */
+  #toolbar { display: flex; align-items: center; gap: 4px;
+    padding: 8px 10px; min-width: max-content;
     background: linear-gradient(90deg, #b83c00 0%, #e8621a 55%, #ff7a1a 100%);
-    border-top: 1px solid #401300; }
-  .tb-btn { all: unset; cursor: pointer; width: 32px; height: 32px;
-    border-radius: 6px; display: inline-flex; align-items: center;
-    justify-content: center; color: #fff; font-size: 16px;
-    transition: background-color .12s; }
-  .tb-btn:hover { background-color: rgba(0,0,0,0.18); }
-  .tb-btn.speaking { background-color: rgba(255,40,40,0.45); }
-  .tb-btn.autoread { background-color: rgba(40,180,80,0.45); position: relative; }
-  .tb-btn.autoread::after { content: ''; position: absolute; inset: 1px;
-    border-radius: 6px; border: 1.5px dashed rgba(255,255,255,.55);
+    border-top: 1px solid #401300; overflow-x: auto; }
+  #toolbar::-webkit-scrollbar { height: 4px; }
+  #toolbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.25); border-radius: 2px; }
+  .tb-btn { all: unset; cursor: pointer; width: 36px; height: 38px;
+    background-image: url('{{BLANK_URI}}');
+    background-size: contain; background-repeat: no-repeat; background-position: center;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #fafafa; transition: color .12s; flex: 0 0 auto; position: relative; }
+  .tb-btn:hover  { background-image: url('{{BLANK_OVER_URI}}');  color: #FF6A00; }
+  .tb-btn:active { background-image: url('{{BLANK_CLICK_URI}}'); color: #F32E00; }
+  .tb-btn[disabled] { opacity: .45; cursor: not-allowed; }
+  .tb-btn .cb-icon { width: 18px; height: 18px; background-color: currentColor;
+    -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;
+            mask-size: contain;         mask-repeat: no-repeat;         mask-position: center; }
+  .tb-btn.speaking { color: #ff4040; }
+  .tb-btn.autoread { color: #28b450; }
+  .tb-btn.autoread::after { content: ''; position: absolute; inset: 2px;
+    border-radius: 50%; border: 1.5px dashed rgba(40,180,80,.85);
     pointer-events: none; animation: cbe-pulse 1.4s linear infinite; }
   @keyframes cbe-pulse { 0%{opacity:.4} 50%{opacity:1} 100%{opacity:.4} }
-  #label-pill { flex: 0 0 auto; height: 32px;
+
+  /* Per-icon mask paths. Each SVG must use fill="currentColor" + a black
+     shape so the mask resolves to the shape silhouette. Substituted at
+     panel-load via {{ASSETS_BASE}}/*.svg. */
+  .ic-add               { -webkit-mask-image: url('{{ASSETS_BASE}}/add.svg');                    mask-image: url('{{ASSETS_BASE}}/add.svg'); }
+  .ic-saved_prompts     { -webkit-mask-image: url('{{ASSETS_BASE}}/saved_prompts.svg');          mask-image: url('{{ASSETS_BASE}}/saved_prompts.svg'); }
+  .ic-stored_prompts    { -webkit-mask-image: url('{{ASSETS_BASE}}/stored_prompts.svg');         mask-image: url('{{ASSETS_BASE}}/stored_prompts.svg'); }
+  .ic-chat_history      { -webkit-mask-image: url('{{ASSETS_BASE}}/chat_history.svg');           mask-image: url('{{ASSETS_BASE}}/chat_history.svg'); }
+  .ic-attach_file       { -webkit-mask-image: url('{{ASSETS_BASE}}/attach_file.svg');            mask-image: url('{{ASSETS_BASE}}/attach_file.svg'); }
+  .ic-stt               { -webkit-mask-image: url('{{ASSETS_BASE}}/stt.svg');                    mask-image: url('{{ASSETS_BASE}}/stt.svg'); }
+  .ic-tts               { -webkit-mask-image: url('{{ASSETS_BASE}}/tts.svg');                    mask-image: url('{{ASSETS_BASE}}/tts.svg'); }
+  .ic-auto_reply        { -webkit-mask-image: url('{{ASSETS_BASE}}/auto_reply.svg');             mask-image: url('{{ASSETS_BASE}}/auto_reply.svg'); }
+  .ic-wake_up           { -webkit-mask-image: url('{{ASSETS_BASE}}/wake_up.svg');                mask-image: url('{{ASSETS_BASE}}/wake_up.svg'); }
+  .ic-show_commands     { -webkit-mask-image: url('{{ASSETS_BASE}}/show_command_menu.svg');      mask-image: url('{{ASSETS_BASE}}/show_command_menu.svg'); }
+  .ic-compact           { -webkit-mask-image: url('{{ASSETS_BASE}}/compact.svg');                mask-image: url('{{ASSETS_BASE}}/compact.svg'); }
+  .ic-handbook          { -webkit-mask-image: url('{{ASSETS_BASE}}/handbook.svg');               mask-image: url('{{ASSETS_BASE}}/handbook.svg'); }
+  .ic-help              { -webkit-mask-image: url('{{ASSETS_BASE}}/help.svg');                   mask-image: url('{{ASSETS_BASE}}/help.svg'); }
+  .ic-settings          { -webkit-mask-image: url('{{ASSETS_BASE}}/settings.svg');               mask-image: url('{{ASSETS_BASE}}/settings.svg'); }
+  .ic-extensions        { -webkit-mask-image: url('{{ASSETS_BASE}}/extensions.svg');             mask-image: url('{{ASSETS_BASE}}/extensions.svg'); }
+  .ic-project_folder    { -webkit-mask-image: url('{{ASSETS_BASE}}/project_folder.svg');         mask-image: url('{{ASSETS_BASE}}/project_folder.svg'); }
+  .ic-vscode_monitor    { -webkit-mask-image: url('{{ASSETS_BASE}}/vscode_monitor.svg');         mask-image: url('{{ASSETS_BASE}}/vscode_monitor.svg'); }
+  .ic-git               { -webkit-mask-image: url('{{ASSETS_BASE}}/git.svg');                    mask-image: url('{{ASSETS_BASE}}/git.svg'); }
+  .ic-github            { -webkit-mask-image: url('{{ASSETS_BASE}}/github.svg');                 mask-image: url('{{ASSETS_BASE}}/github.svg'); }
+
+  #label-pill { flex: 0 0 auto; height: 32px; width: 220px;
     background-image: url('{{LABEL_ALPHA_URI}}');
     background-size: contain; background-repeat: no-repeat;
     background-position: center; cursor: pointer;
     margin: 0 6px; transition: filter .12s; }
   #label-pill:hover { filter: brightness(1.12); }
-  #spacer { flex: 1; }
-  #sendBtn { all: unset; cursor: pointer; width: 36px; height: 36px;
-    border-radius: 50%; background: #1a1a1a; color: #fff;
+  #spacer { flex: 1; min-width: 8px; }
+  #sendBtn { all: unset; cursor: pointer; width: 38px; height: 38px;
+    border-radius: 50%; background: #1a1a1a; color: #fafafa;
     display: inline-flex; align-items: center; justify-content: center;
-    font-size: 14px; font-weight: 700; transition: transform .1s; }
-  #sendBtn:hover { transform: scale(1.06); }
-  #sendBtn[disabled] { background: #444; cursor: not-allowed; transform: none; }
+    flex: 0 0 auto; transition: transform .1s, background .12s; }
+  #sendBtn:hover  { transform: scale(1.06); color: #FF6A00; }
+  #sendBtn:active { color: #F32E00; }
+  #sendBtn[disabled] { background: #444; cursor: not-allowed; transform: none; opacity: .5; }
+  #sendBtn .cb-icon { width: 18px; height: 18px; background-color: currentColor;
+    -webkit-mask-image: url('{{ASSETS_BASE}}/send_arrow.svg'); mask-image: url('{{ASSETS_BASE}}/send_arrow.svg');
+    -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;
+            mask-size: contain;         mask-repeat: no-repeat;         mask-position: center; }
 
   /* ── Settings modal ──────────────────────────────────────── */
   #cbe-settings { position: fixed; inset: 0; z-index: 2147483645;
@@ -253,15 +294,37 @@
   </div>
 
   <div id="toolbar">
-    <button class="tb-btn" id="addBtn" title="New conversation">+</button>
-    <button class="tb-btn" id="queueBtn" title="History">≡</button>
+    <!-- Left cluster: conversation + clipboard + history -->
+    <button class="tb-btn" id="addBtn"            title="New conversation"><span class="cb-icon ic-add"></span></button>
+    <button class="tb-btn" id="savedPromptsBtn"   title="Saved Prompts"><span class="cb-icon ic-saved_prompts"></span></button>
+    <button class="tb-btn" id="storedPromptsBtn"  title="Stored Prompts"><span class="cb-icon ic-stored_prompts"></span></button>
+    <button class="tb-btn" id="chatHistoryBtn"    title="Chat History"><span class="cb-icon ic-chat_history"></span></button>
+    <button class="tb-btn" id="attachFileBtn"     title="Attach File"><span class="cb-icon ic-attach_file"></span></button>
+
     <div id="label-pill" title="Claude Codex Black Edition"></div>
+
+    <!-- Voice cluster -->
+    <button class="tb-btn" id="sttBtn"            title="Speech to Text — click to start/stop"><span class="cb-icon ic-stt"></span></button>
+    <button class="tb-btn" id="ttsBtn"            title="Read aloud last reply — double-click = auto-read"><span class="cb-icon ic-tts"></span></button>
+
+    <!-- Automation cluster -->
+    <button class="tb-btn" id="autoReplyBtn"      title="Auto Reply"><span class="cb-icon ic-auto_reply"></span></button>
+    <button class="tb-btn" id="wakeUpBtn"         title="Wake Up Response"><span class="cb-icon ic-wake_up"></span></button>
+    <button class="tb-btn" id="showCommandsBtn"   title="Show Command Menu"><span class="cb-icon ic-show_commands"></span></button>
+    <button class="tb-btn" id="compactBtn"        title="Compact"><span class="cb-icon ic-compact"></span></button>
+
+    <!-- Docs + diagnostics cluster -->
+    <button class="tb-btn" id="handbookBtn"       title="Handbook"><span class="cb-icon ic-handbook"></span></button>
+    <button class="tb-btn" id="helpBtn"           title="Help"><span class="cb-icon ic-help"></span></button>
+    <button class="tb-btn" id="settingsBtn"       title="Settings — Provider + model"><span class="cb-icon ic-settings"></span></button>
+    <button class="tb-btn" id="extensionsBtn"     title="Extensions"><span class="cb-icon ic-extensions"></span></button>
+    <button class="tb-btn" id="projectFolderBtn"  title="Project Folder"><span class="cb-icon ic-project_folder"></span></button>
+    <button class="tb-btn" id="monitorBtn"        title="VSCode Monitor — trace channel"><span class="cb-icon ic-vscode_monitor"></span></button>
+    <button class="tb-btn" id="gitBtn"            title="Git"><span class="cb-icon ic-git"></span></button>
+    <button class="tb-btn" id="githubBtn"         title="GitHub"><span class="cb-icon ic-github"></span></button>
+
     <div id="spacer"></div>
-    <button class="tb-btn" id="micBtn" title="Dictate (Web Speech) — click to start/stop">🎙</button>
-    <button class="tb-btn" id="ttsBtn" title="Read aloud last reply — double-click for auto-read">🔊</button>
-    <button class="tb-btn" id="settingsBtn" title="Provider + model">⚙</button>
-    <button class="tb-btn" id="monitorBtn" title="Trace">◉</button>
-    <button id="sendBtn" title="Send">▶</button>
+    <button id="sendBtn" title="Send"><span class="cb-icon"></span></button>
   </div>
 </div>
 
@@ -522,18 +585,17 @@ const tts = (function() {
   };
 })();
 
-/* ── Web Speech dictation (mic 🎙 → ⏹) ────────────────────────────────── */
+/* ── Web Speech dictation (STT button, .speaking class toggles a red tint) ─ */
 (function() {
-  const micBtn = document.getElementById('micBtn');
+  const sttBtn = document.getElementById('sttBtn');
   let recog = null;
   let listening = false;
 
   function stopMic() {
     if (recog) { try { recog.stop(); } catch (e) {} recog = null; }
     listening = false;
-    micBtn.style.background = '';
-    micBtn.textContent = '🎙';
-    micBtn.title = 'Dictate (Web Speech) — click to start/stop';
+    sttBtn.classList.remove('speaking');
+    sttBtn.title = 'Speech to Text — click to start/stop';
   }
 
   function appendToInput(t) {
@@ -543,7 +605,7 @@ const tts = (function() {
     ti.focus();
   }
 
-  micBtn.onclick = () => {
+  sttBtn.onclick = () => {
     if (listening) { stopMic(); return; }
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
@@ -566,14 +628,42 @@ const tts = (function() {
       recog.onend = () => stopMic();
       recog.start();
       listening = true;
-      micBtn.style.background = 'rgba(255, 40, 40, 0.45)';
-      micBtn.textContent = '⏹';
-      micBtn.title = 'Listening… click to stop';
+      sttBtn.classList.add('speaking');
+      sttBtn.title = 'Listening… click to stop';
     } catch (e) {
       addMsg('Voice start failed: ' + (e.message || e), 'error');
       stopMic();
     }
   };
+})();
+
+
+/* ── New toolbar button click handlers ───────────────────────────────────
+   Each post-able to the extension host where appropriate; the rest log
+   placeholders so the buttons are clickable before their handlers land. */
+(function() {
+  function bind(id, type, payload) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', () => {
+      if (api && type) api.postMessage({ type, ...(payload || {}) });
+      else addMsg(`(stub) ${id} clicked`, 'info');
+    });
+  }
+  bind('savedPromptsBtn',   'openSavedPrompts');
+  bind('storedPromptsBtn',  'openStoredPrompts');
+  bind('chatHistoryBtn',    'openChatHistory');
+  bind('attachFileBtn',     'attachFile');
+  bind('autoReplyBtn',      'toggleAutoReply');
+  bind('wakeUpBtn',         'toggleWakeUp');
+  bind('showCommandsBtn',   'showCommandMenu');
+  bind('compactBtn',        'compactConversation');
+  bind('handbookBtn',       'openHandbook');
+  bind('helpBtn',           'openHelp');
+  bind('extensionsBtn',     'openExtensions');
+  bind('projectFolderBtn',  'openProjectFolder');
+  bind('gitBtn',            'openGit');
+  bind('githubBtn',         'openGitHub');
 })();
 
 /* ── Settings modal ──────────────────────────────────────────────────── */

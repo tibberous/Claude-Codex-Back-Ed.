@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-label="Text to Speech">
+  <!-- Letter T on the left -->
+  <text x="1.2" y="12.4" font-family="system-ui,sans-serif" font-size="10" font-weight="700" fill="currentColor">T</text>
+  <!-- Speaker -->
+  <path d="M9.5 9.5h2.1l3.5-2.7v10.4l-3.5-2.7H9.5z"/>
+  <!-- Sound waves -->
+  <path d="M17 8.5c1.8 1.8 1.8 5.2 0 7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+  <path d="M19.4 6.5c2.8 2.8 2.8 8.2 0 11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+</svg>
