@@ -161,6 +161,16 @@ function bindPanel(context, panel) {
                     /* Voice STT not wired in this build — log and reply with error so UI doesn't hang. */
                     panel.webview.postMessage({ type: 'error', message: 'Voice input not yet wired in standalone build' });
                     break;
+                case 'openDevTools':
+                    trace('  openDevTools requested');
+                    try {
+                        await vscode.commands.executeCommand('workbench.action.webview.openDeveloperTools');
+                        trace('  openDevTools dispatched');
+                    } catch (e) {
+                        traceErr('openDevTools failed', e);
+                        panel.webview.postMessage({ type: 'error', message: 'Failed to open DevTools: ' + (e.message || String(e)) });
+                    }
+                    break;
                 default:
                     trace('  unhandled type: ' + msg.type);
             }

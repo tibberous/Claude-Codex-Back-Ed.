@@ -62,6 +62,18 @@
     font-size: 14px; font-weight: 700; transition: transform .1s; }
   #sendBtn:hover { transform: scale(1.06); }
   #sendBtn[disabled] { background: #444; cursor: not-allowed; transform: none; }
+
+  /* ── Right-click context menu ─────────────────────────────────────── */
+  #cbe-ctx-menu { position: fixed; z-index: 2147483647;
+    background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5); font-size: 12px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    min-width: 200px; overflow: hidden; user-select: none; padding: 4px 0; }
+  #cbe-ctx-menu .cbe-ctx-item { padding: 7px 14px; cursor: pointer; color: #e8e8e8; }
+  #cbe-ctx-menu .cbe-ctx-item:hover { background: #2a2a2a; }
+  #cbe-ctx-menu .cbe-ctx-item.disabled { color: #666; cursor: default; }
+  #cbe-ctx-menu .cbe-ctx-item.disabled:hover { background: transparent; }
+  #cbe-ctx-menu .cbe-ctx-sep { height: 1px; background: #2a2a2a; margin: 4px 0; }
 </style>
 </head>
 <body>
@@ -136,6 +148,84 @@ ti.addEventListener('keydown', e => {
 ti.addEventListener('input', function() {
   this.style.height = '';
   this.style.height = Math.min(this.scrollHeight, 140) + 'px';
+});
+
+/* ── Right-click context menu ──────────────────────────────────────── */
+const CTX_MENU_ID = 'cbe-ctx-menu';
+
+function cbeRemoveCtxMenu() {
+  const old = document.getElementById(CTX_MENU_ID);
+  if (old) old.remove();
+}
+
+function cbeShowCtxMenu(x, y, target) {
+  cbeRemoveCtxMenu();
+
+  const menu = document.createElement('div');
+  menu.id = CTX_MENU_ID;
+  menu.style.left = x + 'px';
+  menu.style.top  = y + 'px';
+
+  const items = [
+    /* View Source — disabled placeholder; Agent 1 will wire this up on merge. */
+    { label: '📄 View Source (n/a)', disabled: true, action: function() {} },
+    /* DevTools — always enabled. */
+    { label: '🔧 Open DevTools', action: function() {
+        if (api) api.postMessage({ type: 'openDevTools' });
+      }
+    },
+  ];
+
+  items.forEach(function(item) {
+    if (item.sep) {
+      const hr = document.createElement('div');
+      hr.className = 'cbe-ctx-sep';
+      menu.appendChild(hr);
+      return;
+    }
+    const el = document.createElement('div');
+    el.className = 'cbe-ctx-item' + (item.disabled ? ' disabled' : '');
+    el.textContent = item.label;
+    if (!item.disabled) {
+      el.addEventListener('mousedown', function(e) {
+        e.preventDefault(); e.stopPropagation();
+        cbeRemoveCtxMenu();
+        try { item.action(); } catch (err) { /* swallow */ }
+      });
+    }
+    menu.appendChild(el);
+  });
+
+  document.body.appendChild(menu);
+
+  /* Reposition if off-screen */
+  const r = menu.getBoundingClientRect();
+  if (r.right  > window.innerWidth)  menu.style.left = Math.max(0, x - r.width)  + 'px';
+  if (r.bottom > window.innerHeight) menu.style.top  = Math.max(0, y - r.height) + 'px';
+
+  setTimeout(function() {
+    function dismiss(e) {
+      if (!menu.contains(e.target)) {
+        cbeRemoveCtxMenu();
+        document.removeEventListener('mousedown', dismiss, true);
+        document.removeEventListener('keydown', escDismiss, true);
+      }
+    }
+    function escDismiss(e) {
+      if (e.key === 'Escape') {
+        cbeRemoveCtxMenu();
+        document.removeEventListener('mousedown', dismiss, true);
+        document.removeEventListener('keydown', escDismiss, true);
+      }
+    }
+    document.addEventListener('mousedown', dismiss, true);
+    document.addEventListener('keydown', escDismiss, true);
+  }, 0);
+}
+
+document.addEventListener('contextmenu', function(e) {
+  e.preventDefault();
+  cbeShowCtxMenu(e.clientX, e.clientY, e.target);
 });
 
 window.addEventListener('message', e => {
