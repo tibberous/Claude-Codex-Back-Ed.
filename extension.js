@@ -4,6 +4,36 @@ const path = require('path');
 
 const SECRET_KEY = 'codexBlackEd.anthropicApiKey';
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
+const CONFIG_INI_NAME = 'config.ini';
+
+/* ── config.ini reader ────────────────────────────────────────────────────
+   Minimal INI parser. Looks up [api_keys] anthropic_api_key in either the
+   installed extension folder (__dirname) or the user-level fallback. */
+function readConfigIni(extensionPath) {
+    const candidates = [
+        path.join(extensionPath, CONFIG_INI_NAME),
+        path.join(require('os').homedir(), '.cbe', CONFIG_INI_NAME),
+    ];
+    for (const p of candidates) {
+        if (!fs.existsSync(p)) continue;
+        try {
+            const src = fs.readFileSync(p, 'utf8');
+            /* Find [api_keys] section, then anthropic_api_key inside it. */
+            const sec = src.split(/^\[api_keys\][\r\n]+/m)[1];
+            if (!sec) { trace('config.ini found at ' + p + ' but no [api_keys] section'); continue; }
+            const body = sec.split(/^\[/m)[0];
+            const m = body.match(/^\s*anthropic_api_key\s*=\s*([^\r\n]+)/m);
+            if (m && m[1].trim()) {
+                trace('config.ini: anthropic_api_key found at ' + p + ' (len=' + m[1].trim().length + ')');
+                return m[1].trim();
+            }
+            trace('config.ini at ' + p + ' has no anthropic_api_key');
+        } catch (e) {
+            traceErr('reading ' + p, e);
+        }
+    }
+    return null;
+}
 
 let activePanel;
 let conversation = [];  /* per-session in-memory history */
@@ -159,7 +189,12 @@ function getPanelHtml(context, webview) {
 /* ── API key flow ─────────────────────────────────────────────────────── */
 
 async function getApiKey(context) {
-    /* Priority: ANTHROPIC_API_KEY env var → SecretStorage → first-run prompt. */
+    /* Priority: config.ini → ANTHROPIC_API_KEY env → SecretStorage → first-run prompt. */
+    const fromIni = readConfigIni(context.extensionPath);
+    if (fromIni) {
+        trace('apiKey: using config.ini (len=' + fromIni.length + ')');
+        return fromIni;
+    }
     const envKey = process.env.ANTHROPIC_API_KEY;
     if (envKey && envKey.trim()) {
         trace('apiKey: using ANTHROPIC_API_KEY env var (len=' + envKey.length + ')');
@@ -170,7 +205,7 @@ async function getApiKey(context) {
         trace('apiKey: using SecretStorage (len=' + stored.length + ')');
         return stored.trim();
     }
-    trace('apiKey: not found, prompting');
+    trace('apiKey: not found in config.ini / env / SecretStorage, prompting');
     const entered = await vscode.window.showInputBox({
         title: 'Anthropic API Key',
         prompt: 'Paste your Anthropic API key (sk-ant-...). Stored encrypted in VS Code SecretStorage.',

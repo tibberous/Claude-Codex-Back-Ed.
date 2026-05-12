@@ -91,6 +91,7 @@
     "extension.js",
     "package.json",
     "README.md",
+    "config.ini",
     "panel/**",
     "assets/label-alpha.png",
     "resources/icon.png",
