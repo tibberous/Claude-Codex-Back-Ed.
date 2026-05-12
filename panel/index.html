@@ -64,7 +64,7 @@
   #sendBtn:hover { transform: scale(1.06); }
   #sendBtn[disabled] { background: #444; cursor: not-allowed; transform: none; }
 
-  /* ── Context menu ───────────────────────────────────────────── */
+  /* ── Context menu (Agent 1 + Agent 2 unified) ──────────────── */
   #cbe-ctx-menu {
     position: fixed; z-index: 2147483647;
     background: #1e1e1e; border: 1.5px solid #444;
@@ -296,6 +296,7 @@ window.addEventListener('message', e => {
     var menu = document.createElement('div');
     menu.id = CMENU_ID;
 
+    /* View Source — enabled only when right-clicked on a <pre><code>. */
     var item = document.createElement('div');
     item.className = 'cbe-item' + (codeEl ? '' : ' disabled');
     var lang = '';
@@ -311,6 +312,17 @@ window.addEventListener('message', e => {
       });
     }
     menu.appendChild(item);
+
+    /* Open DevTools — always enabled. Asks host to fire the VS Code command. */
+    var dev = document.createElement('div');
+    dev.className = 'cbe-item';
+    dev.textContent = '🔧 Open DevTools';
+    dev.addEventListener('mousedown', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      removeMenu();
+      if (api) api.postMessage({ type: 'openDevTools' });
+    });
+    menu.appendChild(dev);
 
     menu.style.left = x + 'px';
     menu.style.top  = y + 'px';
