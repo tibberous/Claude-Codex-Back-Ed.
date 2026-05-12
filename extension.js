@@ -219,8 +219,20 @@ let extensionContext = null; /* captured during activate so commands can resolve
 
 function trace(msg) {
     const ts = new Date().toISOString();
-    try { outChan && outChan.appendLine(`[${ts}] ${msg}`); } catch (e) {}
-    try { console.log('[codex-black]', msg); } catch (e) {}
+    /* The logger's own catches can't usefully recurse into trace(); we fall
+       back to process.stderr so a logger failure is still visible somewhere.
+       The bare console.log catch is the genuine last-resort — if even that
+       throws, the runtime is too broken for any further logging to help. */
+    try {
+        if (outChan) outChan.appendLine(`[${ts}] ${msg}`);
+    } catch (e) {
+        try { process.stderr.write(`[codex-black] trace.appendLine failed: ${e && e.message}\n`); } catch (_e) {}
+    }
+    try {
+        console.log('[codex-black]', msg);
+    } catch (e) {
+        try { process.stderr.write(`[codex-black] trace.console failed: ${e && e.message}\n`); } catch (_e) {}
+    }
 }
 
 function traceErr(msg, err) {
@@ -311,7 +323,7 @@ function deactivate() {
 
 function disposeAllBridges() {
     for (const id of Object.keys(browserBridges)) {
-        try { browserBridges[id].dispose(); } catch (e) {}
+        try { browserBridges[id].dispose(); } catch (e) { traceErr(`disposeAllBridges(${id})`, e); }
         delete browserBridges[id];
     }
 }
@@ -583,8 +595,9 @@ async function* streamOpenAIFormat(url, headers, body) {
         const { value, done } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf('\n')) !== -1) {
+        for (;;) {
+            const idx = buf.indexOf('\n');
+            if (idx === -1) break;
             const line = buf.slice(0, idx).trim();
             buf = buf.slice(idx + 1);
             if (!line.startsWith('data:')) continue;
@@ -624,8 +637,9 @@ async function* streamGemini(apiKey, model, messages, maxTokens) {
         const { value, done } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf('\n')) !== -1) {
+        for (;;) {
+            const idx = buf.indexOf('\n');
+            if (idx === -1) break;
             const line = buf.slice(0, idx).trim();
             buf = buf.slice(idx + 1);
             if (!line.startsWith('data:')) continue;

@@ -105,7 +105,10 @@ class Page {
         }
         if (m.method) {
             const lst = this.eventListeners.get(m.method);
-            if (lst) for (const fn of lst) { try { fn(m.params); } catch (e) {} }
+            if (lst) for (const fn of lst) {
+                try { fn(m.params); }
+                catch (e) { console.error('[cbe.cdp] listener throw', m.method, e && e.message); }
+            }
         }
     }
 
@@ -151,7 +154,8 @@ class Page {
 
     close() {
         this._closed = true;
-        try { this.ws && this.ws.close(); } catch (e) {}
+        try { this.ws && this.ws.close(); }
+        catch (e) { console.error('[cbe.cdp] close.ws', e && e.message); }
     }
 }
 

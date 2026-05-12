@@ -51,13 +51,14 @@
     border-top: 1px solid #401300; overflow-x: auto; }
   #toolbar::-webkit-scrollbar { height: 4px; }
   #toolbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.25); border-radius: 2px; }
+  /* Buttons sit directly on the orange toolbar BG — no per-button circle.
+     Only the icon glyph is rendered; hover/active just change its color. */
   .tb-btn { all: unset; cursor: pointer; width: 36px; height: 38px;
-    background-image: url('{{BLANK_URI}}');
-    background-size: contain; background-repeat: no-repeat; background-position: center;
     display: inline-flex; align-items: center; justify-content: center;
-    color: #fafafa; transition: color .12s; flex: 0 0 auto; position: relative; }
-  .tb-btn:hover  { background-image: url('{{BLANK_OVER_URI}}');  color: #FF6A00; }
-  .tb-btn:active { background-image: url('{{BLANK_CLICK_URI}}'); color: #F32E00; }
+    color: #fafafa; transition: color .12s, transform .08s;
+    flex: 0 0 auto; position: relative; }
+  .tb-btn:hover  { color: #ffffff; transform: scale(1.08); }
+  .tb-btn:active { color: #ffdac2; transform: scale(0.95); }
   .tb-btn[disabled] { opacity: .45; cursor: not-allowed; }
   .tb-btn .cb-icon { width: 18px; height: 18px; background-color: currentColor;
     -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;
@@ -295,36 +296,36 @@
 
   <div id="toolbar">
     <!-- Left cluster: conversation + clipboard + history -->
-    <button class="tb-btn" id="addBtn"            title="New conversation"><span class="cb-icon ic-add"></span></button>
-    <button class="tb-btn" id="savedPromptsBtn"   title="Saved Prompts"><span class="cb-icon ic-saved_prompts"></span></button>
-    <button class="tb-btn" id="storedPromptsBtn"  title="Stored Prompts"><span class="cb-icon ic-stored_prompts"></span></button>
-    <button class="tb-btn" id="chatHistoryBtn"    title="Chat History"><span class="cb-icon ic-chat_history"></span></button>
-    <button class="tb-btn" id="attachFileBtn"     title="Attach File"><span class="cb-icon ic-attach_file"></span></button>
+    <button type="button" class="tb-btn" id="addBtn"            title="New conversation"><span class="cb-icon ic-add"></span></button>
+    <button type="button" class="tb-btn" id="savedPromptsBtn"   title="Saved Prompts"><span class="cb-icon ic-saved_prompts"></span></button>
+    <button type="button" class="tb-btn" id="storedPromptsBtn"  title="Stored Prompts"><span class="cb-icon ic-stored_prompts"></span></button>
+    <button type="button" class="tb-btn" id="chatHistoryBtn"    title="Chat History"><span class="cb-icon ic-chat_history"></span></button>
+    <button type="button" class="tb-btn" id="attachFileBtn"     title="Attach File"><span class="cb-icon ic-attach_file"></span></button>
 
     <div id="label-pill" title="Claude Codex Black Edition"></div>
 
     <!-- Voice cluster -->
-    <button class="tb-btn" id="sttBtn"            title="Speech to Text — click to start/stop"><span class="cb-icon ic-stt"></span></button>
-    <button class="tb-btn" id="ttsBtn"            title="Read aloud last reply — double-click = auto-read"><span class="cb-icon ic-tts"></span></button>
+    <button type="button" class="tb-btn" id="sttBtn"            title="Speech to Text — click to start/stop"><span class="cb-icon ic-stt"></span></button>
+    <button type="button" class="tb-btn" id="ttsBtn"            title="Read aloud last reply — double-click = auto-read"><span class="cb-icon ic-tts"></span></button>
 
     <!-- Automation cluster -->
-    <button class="tb-btn" id="autoReplyBtn"      title="Auto Reply"><span class="cb-icon ic-auto_reply"></span></button>
-    <button class="tb-btn" id="wakeUpBtn"         title="Wake Up Response"><span class="cb-icon ic-wake_up"></span></button>
-    <button class="tb-btn" id="showCommandsBtn"   title="Show Command Menu"><span class="cb-icon ic-show_commands"></span></button>
-    <button class="tb-btn" id="compactBtn"        title="Compact"><span class="cb-icon ic-compact"></span></button>
+    <button type="button" class="tb-btn" id="autoReplyBtn"      title="Auto Reply"><span class="cb-icon ic-auto_reply"></span></button>
+    <button type="button" class="tb-btn" id="wakeUpBtn"         title="Wake Up Response"><span class="cb-icon ic-wake_up"></span></button>
+    <button type="button" class="tb-btn" id="showCommandsBtn"   title="Show Command Menu"><span class="cb-icon ic-show_commands"></span></button>
+    <button type="button" class="tb-btn" id="compactBtn"        title="Compact"><span class="cb-icon ic-compact"></span></button>
 
     <!-- Docs + diagnostics cluster -->
-    <button class="tb-btn" id="handbookBtn"       title="Handbook"><span class="cb-icon ic-handbook"></span></button>
-    <button class="tb-btn" id="helpBtn"           title="Help"><span class="cb-icon ic-help"></span></button>
-    <button class="tb-btn" id="settingsBtn"       title="Settings — Provider + model"><span class="cb-icon ic-settings"></span></button>
-    <button class="tb-btn" id="extensionsBtn"     title="Extensions"><span class="cb-icon ic-extensions"></span></button>
-    <button class="tb-btn" id="projectFolderBtn"  title="Project Folder"><span class="cb-icon ic-project_folder"></span></button>
-    <button class="tb-btn" id="monitorBtn"        title="VSCode Monitor — trace channel"><span class="cb-icon ic-vscode_monitor"></span></button>
-    <button class="tb-btn" id="gitBtn"            title="Git"><span class="cb-icon ic-git"></span></button>
-    <button class="tb-btn" id="githubBtn"         title="GitHub"><span class="cb-icon ic-github"></span></button>
+    <button type="button" class="tb-btn" id="handbookBtn"       title="Handbook"><span class="cb-icon ic-handbook"></span></button>
+    <button type="button" class="tb-btn" id="helpBtn"           title="Help"><span class="cb-icon ic-help"></span></button>
+    <button type="button" class="tb-btn" id="settingsBtn"       title="Settings — Provider + model"><span class="cb-icon ic-settings"></span></button>
+    <button type="button" class="tb-btn" id="extensionsBtn"     title="Extensions"><span class="cb-icon ic-extensions"></span></button>
+    <button type="button" class="tb-btn" id="projectFolderBtn"  title="Project Folder"><span class="cb-icon ic-project_folder"></span></button>
+    <button type="button" class="tb-btn" id="monitorBtn"        title="VSCode Monitor — trace channel"><span class="cb-icon ic-vscode_monitor"></span></button>
+    <button type="button" class="tb-btn" id="gitBtn"            title="Git"><span class="cb-icon ic-git"></span></button>
+    <button type="button" class="tb-btn" id="githubBtn"         title="GitHub"><span class="cb-icon ic-github"></span></button>
 
     <div id="spacer"></div>
-    <button id="sendBtn" title="Send"><span class="cb-icon"></span></button>
+    <button type="button" id="sendBtn" title="Send"><span class="cb-icon"></span></button>
   </div>
 </div>
 
@@ -364,14 +365,17 @@ function playSfx(name) {
     const a = preloadSfx(name);
     a.volume = window.SFX_VOLUME;
     a.currentTime = 0;
-    a.play().catch(() => {});
-  } catch (e) {}
+    a.play().catch((err) => console.debug('[cbe.sfx] play rejected', name, err && err.message));
+  } catch (e) { console.debug('[cbe.sfx] playSfx threw', name, e && e.message); }
 }
 function setSfxVolume(v) {
   const n = Math.max(0, Math.min(1, Number(v)));
   if (!Number.isFinite(n)) return;
   window.SFX_VOLUME = n;
-  for (const k in SFX) { try { SFX[k].volume = n; } catch (e) {} }
+  for (const k in SFX) {
+    try { SFX[k].volume = n; }
+    catch (e) { console.debug('[cbe.sfx] setSfxVolume', k, e && e.message); }
+  }
 }
 function setSfxEnabled(b) { window.SFX_ENABLED = !!b; }
 ['click','tick','error','popup','close_modal','open_modal','connect','claude','gtp','gemini','shell','enable','disable','open_and_close_application','maximize','minimize'].forEach(preloadSfx);
@@ -438,7 +442,7 @@ function makeCopyBtn(rawCode) {
         ta.style.left = '-9999px';
         document.body.appendChild(ta);
         ta.select();
-        try { document.execCommand('copy'); } catch (e) {}
+        try { document.execCommand('copy'); } catch (e) { console.debug('[cbe.copy] execCommand fallback failed', e && e.message); }
         document.body.removeChild(ta);
         done();
       });
@@ -449,7 +453,7 @@ function makeCopyBtn(rawCode) {
       ta.style.left = '-9999px';
       document.body.appendChild(ta);
       ta.select();
-      try { document.execCommand('copy'); } catch (e) {}
+      try { document.execCommand('copy'); } catch (e) { console.debug('[cbe.copy] execCommand fallback failed', e && e.message); }
       document.body.removeChild(ta);
       done();
     }
@@ -524,8 +528,9 @@ function renderAssistantMarkdown(el, fullText) {
 
   const fenceRe = /```([ \t]*[A-Za-z0-9+#_.\-]*)[ \t]*\r?\n([\s\S]*?)(?:```|$)/g;
   let lastIndex = 0;
-  let m;
-  while ((m = fenceRe.exec(fullText)) !== null) {
+  for (;;) {
+    const m = fenceRe.exec(fullText);
+    if (m === null) break;
     /* Prose before this fence */
     if (m.index > lastIndex) {
       renderInlineCode(fullText.slice(lastIndex, m.index), el);
@@ -577,7 +582,7 @@ addBtn.onclick = () => {
   if (api) api.postMessage({ type: 'reset' });
   thread.innerHTML = '';
   addMsg('Conversation reset.', 'info');
-  try { tts.stop(); } catch (e) {}
+  try { tts.stop(); } catch (e) { console.debug('[cbe.tts] addBtn reset stop', e && e.message); }
 };
 document.getElementById('monitorBtn').onclick = () => { if (api) api.postMessage({ type: 'showTrace' }); };
 document.getElementById('label-pill').onclick = () => { if (api) api.postMessage({ type: 'labelClick' }); };
@@ -648,7 +653,11 @@ const tts = (function() {
 
   function stopMic() {
     const wasListening = listening || !!recog;
-    if (recog) { try { recog.stop(); } catch (e) {} recog = null; }
+    if (recog) {
+      try { recog.stop(); }
+      catch (e) { console.debug('[cbe.stt] recog.stop', e && e.message); }
+      recog = null;
+    }
     listening = false;
     sttBtn.classList.remove('speaking');
     sttBtn.title = 'Speech to Text — click to start/stop';
@@ -737,7 +746,7 @@ function openSettings(payload) {
   overlay.id = 'cbe-settings';
   overlay.innerHTML = ''
     + '<div class="cbe-box">'
-    +   '<div class="cbe-hdr"><span>Settings — Provider &amp; Model</span><button class="cbe-btn cbe-cancel" data-act="cancel" style="padding:2px 8px">✕</button></div>'
+    +   '<div class="cbe-hdr"><span>Settings — Provider &amp; Model</span><button type="button" class="cbe-btn cbe-cancel" data-act="cancel" style="padding:2px 8px">✕</button></div>'
     +   '<div class="cbe-body">'
     +     '<div><label>Provider</label><select id="cbe-set-provider"></select></div>'
     +     '<div><label>Model</label><select id="cbe-set-model"></select></div>'
@@ -752,9 +761,9 @@ function openSettings(payload) {
     +     '</div>'
     +   '</div>'
     +   '<div class="cbe-foot">'
-    +     '<button class="cbe-btn cbe-save"   id="cbe-set-login" data-act="login" style="display:none;background:#2a5d8f">Open login</button>'
-    +     '<button class="cbe-btn cbe-cancel" data-act="cancel">Cancel</button>'
-    +     '<button class="cbe-btn cbe-save"   data-act="save">Save</button>'
+    +     '<button type="button" class="cbe-btn cbe-save"   id="cbe-set-login" data-act="login" style="display:none;background:#2a5d8f">Open login</button>'
+    +     '<button type="button" class="cbe-btn cbe-cancel" data-act="cancel">Cancel</button>'
+    +     '<button type="button" class="cbe-btn cbe-save"   data-act="save">Save</button>'
     +   '</div>'
     + '</div>';
   document.body.appendChild(overlay);
@@ -924,7 +933,7 @@ window.addEventListener('message', e => {
         streamingEl.textContent = fullText;
       }
       streamingEl = null;
-      try { tts.onAssistantDone(fullText); } catch (e) {}
+      try { tts.onAssistantDone(fullText); } catch (e) { console.debug('[cbe.tts] onAssistantDone', e && e.message); }
     }
     setBusy(false);
     ti.focus();

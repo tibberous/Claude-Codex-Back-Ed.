@@ -32,7 +32,7 @@ function tcpProbe(host, port, timeoutMs = 500) {
     return new Promise((resolve) => {
         const sock = new net.Socket();
         let done = false;
-        const finish = (ok) => { if (done) return; done = true; try { sock.destroy(); } catch (e) {} resolve(ok); };
+        const finish = (ok) => { if (done) return; done = true; try { sock.destroy(); } catch (e) { console.error('[cbe.supergrok] tcpProbe.destroy', e && e.message); } resolve(ok); };
         sock.setTimeout(timeoutMs);
         sock.once('connect', () => finish(true));
         sock.once('error', () => finish(false));
@@ -50,7 +50,7 @@ function tcpRequest(payload, { host = '127.0.0.1', port = DEFAULT_PORT, timeoutM
         let settled = false;
         const finish = (err, val) => {
             if (settled) return; settled = true;
-            try { sock.destroy(); } catch (e) {}
+            try { sock.destroy(); } catch (e) { console.error('[cbe.supergrok] tcpRequest.destroy', e && e.message); }
             if (err) reject(err); else resolve(val);
         };
         sock.setTimeout(timeoutMs);

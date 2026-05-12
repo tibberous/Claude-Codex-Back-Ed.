@@ -38,7 +38,7 @@ const BROWSER_PATHS = [
 
 function findBrowser() {
     for (const p of BROWSER_PATHS) {
-        try { if (fs.existsSync(p)) return path.normalize(p); } catch (e) {}
+        try { if (fs.existsSync(p)) return path.normalize(p); } catch (e) { console.error('[cbe.bridge] findBrowser.exists', p, e && e.message); }
     }
     throw new Error('No Chromium browser found (tried: ' + BROWSER_PATHS.join(', ') + ')');
 }
@@ -101,7 +101,11 @@ class BrowserBridge {
         this.proc.on('exit', code => {
             this.log(`browser exited code=${code}`);
             this.proc = null;
-            if (this.page) { try { this.page.close(); } catch (e) {} this.page = null; }
+            if (this.page) {
+                try { this.page.close(); }
+                catch (e) { console.error('[cbe.bridge] page.close on exit', e && e.message); }
+                this.page = null;
+            }
         });
         await waitForDebugger(this.port, 25000);
         /* Give the new tab a moment to register; CDP /json sometimes returns
@@ -188,9 +192,11 @@ class BrowserBridge {
     }
 
     dispose() {
-        try { if (this.page) this.page.close(); } catch (e) {}
+        try { if (this.page) this.page.close(); }
+        catch (e) { console.error('[cbe.bridge] dispose.page.close', e && e.message); }
         this.page = null;
-        try { if (this.proc) this.proc.kill(); } catch (e) {}
+        try { if (this.proc) this.proc.kill(); }
+        catch (e) { console.error('[cbe.bridge] dispose.proc.kill', e && e.message); }
         this.proc = null;
     }
 }

@@ -4,18 +4,18 @@
   "files": {
     "includes": [
       "**",
-      "!node_modules",
+      "!node_modules/**",
+      "!.claude/**",
       "!**/*.vsix",
       "!assets/**",
       "!sounds/**",
-      "!lib/prism*.js",
-      "!lib/wavesurfer.min.js",
+      "!lib/**",
       "!package-lock.json",
       "!.start.py.preref"
     ]
   },
   "formatter": {
-    "enabled": true,
+    "enabled": false,
     "indentStyle": "space",
     "indentWidth": 4,
     "lineWidth": 120,
