@@ -72,25 +72,36 @@
      Buttons use blank.png/blank_over.png/blank_click.png as the round face;
      the icon overlay is an inline <span> masked with the matching SVG so
      `currentColor` on the button tints it via CSS state transitions. */
-  /* Toolbar is the bottom orange strip. Own gradient is back because the
-     border-image's bottom is now 0 (we render the orange via the toolbar
-     instead of via the image's bottom slice). Matches good.png horizontally. */
-  #toolbar { display: flex; align-items: center; gap: 4px;
-    padding: 8px 10px; min-width: max-content;
+  /* Toolbar = orange strip + sendBtn pinned at the right.
+     The middle scrolls horizontally when there are more icons than fit (which
+     is what happens in narrow panels — there are ~20 elements). #sendBtn is
+     OUTSIDE the scrollable region so it's always visible flush-right. */
+  #toolbar { display: flex; align-items: stretch; padding: 0;
     background: linear-gradient(90deg, #b83c00 0%, #e8621a 55%, #ff7a1a 100%);
-    border-top: 1px solid #401300; overflow-x: auto; }
+    border-top: 1px solid #401300; }
+  #toolbar-scroll { flex: 1 1 auto; min-width: 0; overflow-x: auto;
+    display: flex; align-items: center; gap: 3px;
+    padding: 6px 8px; scroll-behavior: smooth; }
+  #toolbar-scroll::-webkit-scrollbar { height: 4px; }
+  #toolbar-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.28); border-radius: 2px; }
+  /* Fade hints so the scroll affordance is visible at narrow widths */
+  #toolbar { position: relative; }
+  #toolbar::before, #toolbar::after { content: ''; position: absolute; top: 1px; bottom: 0;
+    width: 14px; pointer-events: none; z-index: 1; }
+  #toolbar::before { left: 0; background: linear-gradient(90deg, rgba(184,60,0,0.55), transparent); }
+  #toolbar::after  { right: 46px; background: linear-gradient(-90deg, rgba(255,122,26,0.55), transparent); }
   #toolbar::-webkit-scrollbar { height: 4px; }
   #toolbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.25); border-radius: 2px; }
   /* Buttons sit directly on the orange toolbar BG — no per-button circle.
      Only the icon glyph is rendered; hover/active just change its color. */
-  .tb-btn { all: unset; cursor: pointer; width: 36px; height: 38px;
+  .tb-btn { all: unset; cursor: pointer; width: 30px; height: 32px;
     display: inline-flex; align-items: center; justify-content: center;
     color: #fafafa; transition: color .12s, transform .08s;
     flex: 0 0 auto; position: relative; }
-  .tb-btn:hover  { color: #ffffff; transform: scale(1.08); }
-  .tb-btn:active { color: #ffdac2; transform: scale(0.95); }
+  .tb-btn:hover  { color: #ffffff; transform: scale(1.10); }
+  .tb-btn:active { color: #ffdac2; transform: scale(0.92); }
   .tb-btn[disabled] { opacity: .45; cursor: not-allowed; }
-  .tb-btn .cb-icon { width: 18px; height: 18px; background-color: currentColor;
+  .tb-btn .cb-icon { width: 16px; height: 16px; background-color: currentColor;
     -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;
             mask-size: contain;         mask-repeat: no-repeat;         mask-position: center; }
   .tb-btn.speaking { color: #ff4040; }
@@ -125,19 +136,22 @@
   .ic-font_size         { -webkit-mask-image: url('{{ASSETS_BASE}}/font_size.svg');              mask-image: url('{{ASSETS_BASE}}/font_size.svg'); }
 
   /* Use the smaller composited label.png — its content fills the image so the
-     pill reads big at 240×34. label-alpha.png is the high-res master and has
-     too much transparent padding for a contain-fitted background. */
-  #label-pill { flex: 0 0 auto; height: 34px; width: 240px;
+     pill reads at 200×28. label-alpha.png is the high-res master and has too
+     much transparent padding for a contain-fitted background. */
+  #label-pill { flex: 0 0 auto; height: 28px; width: 200px;
     background-image: url('{{ASSETS_BASE}}/label.png');
     background-size: contain; background-repeat: no-repeat;
     background-position: center; cursor: pointer;
-    margin: 0 8px; transition: filter .12s; }
+    margin: 0 6px; transition: filter .12s; }
   #label-pill:hover { filter: brightness(1.12); }
-  #spacer { flex: 1; min-width: 8px; }
-  #sendBtn { all: unset; cursor: pointer; width: 38px; height: 38px;
+  #spacer { flex: 1; min-width: 4px; }
+  #sendBtn { all: unset; cursor: pointer; width: 34px; height: 34px;
+    margin: 4px 8px 4px 0;
     border-radius: 50%; background: #1a1a1a; color: #fafafa;
     display: inline-flex; align-items: center; justify-content: center;
-    flex: 0 0 auto; transition: transform .1s, background .12s; }
+    flex: 0 0 auto; position: relative; z-index: 2;
+    transition: transform .1s, background .12s;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.35); }
   #sendBtn:hover  { transform: scale(1.06); color: #FF6A00; }
   #sendBtn:active { color: #F32E00; }
   #sendBtn[disabled] { background: #444; cursor: not-allowed; transform: none; opacity: .5; }
@@ -329,37 +343,37 @@
   </div>
 
   <div id="toolbar">
-    <!-- Left cluster: conversation + clipboard + history -->
-    <button type="button" class="tb-btn" id="addBtn"            title="New conversation"><span class="cb-icon ic-add"></span></button>
-    <button type="button" class="tb-btn" id="savedPromptsBtn"   title="Saved Prompts"><span class="cb-icon ic-saved_prompts"></span></button>
-    <button type="button" class="tb-btn" id="storedPromptsBtn"  title="Stored Prompts"><span class="cb-icon ic-stored_prompts"></span></button>
-    <button type="button" class="tb-btn" id="chatHistoryBtn"    title="Chat History"><span class="cb-icon ic-chat_history"></span></button>
-    <button type="button" class="tb-btn" id="attachFileBtn"     title="Attach File"><span class="cb-icon ic-attach_file"></span></button>
+    <div id="toolbar-scroll">
+      <!-- Left cluster: conversation + clipboard + history -->
+      <button type="button" class="tb-btn" id="addBtn"            title="New conversation"><span class="cb-icon ic-add"></span></button>
+      <button type="button" class="tb-btn" id="savedPromptsBtn"   title="Saved Prompts"><span class="cb-icon ic-saved_prompts"></span></button>
+      <button type="button" class="tb-btn" id="storedPromptsBtn"  title="Stored Prompts"><span class="cb-icon ic-stored_prompts"></span></button>
+      <button type="button" class="tb-btn" id="chatHistoryBtn"    title="Chat History"><span class="cb-icon ic-chat_history"></span></button>
+      <button type="button" class="tb-btn" id="attachFileBtn"     title="Attach File"><span class="cb-icon ic-attach_file"></span></button>
 
-    <div id="label-pill" title="Claude Codex Black Edition"></div>
+      <div id="label-pill" title="Claude Codex Black Edition"></div>
 
-    <!-- Voice cluster -->
-    <button type="button" class="tb-btn" id="sttBtn"            title="Speech to Text — click to start/stop"><span class="cb-icon ic-stt"></span></button>
-    <button type="button" class="tb-btn" id="ttsBtn"            title="Read aloud last reply — double-click = auto-read"><span class="cb-icon ic-tts"></span></button>
+      <!-- Voice cluster -->
+      <button type="button" class="tb-btn" id="sttBtn"            title="Speech to Text — click to start/stop"><span class="cb-icon ic-stt"></span></button>
+      <button type="button" class="tb-btn" id="ttsBtn"            title="Read aloud last reply — double-click = auto-read"><span class="cb-icon ic-tts"></span></button>
 
-    <!-- Automation cluster -->
-    <button type="button" class="tb-btn" id="autoReplyBtn"      title="Auto Reply"><span class="cb-icon ic-auto_reply"></span></button>
-    <button type="button" class="tb-btn" id="wakeUpBtn"         title="Wake Up Response"><span class="cb-icon ic-wake_up"></span></button>
-    <button type="button" class="tb-btn" id="showCommandsBtn"   title="Show Command Menu"><span class="cb-icon ic-show_commands"></span></button>
-    <button type="button" class="tb-btn" id="compactBtn"        title="Compact"><span class="cb-icon ic-compact"></span></button>
+      <!-- Automation cluster -->
+      <button type="button" class="tb-btn" id="autoReplyBtn"      title="Auto Reply"><span class="cb-icon ic-auto_reply"></span></button>
+      <button type="button" class="tb-btn" id="wakeUpBtn"         title="Wake Up Response"><span class="cb-icon ic-wake_up"></span></button>
+      <button type="button" class="tb-btn" id="showCommandsBtn"   title="Show Command Menu"><span class="cb-icon ic-show_commands"></span></button>
+      <button type="button" class="tb-btn" id="compactBtn"        title="Compact"><span class="cb-icon ic-compact"></span></button>
 
-    <!-- Docs + diagnostics cluster -->
-    <button type="button" class="tb-btn" id="handbookBtn"       title="Handbook"><span class="cb-icon ic-handbook"></span></button>
-    <button type="button" class="tb-btn" id="helpBtn"           title="Help"><span class="cb-icon ic-help"></span></button>
-    <button type="button" class="tb-btn" id="settingsBtn"       title="Settings — Provider + model"><span class="cb-icon ic-settings"></span></button>
-    <button type="button" class="tb-btn" id="extensionsBtn"     title="Extensions"><span class="cb-icon ic-extensions"></span></button>
-    <button type="button" class="tb-btn" id="projectFolderBtn"  title="Project Folder"><span class="cb-icon ic-project_folder"></span></button>
-    <button type="button" class="tb-btn" id="monitorBtn"        title="VSCode Monitor — trace channel"><span class="cb-icon ic-vscode_monitor"></span></button>
-    <button type="button" class="tb-btn" id="gitBtn"            title="Git"><span class="cb-icon ic-git"></span></button>
-    <button type="button" class="tb-btn" id="githubBtn"         title="GitHub"><span class="cb-icon ic-github"></span></button>
-    <button type="button" class="tb-btn" id="fontSizeBtn"       title="Font Size — toggle 80% bigger text"><span class="cb-icon ic-font_size"></span></button>
-
-    <div id="spacer"></div>
+      <!-- Docs + diagnostics cluster -->
+      <button type="button" class="tb-btn" id="handbookBtn"       title="Handbook"><span class="cb-icon ic-handbook"></span></button>
+      <button type="button" class="tb-btn" id="helpBtn"           title="Help"><span class="cb-icon ic-help"></span></button>
+      <button type="button" class="tb-btn" id="settingsBtn"       title="Settings — Provider + model"><span class="cb-icon ic-settings"></span></button>
+      <button type="button" class="tb-btn" id="extensionsBtn"     title="Extensions"><span class="cb-icon ic-extensions"></span></button>
+      <button type="button" class="tb-btn" id="projectFolderBtn"  title="Project Folder"><span class="cb-icon ic-project_folder"></span></button>
+      <button type="button" class="tb-btn" id="monitorBtn"        title="VSCode Monitor — trace channel"><span class="cb-icon ic-vscode_monitor"></span></button>
+      <button type="button" class="tb-btn" id="gitBtn"            title="Git"><span class="cb-icon ic-git"></span></button>
+      <button type="button" class="tb-btn" id="githubBtn"         title="GitHub"><span class="cb-icon ic-github"></span></button>
+      <button type="button" class="tb-btn" id="fontSizeBtn"       title="Font Size — toggle 80% bigger text"><span class="cb-icon ic-font_size"></span></button>
+    </div>
     <button type="button" id="sendBtn" title="Send"><span class="cb-icon"></span></button>
   </div>
 </div>
