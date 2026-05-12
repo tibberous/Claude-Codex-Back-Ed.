@@ -64,6 +64,39 @@
   #sendBtn:hover { transform: scale(1.06); }
   #sendBtn[disabled] { background: #444; cursor: not-allowed; transform: none; }
 
+  /* ── Settings modal ──────────────────────────────────────── */
+  #cbe-settings { position: fixed; inset: 0; z-index: 2147483645;
+    background: rgba(0,0,0,.65); display: flex;
+    align-items: center; justify-content: center; }
+  #cbe-settings .cbe-box { background: #1a1a1a; border: 2px solid #e8621a;
+    border-radius: 8px; width: 420px; max-width: 90vw;
+    box-shadow: 0 8px 40px rgba(0,0,0,.6); overflow: hidden; }
+  #cbe-settings .cbe-hdr {
+    padding: 10px 14px; background: linear-gradient(90deg,#b83c00,#e8621a);
+    color: #fff; font-family: system-ui, sans-serif; font-weight: 700;
+    font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+  #cbe-settings .cbe-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+  #cbe-settings label { font-size: 11px; color: #aaa;
+    font-family: system-ui, sans-serif; text-transform: uppercase;
+    letter-spacing: .08em; margin-bottom: 5px; display: block; }
+  #cbe-settings select { width: 100%; background: #0f0f0f; color: #e8e8e8;
+    border: 1px solid #333; border-radius: 5px; padding: 8px 10px;
+    font-family: 'Consolas','Courier New',monospace; font-size: 12px; outline: none; }
+  #cbe-settings select:focus { border-color: #e8621a; }
+  #cbe-settings select option { background: #1a1a1a; color: #e8e8e8; }
+  #cbe-settings .cbe-warn { color: #ff9b9b; font-size: 11px; padding: 6px 8px;
+    background: #2a1212; border: 1px solid #5a1f1f; border-radius: 4px;
+    font-family: system-ui, sans-serif; display: none; }
+  #cbe-settings .cbe-warn.show { display: block; }
+  #cbe-settings .cbe-foot { padding: 12px 18px; background: #111;
+    border-top: 1px solid #222; display: flex; justify-content: flex-end; gap: 8px; }
+  #cbe-settings button.cbe-btn { font-family: system-ui, sans-serif;
+    font-weight: 700; font-size: 12px; cursor: pointer; padding: 7px 14px;
+    border-radius: 5px; border: none; }
+  #cbe-settings button.cbe-cancel { background: #2a2a2a; color: #ddd; }
+  #cbe-settings button.cbe-save   { background: #e8621a; color: #fff; }
+  #cbe-settings button.cbe-save:hover { background: #ff7a1a; }
+
   /* ── Context menu (View Source + DevTools) ────────────────── */
   #cbe-ctx-menu {
     position: fixed; z-index: 2147483647;
@@ -219,6 +252,7 @@
     <div id="label-pill" title="Claude Codex Black Edition"></div>
     <div id="spacer"></div>
     <button class="tb-btn" id="micBtn" title="Voice input (not wired yet)">🎙</button>
+    <button class="tb-btn" id="settingsBtn" title="Provider + model">⚙</button>
     <button class="tb-btn" id="monitorBtn" title="Trace">◉</button>
     <button id="sendBtn" title="Send">▶</button>
   </div>
@@ -417,6 +451,84 @@ sendBtn.onclick = send;
 addBtn.onclick = () => { if (api) api.postMessage({ type: 'reset' }); thread.innerHTML = ''; addMsg('Conversation reset.', 'info'); };
 document.getElementById('monitorBtn').onclick = () => { if (api) api.postMessage({ type: 'showTrace' }); };
 document.getElementById('label-pill').onclick = () => { if (api) api.postMessage({ type: 'labelClick' }); };
+document.getElementById('settingsBtn').onclick = () => { if (api) api.postMessage({ type: 'openSettings' }); };
+
+/* ── Settings modal ──────────────────────────────────────────────────── */
+let __cbeProviders = [];   /* {id,label,models[],current,haveKey} */
+let __cbeActive = null;
+
+function openSettings(payload) {
+  __cbeProviders = payload.providers || [];
+  __cbeActive    = payload.active || (__cbeProviders[0] && __cbeProviders[0].id);
+  closeSettings();
+  const overlay = document.createElement('div');
+  overlay.id = 'cbe-settings';
+  overlay.innerHTML = ''
+    + '<div class="cbe-box">'
+    +   '<div class="cbe-hdr"><span>Settings — Provider &amp; Model</span><button class="cbe-btn cbe-cancel" data-act="cancel" style="padding:2px 8px">✕</button></div>'
+    +   '<div class="cbe-body">'
+    +     '<div><label>Provider</label><select id="cbe-set-provider"></select></div>'
+    +     '<div><label>Model</label><select id="cbe-set-model"></select></div>'
+    +     '<div class="cbe-warn" id="cbe-set-warn">No API key configured for this provider in config.ini.</div>'
+    +   '</div>'
+    +   '<div class="cbe-foot">'
+    +     '<button class="cbe-btn cbe-cancel" data-act="cancel">Cancel</button>'
+    +     '<button class="cbe-btn cbe-save"   data-act="save">Save</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(overlay);
+
+  const sel = overlay.querySelector('#cbe-set-provider');
+  __cbeProviders.forEach(p => {
+    const o = document.createElement('option');
+    o.value = p.id;
+    o.textContent = p.label + (p.haveKey ? '' : '  (no key)');
+    sel.appendChild(o);
+  });
+  sel.value = __cbeActive;
+
+  const renderModels = () => {
+    const cur = sel.value;
+    const prov = __cbeProviders.find(p => p.id === cur);
+    const ms = overlay.querySelector('#cbe-set-model');
+    ms.innerHTML = '';
+    (prov.models || []).forEach(m => {
+      const o = document.createElement('option');
+      o.value = m; o.textContent = m;
+      ms.appendChild(o);
+    });
+    if (prov.current && !Array.from(ms.options).some(o => o.value === prov.current)) {
+      const o = document.createElement('option');
+      o.value = prov.current; o.textContent = prov.current;
+      ms.insertBefore(o, ms.firstChild);
+    }
+    ms.value = prov.current || (prov.models && prov.models[0]) || '';
+    overlay.querySelector('#cbe-set-warn').classList.toggle('show', !prov.haveKey);
+  };
+  sel.addEventListener('change', renderModels);
+  renderModels();
+
+  overlay.addEventListener('click', (e) => {
+    const act = e.target.getAttribute && e.target.getAttribute('data-act');
+    if (act === 'cancel' || e.target === overlay) { closeSettings(); return; }
+    if (act === 'save') {
+      const provider = overlay.querySelector('#cbe-set-provider').value;
+      const model    = overlay.querySelector('#cbe-set-model').value;
+      if (api) api.postMessage({ type: 'setProvider', provider, model });
+      closeSettings();
+    }
+  });
+  document.addEventListener('keydown', escClose, true);
+}
+function escClose(e) { if (e.key === 'Escape') closeSettings(); }
+function closeSettings() {
+  const old = document.getElementById('cbe-settings');
+  if (old) old.remove();
+  document.removeEventListener('keydown', escClose, true);
+}
+
+/* Tell host we're ready to receive init payload. */
+if (api) api.postMessage({ type: 'ready' });
 
 ti.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
@@ -456,6 +568,12 @@ window.addEventListener('message', e => {
     setBusy(false);
   } else if (m.type === 'info') {
     addMsg(m.text || '', 'info');
+  } else if (m.type === 'init') {
+    /* Cache provider state for later; don't open modal yet. */
+    __cbeProviders = m.providers || [];
+    __cbeActive    = m.active;
+  } else if (m.type === 'openSettings') {
+    openSettings(m);
   }
 });
 

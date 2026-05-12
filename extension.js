@@ -3,12 +3,58 @@ const fs = require('fs');
 const path = require('path');
 
 const SECRET_KEY = 'codexBlackEd.anthropicApiKey';
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
+const STATE_PROVIDER = 'codexBlackEd.activeProvider';
+const STATE_MODEL    = 'codexBlackEd.activeModel';
 const CONFIG_INI_NAME = 'config.ini';
 
-/* ── config.ini reader ────────────────────────────────────────────────────
-   Minimal INI parser. Looks up [api_keys] anthropic_api_key in either the
-   installed extension folder (__dirname) or the user-level fallback. */
+/* ── Provider registry ────────────────────────────────────────────────────
+   Per-provider metadata: pretty label, default model id, the field name to
+   read from config.ini's [api_keys] section, the model-choice field name,
+   and a hint list of candidate models for the dropdown. The Grok entry
+   targets the direct xAI API (api.x.ai) — not the grok.com browser bridge. */
+const PROVIDERS = {
+    anthropic: {
+        label: 'Claude (Anthropic)',
+        keyField:   'anthropic_api_key',
+        modelField: 'claude_model_choice',
+        defaultModel: 'claude-sonnet-4-6',
+        models: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
+    },
+    openai: {
+        label: 'ChatGPT (OpenAI)',
+        keyField:   'openai_api_key',
+        modelField: 'gpt_model_choice',
+        defaultModel: 'gpt-4o',
+        models: ['gpt-5.4', 'gpt-5', 'gpt-4o', 'gpt-4o-mini', 'o3', 'o3-mini'],
+    },
+    grok: {
+        label: 'Grok (xAI direct API)',
+        keyField:   'xai_api_key',
+        modelField: 'grok_model_choice',
+        defaultModel: 'grok-4.3',
+        models: ['grok-4.3', 'grok-4-fast-reasoning', 'grok-3', 'grok-2-1212'],
+    },
+    gemini: {
+        label: 'Gemini (Google)',
+        keyField:   'gemini_api_key',
+        modelField: 'gem_model_choice',
+        defaultModel: 'gemini-2.5-pro',
+        models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'],
+    },
+    azure: {
+        label: 'Azure OpenAI',
+        /* Azure reads from [azure] section, not [api_keys]. Model = deployment name. */
+        azureSection: true,
+        defaultModel: '',
+        models: [],
+    },
+};
+
+const DEFAULT_PROVIDER = 'anthropic';
+
+/* ── config.ini reader (full multi-section) ──────────────────────────────
+   Returns an object keyed by section name, each value is a flat key→string
+   map. Looks at <extensionPath>/config.ini then ~/.cbe/config.ini. */
 function readConfigIni(extensionPath) {
     const candidates = [
         path.join(extensionPath, CONFIG_INI_NAME),
@@ -18,16 +64,19 @@ function readConfigIni(extensionPath) {
         if (!fs.existsSync(p)) continue;
         try {
             const src = fs.readFileSync(p, 'utf8');
-            /* Find [api_keys] section, then anthropic_api_key inside it. */
-            const sec = src.split(/^\[api_keys\][\r\n]+/m)[1];
-            if (!sec) { trace('config.ini found at ' + p + ' but no [api_keys] section'); continue; }
-            const body = sec.split(/^\[/m)[0];
-            const m = body.match(/^\s*anthropic_api_key\s*=\s*([^\r\n]+)/m);
-            if (m && m[1].trim()) {
-                trace('config.ini: anthropic_api_key found at ' + p + ' (len=' + m[1].trim().length + ')');
-                return m[1].trim();
+            const out = {};
+            let cur = null;
+            for (const raw of src.split(/\r?\n/)) {
+                const line = raw.trim();
+                if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+                const sec = line.match(/^\[([^\]]+)\]$/);
+                if (sec) { cur = sec[1].trim(); out[cur] = out[cur] || {}; continue; }
+                if (!cur) continue;
+                const m = line.match(/^([^=]+?)\s*=\s*(.*)$/);
+                if (m) out[cur][m[1].trim()] = m[2].trim();
             }
-            trace('config.ini at ' + p + ' has no anthropic_api_key');
+            trace('config.ini parsed from ' + p + ' sections=' + Object.keys(out).join(','));
+            return { _path: p, ...out };
         } catch (e) {
             traceErr('reading ' + p, e);
         }
@@ -35,18 +84,56 @@ function readConfigIni(extensionPath) {
     return null;
 }
 
+/* ── Provider state lookup ────────────────────────────────────────────── */
+
+function getActiveProvider(context) {
+    const id = context.workspaceState.get(STATE_PROVIDER) || DEFAULT_PROVIDER;
+    return PROVIDERS[id] ? id : DEFAULT_PROVIDER;
+}
+
+function getActiveModel(context, providerId) {
+    const stored = context.workspaceState.get(STATE_MODEL + ':' + providerId);
+    if (stored) return stored;
+    const cfg = readConfigIni(context.extensionPath);
+    const provider = PROVIDERS[providerId];
+    if (!provider) return '';
+    if (provider.azureSection) {
+        return (cfg && cfg.azure && cfg.azure.deployment_name) || provider.defaultModel;
+    }
+    const fromIni = cfg && cfg.api_keys && cfg.api_keys[provider.modelField];
+    return fromIni || provider.defaultModel;
+}
+
+function getProviderKey(context, providerId) {
+    const cfg = readConfigIni(context.extensionPath);
+    const provider = PROVIDERS[providerId];
+    if (!provider) return null;
+    if (provider.azureSection) {
+        return cfg && cfg.azure && (cfg.azure.api_key || cfg.azure.api_key1);
+    }
+    const fromIni = cfg && cfg.api_keys && cfg.api_keys[provider.keyField];
+    if (fromIni) return fromIni;
+    /* env fallback per provider */
+    const envName = ({
+        anthropic: 'ANTHROPIC_API_KEY',
+        openai:    'OPENAI_API_KEY',
+        grok:      'XAI_API_KEY',
+        gemini:    'GEMINI_API_KEY',
+    })[providerId];
+    return envName ? (process.env[envName] || null) : null;
+}
+
 let activePanel;
-let conversation = [];  /* per-session in-memory history */
+let conversation = [];
 let outChan;
-let anthropicClient;
 let statusBar;
+let anthropicClient;
 
 /* ── Tracing ──────────────────────────────────────────────────────────── */
 
 function trace(msg) {
     const ts = new Date().toISOString();
-    const line = `[${ts}] ${msg}`;
-    try { outChan && outChan.appendLine(line); } catch (e) {}
+    try { outChan && outChan.appendLine(`[${ts}] ${msg}`); } catch (e) {}
     try { console.log('[codex-black]', msg); } catch (e) {}
 }
 
@@ -55,9 +142,10 @@ function traceErr(msg, err) {
     trace('ERROR: ' + msg + (err ? ' :: ' + (err.message || err) : '') + stack);
 }
 
-function setStatus(text, busy) {
+function setStatus(text, busy, providerId) {
     if (!statusBar) return;
-    statusBar.text = (busy ? '$(sync~spin) ' : '$(circle-large-outline) ') + 'CBE: ' + text;
+    const tag = providerId ? ` [${PROVIDERS[providerId] ? PROVIDERS[providerId].label.split(' ')[0] : providerId}]` : '';
+    statusBar.text = (busy ? '$(sync~spin) ' : '$(circle-large-outline) ') + 'CBE: ' + text + tag;
     statusBar.show();
 }
 
@@ -66,14 +154,19 @@ function setStatus(text, busy) {
 function activate(context) {
     outChan = vscode.window.createOutputChannel('Claude Codex Black');
     trace('=== activate ===');
+    trace('  activeProvider=' + getActiveProvider(context) + ' model=' + getActiveModel(context, getActiveProvider(context)));
 
     statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
     statusBar.command = 'codexBlackEd.openPanel';
-    setStatus('idle', false);
+    setStatus('idle', false, getActiveProvider(context));
     context.subscriptions.push(statusBar);
 
     context.subscriptions.push(
         vscode.commands.registerCommand('codexBlackEd.openPanel', () => openPanel(context)),
+        vscode.commands.registerCommand('codexBlackEd.openSettings', () => {
+            if (activePanel) activePanel.webview.postMessage({ type: 'openSettings', ...buildSettingsPayload(context) });
+            else openPanel(context);
+        }),
         vscode.commands.registerCommand('codexBlackEd.setApiKey', () => setApiKey(context)),
         vscode.commands.registerCommand('codexBlackEd.clearApiKey', () => clearApiKey(context)),
         vscode.commands.registerCommand('codexBlackEd.resetConversation', () => {
@@ -96,25 +189,35 @@ function activate(context) {
     trace('activate complete');
 }
 
-function deactivate() {
-    trace('=== deactivate ===');
+function deactivate() { trace('=== deactivate ==='); }
+
+/* ── Settings payload (sent to webview to populate the settings modal) ── */
+
+function buildSettingsPayload(context) {
+    const cfg = readConfigIni(context.extensionPath) || {};
+    const active = getActiveProvider(context);
+    const providers = Object.keys(PROVIDERS).map(id => {
+        const p = PROVIDERS[id];
+        const haveKey = !!getProviderKey(context, id);
+        const models = p.azureSection
+            ? (cfg.azure && cfg.azure.deployment_name ? [cfg.azure.deployment_name] : [])
+            : p.models.slice();
+        const currentModel = getActiveModel(context, id);
+        if (currentModel && !models.includes(currentModel)) models.unshift(currentModel);
+        return { id, label: p.label, models, current: currentModel, haveKey };
+    });
+    return { providers, active };
 }
 
 /* ── Panel lifecycle ──────────────────────────────────────────────────── */
 
 function openPanel(context) {
     trace('openPanel');
-    if (activePanel) {
-        activePanel.reveal(undefined, false);
-        trace('  revealed existing');
-        return;
-    }
-    /* Tab scan — find an existing CBE webview tab even if our local ref was lost. */
+    if (activePanel) { activePanel.reveal(undefined, false); return; }
     for (const group of vscode.window.tabGroups.all) {
         for (const tab of group.tabs) {
             if (tab.input instanceof vscode.TabInputWebview &&
                 tab.input.viewType === 'mainThreadWebview-codexBlackEd.panel') {
-                trace('  found existing tab — focusing');
                 vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
                 return;
             }
@@ -134,7 +237,6 @@ function openPanel(context) {
             ]
         }
     );
-    trace('  created new panel');
     bindPanel(context, panel);
 }
 
@@ -143,34 +245,40 @@ function bindPanel(context, panel) {
     panel.webview.html = getPanelHtml(context, panel.webview);
 
     panel.webview.onDidReceiveMessage(async (msg) => {
-        trace('recv ' + JSON.stringify({ type: msg && msg.type, len: msg && msg.text && msg.text.length }));
+        trace('recv ' + JSON.stringify({ type: msg && msg.type }));
         if (!msg || !msg.type) return;
         try {
             switch (msg.type) {
+                case 'ready':
+                    panel.webview.postMessage({ type: 'init', ...buildSettingsPayload(context) });
+                    break;
                 case 'sendText':
                     await handleSendText(context, panel, msg.text || '');
                     break;
                 case 'reset':
                     conversation = [];
                     panel.webview.postMessage({ type: 'info', text: 'Conversation reset.' });
-                    trace('  conversation reset');
+                    break;
+                case 'openSettings':
+                    panel.webview.postMessage({ type: 'openSettings', ...buildSettingsPayload(context) });
+                    break;
+                case 'setProvider':
+                    await context.workspaceState.update(STATE_PROVIDER, msg.provider);
+                    if (msg.model) await context.workspaceState.update(STATE_MODEL + ':' + msg.provider, msg.model);
+                    conversation = [];
+                    trace(`active provider set: ${msg.provider} / ${msg.model || '(default)'}`);
+                    setStatus('idle', false, msg.provider);
+                    panel.webview.postMessage({ type: 'info', text: `Provider → ${PROVIDERS[msg.provider].label} · ${msg.model || getActiveModel(context, msg.provider)}` });
                     break;
                 case 'labelClick':
-                    trace('  labelClick (no-op for now)');
+                    panel.webview.postMessage({ type: 'openSettings', ...buildSettingsPayload(context) });
                     break;
                 case 'start': case 'stop':
-                    /* Voice STT not wired in this build — log and reply with error so UI doesn't hang. */
                     panel.webview.postMessage({ type: 'error', message: 'Voice input not yet wired in standalone build' });
                     break;
                 case 'openDevTools':
-                    trace('  openDevTools requested');
-                    try {
-                        await vscode.commands.executeCommand('workbench.action.webview.openDeveloperTools');
-                        trace('  openDevTools dispatched');
-                    } catch (e) {
-                        traceErr('openDevTools failed', e);
-                        panel.webview.postMessage({ type: 'error', message: 'Failed to open DevTools: ' + (e.message || String(e)) });
-                    }
+                    try { await vscode.commands.executeCommand('workbench.action.webview.openDeveloperTools'); }
+                    catch (e) { traceErr('openDevTools', e); panel.webview.postMessage({ type: 'error', message: 'DevTools: ' + (e.message || e) }); }
                     break;
                 default:
                     trace('  unhandled type: ' + msg.type);
@@ -190,18 +298,10 @@ function bindPanel(context, panel) {
 function getPanelHtml(context, webview) {
     const htmlPath = path.join(context.extensionPath, 'panel', 'index.html');
     let html = fs.readFileSync(htmlPath, 'utf8');
-    const labelUri = webview.asWebviewUri(
-        vscode.Uri.file(path.join(context.extensionPath, 'assets', 'label-alpha.png'))
-    );
-    const prismJsUri = webview.asWebviewUri(
-        vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism.min.js'))
-    );
-    const prismLangsUri = webview.asWebviewUri(
-        vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-langs.min.js'))
-    );
-    const prismCssUri = webview.asWebviewUri(
-        vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-dark.min.css'))
-    );
+    const labelUri      = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets', 'label-alpha.png')));
+    const prismJsUri    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism.min.js')));
+    const prismLangsUri = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-langs.min.js')));
+    const prismCssUri   = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-dark.min.css')));
     html = html.split('{{LABEL_ALPHA_URI}}').join(labelUri.toString());
     html = html.split('{{PRISM_JS_URI}}').join(prismJsUri.toString());
     html = html.split('{{PRISM_LANGS_URI}}').join(prismLangsUri.toString());
@@ -209,131 +309,197 @@ function getPanelHtml(context, webview) {
     return html;
 }
 
-/* ── API key flow ─────────────────────────────────────────────────────── */
-
-async function getApiKey(context) {
-    /* Priority: config.ini → ANTHROPIC_API_KEY env → SecretStorage → first-run prompt. */
-    const fromIni = readConfigIni(context.extensionPath);
-    if (fromIni) {
-        trace('apiKey: using config.ini (len=' + fromIni.length + ')');
-        return fromIni;
-    }
-    const envKey = process.env.ANTHROPIC_API_KEY;
-    if (envKey && envKey.trim()) {
-        trace('apiKey: using ANTHROPIC_API_KEY env var (len=' + envKey.length + ')');
-        return envKey.trim();
-    }
-    const stored = await context.secrets.get(SECRET_KEY);
-    if (stored && stored.trim()) {
-        trace('apiKey: using SecretStorage (len=' + stored.length + ')');
-        return stored.trim();
-    }
-    trace('apiKey: not found in config.ini / env / SecretStorage, prompting');
-    const entered = await vscode.window.showInputBox({
-        title: 'Anthropic API Key',
-        prompt: 'Paste your Anthropic API key (sk-ant-...). Stored encrypted in VS Code SecretStorage.',
-        password: true,
-        ignoreFocusOut: true,
-        validateInput: v => (v && v.startsWith('sk-ant-')) ? null : 'Key should start with sk-ant-',
-    });
-    if (!entered) { trace('apiKey: user cancelled prompt'); return null; }
-    await context.secrets.store(SECRET_KEY, entered.trim());
-    trace('apiKey: saved to SecretStorage (len=' + entered.length + ')');
-    return entered.trim();
-}
+/* ── API key utility / Anthropic SDK client ───────────────────────────── */
 
 async function setApiKey(context) {
     const entered = await vscode.window.showInputBox({
         title: 'Set Anthropic API Key',
-        prompt: 'Replace stored key. Leave blank to cancel.',
-        password: true,
-        ignoreFocusOut: true,
+        prompt: 'Replace stored Anthropic key. Other providers read from config.ini.',
+        password: true, ignoreFocusOut: true,
     });
     if (!entered) return;
     await context.secrets.store(SECRET_KEY, entered.trim());
-    trace('apiKey: replaced via setApiKey command');
-    vscode.window.showInformationMessage('CBE: API key saved.');
+    vscode.window.showInformationMessage('CBE: Anthropic API key saved.');
 }
 
 async function clearApiKey(context) {
     await context.secrets.delete(SECRET_KEY);
-    trace('apiKey: cleared from SecretStorage');
-    vscode.window.showInformationMessage('CBE: API key cleared.');
+    vscode.window.showInformationMessage('CBE: Anthropic API key cleared.');
 }
 
-/* ── Anthropic client (lazy) ──────────────────────────────────────────── */
-
-function getClient(apiKey) {
+function getAnthropicClient(apiKey) {
     if (anthropicClient && anthropicClient._cbApiKey === apiKey) return anthropicClient;
-    /* require lazily — module may have side effects we don't want during activation */
     let Anthropic;
-    try {
-        Anthropic = require('@anthropic-ai/sdk').default || require('@anthropic-ai/sdk').Anthropic || require('@anthropic-ai/sdk');
-    } catch (e) {
-        traceErr('@anthropic-ai/sdk require failed', e);
-        throw new Error('Anthropic SDK not installed. Run `npm install @anthropic-ai/sdk` in the extension folder.');
-    }
+    try { Anthropic = require('@anthropic-ai/sdk').default || require('@anthropic-ai/sdk').Anthropic || require('@anthropic-ai/sdk'); }
+    catch (e) { traceErr('@anthropic-ai/sdk require failed', e); throw new Error('Anthropic SDK missing. npm install @anthropic-ai/sdk.'); }
     anthropicClient = new Anthropic({ apiKey });
     anthropicClient._cbApiKey = apiKey;
-    trace('Anthropic client created');
     return anthropicClient;
+}
+
+/* ── Streaming primitives ─────────────────────────────────────────────── */
+
+/* SSE reader for OpenAI-format endpoints (OAI / Grok / Azure).
+   Yields delta text strings. Stops on [DONE]. */
+async function* streamOpenAIFormat(url, headers, body) {
+    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+    if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} ${res.statusText}${errText ? ': ' + errText.slice(0, 400) : ''}`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n')) !== -1) {
+            const line = buf.slice(0, idx).trim();
+            buf = buf.slice(idx + 1);
+            if (!line.startsWith('data:')) continue;
+            const payload = line.slice(5).trim();
+            if (payload === '[DONE]') return;
+            try {
+                const j = JSON.parse(payload);
+                const delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
+                if (delta) yield delta;
+            } catch (e) { /* ignore parse hiccups on partial chunks */ }
+        }
+    }
+}
+
+/* Gemini SSE — same protocol shape (data: {...}), different payload structure. */
+async function* streamGemini(apiKey, model, messages) {
+    /* Convert {role:'user'|'assistant', content} → Gemini's contents[]. */
+    const contents = messages.map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }],
+    }));
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents }),
+    });
+    if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} ${res.statusText}${errText ? ': ' + errText.slice(0, 400) : ''}`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n')) !== -1) {
+            const line = buf.slice(0, idx).trim();
+            buf = buf.slice(idx + 1);
+            if (!line.startsWith('data:')) continue;
+            const payload = line.slice(5).trim();
+            if (!payload) continue;
+            try {
+                const j = JSON.parse(payload);
+                const parts = j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts;
+                if (parts) for (const p of parts) if (p.text) yield p.text;
+            } catch (e) { /* partial */ }
+        }
+    }
+}
+
+/* Anthropic via SDK — wrap stream events as async generator. */
+async function* streamAnthropic(apiKey, model, messages) {
+    const client = getAnthropicClient(apiKey);
+    const stream = await client.messages.stream({ model, max_tokens: 4096, messages });
+    const queue = [];
+    let finished = false;
+    let pendingResolve = null;
+    stream.on('text', t => { queue.push(t); if (pendingResolve) { const r = pendingResolve; pendingResolve = null; r(); } });
+    stream.on('end', () => { finished = true; if (pendingResolve) { const r = pendingResolve; pendingResolve = null; r(); } });
+    stream.on('error', err => { finished = true; queue.push({ __err: err }); if (pendingResolve) { const r = pendingResolve; pendingResolve = null; r(); } });
+    while (true) {
+        if (queue.length) {
+            const v = queue.shift();
+            if (v && v.__err) throw v.__err;
+            yield v;
+        } else if (finished) {
+            break;
+        } else {
+            await new Promise(r => { pendingResolve = r; });
+        }
+    }
+}
+
+/* Dispatch by provider id. Returns async iterator yielding text chunks. */
+async function* chatStream(context, providerId, model, messages) {
+    const cfg = readConfigIni(context.extensionPath) || {};
+    const key = getProviderKey(context, providerId);
+    if (!key) throw new Error(`No API key for ${providerId}. Add it to config.ini under [api_keys] (or [azure]).`);
+
+    if (providerId === 'anthropic') {
+        yield* streamAnthropic(key, model, messages);
+        return;
+    }
+    if (providerId === 'gemini') {
+        yield* streamGemini(key, model, messages);
+        return;
+    }
+    /* OpenAI-compatible: OAI, Grok, Azure */
+    let url, headers;
+    const body = { model, messages, stream: true, max_tokens: 4096 };
+    if (providerId === 'openai') {
+        url = 'https://api.openai.com/v1/chat/completions';
+        headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key };
+    } else if (providerId === 'grok') {
+        url = 'https://api.x.ai/v1/chat/completions';
+        headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key };
+    } else if (providerId === 'azure') {
+        const endpoint = (cfg.azure && cfg.azure.endpoint || '').replace(/\/+$/, '');
+        const apiVersion = (cfg.azure && cfg.azure.api_version) || '2024-12-01-preview';
+        if (!endpoint) throw new Error('Azure endpoint missing in config.ini [azure] section.');
+        if (!model) throw new Error('Azure deployment_name missing.');
+        url = `${endpoint}/openai/deployments/${encodeURIComponent(model)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
+        headers = { 'Content-Type': 'application/json', 'api-key': key };
+        delete body.model; /* Azure uses deployment in URL */
+    } else {
+        throw new Error('Unknown provider: ' + providerId);
+    }
+    yield* streamOpenAIFormat(url, headers, body);
 }
 
 /* ── Chat dispatch ────────────────────────────────────────────────────── */
 
 async function handleSendText(context, panel, text) {
     text = (text || '').trim();
-    if (!text) { trace('sendText: empty, ignored'); return; }
+    if (!text) return;
 
-    const apiKey = await getApiKey(context);
-    if (!apiKey) {
-        panel.webview.postMessage({ type: 'error', message: 'No API key. Run "CBE: Set API Key".' });
-        return;
-    }
-
-    let client;
-    try { client = getClient(apiKey); }
-    catch (e) {
-        panel.webview.postMessage({ type: 'error', message: e.message });
-        return;
-    }
-
+    const providerId = getActiveProvider(context);
+    const model = getActiveModel(context, providerId);
     conversation.push({ role: 'user', content: text });
-    const model = vscode.workspace.getConfiguration().get('codexBlackEd.model') || DEFAULT_MODEL;
-    const maxTokens = vscode.workspace.getConfiguration().get('codexBlackEd.maxTokens') || 4096;
 
-    setStatus('streaming', true);
+    setStatus('streaming', true, providerId);
     panel.webview.postMessage({ type: 'assistantStart' });
-    trace(`stream start model=${model} maxTokens=${maxTokens} historyLen=${conversation.length}`);
+    trace(`stream start provider=${providerId} model=${model} historyLen=${conversation.length}`);
 
     let assembled = '';
     const t0 = Date.now();
     try {
-        const stream = await client.messages.stream({
-            model,
-            max_tokens: maxTokens,
-            messages: conversation,
-        });
-
-        stream.on('text', (delta) => {
+        for await (const delta of chatStream(context, providerId, model, conversation)) {
             assembled += delta;
             panel.webview.postMessage({ type: 'chunk', text: delta });
-        });
-
-        const final = await stream.finalMessage();
-        const usage = final && final.usage;
-        trace(`stream done in=${usage && usage.input_tokens} out=${usage && usage.output_tokens} ms=${Date.now() - t0}`);
+        }
+        trace(`stream done provider=${providerId} chars=${assembled.length} ms=${Date.now() - t0}`);
         conversation.push({ role: 'assistant', content: assembled });
         panel.webview.postMessage({ type: 'assistantDone', text: assembled });
-        setStatus('idle', false);
+        setStatus('idle', false, providerId);
     } catch (e) {
-        traceErr('stream failed', e);
-        panel.webview.postMessage({ type: 'error', message: e.message || String(e) });
-        setStatus('error', false);
-        /* Pop the failed user turn so retry doesn't dupe it. */
-        if (conversation[conversation.length - 1] && conversation[conversation.length - 1].role === 'user') {
-            conversation.pop();
-        }
+        traceErr(`stream failed (provider=${providerId})`, e);
+        panel.webview.postMessage({ type: 'error', message: `${providerId}: ${e.message || e}` });
+        setStatus('error', false, providerId);
+        if (conversation[conversation.length - 1] && conversation[conversation.length - 1].role === 'user') conversation.pop();
     }
 }
 
