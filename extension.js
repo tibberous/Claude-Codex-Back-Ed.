@@ -370,7 +370,17 @@ function buildSettingsPayload(context) {
         if (currentModel && !models.includes(currentModel)) models.unshift(currentModel);
         return { id, label: p.label, models, current: currentModel, haveKey, webBridge: !!p.webBridge, superGrok: !!p.superGrok };
     });
-    return { providers, active };
+    /* SFX prefs are persisted in workspaceState. Booleans + a 0..1 number;
+       defaults match the panel's window.SFX_* defaults so a fresh install
+       hears sounds at the same volume the agent originally wired (0.55). */
+    const sfxEnabled = context.workspaceState.get('codexBlackEd.sfxEnabled');
+    const sfxVolume  = context.workspaceState.get('codexBlackEd.sfxVolume');
+    return {
+        providers,
+        active,
+        sfxEnabled: (typeof sfxEnabled === 'boolean') ? sfxEnabled : true,
+        sfxVolume:  (typeof sfxVolume  === 'number')  ? sfxVolume  : 0.55,
+    };
 }
 
 /* ── Panel lifecycle ──────────────────────────────────────────────────── */
@@ -400,7 +410,8 @@ function openPanel(context) {
             localResourceRoots: [
                 vscode.Uri.file(path.join(context.extensionPath, 'panel')),
                 vscode.Uri.file(path.join(context.extensionPath, 'assets')),
-                vscode.Uri.file(path.join(context.extensionPath, 'lib'))
+                vscode.Uri.file(path.join(context.extensionPath, 'lib')),
+                vscode.Uri.file(path.join(context.extensionPath, 'sounds'))
             ]
         }
     );
@@ -432,8 +443,15 @@ function bindPanel(context, panel) {
                 case 'setProvider':
                     await context.workspaceState.update(STATE_PROVIDER, msg.provider);
                     if (msg.model) await context.workspaceState.update(STATE_MODEL + ':' + msg.provider, msg.model);
+                    if (typeof msg.sfxEnabled === 'boolean') {
+                        await context.workspaceState.update('codexBlackEd.sfxEnabled', msg.sfxEnabled);
+                    }
+                    if (typeof msg.sfxVolume === 'number') {
+                        const v = Math.max(0, Math.min(1, msg.sfxVolume));
+                        await context.workspaceState.update('codexBlackEd.sfxVolume', v);
+                    }
                     conversation = [];
-                    trace(`active provider set: ${msg.provider} / ${msg.model || '(default)'}`);
+                    trace(`active provider set: ${msg.provider} / ${msg.model || '(default)'} sfx=${msg.sfxEnabled}/${msg.sfxVolume}`);
                     setStatus('idle', false, msg.provider);
                     panel.webview.postMessage({ type: 'info', text: `Provider → ${PROVIDERS[msg.provider].label} · ${msg.model || getActiveModel(context, msg.provider)}` });
                     break;
@@ -504,7 +522,9 @@ function getPanelHtml(context, webview) {
     const prismJsUri    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism.min.js')));
     const prismLangsUri = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-langs.min.js')));
     const prismCssUri   = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-dark.min.css')));
+    const soundsBase    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'sounds')));
     html = html.split('{{ASSETS_BASE}}').join(assetsBase.toString());
+    html = html.split('{{SOUNDS_BASE}}').join(soundsBase.toString());
     html = html.split('{{LABEL_ALPHA_URI}}').join(labelUri.toString());
     html = html.split('{{BLANK_URI}}').join(blankUri.toString());
     html = html.split('{{BLANK_OVER_URI}}').join(blankOverUri.toString());

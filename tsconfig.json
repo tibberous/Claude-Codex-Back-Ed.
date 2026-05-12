@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "commonjs",
+    "lib": ["es2022", "dom"],
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "node10",
+    "ignoreDeprecations": "6.0",
+    "types": ["node"]
+  },
+  "include": ["extension.js", "bridge/**/*.js", "injects/**/*.js", "panel/**/*.js"],
+  "exclude": ["node_modules", "assets", "sounds", "lib", "*.vsix", ".start.py.preref"]
+}

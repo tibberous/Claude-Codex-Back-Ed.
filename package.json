@@ -96,6 +96,14 @@
       }
     }
   },
+  "scripts": {
+    "lint": "biome check && eslint .",
+    "lint:fix": "biome check --write && eslint . --fix",
+    "format": "biome format --write",
+    "typecheck": "tsc --noEmit",
+    "knip": "knip",
+    "check": "npm run typecheck && npm run lint && npm run knip"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.65.0",
     "ws": "^8.20.0"
@@ -119,7 +127,9 @@
   ],
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
+    "@types/node": "^25.7.0",
     "eslint": "^10.3.0",
+    "globals": "^17.6.0",
     "knip": "^6.13.0",
     "typescript": "^6.0.3"
   }

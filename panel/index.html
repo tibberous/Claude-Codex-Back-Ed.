@@ -338,6 +338,51 @@ const inBox  = document.getElementById('input-box');
 const sendBtn= document.getElementById('sendBtn');
 const addBtn = document.getElementById('addBtn');
 
+/* ── Sound effects (SFX) — preloaded HTMLAudioElements, played on UI events ─
+   16 ogg files under <extensionPath>/sounds (served via {{SOUNDS_BASE}}).
+   playSfx() is fire-and-forget; failed plays are swallowed so the UI never
+   throws over a sound glitch. Volume kept low (0.55) so the UI doesn't
+   become a casino. */
+const SFX_BASE = '{{SOUNDS_BASE}}';
+const SFX = {};  // name -> HTMLAudioElement
+/* User-controlled SFX gates. Hydrated from the host on `init` and updated by
+   the settings modal. Defaults: enabled, 0.55 volume. */
+window.SFX_ENABLED = true;
+window.SFX_VOLUME  = 0.55;
+function preloadSfx(name) {
+  if (!SFX[name]) {
+    const a = new Audio(`${SFX_BASE}/${name}.ogg`);
+    a.preload = 'auto';
+    a.volume = window.SFX_VOLUME;
+    SFX[name] = a;
+  }
+  return SFX[name];
+}
+function playSfx(name) {
+  if (!window.SFX_ENABLED) return;
+  try {
+    const a = preloadSfx(name);
+    a.volume = window.SFX_VOLUME;
+    a.currentTime = 0;
+    a.play().catch(() => {});
+  } catch (e) {}
+}
+function setSfxVolume(v) {
+  const n = Math.max(0, Math.min(1, Number(v)));
+  if (!Number.isFinite(n)) return;
+  window.SFX_VOLUME = n;
+  for (const k in SFX) { try { SFX[k].volume = n; } catch (e) {} }
+}
+function setSfxEnabled(b) { window.SFX_ENABLED = !!b; }
+['click','tick','error','popup','close_modal','open_modal','connect','claude','gtp','gemini','shell','enable','disable','open_and_close_application','maximize','minimize'].forEach(preloadSfx);
+
+/* Active provider id, tracked so provider response start can play the right
+   provider-themed cue (claude/gtp/gemini/popup-fallback). Updated on `init`
+   and `info` messages where the host signals provider changes. */
+let __cbeActiveProvider = null;
+let __cbeOpenAppPlayed  = false;  /* play "open_and_close_application" once on first init */
+let __cbeChunkStarted   = false;  /* per-turn: did we already play the provider cue? */
+
 let busy = false;
 let streamingEl = null;
 
@@ -347,6 +392,7 @@ function addMsg(text, cls) {
   d.textContent = text;
   thread.appendChild(d);
   thread.scrollTop = thread.scrollHeight;
+  if (cls === 'error') playSfx('error');
   return d;
 }
 
@@ -517,6 +563,15 @@ function send() {
   setBusy(true);
 }
 
+/* SFX hooks: toolbar button click delegation + send-button "tick" cue.
+   Both listeners are ADDITIVE — they don't replace existing per-button
+   handlers, they only fire alongside them. */
+document.getElementById('toolbar').addEventListener('click', (e) => {
+  const btn = e.target.closest && e.target.closest('.tb-btn');
+  if (btn) playSfx('click');
+});
+sendBtn.addEventListener('click', () => { if (!busy) playSfx('tick'); });
+
 sendBtn.onclick = send;
 addBtn.onclick = () => {
   if (api) api.postMessage({ type: 'reset' });
@@ -592,10 +647,12 @@ const tts = (function() {
   let listening = false;
 
   function stopMic() {
+    const wasListening = listening || !!recog;
     if (recog) { try { recog.stop(); } catch (e) {} recog = null; }
     listening = false;
     sttBtn.classList.remove('speaking');
     sttBtn.title = 'Speech to Text — click to start/stop';
+    if (wasListening) playSfx('disable');
   }
 
   function appendToInput(t) {
@@ -630,6 +687,7 @@ const tts = (function() {
       listening = true;
       sttBtn.classList.add('speaking');
       sttBtn.title = 'Listening… click to stop';
+      playSfx('connect');
     } catch (e) {
       addMsg('Voice start failed: ' + (e.message || e), 'error');
       stopMic();
@@ -673,7 +731,8 @@ let __cbeActive = null;
 function openSettings(payload) {
   __cbeProviders = payload.providers || [];
   __cbeActive    = payload.active || (__cbeProviders[0] && __cbeProviders[0].id);
-  closeSettings();
+  playSfx('open_modal');
+  closeSettings(true);
   const overlay = document.createElement('div');
   overlay.id = 'cbe-settings';
   overlay.innerHTML = ''
@@ -683,6 +742,14 @@ function openSettings(payload) {
     +     '<div><label>Provider</label><select id="cbe-set-provider"></select></div>'
     +     '<div><label>Model</label><select id="cbe-set-model"></select></div>'
     +     '<div class="cbe-warn" id="cbe-set-warn">No API key configured for this provider in config.ini.</div>'
+    +     '<div style="display:flex;align-items:center;gap:10px;margin-top:4px;">'
+    +       '<label for="cbe-set-sfx-enabled" style="margin:0;flex:1;">Sound Effects</label>'
+    +       '<input type="checkbox" id="cbe-set-sfx-enabled" style="width:auto;accent-color:#e8621a;cursor:pointer;">'
+    +     '</div>'
+    +     '<div>'
+    +       '<label for="cbe-set-sfx-volume">Volume <span id="cbe-set-sfx-volume-pct" style="opacity:.65;font-weight:400;">55%</span></label>'
+    +       '<input type="range" id="cbe-set-sfx-volume" min="0" max="100" step="1" value="55" style="width:100%;accent-color:#e8621a;cursor:pointer;">'
+    +     '</div>'
     +   '</div>'
     +   '<div class="cbe-foot">'
     +     '<button class="cbe-btn cbe-save"   id="cbe-set-login" data-act="login" style="display:none;background:#2a5d8f">Open login</button>'
@@ -746,13 +813,46 @@ function openSettings(payload) {
   sel.addEventListener('change', renderModels);
   renderModels();
 
+  /* SFX controls. Hydrate from current window state, wire live preview so
+     user hears the volume change while dragging the slider; persistence
+     fires on Save. */
+  const sfxEnabled = overlay.querySelector('#cbe-set-sfx-enabled');
+  const sfxVolume  = overlay.querySelector('#cbe-set-sfx-volume');
+  const sfxVolPct  = overlay.querySelector('#cbe-set-sfx-volume-pct');
+  sfxEnabled.checked = !!window.SFX_ENABLED;
+  sfxVolume.value    = String(Math.round((window.SFX_VOLUME || 0.55) * 100));
+  sfxVolPct.textContent = `${sfxVolume.value}%`;
+  sfxEnabled.addEventListener('change', () => setSfxEnabled(sfxEnabled.checked));
+  sfxVolume.addEventListener('input', () => {
+    const n = Number(sfxVolume.value);
+    sfxVolPct.textContent = `${n}%`;
+    setSfxVolume(n / 100);
+  });
+  sfxVolume.addEventListener('change', () => playSfx('click'));
+
   overlay.addEventListener('click', (e) => {
     const act = e.target.getAttribute && e.target.getAttribute('data-act');
-    if (act === 'cancel' || e.target === overlay) { closeSettings(); return; }
+    if (act === 'cancel' || e.target === overlay) {
+      /* Revert live-previewed SFX changes if the user cancels. */
+      setSfxEnabled(__cbeSavedSfxEnabled);
+      setSfxVolume(__cbeSavedSfxVolume);
+      closeSettings();
+      return;
+    }
     if (act === 'save') {
       const provider = overlay.querySelector('#cbe-set-provider').value;
       const model    = overlay.querySelector('#cbe-set-model').value;
-      if (api) api.postMessage({ type: 'setProvider', provider, model });
+      __cbeActiveProvider = provider;
+      const sfxEnabledVal = !!sfxEnabled.checked;
+      const sfxVolumeVal  = Number(sfxVolume.value) / 100;
+      setSfxEnabled(sfxEnabledVal);
+      setSfxVolume(sfxVolumeVal);
+      __cbeSavedSfxEnabled = sfxEnabledVal;
+      __cbeSavedSfxVolume  = sfxVolumeVal;
+      if (api) api.postMessage({
+        type: 'setProvider', provider, model,
+        sfxEnabled: sfxEnabledVal, sfxVolume: sfxVolumeVal,
+      });
       closeSettings();
     }
     if (act === 'login') {
@@ -762,10 +862,17 @@ function openSettings(payload) {
   });
   document.addEventListener('keydown', escClose, true);
 }
+/* Saved SFX state baseline so Cancel can revert live previews. Hydrated
+   on `init` from the host's persisted workspaceState. */
+let __cbeSavedSfxEnabled = true;
+let __cbeSavedSfxVolume  = 0.55;
 function escClose(e) { if (e.key === 'Escape') closeSettings(); }
-function closeSettings() {
+function closeSettings(suppressSfx) {
   const old = document.getElementById('cbe-settings');
-  if (old) old.remove();
+  if (old) {
+    old.remove();
+    if (!suppressSfx) playSfx('close_modal');
+  }
   document.removeEventListener('keydown', escClose, true);
 }
 
@@ -780,12 +887,28 @@ ti.addEventListener('input', function() {
   this.style.height = Math.min(this.scrollHeight, 140) + 'px';
 });
 
+/* Map provider id → SFX cue. anthropic→claude, openai→gtp, google/gemini→gemini,
+   anything else → 'popup' fallback so the user still gets an audible "the
+   model is replying" signal. */
+function providerSfxName(id) {
+  if (!id) return 'popup';
+  if (id === 'anthropic' || id === 'claudeBridge') return 'claude';
+  if (id === 'openai'    || id === 'chatgptWeb')   return 'gtp';
+  if (id === 'gemini'    || id === 'geminiBridge' || id === 'google') return 'gemini';
+  return 'popup';
+}
+
 window.addEventListener('message', e => {
   const m = e.data || {};
   if (m.type === 'assistantStart') {
     streamingEl = addMsg('', 'assistant streaming');
+    __cbeChunkStarted = false;
   } else if (m.type === 'chunk') {
     if (!streamingEl) streamingEl = addMsg('', 'assistant streaming');
+    if (!__cbeChunkStarted) {
+      __cbeChunkStarted = true;
+      playSfx(providerSfxName(__cbeActiveProvider));
+    }
     streamingEl.textContent += (m.text || '');
     thread.scrollTop = thread.scrollHeight;
   } else if (m.type === 'assistantDone') {
@@ -815,7 +938,16 @@ window.addEventListener('message', e => {
     /* Cache provider state for later; don't open modal yet. */
     __cbeProviders = m.providers || [];
     __cbeActive    = m.active;
+    __cbeActiveProvider = m.active;
+    /* Hydrate persisted SFX settings; window defaults apply if absent. */
+    if (typeof m.sfxEnabled === 'boolean') { setSfxEnabled(m.sfxEnabled); __cbeSavedSfxEnabled = m.sfxEnabled; }
+    if (typeof m.sfxVolume  === 'number')  { setSfxVolume(m.sfxVolume);   __cbeSavedSfxVolume  = m.sfxVolume; }
+    if (!__cbeOpenAppPlayed) {
+      __cbeOpenAppPlayed = true;
+      playSfx('open_and_close_application');
+    }
   } else if (m.type === 'openSettings') {
+    __cbeActiveProvider = m.active || __cbeActiveProvider;
     openSettings(m);
   }
 });
