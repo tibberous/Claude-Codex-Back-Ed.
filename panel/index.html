@@ -50,6 +50,12 @@
     justify-content: center; color: #fff; font-size: 16px;
     transition: background-color .12s; }
   .tb-btn:hover { background-color: rgba(0,0,0,0.18); }
+  .tb-btn.speaking { background-color: rgba(255,40,40,0.45); }
+  .tb-btn.autoread { background-color: rgba(40,180,80,0.45); position: relative; }
+  .tb-btn.autoread::after { content: ''; position: absolute; inset: 1px;
+    border-radius: 6px; border: 1.5px dashed rgba(255,255,255,.55);
+    pointer-events: none; animation: cbe-pulse 1.4s linear infinite; }
+  @keyframes cbe-pulse { 0%{opacity:.4} 50%{opacity:1} 100%{opacity:.4} }
   #label-pill { flex: 0 0 auto; height: 32px;
     background-image: url('{{LABEL_ALPHA_URI}}');
     background-size: contain; background-repeat: no-repeat;
@@ -251,7 +257,8 @@
     <button class="tb-btn" id="queueBtn" title="History">≡</button>
     <div id="label-pill" title="Claude Codex Black Edition"></div>
     <div id="spacer"></div>
-    <button class="tb-btn" id="micBtn" title="Voice input (not wired yet)">🎙</button>
+    <button class="tb-btn" id="micBtn" title="Dictate (Web Speech) — click to start/stop">🎙</button>
+    <button class="tb-btn" id="ttsBtn" title="Read aloud last reply — double-click for auto-read">🔊</button>
     <button class="tb-btn" id="settingsBtn" title="Provider + model">⚙</button>
     <button class="tb-btn" id="monitorBtn" title="Trace">◉</button>
     <button id="sendBtn" title="Send">▶</button>
@@ -453,6 +460,60 @@ document.getElementById('monitorBtn').onclick = () => { if (api) api.postMessage
 document.getElementById('label-pill').onclick = () => { if (api) api.postMessage({ type: 'labelClick' }); };
 document.getElementById('settingsBtn').onclick = () => { if (api) api.postMessage({ type: 'openSettings' }); };
 
+/* ── Web Speech dictation (mic 🎙 → ⏹) ────────────────────────────────── */
+(function() {
+  const micBtn = document.getElementById('micBtn');
+  let recog = null;
+  let listening = false;
+
+  function stopMic() {
+    if (recog) { try { recog.stop(); } catch (e) {} recog = null; }
+    listening = false;
+    micBtn.style.background = '';
+    micBtn.textContent = '🎙';
+    micBtn.title = 'Dictate (Web Speech) — click to start/stop';
+  }
+
+  function appendToInput(t) {
+    const cur = (ti.value || '').replace(/\s+$/, '');
+    ti.value = cur ? (cur + ' ' + t) : t;
+    ti.dispatchEvent(new Event('input', { bubbles: true }));
+    ti.focus();
+  }
+
+  micBtn.onclick = () => {
+    if (listening) { stopMic(); return; }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      addMsg('Web Speech API not available in this webview.', 'error');
+      return;
+    }
+    try {
+      recog = new SR();
+      recog.continuous   = false;
+      recog.interimResults = false;
+      recog.lang = (navigator.language || 'en-US');
+      recog.onresult = (e) => {
+        const r = e.results && e.results[0] && e.results[0][0];
+        if (r && r.transcript) appendToInput(r.transcript.trim());
+      };
+      recog.onerror = (e) => {
+        addMsg('Voice: ' + (e.error || 'error'), 'error');
+        stopMic();
+      };
+      recog.onend = () => stopMic();
+      recog.start();
+      listening = true;
+      micBtn.style.background = 'rgba(255, 40, 40, 0.45)';
+      micBtn.textContent = '⏹';
+      micBtn.title = 'Listening… click to stop';
+    } catch (e) {
+      addMsg('Voice start failed: ' + (e.message || e), 'error');
+      stopMic();
+    }
+  };
+})();
+
 /* ── Settings modal ──────────────────────────────────────────────────── */
 let __cbeProviders = [];   /* {id,label,models[],current,haveKey} */
 let __cbeActive = null;
@@ -472,6 +533,7 @@ function openSettings(payload) {
     +     '<div class="cbe-warn" id="cbe-set-warn">No API key configured for this provider in config.ini.</div>'
     +   '</div>'
     +   '<div class="cbe-foot">'
+    +     '<button class="cbe-btn cbe-save"   id="cbe-set-login" data-act="login" style="display:none;background:#2a5d8f">Open login</button>'
     +     '<button class="cbe-btn cbe-cancel" data-act="cancel">Cancel</button>'
     +     '<button class="cbe-btn cbe-save"   data-act="save">Save</button>'
     +   '</div>'
@@ -482,7 +544,11 @@ function openSettings(payload) {
   __cbeProviders.forEach(p => {
     const o = document.createElement('option');
     o.value = p.id;
-    o.textContent = p.label + (p.haveKey ? '' : '  (no key)');
+    let suffix = '';
+    if (p.superGrok) suffix = '  (SuperGrok)';
+    else if (p.webBridge) suffix = '  (web)';
+    else if (!p.haveKey) suffix = '  (no key)';
+    o.textContent = p.label + suffix;
     sel.appendChild(o);
   });
   sel.value = __cbeActive;
@@ -503,7 +569,26 @@ function openSettings(payload) {
       ms.insertBefore(o, ms.firstChild);
     }
     ms.value = prov.current || (prov.models && prov.models[0]) || '';
-    overlay.querySelector('#cbe-set-warn').classList.toggle('show', !prov.haveKey);
+    /* For web-bridge / SuperGrok providers, the model is fixed and the
+       missing-key warn shouldn't fire — instead show a hint and a Login
+       button. The button label is provider-specific. */
+    const warn = overlay.querySelector('#cbe-set-warn');
+    const loginBtn = overlay.querySelector('#cbe-set-login');
+    if (prov.webBridge || prov.superGrok) {
+      warn.classList.remove('show');
+      ms.disabled = true;
+      loginBtn.style.display = 'inline-block';
+      const niceName =
+        prov.id === 'chatgptWeb'   ? 'ChatGPT'  :
+        prov.id === 'grokWeb'      ? 'Grok'     :
+        prov.id === 'geminiBridge' ? 'Gemini'   :
+        prov.label;
+      loginBtn.textContent = 'Open ' + niceName + ' login';
+    } else {
+      ms.disabled = false;
+      loginBtn.style.display = 'none';
+      warn.classList.toggle('show', !prov.haveKey);
+    }
   };
   sel.addEventListener('change', renderModels);
   renderModels();
@@ -516,6 +601,10 @@ function openSettings(payload) {
       const model    = overlay.querySelector('#cbe-set-model').value;
       if (api) api.postMessage({ type: 'setProvider', provider, model });
       closeSettings();
+    }
+    if (act === 'login') {
+      const provider = overlay.querySelector('#cbe-set-provider').value;
+      if (api) api.postMessage({ type: 'openWebLogin', provider });
     }
   });
   document.addEventListener('keydown', escClose, true);

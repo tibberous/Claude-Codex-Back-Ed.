@@ -1,11 +1,14 @@
 const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
+const { BrowserBridge } = require('./bridge/browser-bridge');
+const { SuperGrokBridge } = require('./bridge/supergrok-bridge');
 
-const SECRET_KEY = 'codexBlackEd.anthropicApiKey';
+const SECRET_KEY_PREFIX = 'codexBlackEd.';   /* per-provider secret = `${PREFIX}${id}.apiKey` */
 const STATE_PROVIDER = 'codexBlackEd.activeProvider';
 const STATE_MODEL    = 'codexBlackEd.activeModel';
 const CONFIG_INI_NAME = 'config.ini';
+const secretsCache = {};   /* providerId -> apiKey | null. Populated at activate. */
 
 /* ── Provider registry ────────────────────────────────────────────────────
    Per-provider metadata: pretty label, default model id, the field name to
@@ -47,6 +50,32 @@ const PROVIDERS = {
         azureSection: true,
         defaultModel: '',
         models: [],
+    },
+    grokWeb: {
+        label: 'Grok (web session)',
+        webBridge: true,
+        target: 'grok',
+        url: 'https://grok.com/',
+        defaultModel: '(web)',
+        models: ['(web)'],
+    },
+    chatgptWeb: {
+        label: 'ChatGPT (web session)',
+        webBridge: true,
+        target: 'chatgpt',
+        url: 'https://chatgpt.com/',
+        defaultModel: '(web)',
+        models: ['(web)'],
+    },
+    geminiBridge: {
+        /* Gemini via SuperGrok's resident bridge service (TCP). Requires
+           C:\SuperGrok\ + a one-time `python start.py --gemini` login. */
+        label: 'Gemini (SuperGrok)',
+        superGrok: true,
+        target: 'gemini',
+        superGrokRoot: 'C:\\SuperGrok',
+        defaultModel: '(web)',
+        models: ['(web)'],
     },
 };
 
@@ -105,15 +134,22 @@ function getActiveModel(context, providerId) {
 }
 
 function getProviderKey(context, providerId) {
-    const cfg = readConfigIni(context.extensionPath);
     const provider = PROVIDERS[providerId];
     if (!provider) return null;
+    /* Web-bridge / SuperGrok providers don't use API keys at all; auth lives
+       in the browser-profile cookies on the bridge side. Return a sentinel
+       so the "(no key)" badge in the settings modal doesn't fire. */
+    if (provider.webBridge || provider.superGrok) return '<web-session>';
+    /* 1. Cached secret (set via Set API Key command) */
+    if (secretsCache[providerId]) return secretsCache[providerId];
+    /* 2. config.ini lookup */
+    const cfg = readConfigIni(context.extensionPath);
     if (provider.azureSection) {
-        return cfg && cfg.azure && (cfg.azure.api_key || cfg.azure.api_key1);
+        return cfg && cfg.azure && (cfg.azure.api_key || cfg.azure.api_key1) || null;
     }
     const fromIni = cfg && cfg.api_keys && cfg.api_keys[provider.keyField];
     if (fromIni) return fromIni;
-    /* env fallback per provider */
+    /* 3. Env fallback per provider */
     const envName = ({
         anthropic: 'ANTHROPIC_API_KEY',
         openai:    'OPENAI_API_KEY',
@@ -123,11 +159,49 @@ function getProviderKey(context, providerId) {
     return envName ? (process.env[envName] || null) : null;
 }
 
+async function refreshSecretsCache(context) {
+    for (const id of Object.keys(PROVIDERS)) {
+        try {
+            const v = await context.secrets.get(SECRET_KEY_PREFIX + id + '.apiKey');
+            secretsCache[id] = v || null;
+        } catch (e) { secretsCache[id] = null; }
+    }
+}
+
+async function pickProvider(promptText) {
+    const items = Object.keys(PROVIDERS).map(id => ({ label: PROVIDERS[id].label, id }));
+    const pick = await vscode.window.showQuickPick(items, { title: promptText, ignoreFocusOut: true });
+    return pick ? pick.id : null;
+}
+
+async function promptForKey(context, providerId) {
+    const provider = PROVIDERS[providerId];
+    const entered = await vscode.window.showInputBox({
+        title: `API Key for ${provider.label}`,
+        prompt: 'Stored encrypted in VS Code secrets. Cleared via "Claude Codex Black: Clear API Key".',
+        password: true,
+        ignoreFocusOut: true,
+    });
+    if (!entered) return null;
+    const trimmed = entered.trim();
+    await context.secrets.store(SECRET_KEY_PREFIX + providerId + '.apiKey', trimmed);
+    secretsCache[providerId] = trimmed;
+    return trimmed;
+}
+
+function getMaxTokens() {
+    const v = vscode.workspace.getConfiguration('codexBlackEd').get('maxTokens');
+    return Number.isInteger(v) && v >= 256 && v <= 16384 ? v : 4096;
+}
+
 let activePanel;
 let conversation = [];
 let outChan;
 let statusBar;
 let anthropicClient;
+const browserBridges = {};   /* providerId -> BrowserBridge (lazy, persists across sends) */
+const superGrokBridges = {}; /* providerId -> SuperGrokBridge (TCP shim over SuperGrok's service) */
+let extensionContext = null; /* captured during activate so commands can resolve globalStorageUri */
 
 /* ── Tracing ──────────────────────────────────────────────────────────── */
 
@@ -151,9 +225,12 @@ function setStatus(text, busy, providerId) {
 
 /* ── Activation ───────────────────────────────────────────────────────── */
 
-function activate(context) {
+async function activate(context) {
+    extensionContext = context;
     outChan = vscode.window.createOutputChannel('Claude Codex Black');
     trace('=== activate ===');
+    await refreshSecretsCache(context);
+    trace('  secretsCache populated: ' + Object.keys(secretsCache).filter(k => secretsCache[k]).join(',') || '(none)');
     trace('  activeProvider=' + getActiveProvider(context) + ' model=' + getActiveModel(context, getActiveProvider(context)));
 
     statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
@@ -175,6 +252,8 @@ function activate(context) {
             if (activePanel) activePanel.webview.postMessage({ type: 'info', text: 'Conversation reset.' });
         }),
         vscode.commands.registerCommand('codexBlackEd.showTrace', () => outChan.show(true)),
+        vscode.commands.registerCommand('codexBlackEd.openWebLogin', () => openWebLogin(context)),
+        vscode.commands.registerCommand('codexBlackEd.disposeWebBridge', () => disposeAllBridges()),
         outChan,
     );
 
@@ -189,7 +268,56 @@ function activate(context) {
     trace('activate complete');
 }
 
-function deactivate() { trace('=== deactivate ==='); }
+function deactivate() {
+    trace('=== deactivate ===');
+    disposeAllBridges();
+}
+
+function disposeAllBridges() {
+    for (const id of Object.keys(browserBridges)) {
+        try { browserBridges[id].dispose(); } catch (e) {}
+        delete browserBridges[id];
+    }
+}
+
+/* Open the browser-bridge tab(s) so the user can sign in. Asks which provider
+   when there are multiple webBridge OR superGrok providers configured. Does
+   not send any prompt — pure auth bootstrap. */
+async function openWebLogin(context) {
+    const ids = Object.keys(PROVIDERS).filter(id => PROVIDERS[id].webBridge || PROVIDERS[id].superGrok);
+    if (!ids.length) { vscode.window.showInformationMessage('No web-bridge providers configured.'); return; }
+    let id;
+    if (ids.length === 1) id = ids[0];
+    else {
+        const pick = await vscode.window.showQuickPick(
+            ids.map(i => ({ label: PROVIDERS[i].label, id: i })),
+            { title: 'Open web login for which provider?', ignoreFocusOut: true }
+        );
+        if (!pick) return;
+        id = pick.id;
+    }
+    const p = PROVIDERS[id];
+    try {
+        if (p.superGrok) {
+            const bridge = getSuperGrokBridge(id);
+            const r = await bridge.openLoginWindow();
+            vscode.window.showInformationMessage(
+                `CBE: ${p.label} login window opened (pid ${r.pid}). Sign in to Google, then close the window.`
+            );
+            return;
+        }
+        const bridge = getBrowserBridge(id);
+        await bridge.ensureRunning();
+        await bridge.navigateHome();
+        const probe = await bridge.ping();
+        vscode.window.showInformationMessage(
+            `CBE: ${p.label} window opened at ${probe.url}. Sign in there; the session is saved.`
+        );
+    } catch (e) {
+        traceErr('openWebLogin', e);
+        vscode.window.showErrorMessage('CBE: web login failed — ' + (e.message || e));
+    }
+}
 
 /* ── Settings payload (sent to webview to populate the settings modal) ── */
 
@@ -204,7 +332,7 @@ function buildSettingsPayload(context) {
             : p.models.slice();
         const currentModel = getActiveModel(context, id);
         if (currentModel && !models.includes(currentModel)) models.unshift(currentModel);
-        return { id, label: p.label, models, current: currentModel, haveKey };
+        return { id, label: p.label, models, current: currentModel, haveKey, webBridge: !!p.webBridge, superGrok: !!p.superGrok };
     });
     return { providers, active };
 }
@@ -216,8 +344,11 @@ function openPanel(context) {
     if (activePanel) { activePanel.reveal(undefined, false); return; }
     for (const group of vscode.window.tabGroups.all) {
         for (const tab of group.tabs) {
+            /* viewType is prefixed by VS Code internals (e.g. mainThreadWebview-); use endsWith
+               so we survive prefix changes between VS Code versions. */
             if (tab.input instanceof vscode.TabInputWebview &&
-                tab.input.viewType === 'mainThreadWebview-codexBlackEd.panel') {
+                typeof tab.input.viewType === 'string' &&
+                tab.input.viewType.endsWith('codexBlackEd.panel')) {
                 vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
                 return;
             }
@@ -273,8 +404,39 @@ function bindPanel(context, panel) {
                 case 'labelClick':
                     panel.webview.postMessage({ type: 'openSettings', ...buildSettingsPayload(context) });
                     break;
-                case 'start': case 'stop':
-                    panel.webview.postMessage({ type: 'error', message: 'Voice input not yet wired in standalone build' });
+                case 'showTrace':
+                    outChan.show(true);
+                    break;
+                case 'openWebLogin':
+                    /* Triggered by the modal's "Open login" button. msg.provider
+                       names a specific webBridge OR superGrok provider; we route
+                       to the right login path. openWebLogin() (the command) handles
+                       the "ambiguous" case by asking the user. */
+                    {
+                        const p = msg.provider && PROVIDERS[msg.provider];
+                        if (p && p.webBridge) {
+                            try {
+                                const bridge = getBrowserBridge(msg.provider);
+                                await bridge.ensureRunning();
+                                await bridge.navigateHome();
+                                panel.webview.postMessage({ type: 'info', text: `${p.label} window opened — sign in there.` });
+                            } catch (e) {
+                                traceErr('panel openWebLogin (web)', e);
+                                panel.webview.postMessage({ type: 'error', message: 'web login: ' + (e.message || e) });
+                            }
+                        } else if (p && p.superGrok) {
+                            try {
+                                const bridge = getSuperGrokBridge(msg.provider);
+                                const r = await bridge.openLoginWindow();
+                                panel.webview.postMessage({ type: 'info', text: `${p.label} login window opened (pid ${r.pid}). Sign in to Google, then close that window.` });
+                            } catch (e) {
+                                traceErr('panel openWebLogin (supergrok)', e);
+                                panel.webview.postMessage({ type: 'error', message: 'SuperGrok login: ' + (e.message || e) });
+                            }
+                        } else {
+                            await openWebLogin(context);
+                        }
+                    }
                     break;
                 case 'openDevTools':
                     try { await vscode.commands.executeCommand('workbench.action.webview.openDeveloperTools'); }
@@ -312,19 +474,22 @@ function getPanelHtml(context, webview) {
 /* ── API key utility / Anthropic SDK client ───────────────────────────── */
 
 async function setApiKey(context) {
-    const entered = await vscode.window.showInputBox({
-        title: 'Set Anthropic API Key',
-        prompt: 'Replace stored Anthropic key. Other providers read from config.ini.',
-        password: true, ignoreFocusOut: true,
-    });
-    if (!entered) return;
-    await context.secrets.store(SECRET_KEY, entered.trim());
-    vscode.window.showInformationMessage('CBE: Anthropic API key saved.');
+    const id = await pickProvider('Which provider needs an API key?');
+    if (!id) return;
+    const stored = await promptForKey(context, id);
+    if (stored) {
+        vscode.window.showInformationMessage(`CBE: ${PROVIDERS[id].label} key saved.`);
+        if (activePanel) activePanel.webview.postMessage({ type: 'init', ...buildSettingsPayload(context) });
+    }
 }
 
 async function clearApiKey(context) {
-    await context.secrets.delete(SECRET_KEY);
-    vscode.window.showInformationMessage('CBE: Anthropic API key cleared.');
+    const id = await pickProvider('Clear API key for which provider?');
+    if (!id) return;
+    await context.secrets.delete(SECRET_KEY_PREFIX + id + '.apiKey');
+    secretsCache[id] = null;
+    vscode.window.showInformationMessage(`CBE: ${PROVIDERS[id].label} key cleared.`);
+    if (activePanel) activePanel.webview.postMessage({ type: 'init', ...buildSettingsPayload(context) });
 }
 
 function getAnthropicClient(apiKey) {
@@ -371,17 +536,18 @@ async function* streamOpenAIFormat(url, headers, body) {
 }
 
 /* Gemini SSE — same protocol shape (data: {...}), different payload structure. */
-async function* streamGemini(apiKey, model, messages) {
+async function* streamGemini(apiKey, model, messages, maxTokens) {
     /* Convert {role:'user'|'assistant', content} → Gemini's contents[]. */
     const contents = messages.map(m => ({
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }],
     }));
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
+    const body = { contents, generationConfig: { maxOutputTokens: maxTokens } };
     const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents }),
+        body: JSON.stringify(body),
     });
     if (!res.ok) {
         const errText = await res.text().catch(() => '');
@@ -410,10 +576,71 @@ async function* streamGemini(apiKey, model, messages) {
     }
 }
 
+/* ── Web-bridge streaming ─────────────────────────────────────────────── */
+
+function browserProfileDir(providerId) {
+    /* Persistent per-provider browser profile under globalStorage so cookies
+       (and therefore login state) survive across VS Code sessions. */
+    const root = extensionContext.globalStorageUri.fsPath;
+    return path.join(root, 'web-profiles', providerId);
+}
+
+function getBrowserBridge(providerId) {
+    const provider = PROVIDERS[providerId];
+    if (!provider || !provider.webBridge) throw new Error('not a web-bridge provider: ' + providerId);
+    if (browserBridges[providerId]) return browserBridges[providerId];
+    fs.mkdirSync(path.dirname(browserProfileDir(providerId)), { recursive: true });
+    const bridge = new BrowserBridge({
+        profileDir: browserProfileDir(providerId),
+        startUrl: provider.url,
+        target: provider.target,
+        log: (m) => trace(`bridge[${providerId}] ${m}`),
+    });
+    browserBridges[providerId] = bridge;
+    return bridge;
+}
+
+/* Web-bridge "streaming": send the latest user turn into the page, then poll
+   the assistant DOM. We only push the latest turn — the live page already has
+   the prior conversation in its own DOM history. */
+async function* streamWebBridge(providerId, messages) {
+    const bridge = getBrowserBridge(providerId);
+    await bridge.ensureRunning();
+    /* Only send the latest user message — the page's own thread has context. */
+    const lastUser = [...messages].reverse().find(m => m.role === 'user');
+    if (!lastUser) throw new Error('no user message to send');
+    await bridge.sendPrompt(lastUser.content);
+    yield* bridge.streamResponse();
+}
+
+/* SuperGrok-backed providers: send the latest turn via TCP to SuperGrok's
+   resident service. SuperGrok handles the offscreen browser, DOM injection,
+   and response capture. We yield the full answer as one chunk because the
+   TCP protocol doesn't stream. */
+function getSuperGrokBridge(providerId) {
+    const provider = PROVIDERS[providerId];
+    if (!provider || !provider.superGrok) throw new Error('not a supergrok provider: ' + providerId);
+    if (superGrokBridges[providerId]) return superGrokBridges[providerId];
+    const bridge = new SuperGrokBridge({
+        superGrokRoot: provider.superGrokRoot,
+        target: provider.target,
+        log: (m) => trace(`supergrok[${providerId}] ${m}`),
+    });
+    superGrokBridges[providerId] = bridge;
+    return bridge;
+}
+
+async function* streamSuperGrok(providerId, messages) {
+    const bridge = getSuperGrokBridge(providerId);
+    const lastUser = [...messages].reverse().find(m => m.role === 'user');
+    if (!lastUser) throw new Error('no user message to send');
+    yield* bridge.chatStream(lastUser.content);
+}
+
 /* Anthropic via SDK — wrap stream events as async generator. */
-async function* streamAnthropic(apiKey, model, messages) {
+async function* streamAnthropic(apiKey, model, messages, maxTokens) {
     const client = getAnthropicClient(apiKey);
-    const stream = await client.messages.stream({ model, max_tokens: 4096, messages });
+    const stream = await client.messages.stream({ model, max_tokens: maxTokens, messages });
     const queue = [];
     let finished = false;
     let pendingResolve = null;
@@ -434,28 +661,45 @@ async function* streamAnthropic(apiKey, model, messages) {
 }
 
 /* Dispatch by provider id. Returns async iterator yielding text chunks. */
-async function* chatStream(context, providerId, model, messages) {
+async function* chatStream(context, providerId, model, messages, maxTokens) {
     const cfg = readConfigIni(context.extensionPath) || {};
+    const provider = PROVIDERS[providerId];
+
+    if (provider && provider.webBridge) {
+        yield* streamWebBridge(providerId, messages);
+        return;
+    }
+
+    if (provider && provider.superGrok) {
+        yield* streamSuperGrok(providerId, messages);
+        return;
+    }
+
     const key = getProviderKey(context, providerId);
-    if (!key) throw new Error(`No API key for ${providerId}. Add it to config.ini under [api_keys] (or [azure]).`);
+    if (!key) throw new Error(`No API key for ${providerId}. Run "Claude Codex Black: Set API Key" or add it to config.ini under [api_keys] (or [azure]).`);
 
     if (providerId === 'anthropic') {
-        yield* streamAnthropic(key, model, messages);
+        yield* streamAnthropic(key, model, messages, maxTokens);
         return;
     }
     if (providerId === 'gemini') {
-        yield* streamGemini(key, model, messages);
+        yield* streamGemini(key, model, messages, maxTokens);
         return;
     }
-    /* OpenAI-compatible: OAI, Grok, Azure */
+    /* OpenAI-compatible: OAI, Grok, Azure. OAI's modern chat models (o-series + gpt-4o
+       family) require `max_completion_tokens`; the deprecated `max_tokens` 400s on o-series.
+       Grok (xAI) mimics the older OpenAI shape and uses `max_tokens`. Azure varies by
+       deployment but `max_tokens` is the safer default across api-versions. */
     let url, headers;
-    const body = { model, messages, stream: true, max_tokens: 4096 };
+    const body = { model, messages, stream: true };
     if (providerId === 'openai') {
         url = 'https://api.openai.com/v1/chat/completions';
         headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key };
+        body.max_completion_tokens = maxTokens;
     } else if (providerId === 'grok') {
         url = 'https://api.x.ai/v1/chat/completions';
         headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key };
+        body.max_tokens = maxTokens;
     } else if (providerId === 'azure') {
         const endpoint = (cfg.azure && cfg.azure.endpoint || '').replace(/\/+$/, '');
         const apiVersion = (cfg.azure && cfg.azure.api_version) || '2024-12-01-preview';
@@ -464,6 +708,7 @@ async function* chatStream(context, providerId, model, messages) {
         url = `${endpoint}/openai/deployments/${encodeURIComponent(model)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
         headers = { 'Content-Type': 'application/json', 'api-key': key };
         delete body.model; /* Azure uses deployment in URL */
+        body.max_tokens = maxTokens;
     } else {
         throw new Error('Unknown provider: ' + providerId);
     }
@@ -478,16 +723,31 @@ async function handleSendText(context, panel, text) {
 
     const providerId = getActiveProvider(context);
     const model = getActiveModel(context, providerId);
+    const maxTokens = getMaxTokens();
+
+    /* If no key for this provider, prompt up-front and store it. Web-bridge
+       and SuperGrok providers skip this — they authenticate via the browser
+       session, not an API key. */
+    const _pInfo = PROVIDERS[providerId] || {};
+    if (!_pInfo.webBridge && !_pInfo.superGrok && !getProviderKey(context, providerId)) {
+        const got = await promptForKey(context, providerId);
+        if (!got) {
+            panel.webview.postMessage({ type: 'error', message: `${providerId}: API key required to send.` });
+            return;
+        }
+        panel.webview.postMessage({ type: 'info', text: `${PROVIDERS[providerId].label} key stored.` });
+    }
+
     conversation.push({ role: 'user', content: text });
 
     setStatus('streaming', true, providerId);
     panel.webview.postMessage({ type: 'assistantStart' });
-    trace(`stream start provider=${providerId} model=${model} historyLen=${conversation.length}`);
+    trace(`stream start provider=${providerId} model=${model} maxTokens=${maxTokens} historyLen=${conversation.length}`);
 
     let assembled = '';
     const t0 = Date.now();
     try {
-        for await (const delta of chatStream(context, providerId, model, conversation)) {
+        for await (const delta of chatStream(context, providerId, model, conversation, maxTokens)) {
             assembled += delta;
             panel.webview.postMessage({ type: 'chunk', text: delta });
         }
