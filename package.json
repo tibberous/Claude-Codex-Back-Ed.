@@ -93,6 +93,7 @@
     "README.md",
     "config.ini",
     "panel/**",
+    "lib/**",
     "assets/label-alpha.png",
     "resources/icon.png",
     "resources/icon-dark.png",

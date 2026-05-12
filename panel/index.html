@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <title>Claude Codex Black</title>
+<link rel="stylesheet" href="{{PRISM_CSS_URI}}" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { width: 100%; height: 100%; background: #0a0a0a; color: #e8e8e8;
@@ -62,6 +63,85 @@
     font-size: 14px; font-weight: 700; transition: transform .1s; }
   #sendBtn:hover { transform: scale(1.06); }
   #sendBtn[disabled] { background: #444; cursor: not-allowed; transform: none; }
+
+  /* ── Context menu ───────────────────────────────────────────── */
+  #cbe-ctx-menu {
+    position: fixed; z-index: 2147483647;
+    background: #1e1e1e; border: 1.5px solid #444;
+    border-radius: 6px; box-shadow: 0 4px 20px rgba(0,0,0,.5);
+    font-size: 13px; font-family: 'Consolas', 'Courier New', monospace;
+    min-width: 200px; overflow: hidden; user-select: none;
+    padding: 4px 0;
+  }
+  #cbe-ctx-menu .cbe-item {
+    padding: 8px 14px; cursor: pointer; color: #ddd;
+    display: flex; align-items: center; gap: 8px;
+  }
+  #cbe-ctx-menu .cbe-item.disabled {
+    color: #555; cursor: default;
+  }
+  #cbe-ctx-menu .cbe-item:not(.disabled):hover {
+    background: #2a2a2a; color: #fff;
+  }
+
+  /* ── View Source modal ─────────────────────────────────────── */
+  #cbe-source-modal {
+    position: fixed; inset: 0; z-index: 2147483646;
+    background: rgba(0,0,0,.65);
+    display: flex; align-items: center; justify-content: center;
+  }
+  #cbe-source-modal .cbe-box {
+    background: #1e1e1e; border: 2px solid #e8621a;
+    border-radius: 8px; width: 80vw; max-width: 900px;
+    max-height: 80vh; display: flex; flex-direction: column;
+    box-shadow: 0 8px 40px rgba(0,0,0,.6); overflow: hidden;
+  }
+  #cbe-source-modal .cbe-hdr {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 14px; border-bottom: 2px solid #e8621a;
+    background: linear-gradient(90deg, #b83c00, #e8621a);
+    flex-shrink: 0;
+  }
+  #cbe-source-modal .cbe-title {
+    font-family: system-ui, sans-serif; font-size: 12px; font-weight: 700;
+    color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.4);
+  }
+  #cbe-source-modal .cbe-actions {
+    display: flex; align-items: center; gap: 8px;
+  }
+  #cbe-source-modal .cbe-copy {
+    background: #e8621a; border: none; color: #fff; cursor: pointer;
+    font-size: 11px; padding: 4px 10px; border-radius: 4px;
+    font-family: system-ui, sans-serif; font-weight: 700;
+  }
+  #cbe-source-modal .cbe-close {
+    background: none; border: none; color: #fff; cursor: pointer;
+    font-size: 14px; padding: 2px 6px;
+    font-family: system-ui, sans-serif; opacity: 0.85;
+  }
+  #cbe-source-modal .cbe-close:hover { opacity: 1; }
+  #cbe-source-modal .cbe-scroller {
+    overflow: auto; flex: 1; background: #1e1e1e;
+  }
+  #cbe-source-modal pre {
+    margin: 0; padding: 16px; background: #1e1e1e;
+    font-size: 13px; line-height: 1.5;
+    font-family: 'Consolas', 'Courier New', monospace;
+    counter-reset: cbe-line;
+  }
+  #cbe-source-modal pre code { background: transparent; padding: 0; }
+  /* Line numbers (manual; we don't load the line-numbers plugin) */
+  #cbe-source-modal .cbe-numbered { display: table; width: 100%; }
+  #cbe-source-modal .cbe-row { display: table-row; }
+  #cbe-source-modal .cbe-ln {
+    display: table-cell; user-select: none; text-align: right;
+    padding-right: 14px; color: #666;
+    border-right: 1px solid #333; min-width: 32px;
+  }
+  #cbe-source-modal .cbe-code {
+    display: table-cell; padding-left: 14px;
+    white-space: pre-wrap; word-break: break-word;
+  }
 </style>
 </head>
 <body>
@@ -87,6 +167,8 @@
   </div>
 </div>
 
+<script src="{{PRISM_JS_URI}}" data-manual></script>
+<script src="{{PRISM_LANGS_URI}}"></script>
 <script>
 const api = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
 const thread = document.getElementById('thread');
@@ -162,6 +244,212 @@ window.addEventListener('message', e => {
     addMsg(m.text || '', 'info');
   }
 });
+
+/* ────────────────────────────────────────────────────────────────────────
+   Right-click context menu + View Source modal
+   Menu shows for ALL right-clicks; "View Source" is enabled only when the
+   click target is inside `pre code`. Another agent owns DevTools, so we
+   build a clean single-item menu here; merges can append items later.
+   ──────────────────────────────────────────────────────────────────────── */
+(function(){
+  var CMENU_ID = 'cbe-ctx-menu';
+  var MODAL_ID = 'cbe-source-modal';
+
+  /* Supported Prism languages (per task spec) and common aliases. */
+  var LANG_ALIAS = {
+    'sh': 'bash', 'shell': 'bash', 'zsh': 'bash',
+    'ps': 'powershell', 'ps1': 'powershell', 'pwsh': 'powershell',
+    'py': 'python',
+    'ts': 'typescript', 'tsx': 'typescript',
+    'js': 'javascript', 'jsx': 'javascript',
+    'html': 'markup', 'xml': 'markup', 'svg': 'markup',
+  };
+  var SUPPORTED = {
+    powershell: 1, bash: 1, xml: 1, markup: 1, css: 1, python: 1,
+    svg: 1, javascript: 1, js: 1, typescript: 1, ts: 1, php: 1,
+  };
+
+  function normalizeLang(raw) {
+    if (!raw) return 'markup';
+    raw = String(raw).toLowerCase().trim();
+    if (LANG_ALIAS[raw]) raw = LANG_ALIAS[raw];
+    return SUPPORTED[raw] ? raw : 'markup';
+  }
+
+  function removeMenu() {
+    var old = document.getElementById(CMENU_ID);
+    if (old) old.remove();
+  }
+
+  function removeModal() {
+    var old = document.getElementById(MODAL_ID);
+    if (old) old.remove();
+  }
+
+  function findCodeEl(target) {
+    if (!target || !target.closest) return null;
+    return target.closest('pre code');
+  }
+
+  function showCtxMenu(x, y, codeEl) {
+    removeMenu();
+    var menu = document.createElement('div');
+    menu.id = CMENU_ID;
+
+    var item = document.createElement('div');
+    item.className = 'cbe-item' + (codeEl ? '' : ' disabled');
+    var lang = '';
+    if (codeEl) {
+      lang = (codeEl.className.match(/language-(\S+)/) || [])[1] || '';
+    }
+    item.textContent = '📄 View Source' + (lang ? ' (' + lang + ')' : '');
+    if (codeEl) {
+      item.addEventListener('mousedown', function(e) {
+        e.preventDefault(); e.stopPropagation();
+        removeMenu();
+        showSourceModal(codeEl.textContent, lang);
+      });
+    }
+    menu.appendChild(item);
+
+    menu.style.left = x + 'px';
+    menu.style.top  = y + 'px';
+    document.body.appendChild(menu);
+
+    /* Reposition if off-screen */
+    var r = menu.getBoundingClientRect();
+    if (r.right  > window.innerWidth)  menu.style.left = Math.max(0, x - r.width)  + 'px';
+    if (r.bottom > window.innerHeight) menu.style.top  = Math.max(0, y - r.height) + 'px';
+
+    /* Dismiss on outside click */
+    setTimeout(function() {
+      function dismiss(e) {
+        if (!menu.contains(e.target)) {
+          removeMenu();
+          document.removeEventListener('mousedown', dismiss, true);
+        }
+      }
+      document.addEventListener('mousedown', dismiss, true);
+    }, 0);
+  }
+
+  function showSourceModal(code, rawLang) {
+    removeModal();
+    var lang = normalizeLang(rawLang);
+
+    var overlay = document.createElement('div');
+    overlay.id = MODAL_ID;
+
+    var box = document.createElement('div');
+    box.className = 'cbe-box';
+
+    var hdr = document.createElement('div');
+    hdr.className = 'cbe-hdr';
+
+    var title = document.createElement('span');
+    title.className = 'cbe-title';
+    title.textContent = 'View Source' + (rawLang ? ' — ' + rawLang : '');
+
+    var actions = document.createElement('div');
+    actions.className = 'cbe-actions';
+
+    var copyBtn = document.createElement('button');
+    copyBtn.className = 'cbe-copy';
+    copyBtn.textContent = 'Copy';
+    copyBtn.addEventListener('click', function() {
+      try {
+        navigator.clipboard.writeText(code).then(function() {
+          copyBtn.textContent = 'Copied!';
+          setTimeout(function() { copyBtn.textContent = 'Copy'; }, 1500);
+        });
+      } catch (e) {
+        copyBtn.textContent = 'Failed';
+      }
+    });
+
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'cbe-close';
+    closeBtn.textContent = '✕';
+    closeBtn.addEventListener('click', removeModal);
+
+    hdr.appendChild(title);
+    actions.appendChild(copyBtn);
+    actions.appendChild(closeBtn);
+    hdr.appendChild(actions);
+
+    var scroller = document.createElement('div');
+    scroller.className = 'cbe-scroller';
+
+    /* Build a row-per-line table so line numbers stay aligned even when
+       Prism's wrapping spans cross newlines. */
+    var pre = document.createElement('pre');
+    pre.className = 'language-' + lang;
+
+    /* Highlight first (Prism returns string), then split by lines. */
+    var html;
+    try {
+      if (window.Prism && Prism.languages[lang]) {
+        html = Prism.highlight(code, Prism.languages[lang], lang);
+      } else {
+        html = escapeHtml(code);
+      }
+    } catch (e) {
+      html = escapeHtml(code);
+    }
+
+    var lines = html.split('\n');
+    var table = document.createElement('div');
+    table.className = 'cbe-numbered';
+    /* Strip a trailing empty line (most files end in \n). */
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+    lines.forEach(function(line, i) {
+      var row = document.createElement('div');
+      row.className = 'cbe-row';
+      var ln = document.createElement('span');
+      ln.className = 'cbe-ln';
+      ln.textContent = String(i + 1);
+      var codeCell = document.createElement('span');
+      codeCell.className = 'cbe-code language-' + lang;
+      codeCell.innerHTML = line || ' ';
+      row.appendChild(ln);
+      row.appendChild(codeCell);
+      table.appendChild(row);
+    });
+    pre.appendChild(table);
+    scroller.appendChild(pre);
+
+    box.appendChild(hdr);
+    box.appendChild(scroller);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('mousedown', function(e) {
+      if (e.target === overlay) removeModal();
+    });
+    document.addEventListener('keydown', function escClose(e) {
+      if (e.key === 'Escape') {
+        removeModal();
+        document.removeEventListener('keydown', escClose);
+      }
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  /* Single global contextmenu listener — capture phase so we override
+     VS Code's default webview menu. */
+  document.addEventListener('contextmenu', function(e) {
+    e.preventDefault();
+    var codeEl = findCodeEl(e.target);
+    showCtxMenu(e.clientX, e.clientY, codeEl);
+  });
+
+  /* Expose for future agents (e.g. DevTools merge). */
+  window.__cbeShowSource = showSourceModal;
+  window.__cbeShowCtxMenu = showCtxMenu;
+})();
 </script>
 </body>
 </html>
