@@ -6,79 +6,76 @@
 <link rel="stylesheet" href="{{PRISM_CSS_URI}}" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  /* Page background — transparent so the host VSCode theme shows through;
-     the visible panel is the inner #app card with drop shadow. Padding gives
-     the floating effect (the card has space around it). */
-  html, body {
-    width: 100%; height: 100%;
-    background: transparent;
-    color: var(--vscode-foreground, #e8e8e8);
-    font-family: var(--vscode-font-family, 'Segoe UI', system-ui, sans-serif);
-    --cb-font-scale: 1;
-  }
+  /* Body is transparent so the host VSCode surface shows through the gutter
+     and the inner #app card reads as a floating window. */
+  html, body { width: 100%; height: 100%; background: transparent;
+    color: #e8e8e8; font-family: 'Consolas', 'Courier New', monospace;
+    --cb-font-scale: 1; }
   body { padding: 14px; }
-  body.cb-big { --cb-font-scale: 1.8; }   /* Font-Size button toggles this */
+  body.cb-big { --cb-font-scale: 1.8; }     /* Font-Size button toggles this */
 
-  /* The floating panel itself — VSCode editor surface, rounded, drop-shadowed. */
-  #app {
-    display: flex; flex-direction: column;
-    height: calc(100vh - 28px);  /* matches body padding so card fits */
-    background: var(--vscode-editor-background, #1e1e1e);
-    color: var(--vscode-editor-foreground, #d4d4d4);
-    border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.08));
-    border-radius: 10px;
+  /* The floating panel — uses the GPT-cleaned good.png frame as its BG
+     image, stretched to fit. The image has the rounded dark frame + the
+     orange toolbar band already baked in, so we don't paint either of those
+     ourselves; the inner #toolbar just hosts the buttons over the image's
+     orange band. */
+  #app { display: flex; flex-direction: column;
+    height: calc(100vh - 28px);   /* matches body padding (14px × 2) */
+    color: #e8e8e8;
+    background-image: url('{{ASSETS_BASE}}/good_clean.png');
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    background-position: center;
+    border-radius: 12px;            /* clip stray pixels at the seam */
     box-shadow:
-      0 14px 38px rgba(0, 0, 0, 0.55),
-      0 6px 14px rgba(0, 0, 0, 0.40),
-      0 0 0 1px rgba(255,122,26,0.08) inset;
-    overflow: hidden;
-  }
+      0 18px 42px rgba(0, 0, 0, 0.60),
+      0 8px 16px rgba(0, 0, 0, 0.45);
+    overflow: hidden; }
 
   #thread { flex: 1; overflow-y: auto; padding: 18px; display: flex;
     flex-direction: column; gap: 12px; }
   .msg { padding: 10px 14px; border-radius: 6px;
     font-size: calc(13px * var(--cb-font-scale));
     line-height: 1.55; max-width: 92%; word-break: break-word;
-    white-space: pre-wrap;
-    background: var(--vscode-editorWidget-background, #252526);
-    border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border, #333));
-    color: var(--vscode-foreground, #d4d4d4); }
-  .msg.sent      { align-self: flex-end;   background: var(--vscode-input-background, #3c3c3c); }
-  .msg.assistant { align-self: flex-start; background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526)); }
-  .msg.info      { align-self: flex-start; opacity: 0.72; font-size: calc(11px * var(--cb-font-scale)); font-style: italic;
-                   color: var(--vscode-descriptionForeground, #999); border-color: transparent; }
-  .msg.error     { align-self: flex-start; color: var(--vscode-errorForeground, #ff9b9b);
-                   background: var(--vscode-inputValidation-errorBackground, #2a1212);
-                   border-color: var(--vscode-inputValidation-errorBorder, #5a1f1f); }
+    white-space: pre-wrap; }
+  .msg.sent      { background: #1c1c1c; border: 1px solid #2a2a2a;
+                   align-self: flex-end; color: #e8e8e8; }
+  .msg.assistant { background: #15171c; border: 1px solid #232a37;
+                   align-self: flex-start; color: #d9e2f3; }
+  .msg.info      { background: #131313; border: 1px solid #1f1f1f;
+                   align-self: flex-start; color: #777;
+                   font-size: calc(11px * var(--cb-font-scale)); font-style: italic; }
+  .msg.error     { background: #2a1212; border: 1px solid #5a1f1f;
+                   align-self: flex-start; color: #ff9b9b; }
   .msg.assistant.streaming::after { content: '▍'; opacity: .6; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 0%,50% { opacity: .6 } 51%,100% { opacity: 0 } }
-  #thread::-webkit-scrollbar { width: 6px; }
-  #thread::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background, #2a2a2a); border-radius: 3px; }
-  #thread::-webkit-scrollbar-thumb:hover { background: var(--vscode-scrollbarSlider-hoverBackground, #3a3a3a); }
+  #thread::-webkit-scrollbar { width: 4px; }
+  #thread::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
 
-  #input-wrap { padding: 10px 12px; background: var(--vscode-editor-background, #1e1e1e); }
+  #input-wrap { padding: 10px 12px; background: transparent; }
   #input-box { border: 2px solid #ff7a1a; border-radius: 10px;
-    background: var(--vscode-input-background, #111); padding: 10px 12px;
+    background: #111; padding: 10px 12px;
     box-shadow: 0 0 0 1px rgba(255,122,26,0.15) inset; }
   #input-box.busy { border-color: #d69e2e;
     box-shadow: 0 0 0 1px rgba(214,158,46,0.15) inset; }
   #textInput { width: 100%; border: none; outline: none; background: transparent;
-    color: var(--vscode-input-foreground, #e8e8e8);
-    font-family: var(--vscode-editor-font-family, 'Consolas', 'Courier New', monospace);
+    color: #e8e8e8; font-family: 'Consolas', 'Courier New', monospace;
     font-size: calc(13px * var(--cb-font-scale));
-    line-height: 1.5; resize: none; min-height: 24px;
-    max-height: 140px; }
-  #textInput::placeholder { color: var(--vscode-input-placeholderForeground, #555); }
-  #textInput:disabled { color: var(--vscode-disabledForeground, #555); cursor: not-allowed; }
+    line-height: 1.5; resize: none; min-height: 24px; max-height: 140px; }
+  #textInput::placeholder { color: #555; }
+  #textInput:disabled { color: #555; cursor: not-allowed; }
 
   /* Toolbar — single-row orange strip styled to match good.png exactly.
      Buttons use blank.png/blank_over.png/blank_click.png as the round face;
      the icon overlay is an inline <span> masked with the matching SVG so
      `currentColor` on the button tints it via CSS state transitions. */
+  /* Toolbar is now overlaid on top of the image's baked-in orange band — so
+     no own gradient + no top-border (image already has them). Same height and
+     padding as before; icons just sit over the image's orange. */
   #toolbar { display: flex; align-items: center; gap: 4px;
     padding: 8px 10px; min-width: max-content;
-    background: linear-gradient(90deg, #b83c00 0%, #e8621a 55%, #ff7a1a 100%);
-    border-top: 1px solid #401300; overflow-x: auto; }
+    background: transparent;
+    overflow-x: auto; }
   #toolbar::-webkit-scrollbar { height: 4px; }
   #toolbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.25); border-radius: 2px; }
   /* Buttons sit directly on the orange toolbar BG — no per-button circle.
