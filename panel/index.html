@@ -6,38 +6,32 @@
 <link rel="stylesheet" href="{{PRISM_CSS_URI}}" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  /* Body is transparent so the host VSCode surface shows through the gutter
-     and the inner #app card reads as a floating window. The bottom padding
-     is 0 so the panel meets the bottom of the viewport flush (no rounded
-     bottom corners). */
+  /* Body is transparent so the host VSCode surface shows through the top
+     gutter and the inner #app card reads as a floating window. No bottom
+     gutter — panel meets the viewport bottom flush. */
   html, body { width: 100%; height: 100%; background: transparent;
-    color: var(--vscode-foreground, #e8e8e8);
-    font-family: var(--vscode-font-family, 'Segoe UI', system-ui, sans-serif);
+    color: #e8e8e8; font-family: 'Consolas', 'Courier New', monospace;
     --cb-font-scale: 1; }
   body { padding: 14px 14px 0 14px; }
   body.cb-big { --cb-font-scale: 1.8; }   /* Font-Size button toggles this */
 
-  /* The floating panel — proper 9-slice via CSS border-image so the rounded
-     corners + orange toolbar geometry stay fixed regardless of panel size.
-     border-image-slice values are in IMAGE pixels; border-width is the
-     rendered CSS-pixel size of each side. Bottom border is the orange band
-     (in good_clean.png that band is the bottom ~200px of the 1024px image,
-     ~20%). Rendered as 80px so the toolbar reads at a sensible height. */
+  /* The floating panel — original CBE dark palette. Simple CSS reproduces
+     the good.png look: rounded top corners, flush bottom, subtle dark
+     edge border on three sides, drop shadow pointing up so the panel
+     appears to rise from the bottom of the viewport. The good_clean.png
+     9-slice tiles are still in assets/frame9/ for future use, but the
+     panel itself doesn't use them — they hid the toolbar buttons. */
   #app { display: flex; flex-direction: column;
     height: calc(100vh - 14px);      /* matches body padding (top only) */
-    color: var(--vscode-foreground, #e8e8e8);
-    background: var(--vscode-editor-background, #1e1e1e);
-    border-style: solid;
-    border-color: transparent;
-    border-width: 12px 12px 0 12px;   /* bottom 0 — orange band lives on toolbar instead */
-    border-image-source: url('{{ASSETS_BASE}}/good_clean.png');
-    border-image-slice: 60 60 200 60 fill;
-    border-image-repeat: stretch;
+    background: #0a0a0a; color: #e8e8e8;
+    border: 1px solid #2a2a2a;
+    border-bottom: none;
     border-top-left-radius: 12px;
     border-top-right-radius: 12px;
     box-shadow:
       0 -16px 38px rgba(0, 0, 0, 0.55),
-      0 -6px 14px rgba(0, 0, 0, 0.42);
+      0 -6px 14px rgba(0, 0, 0, 0.42),
+      0 0 0 1px rgba(255,122,26,0.08) inset;
     overflow: hidden; }
 
   #thread { flex: 1; overflow-y: auto; padding: 18px; display: flex;
@@ -45,18 +39,16 @@
   .msg { padding: 10px 14px; border-radius: 6px;
     font-size: calc(13px * var(--cb-font-scale));
     line-height: 1.55; max-width: 92%; word-break: break-word;
-    white-space: pre-wrap;
-    background: var(--vscode-editorWidget-background, #252526);
-    border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border, #333));
-    color: var(--vscode-foreground, #d4d4d4); }
-  .msg.sent      { align-self: flex-end;   background: var(--vscode-input-background, #3c3c3c); }
-  .msg.assistant { align-self: flex-start; background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526)); }
-  .msg.info      { align-self: flex-start; opacity: 0.72; font-style: italic; border-color: transparent;
-                   color: var(--vscode-descriptionForeground, #999);
-                   font-size: calc(11px * var(--cb-font-scale)); }
-  .msg.error     { align-self: flex-start; color: var(--vscode-errorForeground, #ff9b9b);
-                   background: var(--vscode-inputValidation-errorBackground, #2a1212);
-                   border-color: var(--vscode-inputValidation-errorBorder, #5a1f1f); }
+    white-space: pre-wrap; }
+  .msg.sent      { background: #1c1c1c; border: 1px solid #2a2a2a;
+                   align-self: flex-end; color: #e8e8e8; }
+  .msg.assistant { background: #15171c; border: 1px solid #232a37;
+                   align-self: flex-start; color: #d9e2f3; }
+  .msg.info      { background: #131313; border: 1px solid #1f1f1f;
+                   align-self: flex-start; color: #777;
+                   font-size: calc(11px * var(--cb-font-scale)); font-style: italic; }
+  .msg.error     { background: #2a1212; border: 1px solid #5a1f1f;
+                   align-self: flex-start; color: #ff9b9b; }
   .msg.assistant.streaming::after { content: '▍'; opacity: .6; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 0%,50% { opacity: .6 } 51%,100% { opacity: 0 } }
   #thread::-webkit-scrollbar { width: 4px; }
@@ -132,11 +124,14 @@
   .ic-github            { -webkit-mask-image: url('{{ASSETS_BASE}}/github.svg');                 mask-image: url('{{ASSETS_BASE}}/github.svg'); }
   .ic-font_size         { -webkit-mask-image: url('{{ASSETS_BASE}}/font_size.svg');              mask-image: url('{{ASSETS_BASE}}/font_size.svg'); }
 
-  #label-pill { flex: 0 0 auto; height: 32px; width: 220px;
-    background-image: url('{{LABEL_ALPHA_URI}}');
+  /* Use the smaller composited label.png — its content fills the image so the
+     pill reads big at 240×34. label-alpha.png is the high-res master and has
+     too much transparent padding for a contain-fitted background. */
+  #label-pill { flex: 0 0 auto; height: 34px; width: 240px;
+    background-image: url('{{ASSETS_BASE}}/label.png');
     background-size: contain; background-repeat: no-repeat;
     background-position: center; cursor: pointer;
-    margin: 0 6px; transition: filter .12s; }
+    margin: 0 8px; transition: filter .12s; }
   #label-pill:hover { filter: brightness(1.12); }
   #spacer { flex: 1; min-width: 8px; }
   #sendBtn { all: unset; cursor: pointer; width: 38px; height: 38px;
