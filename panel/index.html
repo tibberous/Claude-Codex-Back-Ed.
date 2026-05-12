@@ -1,57 +1,144 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta
-    http-equiv="Content-Security-Policy"
-    content="default-src 'none'; img-src vscode-resource: https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline';"
-  />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Claude Codex Black</title>
-  <style>
-    html, body {
-      margin: 0;
-      min-height: 100vh;
-      background: #111111;
-      color: #f5f5f5;
-      font-family: var(--vscode-font-family, Arial, sans-serif);
-    }
-    body {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-      box-sizing: border-box;
-    }
-    .shell {
-      width: min(900px, 100%);
-      border-radius: 24px;
-      background: linear-gradient(180deg, rgba(255, 127, 39, 0.18), rgba(0, 0, 0, 0.28));
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
-      padding: 32px;
-      text-align: center;
-    }
-    .label {
-      display: block;
-      max-width: 100%;
-      height: auto;
-      margin: 0 auto;
-      filter: drop-shadow(0 18px 32px rgba(0, 0, 0, 0.55));
-    }
-    .caption {
-      margin-top: 18px;
-      color: rgba(255, 255, 255, 0.72);
-      font-size: 13px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-  </style>
+<meta charset="UTF-8" />
+<title>Claude Codex Black</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: #0a0a0a; color: #e8e8e8;
+    font-family: 'Consolas', 'Courier New', monospace; }
+  #app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* message thread */
+  #thread { flex: 1; overflow-y: auto; padding: 18px; display: flex;
+    flex-direction: column; gap: 12px; }
+  .msg { padding: 10px 14px; border-radius: 6px; font-size: 13px;
+    line-height: 1.5; max-width: 92%; word-break: break-word; }
+  .msg.sent { background: #1c1c1c; border: 1px solid #2a2a2a;
+    align-self: flex-end; color: #e8e8e8; }
+  .msg.info { background: #131313; border: 1px solid #1f1f1f;
+    align-self: flex-start; color: #777; font-size: 11px; font-style: italic; }
+  #thread::-webkit-scrollbar { width: 4px; }
+  #thread::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+
+  /* input row with orange border */
+  #input-wrap { padding: 10px 12px; background: #0a0a0a; }
+  #input-box { border: 2px solid #ff7a1a; border-radius: 10px;
+    background: #111; padding: 10px 12px;
+    box-shadow: 0 0 0 1px rgba(255,122,26,0.15) inset; }
+  #textInput { width: 100%; border: none; outline: none; background: transparent;
+    color: #e8e8e8; font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 13px; line-height: 1.5; resize: none; min-height: 24px;
+    max-height: 140px; }
+  #textInput::placeholder { color: #555; }
+
+  /* bottom orange toolbar — "Codex Black" pill + controls */
+  #toolbar { display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px;
+    background: linear-gradient(90deg, #b83c00 0%, #e8621a 55%, #ff7a1a 100%);
+    border-top: 1px solid #401300; }
+  .tb-btn { all: unset; cursor: pointer; width: 32px; height: 32px;
+    border-radius: 6px; display: inline-flex; align-items: center;
+    justify-content: center; color: #fff; font-size: 16px;
+    transition: background-color .12s; }
+  .tb-btn:hover { background-color: rgba(0,0,0,0.18); }
+  #label-pill { flex: 0 0 auto; height: 32px;
+    background-image: url('{{LABEL_ALPHA_URI}}');
+    background-size: contain; background-repeat: no-repeat;
+    background-position: center; cursor: pointer;
+    margin: 0 6px; transition: filter .12s; }
+  #label-pill:hover { filter: brightness(1.12); }
+  #spacer { flex: 1; }
+  #sendBtn { all: unset; cursor: pointer; width: 36px; height: 36px;
+    border-radius: 50%; background: #1a1a1a; color: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; transition: transform .1s; }
+  #sendBtn:hover { transform: scale(1.06); }
+  .recording #micBtn { background-color: rgba(0,0,0,0.35); }
+</style>
 </head>
 <body>
-  <main class="shell">
-    <img class="label" src="{{LABEL_ALPHA_URI}}" alt="Claude Codex Black" />
-    <div class="caption">Standalone Panel</div>
-  </main>
+<div id="app">
+  <div id="thread">
+    <div class="msg info">Claude Codex Black — standalone panel. Voice or type to send.</div>
+  </div>
+
+  <div id="input-wrap">
+    <div id="input-box">
+      <textarea id="textInput" placeholder="Queue another message…" rows="1"></textarea>
+    </div>
+  </div>
+
+  <div id="toolbar">
+    <button class="tb-btn" id="addBtn" title="New">+</button>
+    <button class="tb-btn" id="queueBtn" title="Queue">≡</button>
+    <div id="label-pill" title="Claude Codex Black Edition"></div>
+    <div id="spacer"></div>
+    <button class="tb-btn" id="micBtn" title="Voice input">🎙</button>
+    <button class="tb-btn" id="monitorBtn" title="Monitor">◉</button>
+    <button id="sendBtn" title="Send">▶</button>
+  </div>
+</div>
+
+<script>
+const api = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
+const thread = document.getElementById('thread');
+const ti = document.getElementById('textInput');
+const app = document.getElementById('app');
+const mic = document.getElementById('micBtn');
+let recState = 'idle';
+
+function addMsg(text, cls) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + cls;
+  d.textContent = text;
+  thread.appendChild(d);
+  thread.scrollTop = thread.scrollHeight;
+}
+
+function send() {
+  const txt = (ti.value || '').trim();
+  if (!txt) return;
+  addMsg(txt, 'sent');
+  if (api) api.postMessage({ type: 'sendText', text: txt });
+  ti.value = '';
+  ti.style.height = '';
+}
+
+document.getElementById('sendBtn').onclick = send;
+
+ti.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+ti.addEventListener('input', function() {
+  this.style.height = '';
+  this.style.height = Math.min(this.scrollHeight, 140) + 'px';
+});
+
+mic.onclick = () => {
+  if (!api) return;
+  if (recState === 'idle')      api.postMessage({ type: 'start' });
+  else if (recState === 'recording') api.postMessage({ type: 'stop' });
+};
+
+document.getElementById('label-pill').onclick = () => {
+  if (api) api.postMessage({ type: 'labelClick' });
+};
+
+window.addEventListener('message', e => {
+  const m = e.data || {};
+  if (m.type === 'recording') {
+    recState = 'recording'; app.className = 'recording'; mic.textContent = '🔴';
+  } else if (m.type === 'transcribing') {
+    recState = 'transcribing'; app.className = ''; mic.textContent = '⏳';
+  } else if (m.type === 'result') {
+    recState = 'idle'; app.className = ''; mic.textContent = '🎙';
+    if (m.text) addMsg(m.text, 'sent');
+  } else if (m.type === 'error') {
+    recState = 'idle'; app.className = ''; mic.textContent = '🎙';
+    addMsg('Error: ' + (m.message || 'unknown'), 'info');
+  }
+});
+</script>
 </body>
 </html>
