@@ -129,7 +129,8 @@ function openPanel(context) {
             retainContextWhenHidden: true,
             localResourceRoots: [
                 vscode.Uri.file(path.join(context.extensionPath, 'panel')),
-                vscode.Uri.file(path.join(context.extensionPath, 'assets'))
+                vscode.Uri.file(path.join(context.extensionPath, 'assets')),
+                vscode.Uri.file(path.join(context.extensionPath, 'lib'))
             ]
         }
     );
@@ -182,7 +183,19 @@ function getPanelHtml(context, webview) {
     const labelUri = webview.asWebviewUri(
         vscode.Uri.file(path.join(context.extensionPath, 'assets', 'label-alpha.png'))
     );
+    const prismJsUri = webview.asWebviewUri(
+        vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism.min.js'))
+    );
+    const prismLangsUri = webview.asWebviewUri(
+        vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-langs.min.js'))
+    );
+    const prismCssUri = webview.asWebviewUri(
+        vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-dark.min.css'))
+    );
     html = html.split('{{LABEL_ALPHA_URI}}').join(labelUri.toString());
+    html = html.split('{{PRISM_JS_URI}}').join(prismJsUri.toString());
+    html = html.split('{{PRISM_LANGS_URI}}').join(prismLangsUri.toString());
+    html = html.split('{{PRISM_CSS_URI}}').join(prismCssUri.toString());
     return html;
 }
 
