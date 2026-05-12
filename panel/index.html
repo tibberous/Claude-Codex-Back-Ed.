@@ -5,42 +5,305 @@
 <title>Claude Codex Black</title>
 <link rel="stylesheet" href="{{PRISM_CSS_URI}}" />
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  /* ── Panel shell ──────────────────────────────────────────────────────
-     Floats above the viewport (subtle rounded top + drop shadow), but is
-     otherwise visually identical to good.png: light chat area on top,
-     orange-bordered input field, orange linear-gradient toolbar at the
-     bottom with rounded inner pill + black "Stop" / Send action.
-     All functionality from the previous build is preserved — the extra
-     toolbar buttons that good.png doesn't show are kept in the DOM with
-     display:none so their JS handlers still bind. */
-  html, body { width: 100%; height: 100%; background: transparent;
-    color: #1f1f1f; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-    font-size: 14px; --cb-font-scale: 1; }
-  body { padding: 10px 10px 0 10px; }
+  /* ── Panel shell + chat thread (GPT's prompt-bar design, hooked into the
+     extension's JS via #textInput / #sendBtn / #addBtn / #sttBtn / #ttsBtn /
+     #label-pill / #savedPromptsBtn / #autoReplyBtn) ──────────────────── */
+:root {
+  --shell-radius: 28px;
+  --input-radius: 20px;
+  --button-radius: 15px;
+  --orange-1: #ffcc00;
+  --orange-2: #ff8b00;
+  --orange-3: #ff5b00;
+  --orange-4: #dc3000;
+  --orange-5: #9f1600;
+  --ink: #111111;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: #fff;
+  font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.02) 25%, transparent 25%) 0 0/28px 28px,
+    linear-gradient(225deg, rgba(255,255,255,.02) 25%, transparent 25%) 0 0/28px 28px,
+    linear-gradient(315deg, rgba(255,255,255,.02) 25%, transparent 25%) 0 0/28px 28px,
+    linear-gradient(45deg, rgba(255,255,255,.02) 25%, transparent 25%) 0 0/28px 28px,
+    linear-gradient(180deg, #2f2420 0%, #1a1110 100%);
+}
+
+.demo-stage {
+  height: 100vh;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.prompt-shell {
+  width: 100%;
+  max-width: 1935px;
+  margin: 0 auto;
+  position: relative;
+  padding: 14px 26px 22px;
+  border-radius: var(--shell-radius);
+  border: 2px solid rgba(255, 192, 40, 0.95);
+  background:
+    linear-gradient(180deg, rgba(255, 224, 75, 0.9) 0%, rgba(255, 186, 0, 0.82) 2.5%, rgba(255, 138, 0, 0.88) 6%, rgba(255, 92, 0, 0.94) 32%, rgba(226, 51, 0, 0.97) 68%, rgba(167, 24, 0, 1) 100%);
+  box-shadow:
+    0 0 0 3px rgba(255, 94, 0, 0.95),
+    0 0 16px rgba(255, 160, 0, 0.95),
+    0 0 34px rgba(255, 86, 0, 0.82),
+    0 22px 40px rgba(0, 0, 0, 0.62);
+}
+
+.prompt-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 240, 170, 0.75),
+    inset 0 -2px 0 rgba(120, 0, 0, 0.3);
+}
+
+.prompt-input-wrap {
+  position: relative;
+  margin-bottom: 17px;
+  border-radius: var(--input-radius);
+  border: 2px solid rgba(52, 52, 52, 0.95);
+  background: linear-gradient(180deg, #f7f7f7 0%, #f1f1f1 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 1px 0 rgba(0, 0, 0, 0.25),
+    0 3px 10px rgba(0, 0, 0, 0.12);
+  padding: 14px 76px 14px 23px;
+}
+
+.prompt-input {
+  width: 100%;
+  min-height: 46px;
+  max-height: 240px;
+  resize: none;
+  overflow: hidden;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #3c3c3c;
+  font: 400 25px/1.34 "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+.prompt-input::placeholder { color: #434343; opacity: 1; }
+
+.send-button {
+  position: absolute;
+  top: 50%;
+  right: 19px;
+  width: 51px;
+  height: 54px;
+  margin: 0;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent url('{{ASSETS_BASE}}/send.png') center/contain no-repeat;
+  cursor: pointer;
+}
+.send-button:hover,
+.send-button.is-hover { background-image: url('{{ASSETS_BASE}}/send_over.png'); }
+.send-button:active,
+.send-button.is-active { background-image: url('{{ASSETS_BASE}}/send_click.png'); }
+
+.prompt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-height: 74px;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+}
+
+.toolbar-group-left { gap: 28px; }
+.toolbar-group-middle { gap: 26px; }
+.toolbar-spacer { flex: 1 1 auto; }
+
+.tool-button,
+.label-button,
+.stop-button {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+  background: transparent;
+}
+
+.tool-button {
+  width: 58px;
+  height: 58px;
+  border-radius: var(--button-radius);
+  border: 2px solid rgba(255, 160, 30, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 145, 0, 1) 0%, rgba(255, 112, 0, 0.98) 25%, rgba(242, 71, 0, 0.98) 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 209, 100, 0.75),
+    inset 0 -3px 0 rgba(150, 27, 0, 0.38),
+    0 0 0 1px rgba(130, 30, 0, 0.5),
+    0 5px 10px rgba(0, 0, 0, 0.22),
+    0 0 14px rgba(255, 94, 0, 0.38);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform .14s ease, box-shadow .14s ease, filter .14s ease;
+}
+
+.tool-button:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 224, 125, 0.88),
+    inset 0 -2px 0 rgba(170, 33, 0, 0.42),
+    0 0 0 1px rgba(140, 20, 0, 0.65),
+    0 8px 14px rgba(0, 0, 0, 0.28),
+    0 0 18px rgba(255, 112, 0, 0.65);
+}
+
+.tool-button:active,
+.tool-button.is-active {
+  transform: translateY(1px);
+  filter: brightness(.92);
+}
+
+.tool-button img {
+  width: 28px;
+  height: 28px;
+  display: block;
+  filter: brightness(0) invert(1);
+}
+
+.label-button {
+  display: block;
+  width: 526px;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.33);
+}
+.label-button img {
+  display: block;
+  width: 526px;
+  height: 74px;
+}
+.label-button:hover { filter: brightness(1.04); }
+
+.stop-button {
+  height: 70px;
+  padding: 0 28px;
+  border-radius: 17px;
+  display: inline-flex;
+  align-items: center;
+  gap: 15px;
+  color: #f3f3f3;
+  font-size: 25px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  border: 1px solid rgba(255,255,255,0.12);
+  background:
+    linear-gradient(180deg, rgba(42, 42, 42, 0.92) 0%, rgba(18, 18, 18, 0.96) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.24),
+    inset 0 -2px 0 rgba(0,0,0,0.45),
+    0 6px 14px rgba(0,0,0,0.35);
+}
+.stop-button:hover { filter: brightness(1.08); }
+
+.stop-button__icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: #f3f3f3;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.35), 0 0 8px rgba(255,255,255,0.1);
+}
+
+.tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-9999px, -9999px);
+  padding: 9px 12px;
+  border-radius: 10px;
+  color: #f2f2f2;
+  background: rgba(15, 15, 15, 0.95);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 10px 18px rgba(0,0,0,0.45);
+  font-size: 13px;
+  line-height: 1.2;
+  transition: opacity .12s ease;
+}
+.tooltip.is-visible { opacity: 1; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 1480px) {
+  .prompt-shell { width: calc(100vw - 30px); padding-inline: 18px; }
+  .prompt-toolbar { gap: 14px; flex-wrap: wrap; }
+  .toolbar-group { gap: 14px; }
+  .label-button, .label-button img { width: 420px; height: auto; }
+  .toolbar-spacer { display: none; }
+}
+
+@media (max-width: 960px) {
+  .prompt-input { font-size: 20px; }
+  .tool-button { width: 52px; height: 52px; }
+  .tool-button img { width: 24px; height: 24px; }
+  .stop-button { height: 60px; font-size: 22px; }
+  .label-button, .label-button img { width: min(100%, 526px); }
+}
+
+  /* CBE extension hooks added to GPT's design */
+  :root { --cb-font-scale: 1; }
   body.cb-big { --cb-font-scale: 1.8; }
+  .prompt-input { font-size: calc(25px * var(--cb-font-scale)); }
+  .stop-button { font-size: calc(25px * var(--cb-font-scale)); }
 
-  #app { display: flex; flex-direction: column;
-    height: calc(100vh - 10px);
-    background: #f5f5f5; color: #1f1f1f;
-    border-top-left-radius: 10px; border-top-right-radius: 10px;
-    box-shadow:
-      0 -14px 32px rgba(0, 0, 0, 0.28),
-      0 -4px 10px rgba(0, 0, 0, 0.18);
-    overflow: hidden; }
-
-  /* ── Chat thread ─────────────────────────────────────────────────────── */
-  #thread { flex: 1; overflow-y: auto; padding: 14px 22px;
-    display: flex; flex-direction: column; gap: 8px; }
+  /* Chat thread above the prompt shell — light card on the dark backdrop */
+  #thread {
+    flex: 1 1 0; min-height: 0; overflow-y: auto;
+    width: 100%; max-width: 1935px;
+    margin: 0 auto 14px auto;
+    padding: 18px 22px;
+    display: flex; flex-direction: column; gap: 10px;
+    color: #1f1f1f;
+    background: #ffffff;
+    border-radius: 18px;
+    box-shadow: 0 14px 36px rgba(0,0,0,0.45), 0 6px 14px rgba(0,0,0,0.30);
+  }
   #thread::-webkit-scrollbar { width: 6px; }
   #thread::-webkit-scrollbar-thumb { background: #c8c8c8; border-radius: 3px; }
-  .msg { padding: 8px 14px; border-radius: 8px;
+  .msg {
+    padding: 8px 14px; border-radius: 10px;
     font-size: calc(14px * var(--cb-font-scale));
-    line-height: 1.55; max-width: 92%; word-break: break-word;
-    white-space: pre-wrap; }
-  .msg.sent      { background: #ffffff; border: 1px solid #d8d8d8;
-                   align-self: flex-end;  color: #1f1f1f;
-                   box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+    line-height: 1.55; max-width: 92%;
+    word-break: break-word; white-space: pre-wrap;
+    font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  }
+  .msg.sent      { background: #f0f0f0; border: 1px solid #d8d8d8;
+                   align-self: flex-end;   color: #1f1f1f; }
   .msg.assistant { background: #ffffff; border: 1px solid #e0e0e0;
                    align-self: flex-start; color: #1f1f1f;
                    box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
@@ -53,97 +316,19 @@
   .msg.assistant.streaming::after { content: '▍'; opacity: .6; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 0%,50% { opacity: .6 } 51%,100% { opacity: 0 } }
 
-  /* ── Input box (orange border, white interior, mini-submit affordance) ─ */
-  #input-wrap { padding: 8px 12px 10px 12px; background: transparent; }
-  #input-box { position: relative;
-    border: 2px solid #ff7a1a; border-radius: 14px;
-    background: #ffffff; padding: 10px 38px 10px 14px;
-    box-shadow: 0 0 0 1px rgba(255,122,26,0.10) inset, 0 1px 3px rgba(0,0,0,0.05); }
-  #input-box.busy { border-color: #d69e2e;
-    box-shadow: 0 0 0 1px rgba(214,158,46,0.15) inset; }
-  #input-box::after { content: ''; position: absolute; right: 10px; top: 50%;
-    transform: translateY(-50%); width: 18px; height: 18px;
-    border-radius: 50%; border: 1px solid #d8d8d8; background: #ffffff;
-    pointer-events: none; }
-  #textInput { width: 100%; border: none; outline: none; background: transparent;
-    color: #1f1f1f; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-    font-size: calc(14px * var(--cb-font-scale));
-    line-height: 1.5; resize: none; min-height: 22px; max-height: 160px; }
-  #textInput::placeholder { color: #a0a0a0; }
-  #textInput:disabled { color: #b0b0b0; cursor: not-allowed; }
+  /* Layout: dark backdrop; .demo-stage is a column flex container with 18 px
+     gutter so #thread fills the space above the prompt-shell. */
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  .prompt-shell { width: 100%; max-width: 1935px; margin: 0 auto; flex: 0 0 auto; }
 
-  /* ── Toolbar (orange band; left cluster + centred pill + right cluster + Send) ─ */
-  #toolbar { display: flex; align-items: center; padding: 0;
-    background: linear-gradient(90deg, #b83c00 0%, #e8621a 50%, #ff7a1a 100%);
-    border-top: 1px solid #3a1100; height: 56px; }
-  #toolbar-scroll { flex: 1 1 auto; min-width: 0; overflow: visible;
-    display: flex; align-items: center; gap: 12px; padding: 0 14px; }
-  .tb-btn { all: unset; cursor: pointer; width: 28px; height: 28px;
-    display: inline-flex; align-items: center; justify-content: center;
-    color: #ffffff; flex: 0 0 auto; position: relative;
-    transition: transform .08s, color .12s; }
-  .tb-btn:hover  { transform: scale(1.12); }
-  .tb-btn:active { transform: scale(0.92); color: #ffe2c8; }
-  .tb-btn[disabled] { opacity: .45; cursor: not-allowed; }
-  .tb-btn .cb-icon { width: 20px; height: 20px; background-color: currentColor;
-    -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;
-            mask-size: contain;         mask-repeat: no-repeat;         mask-position: center; }
-  .tb-btn.speaking { color: #ffd0d0; }
-  .tb-btn.autoread { color: #c8ffc8; }
-
-  /* Per-icon mask paths */
-  .ic-add               { -webkit-mask-image: url('{{ASSETS_BASE}}/add.svg');                    mask-image: url('{{ASSETS_BASE}}/add.svg'); }
-  .ic-saved_prompts     { -webkit-mask-image: url('{{ASSETS_BASE}}/saved_prompts.svg');          mask-image: url('{{ASSETS_BASE}}/saved_prompts.svg'); }
-  .ic-stored_prompts    { -webkit-mask-image: url('{{ASSETS_BASE}}/stored_prompts.svg');         mask-image: url('{{ASSETS_BASE}}/stored_prompts.svg'); }
-  .ic-chat_history      { -webkit-mask-image: url('{{ASSETS_BASE}}/chat_history.svg');           mask-image: url('{{ASSETS_BASE}}/chat_history.svg'); }
-  .ic-attach_file       { -webkit-mask-image: url('{{ASSETS_BASE}}/attach_file.svg');            mask-image: url('{{ASSETS_BASE}}/attach_file.svg'); }
-  .ic-stt               { -webkit-mask-image: url('{{ASSETS_BASE}}/stt.svg');                    mask-image: url('{{ASSETS_BASE}}/stt.svg'); }
-  .ic-tts               { -webkit-mask-image: url('{{ASSETS_BASE}}/tts.svg');                    mask-image: url('{{ASSETS_BASE}}/tts.svg'); }
-  .ic-auto_reply        { -webkit-mask-image: url('{{ASSETS_BASE}}/auto_reply.svg');             mask-image: url('{{ASSETS_BASE}}/auto_reply.svg'); }
-  .ic-wake_up           { -webkit-mask-image: url('{{ASSETS_BASE}}/wake_up.svg');                mask-image: url('{{ASSETS_BASE}}/wake_up.svg'); }
-  .ic-show_commands     { -webkit-mask-image: url('{{ASSETS_BASE}}/show_command_menu.svg');      mask-image: url('{{ASSETS_BASE}}/show_command_menu.svg'); }
-  .ic-compact           { -webkit-mask-image: url('{{ASSETS_BASE}}/compact.svg');                mask-image: url('{{ASSETS_BASE}}/compact.svg'); }
-  .ic-handbook          { -webkit-mask-image: url('{{ASSETS_BASE}}/handbook.svg');               mask-image: url('{{ASSETS_BASE}}/handbook.svg'); }
-  .ic-help              { -webkit-mask-image: url('{{ASSETS_BASE}}/help.svg');                   mask-image: url('{{ASSETS_BASE}}/help.svg'); }
-  .ic-settings          { -webkit-mask-image: url('{{ASSETS_BASE}}/settings.svg');               mask-image: url('{{ASSETS_BASE}}/settings.svg'); }
-  .ic-extensions        { -webkit-mask-image: url('{{ASSETS_BASE}}/extensions.svg');             mask-image: url('{{ASSETS_BASE}}/extensions.svg'); }
-  .ic-project_folder    { -webkit-mask-image: url('{{ASSETS_BASE}}/project_folder.svg');         mask-image: url('{{ASSETS_BASE}}/project_folder.svg'); }
-  .ic-vscode_monitor    { -webkit-mask-image: url('{{ASSETS_BASE}}/vscode_monitor.svg');         mask-image: url('{{ASSETS_BASE}}/vscode_monitor.svg'); }
-  .ic-git               { -webkit-mask-image: url('{{ASSETS_BASE}}/git.svg');                    mask-image: url('{{ASSETS_BASE}}/git.svg'); }
-  .ic-github            { -webkit-mask-image: url('{{ASSETS_BASE}}/github.svg');                 mask-image: url('{{ASSETS_BASE}}/github.svg'); }
-  .ic-font_size         { -webkit-mask-image: url('{{ASSETS_BASE}}/font_size.svg');              mask-image: url('{{ASSETS_BASE}}/font_size.svg'); }
-
-  /* Hidden cluster — features kept functional but not surfaced in the toolbar.
-     Their click handlers still bind because the buttons exist in the DOM. */
+  /* Hidden cluster: features good.png doesn't show but the extension JS still binds */
   #toolbar-hidden { display: none; }
 
-  /* Codex pill — black rounded rectangle with the ★ icon + text + chevron.
-     Matches good.png exactly. */
-  #label-pill { flex: 0 0 auto; height: 32px; width: 230px;
-    background-image: url('{{ASSETS_BASE}}/label.png');
-    background-size: contain; background-repeat: no-repeat;
-    background-position: center;
-    cursor: pointer; margin: 0 4px;
-    transition: filter .12s; }
-  #label-pill:hover { filter: brightness(1.1); }
+  /* When the in-flight Claude response is busy, the input box border yellows */
+  .prompt-input-wrap.busy { border-color: #d69e2e; }
 
-  #spacer { flex: 1; min-width: 4px; }
-
-  /* Send button — orange/black circle pinned to the right of the toolbar.
-     Always visible. */
-  #sendBtn { all: unset; cursor: pointer; width: 36px; height: 36px;
-    margin: 0 12px 0 0; flex: 0 0 auto;
-    border-radius: 50%; background: #1a1a1a; color: #ffffff;
-    display: inline-flex; align-items: center; justify-content: center;
-    transition: transform .1s, background .12s;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.30); }
-  #sendBtn:hover  { transform: scale(1.06); color: #FF6A00; }
-  #sendBtn:active { color: #F32E00; }
-  #sendBtn[disabled] { background: #444; cursor: not-allowed; transform: none; opacity: .5; }
-  #sendBtn .cb-icon { width: 18px; height: 18px; background-color: currentColor;
-    -webkit-mask-image: url('{{ASSETS_BASE}}/send_arrow.svg'); mask-image: url('{{ASSETS_BASE}}/send_arrow.svg');
-    -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;
-            mask-size: contain;         mask-repeat: no-repeat;         mask-position: center; }
+  /* Stop -> Send dual-state: hide stop-button label when there's no in-flight job.
+     For now leave both visible — the existing JS toggles disabled state on sendBtn. */
   /* ── Settings modal ──────────────────────────────────────── */
   #cbe-settings { position: fixed; inset: 0; z-index: 2147483645;
     background: rgba(0,0,0,.65); display: flex;
@@ -315,51 +500,80 @@
 </style>
 </head>
 <body>
-<div id="app">
-  <div id="thread">
-    <div class="msg info">Claude Codex Black — standalone. Type to send. First send will prompt for your API key.</div>
-  </div>
-
-  <div id="input-wrap">
-    <div id="input-box">
-      <textarea id="textInput" placeholder="Queue another message…" rows="1"></textarea>
+  <main class="demo-stage" id="app">
+    <div id="thread">
+      <div class="msg info">Claude Codex Black — standalone. Type to send. First send will prompt for your API key.</div>
     </div>
-  </div>
 
-  <div id="toolbar">
-    <!-- VISIBLE: matches good.png exactly (7 items + Send pinned right). -->
-    <div id="toolbar-scroll">
-      <button type="button" class="tb-btn" id="addBtn"            title="New conversation"><span class="cb-icon ic-add"></span></button>
-      <button type="button" class="tb-btn" id="savedPromptsBtn"   title="Saved Prompts"><span class="cb-icon ic-saved_prompts"></span></button>
-      <div id="label-pill" title="Claude Codex Black Edition"></div>
-      <div id="spacer"></div>
-      <button type="button" class="tb-btn" id="ttsBtn"            title="Read aloud last reply — double-click = auto-read"><span class="cb-icon ic-tts"></span></button>
-      <button type="button" class="tb-btn" id="sttBtn"            title="Speech to Text — click to start/stop"><span class="cb-icon ic-stt"></span></button>
-      <button type="button" class="tb-btn" id="settingsBtn"       title="Settings — Provider + model"><span class="cb-icon ic-settings"></span></button>
-    </div>
-    <button type="button" id="sendBtn" title="Send"><span class="cb-icon"></span></button>
+    <section class="prompt-shell" aria-label="Prompt composer">
+      <div class="prompt-input-wrap" id="input-box">
+        <label class="sr-only" for="textInput">Message</label>
+        <textarea id="textInput" class="prompt-input" rows="1" placeholder="Queue another message..."></textarea>
+        <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" aria-label="Send message"></button>
+      </div>
 
-    <!-- HIDDEN: kept in the DOM so existing JS click-handlers still bind.
-         Reach these via VSCode commands or the settings modal. -->
+      <div class="prompt-toolbar">
+        <div class="toolbar-group toolbar-group-left">
+          <button id="addBtn" class="tool-button" type="button" data-tooltip="New conversation" aria-label="New conversation">
+            <img src="{{ASSETS_BASE}}/add.svg" alt="" />
+          </button>
+
+          <button id="savedPromptsBtn" class="tool-button" type="button" data-tooltip="Stored prompts" aria-label="Stored prompts">
+            <img src="{{ASSETS_BASE}}/stored_prompts.svg" alt="" />
+          </button>
+
+          <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" aria-label="Current assistant profile">
+            <img src="{{ASSETS_BASE}}/label.png" alt="Claude Codex — Black Edition" />
+          </button>
+        </div>
+
+        <div class="toolbar-group toolbar-group-middle">
+          <button id="ttsBtn" class="tool-button" type="button" data-tooltip="Read aloud last reply (double-click = auto-read)" aria-label="Text to speech">
+            <img src="{{ASSETS_BASE}}/tts.svg" alt="" />
+          </button>
+
+          <button id="sttBtn" class="tool-button" type="button" data-tooltip="Speech to text — click to start/stop" aria-label="Speech to text">
+            <img src="{{ASSETS_BASE}}/stt.svg" alt="" />
+          </button>
+
+          <button id="autoReplyBtn" class="tool-button" type="button" data-tooltip="Auto reply" aria-label="Auto reply">
+            <img src="{{ASSETS_BASE}}/auto_reply.svg" alt="" />
+          </button>
+        </div>
+
+        <div class="toolbar-spacer" aria-hidden="true"></div>
+
+        <button id="stopBtn" class="stop-button" type="button" data-tooltip="Stop generation" aria-label="Stop generation">
+          <span class="stop-button__icon" aria-hidden="true"></span>
+          <span class="stop-button__label">Stop</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Hidden cluster: features good.png doesn't surface in the toolbar.
+         Kept in the DOM so existing JS click-handlers still bind. Reachable
+         via the settings modal or VSCode commands. -->
     <div id="toolbar-hidden">
-      <button type="button" class="tb-btn" id="storedPromptsBtn"  title="Stored Prompts"><span class="cb-icon ic-stored_prompts"></span></button>
-      <button type="button" class="tb-btn" id="chatHistoryBtn"    title="Chat History"><span class="cb-icon ic-chat_history"></span></button>
-      <button type="button" class="tb-btn" id="attachFileBtn"     title="Attach File"><span class="cb-icon ic-attach_file"></span></button>
-      <button type="button" class="tb-btn" id="autoReplyBtn"      title="Auto Reply"><span class="cb-icon ic-auto_reply"></span></button>
-      <button type="button" class="tb-btn" id="wakeUpBtn"         title="Wake Up Response"><span class="cb-icon ic-wake_up"></span></button>
-      <button type="button" class="tb-btn" id="showCommandsBtn"   title="Show Command Menu"><span class="cb-icon ic-show_commands"></span></button>
-      <button type="button" class="tb-btn" id="compactBtn"        title="Compact"><span class="cb-icon ic-compact"></span></button>
-      <button type="button" class="tb-btn" id="handbookBtn"       title="Handbook"><span class="cb-icon ic-handbook"></span></button>
-      <button type="button" class="tb-btn" id="helpBtn"           title="Help"><span class="cb-icon ic-help"></span></button>
-      <button type="button" class="tb-btn" id="extensionsBtn"     title="Extensions"><span class="cb-icon ic-extensions"></span></button>
-      <button type="button" class="tb-btn" id="projectFolderBtn"  title="Project Folder"><span class="cb-icon ic-project_folder"></span></button>
-      <button type="button" class="tb-btn" id="monitorBtn"        title="VSCode Monitor — trace channel"><span class="cb-icon ic-vscode_monitor"></span></button>
-      <button type="button" class="tb-btn" id="gitBtn"            title="Git"><span class="cb-icon ic-git"></span></button>
-      <button type="button" class="tb-btn" id="githubBtn"         title="GitHub"><span class="cb-icon ic-github"></span></button>
-      <button type="button" class="tb-btn" id="fontSizeBtn"       title="Font Size — toggle 80% bigger text"><span class="cb-icon ic-font_size"></span></button>
+      <button class="tb-btn" type="button" id="chatHistoryBtn"    title="Chat History"></button>
+      <button class="tb-btn" type="button" id="storedPromptsBtn"  title="Stored Prompts"></button>
+      <button class="tb-btn" type="button" id="attachFileBtn"     title="Attach File"></button>
+      <button class="tb-btn" type="button" id="wakeUpBtn"         title="Wake Up Response"></button>
+      <button class="tb-btn" type="button" id="showCommandsBtn"   title="Show Command Menu"></button>
+      <button class="tb-btn" type="button" id="compactBtn"        title="Compact"></button>
+      <button class="tb-btn" type="button" id="handbookBtn"       title="Handbook"></button>
+      <button class="tb-btn" type="button" id="helpBtn"           title="Help"></button>
+      <button class="tb-btn" type="button" id="settingsBtn"       title="Settings"></button>
+      <button class="tb-btn" type="button" id="extensionsBtn"     title="Extensions"></button>
+      <button class="tb-btn" type="button" id="projectFolderBtn"  title="Project Folder"></button>
+      <button class="tb-btn" type="button" id="monitorBtn"        title="VSCode Monitor"></button>
+      <button class="tb-btn" type="button" id="gitBtn"            title="Git"></button>
+      <button class="tb-btn" type="button" id="githubBtn"         title="GitHub"></button>
+      <button class="tb-btn" type="button" id="fontSizeBtn"       title="Font Size"></button>
     </div>
-  </div>
-</div>
+  </main>
+
+  <!-- Tooltip overlay used by data-tooltip elements -->
+  <div id="tooltip" class="tooltip" role="tooltip" aria-hidden="true"></div>
 
 <script src="{{PRISM_JS_URI}}" data-manual></script>
 <script src="{{PRISM_LANGS_URI}}"></script>
@@ -603,8 +817,8 @@ function send() {
 /* SFX hooks: toolbar button click delegation + send-button "tick" cue.
    Both listeners are ADDITIVE — they don't replace existing per-button
    handlers, they only fire alongside them. */
-document.getElementById('toolbar').addEventListener('click', (e) => {
-  const btn = e.target.closest && e.target.closest('.tb-btn');
+document.querySelector('.prompt-toolbar').addEventListener('click', (e) => {
+  const btn = e.target.closest && e.target.closest('.tool-button, .label-button, .stop-button');
   if (btn) playSfx('click');
 });
 sendBtn.addEventListener('click', () => { if (!busy) playSfx('tick'); });
@@ -749,6 +963,7 @@ const tts = (function() {
       else addMsg(`(stub) ${id} clicked`, 'info');
     });
   }
+  bind('stopBtn',           'cancelInFlight');
   bind('savedPromptsBtn',   'openSavedPrompts');
   bind('storedPromptsBtn',  'openStoredPrompts');
   bind('chatHistoryBtn',    'openChatHistory');
@@ -1011,6 +1226,43 @@ window.addEventListener('message', e => {
     openSettings(m);
   }
 });
+
+/* ────────────────────────────────────────────────────────────────────────
+   Data-tooltip overlay (GPT's prompt-bar design uses #tooltip + data-tooltip
+   attrs instead of native title=). One delegated mouseover handler positions
+   the floating tooltip near the cursor; mouseleave hides it. */
+(function(){
+  const tip = document.getElementById('tooltip');
+  if (!tip) return;
+  function show(text, x, y) {
+    if (!text) return hide();
+    tip.textContent = text;
+    tip.classList.add('is-visible');
+    tip.setAttribute('aria-hidden', 'false');
+    place(x, y);
+  }
+  function place(x, y) {
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    const left = Math.min(window.innerWidth - w - 10, x + 14);
+    const top  = Math.max(10, y - h - 18);
+    tip.style.transform = `translate(${left}px, ${top}px)`;
+  }
+  function hide() {
+    tip.classList.remove('is-visible');
+    tip.setAttribute('aria-hidden', 'true');
+    tip.style.transform = 'translate(-9999px,-9999px)';
+  }
+  document.body.addEventListener('mouseover', e => {
+    const t = e.target.closest('[data-tooltip]');
+    if (t) show(t.getAttribute('data-tooltip'), e.clientX, e.clientY);
+  });
+  document.body.addEventListener('mousemove', e => {
+    if (tip.classList.contains('is-visible')) place(e.clientX, e.clientY);
+  });
+  document.body.addEventListener('mouseout', e => {
+    if (e.target.closest('[data-tooltip]')) hide();
+  });
+})();
 
 /* ────────────────────────────────────────────────────────────────────────
    Right-click context menu + View Source modal
