@@ -6,3 +6,5 @@ config.ini
 __pycache__/
 *.pyc
 .claude/
+panel/.index_tmp.pdf
+panel/index.png
