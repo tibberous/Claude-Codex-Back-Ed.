@@ -2,7 +2,7 @@
   "name": "codex-black-ed",
   "displayName": "Claude Codex Black Ed.",
   "description": "Standalone Claude Codex Black panel with direct streaming chat to Claude / GPT / Grok / Gemini / Azure OpenAI.",
-  "version": "1.3.0",
+  "version": "1.5.0",
   "publisher": "TrentonTompkins",
   "author": {
     "name": "Trenton Tompkins",
@@ -28,6 +28,10 @@
           "light": "assets/icon-light.png",
           "dark": "resources/icon-dark.png"
         }
+      },
+      {
+        "command": "codexBlackEd.show",
+        "title": "Claude Codex Black: Show"
       },
       {
         "command": "codexBlackEd.setApiKey",

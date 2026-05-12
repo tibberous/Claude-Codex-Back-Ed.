@@ -77,6 +77,18 @@ const PROVIDERS = {
         defaultModel: '(web)',
         models: ['(web)'],
     },
+    claudeBridge: {
+        /* Claude via SuperGrok's resident bridge service (TCP). Requires
+           C:\SuperGrok\ + a one-time `python start.py --claude` login. Note:
+           one SuperGrok service answers one target at a time — if a Gemini
+           bridge is running you'll need to stop it before Claude works. */
+        label: 'Claude (SuperGrok)',
+        superGrok: true,
+        target: 'claude',
+        superGrokRoot: 'C:\\SuperGrok',
+        defaultModel: '(web)',
+        models: ['(web)'],
+    },
 };
 
 const DEFAULT_PROVIDER = 'anthropic';
@@ -240,6 +252,9 @@ async function activate(context) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('codexBlackEd.openPanel', () => openPanel(context)),
+        /* Alias kept for command-palette convenience and for chord bindings
+           that want a shorter id. Behaviour identical to openPanel. */
+        vscode.commands.registerCommand('codexBlackEd.show', () => openPanel(context)),
         vscode.commands.registerCommand('codexBlackEd.openSettings', () => {
             if (activePanel) activePanel.webview.postMessage({ type: 'openSettings', ...buildSettingsPayload(context) });
             else openPanel(context);

@@ -455,10 +455,72 @@ function send() {
 }
 
 sendBtn.onclick = send;
-addBtn.onclick = () => { if (api) api.postMessage({ type: 'reset' }); thread.innerHTML = ''; addMsg('Conversation reset.', 'info'); };
+addBtn.onclick = () => {
+  if (api) api.postMessage({ type: 'reset' });
+  thread.innerHTML = '';
+  addMsg('Conversation reset.', 'info');
+  try { tts.stop(); } catch (e) {}
+};
 document.getElementById('monitorBtn').onclick = () => { if (api) api.postMessage({ type: 'showTrace' }); };
 document.getElementById('label-pill').onclick = () => { if (api) api.postMessage({ type: 'labelClick' }); };
 document.getElementById('settingsBtn').onclick = () => { if (api) api.postMessage({ type: 'openSettings' }); };
+
+/* ── Read aloud (TTS 🔊) — click=read last reply, double-click=auto-read ─ */
+const tts = (function() {
+  const btn = document.getElementById('ttsBtn');
+  const synth = window.speechSynthesis;
+  let lastReply = '';
+  let autoRead = false;
+
+  function isSpeaking() { return synth && synth.speaking; }
+
+  function setIdle() {
+    btn.classList.remove('speaking');
+    if (!autoRead) btn.textContent = '🔊';
+  }
+
+  function speak(txt) {
+    if (!synth) { addMsg('Speech synthesis not available in this webview.', 'error'); return; }
+    if (!txt) return;
+    synth.cancel();
+    const utt = new SpeechSynthesisUtterance(txt);
+    utt.lang = navigator.language || 'en-US';
+    utt.onend = utt.onerror = setIdle;
+    btn.classList.add('speaking');
+    btn.textContent = '⏹';
+    synth.speak(utt);
+  }
+
+  function stopAll() {
+    if (synth) synth.cancel();
+    setIdle();
+  }
+
+  btn.addEventListener('click', (e) => {
+    /* dblclick fires before second click; let dblclick handle that case */
+    if (e.detail >= 2) return;
+    if (isSpeaking()) { stopAll(); return; }
+    if (lastReply) speak(lastReply);
+  });
+
+  btn.addEventListener('dblclick', () => {
+    autoRead = !autoRead;
+    btn.classList.toggle('autoread', autoRead);
+    btn.title = autoRead
+      ? 'Auto-read ON — double-click to disable'
+      : 'Read aloud last reply — double-click for auto-read';
+    if (!autoRead) stopAll();
+  });
+
+  return {
+    setLastReply(t) { lastReply = (t || '').trim(); },
+    onAssistantDone(t) {
+      lastReply = (t || '').trim();
+      if (autoRead && lastReply) speak(lastReply);
+    },
+    stop: stopAll,
+  };
+})();
 
 /* ── Web Speech dictation (mic 🎙 → ⏹) ────────────────────────────────── */
 (function() {
@@ -582,6 +644,7 @@ function openSettings(payload) {
         prov.id === 'chatgptWeb'   ? 'ChatGPT'  :
         prov.id === 'grokWeb'      ? 'Grok'     :
         prov.id === 'geminiBridge' ? 'Gemini'   :
+        prov.id === 'claudeBridge' ? 'Claude'   :
         prov.label;
       loginBtn.textContent = 'Open ' + niceName + ' login';
     } else {
@@ -648,6 +711,7 @@ window.addEventListener('message', e => {
         streamingEl.textContent = fullText;
       }
       streamingEl = null;
+      try { tts.onAssistantDone(fullText); } catch (e) {}
     }
     setBusy(false);
     ti.focus();
