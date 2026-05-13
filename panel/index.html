@@ -62,6 +62,10 @@ body {
 /* Prompt-area: fixed at the bottom of the viewport, FLOATING over the
    fullscreen chat thread. Transparent backdrop so the chat shows through
    around the rounded prompt-shell. */
+/* Prompt-area: fixed at the bottom of the viewport, FLOATING over the
+   fullscreen chat thread. Fully transparent so the chat's sideBar bg
+   shows through cleanly — the orange prompt-shell provides all the
+   visible chrome. */
 .prompt-area {
   position: fixed;
   left: 0;
@@ -70,7 +74,7 @@ body {
   padding: 14px 100px 22px;
   z-index: 10;
   pointer-events: none;
-  background: linear-gradient(to top, rgba(10,10,10,.92) 30%, rgba(10,10,10,0) 100%);
+  background: transparent;
 }
 .prompt-area > * { pointer-events: auto; }
 
@@ -125,15 +129,25 @@ body {
   outline: 0;
   background: transparent;
   color: #3c3c3c;
-  /* Explicit longhand so nothing later in the cascade overrides the
-     family. `font:` shorthand was being stomped by the body's Inter
-     font-family on some browsers. */
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, "Courier New", monospace !important;
   font-size: 18px;
   font-weight: 400;
   line-height: 1.34;
 }
-.prompt-input::placeholder { color: #434343; opacity: 1; }
+/* Maximum-specificity monospace lock for the prompt textarea.
+   Stacked selectors so this beats ANY .tool-button / .prompt-input /
+   media-query override in the cascade. The `font` SHORTHAND is what
+   actually wins here because shorthand always re-sets all sub-properties
+   atomically — and we put it on a selector at higher specificity than
+   `.prompt-input` AND mark it `!important` AND repeat font-family
+   immediately after as a longhand !important so any later `font:` reset
+   can't strip it. */
+html body .prompt-input-wrap textarea.prompt-input#textInput,
+html body textarea#textInput.prompt-input {
+  font: 400 18px/1.34 Consolas, "Cascadia Mono", "Courier New", ui-monospace, monospace !important;
+  font-family: Consolas, "Cascadia Mono", "Courier New", ui-monospace, monospace !important;
+}
+.prompt-input::placeholder { color: #434343; opacity: 1;
+  font-family: Consolas, "Cascadia Mono", "Courier New", ui-monospace, monospace !important; }
 
 .send-button {
   position: absolute;
@@ -231,6 +245,39 @@ body {
 .toolbar-meta > .project-path { margin: 0 auto; }
 
 .toolbar-spacer { display: none; }
+
+/* Auto-read-aloud spinner overlay — sits over the TTS button. Hidden
+   until #ttsBtn has the `.autoread` class (toggled by right-click).
+   Pointer-events:none so it never steals clicks from the underlying
+   tts icon. */
+#ttsBtn { position: relative; }
+#ttsBtn .cbe-autoread-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity .18s ease, transform .18s ease, filter .18s ease;
+  /* Outer glow + drop shadow stack — the SVG has its own internal glow
+     filter but this extra CSS halo punches through the dark button. */
+  filter: drop-shadow(0 0 6px rgba(63, 165, 255, 0.85))
+          drop-shadow(0 0 14px rgba(20, 102, 255, 0.55));
+}
+#ttsBtn.autoread .cbe-autoread-ring {
+  opacity: 1;
+  transform: scale(1.06);
+}
+/* While auto-read is active also pulse the underlying tts icon subtly so
+   the whole button reads as "listening for the next reply". */
+#ttsBtn.autoread > img:first-of-type {
+  animation: cbe-autoread-pulse 1.6s ease-in-out infinite;
+}
+@keyframes cbe-autoread-pulse {
+  0%, 100% { filter: brightness(1) drop-shadow(0 0 0 rgba(63,165,255,0)); }
+  50%      { filter: brightness(1.25) drop-shadow(0 0 8px rgba(63,165,255,0.9)); }
+}
 
 /* Top-right floating Help button (lives in .demo-stage, NOT in the toolbar
    — it's a meta-action that should sit over the chat thread out of the
@@ -361,7 +408,7 @@ body {
   align-items: center;
   justify-content: center;
   width: 280px;
-  height: 56px;
+  height: 40px;
   background: transparent;
   border: none;
   padding: 0;
@@ -424,14 +471,14 @@ body {
 }
 
 .stop-button {
-  height: 44px;
-  padding: 0 22px;
-  border-radius: 14px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 13px;
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   color: #f3f3f3;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: .01em;
   border: 1px solid rgba(255,255,255,0.12);
@@ -457,9 +504,9 @@ body {
 .stop-button:active { transform: translateY(1px); filter: brightness(.86); }
 
 .stop-button__icon {
-  width: 20px;
-  height: 20px;
-  border-radius: 4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
   background: #f3f3f3;
   box-shadow: 0 0 0 1px rgba(255,255,255,0.35), 0 0 8px rgba(255,255,255,0.1);
 }
@@ -506,33 +553,68 @@ body {
   .prompt-input { font-size: 16px; }
   .tool-button { width: 42px; height: 42px; }
   .tool-button img { width: 22px; height: 22px; }
-  .stop-button { height: 46px; font-size: 16px; }
-  .label-button { width: 180px; }
+  .stop-button { height: 34px; font-size: 13px; }
+  .label-button { width: 180px; height: 34px; }
 }
 
   /* CBE extension hooks added to GPT's design */
   :root { --cb-font-scale: 1; }
   body.cb-big { --cb-font-scale: 1.8; }
   .prompt-input { font-size: calc(20px * var(--cb-font-scale)); }
-  .stop-button { font-size: calc(19px * var(--cb-font-scale)); }
+  .stop-button { font-size: calc(14px * var(--cb-font-scale)); }
 
-  /* Chat thread — matches Anthropic's official Claude Code extension look:
-     VSCode sideBar background (`#f3f3f3` light grey fallback when no theme),
-     VSCode foreground for text, NO message bubbles, flat layout with
-     vertical padding between messages. Fullscreen via absolute inset:0;
-     padding-bottom reserves space so the last message stays visible above
-     the floating prompt-area. */
+  /* Anthropic's Claude Code extension :root variables — copied byte-for-byte
+     from `~/.vscode/extensions/anthropic.claude-code-*/webview/index.css`.
+     Defining these on :root means our chat thread renders with the exact
+     same palette + spacing tokens as the official extension. */
+  :root {
+    --app-primary-foreground: var(--vscode-foreground);
+    --app-primary-background: var(--vscode-sideBar-background);
+    --app-secondary-foreground: var(--vscode-descriptionForeground);
+    --app-secondary-background: var(--vscode-editor-background);
+    --app-input-foreground: var(--vscode-input-foreground);
+    --app-input-background: var(--vscode-input-background);
+    --app-error-foreground: var(--vscode-errorForeground);
+    --app-monospace-font-family: var(--vscode-editor-font-family, monospace);
+    --app-monospace-font-size: var(--vscode-editor-font-size, 12px);
+    --app-spacing-small: 4px;
+    --app-spacing-medium: 8px;
+    --app-spacing-large: 12px;
+    --app-spacing-xlarge: 16px;
+    --corner-radius-small: 4px;
+    --corner-radius-medium: 6px;
+    --corner-radius-large: 8px;
+  }
+
+  /* Chat thread — verbatim port of Anthropic's .chatContainer + .message
+     rules. No message bubbles; flat blocks with 8px top/bottom padding.
+     Background comes from --app-primary-background which IS the VSCode
+     sideBar color — exactly what their extension renders. */
   #thread {
     position: absolute;
     inset: 0;
     overflow-y: auto;
     padding: 18px 18px 220px 18px;
-    background: var(--vscode-sideBar-background, #f3f3f3);
-    color: var(--vscode-foreground, #1f1f1f);
+    background: var(--app-primary-background, #f3f3f3) !important;
+    color: var(--app-primary-foreground, #1f1f1f) !important;
+    font-family: var(--vscode-chat-font-family, var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif));
+    font-size: var(--vscode-chat-font-size, 13px);
+    line-height: 1.5;
   }
-  .msg { display: block; padding: 8px 0; line-height: 1.55; }
+  .msg {
+    color: var(--app-primary-foreground) !important;
+    background: transparent !important;
+    border: 0 !important;
+    display: flex;
+    position: relative;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    padding: 8px 0;
+  }
+  .msg:first-child { padding-top: 0; }
   .msg.info { opacity: 0.62; font-style: italic; font-size: 12px; }
-  .msg.error { color: var(--vscode-errorForeground, #b00); }
+  .msg.error { color: var(--app-error-foreground, #b00) !important; }
   .msg.assistant.streaming::after { content: '▍'; opacity: .6; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 0%,50% { opacity: .6 } 51%,100% { opacity: 0 } }
 
@@ -721,6 +803,86 @@ body {
   #cbe-handbook-modal .cbe-btn--save { background: #e8621a; color: #fff; }
   #cbe-handbook-modal .cbe-btn--save:hover { background: #ff7a1a; }
 
+  /* ── Stored Prompts modal (combo box + textarea + Add/Save/Delete/Use) ── */
+  #cbe-prompts-modal {
+    position: fixed; inset: 0; z-index: 2147483646;
+    background: rgba(0,0,0,.72);
+    display: flex; align-items: center; justify-content: center;
+  }
+  #cbe-prompts-modal .cbe-box {
+    background: #1a1a1a; border: 2px solid #e8621a;
+    border-radius: 10px; width: 640px; max-width: 92vw;
+    max-height: 86vh; display: flex; flex-direction: column;
+    box-shadow: 0 14px 36px rgba(0,0,0,.6), 0 0 30px rgba(255,120,30,.18);
+    overflow: hidden;
+  }
+  #cbe-prompts-modal .cbe-hdr {
+    padding: 10px 16px;
+    background: linear-gradient(90deg,#b83c00,#e8621a);
+    color: #fff; font-family: system-ui, sans-serif; font-weight: 700;
+    font-size: 13px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  #cbe-prompts-modal .cbe-body {
+    padding: 18px; display: flex; flex-direction: column; gap: 14px;
+    flex: 1 1 auto; overflow: hidden;
+  }
+  #cbe-prompts-modal label {
+    font-size: 11px; color: #aaa;
+    font-family: system-ui, sans-serif; text-transform: uppercase;
+    letter-spacing: .08em; margin-bottom: 5px; display: block;
+  }
+  #cbe-prompts-modal select {
+    width: 100%; background: #0f0f0f; color: #e8e8e8;
+    border: 1px solid #333; border-radius: 5px; padding: 8px 10px;
+    font-family: 'Consolas','Courier New',monospace; font-size: 12px;
+    outline: none;
+  }
+  #cbe-prompts-modal select:focus { border-color: #e8621a; }
+  #cbe-prompts-modal select option { background: #1a1a1a; color: #e8e8e8; }
+  #cbe-prompts-modal textarea {
+    width: 100%; min-height: 180px; max-height: 50vh;
+    background: #0e0e0e; color: #e8e8e8;
+    border: 1px solid #333; border-radius: 5px;
+    padding: 10px 12px; resize: vertical; outline: none;
+    font-family: Consolas, "Fira Mono", "Liberation Mono", "Courier New", monospace;
+    font-size: 13px; line-height: 1.5;
+    box-sizing: border-box;
+  }
+  #cbe-prompts-modal textarea:focus { border-color: #e8621a; }
+  #cbe-prompts-modal .cbe-foot {
+    padding: 12px 18px; background: #111;
+    border-top: 1px solid #222;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 8px; flex-wrap: wrap;
+  }
+  #cbe-prompts-modal .cbe-foot-left,
+  #cbe-prompts-modal .cbe-foot-right {
+    display: flex; gap: 8px; align-items: center;
+  }
+  #cbe-prompts-modal button.cbe-btn {
+    font-family: system-ui, sans-serif;
+    font-weight: 700; font-size: 12px;
+    cursor: pointer; padding: 7px 14px;
+    border-radius: 5px; border: none;
+  }
+  #cbe-prompts-modal button.cbe-btn--add    { background: #2a5d8f; color: #fff; }
+  #cbe-prompts-modal button.cbe-btn--add:hover    { background: #3674ad; }
+  #cbe-prompts-modal button.cbe-btn--use    { background: #2a5d8f; color: #fff; }
+  #cbe-prompts-modal button.cbe-btn--use:hover    { background: #3674ad; }
+  #cbe-prompts-modal button.cbe-btn--delete { background: #5a1f1f; color: #ffd6d6; }
+  #cbe-prompts-modal button.cbe-btn--delete:hover { background: #7a2a2a; color: #fff; }
+  #cbe-prompts-modal button.cbe-btn--close  { background: #2a2a2a; color: #ddd; }
+  #cbe-prompts-modal button.cbe-btn--save   { background: #e8621a; color: #fff; }
+  #cbe-prompts-modal button.cbe-btn--save:hover   { background: #ff7a1a; }
+  #cbe-prompts-modal button.cbe-btn[disabled] {
+    opacity: .4; cursor: not-allowed;
+  }
+  #cbe-prompts-modal .cbe-status {
+    color: #888; font-size: 11px; font-family: system-ui, sans-serif;
+    font-style: italic;
+  }
+
   /* ── Slash-command menu (typing "/" or click of showCommandsBtn) ─ */
   #cbe-cmd-menu {
     position: absolute; z-index: 9000;
@@ -853,13 +1015,13 @@ body {
   .msg.assistant.rendered { white-space: normal; }
   .msg.assistant.rendered .cv-prose { white-space: pre-wrap; }
 </style>
+<!-- Skin override stylesheet — href set at runtime when the user picks a skin
+     from Settings. Empty href = no skin. Loaded AFTER the inline <style>
+     above so skin rules win the cascade. -->
+<link id="cbe-skin" rel="stylesheet" href="" />
 </head>
 <body>
   <main class="demo-stage" id="app">
-    <button id="helpBtn" class="top-help-btn" type="button" data-tooltip="Help" aria-label="Help" title="Help">
-      <img src="{{ASSETS_BASE}}/help.svg" alt="" />
-    </button>
-
     <div id="thread">
       <div class="msg info">Claude Codex Black — standalone. Type to send. First send will prompt for your API key.</div>
     </div>
@@ -888,8 +1050,12 @@ body {
           <button id="attachFileBtn" class="tool-button" type="button" data-tooltip="Attach file" aria-label="Attach file">
             <img src="{{ASSETS_BASE}}/attach_file.svg" alt="" />
           </button>
-          <button id="ttsBtn" class="tool-button" type="button" data-tooltip="Read aloud (double-click = auto-read)" aria-label="Text to speech">
+          <button id="ttsBtn" class="tool-button" type="button" data-tooltip="Read aloud · right-click = auto-read every reply" aria-label="Text to speech">
             <img src="{{ASSETS_BASE}}/tts.svg" alt="" />
+            <!-- Spinner overlay: hidden until ttsBtn.classList contains
+                 `autoread`. Then it animates over the tts icon to signal
+                 that every incoming assistant message is being read. -->
+            <img class="cbe-autoread-ring" src="{{ASSETS_BASE}}/auto_read_spinner.svg" alt="" aria-hidden="true" />
           </button>
           <button id="sttBtn" class="tool-button" type="button" data-tooltip="Speech to text" aria-label="Speech to text">
             <img src="{{ASSETS_BASE}}/stt.svg" alt="" />
@@ -934,8 +1100,14 @@ body {
           <button id="githubBtn" class="tool-button" type="button" data-tooltip="GitHub" aria-label="GitHub">
             <img src="{{ASSETS_BASE}}/github.svg" alt="" />
           </button>
+          <button id="domainsBtn" class="tool-button" type="button" data-tooltip="NameSilo domains" aria-label="Domains">
+            <img src="{{ASSETS_BASE}}/domain.svg" alt="" />
+          </button>
           <button id="fontSizeBtn" class="tool-button" type="button" data-tooltip="Font size (toggle big)" aria-label="Font size">
             <img src="{{ASSETS_BASE}}/font_size.svg" alt="" />
+          </button>
+          <button id="helpBtn" class="tool-button" type="button" data-tooltip="Help" aria-label="Help">
+            <img src="{{ASSETS_BASE}}/help.svg" alt="" />
           </button>
         </div>
 

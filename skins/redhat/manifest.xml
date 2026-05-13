@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<skin>
+  <id>redhat</id>
+  <name>Red Hat Enterprise</name>
+  <version>1.0</version>
+  <author>OpenAI ChatGPT</author>
+  <accent>#ee0000</accent>
+  <stylesheet>styles.css</stylesheet>
+  <description>Crisp enterprise grey + red accent, sharp 3px corners.</description>
+</skin>

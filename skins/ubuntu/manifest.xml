@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<skin>
+  <id>ubuntu</id>
+  <name>Ubuntu / Yaru</name>
+  <version>1.0</version>
+  <author>OpenAI ChatGPT</author>
+  <accent>#e95420</accent>
+  <stylesheet>styles.css</stylesheet>
+  <description>Aubergine + orange Yaru styling, light prompt field.</description>
+</skin>

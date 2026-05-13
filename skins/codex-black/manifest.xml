@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<skin>
+  <id>codex-black</id>
+  <name>Codex Black (Original)</name>
+  <version>1.0</version>
+  <author>Trenton Tompkins</author>
+  <accent>#e8621a</accent>
+  <stylesheet>styles.css</stylesheet>
+  <description>The original Claude Codex Black Edition look — dark shell, orange accent, monospace prompt.</description>
+</skin>

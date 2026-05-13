@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<skin>
+  <id>gnome</id>
+  <name>GNOME / Adwaita</name>
+  <version>1.0</version>
+  <author>OpenAI ChatGPT</author>
+  <accent>#3584e4</accent>
+  <stylesheet>styles.css</stylesheet>
+  <description>Clean Adwaita-style light shell with blue accent, soft shadow.</description>
+</skin>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<skin>
+  <id>kde</id>
+  <name>KDE Plasma</name>
+  <version>1.0</version>
+  <author>OpenAI ChatGPT</author>
+  <accent>#3daee9</accent>
+  <stylesheet>styles.css</stylesheet>
+  <description>Frosted Plasma-style glass with cyan / violet halo.</description>
+</skin>

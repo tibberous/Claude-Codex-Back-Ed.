@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<skin>
+  <id>glassy</id>
+  <name>Glassy Beveled</name>
+  <version>1.0</version>
+  <author>OpenAI ChatGPT</author>
+  <accent>#56b7ff</accent>
+  <stylesheet>styles.css</stylesheet>
+  <description>Frosted translucent shell with cyan glow and beveled buttons.</description>
+</skin>

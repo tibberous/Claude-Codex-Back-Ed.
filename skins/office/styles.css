@@ -1,0 +1,116 @@
+/* CBE skin — Square Office. Classic Windows 9x bevel UI: hard corners,
+   white/grey inner highlights, blue accents. Rewritten from
+   office_promptbar_markup for the real CBE selectors. */
+:root {
+  --office-blue: #244372;
+  --office-blue-hot: #2f66b1;
+  --button-face: #e9eef6;
+  --button-face-2: #cbd6e5;
+  --button-hover: #f7fbff;
+  --button-hover-2: #cfe2ff;
+  --button-active: #b8c5d8;
+}
+
+body {
+  background:
+    radial-gradient(circle at 30% 0%, rgba(255,255,255,.08), transparent 38%),
+    linear-gradient(180deg, #303741 0%, #20262d 100%) !important;
+  font-family: "Segoe UI", Tahoma, Arial, sans-serif !important;
+  color: #1b2535 !important;
+}
+
+.prompt-shell {
+  border-radius: 0 !important;
+  border-width: 3px !important;
+  border-style: solid !important;
+  border-color: #f7fbff #7f8a9a #596372 #f7fbff !important;
+  background: linear-gradient(180deg, #eef4fb 0%, #dbe3ef 38%, #c8d2e1 100%) !important;
+  box-shadow:
+    inset 2px 2px 0 rgba(255,255,255,.92),
+    inset -2px -2px 0 rgba(86,98,115,.58),
+    0 20px 34px rgba(0,0,0,.42) !important;
+}
+
+.prompt-input-wrap {
+  border-radius: 0 !important;
+  border-width: 3px !important;
+  border-style: solid !important;
+  border-color: #717b89 #ffffff #ffffff #717b89 !important;
+  background: #ffffff !important;
+  box-shadow:
+    inset 2px 2px 0 #c8cdd4,
+    inset -2px -2px 0 #f8fbff !important;
+}
+
+.prompt-input {
+  color: #4a4f58 !important;
+  font: 400 18px/1.28 "Consolas", "Lucida Console", monospace !important;
+}
+
+.prompt-input::placeholder { color: #515761 !important; opacity: .92 !important; }
+
+.tool-button,
+.stop-button {
+  border-radius: 0 !important;
+  border-width: 3px !important;
+  border-style: solid !important;
+  border-color: #ffffff #6b7584 #5d6674 #ffffff !important;
+  background: linear-gradient(180deg, var(--button-face) 0%, #dbe4f0 46%, var(--button-face-2) 100%) !important;
+  color: var(--office-blue) !important;
+  box-shadow:
+    inset 2px 2px 0 rgba(255,255,255,.9),
+    inset -2px -2px 0 rgba(78,88,104,.35) !important;
+}
+
+/* Keep the arrow PNG visible — Office accent is just on hover-glow. */
+.send-button {
+  border-radius: 0 !important;
+  filter: drop-shadow(0 0 3px rgba(94,149,220,.55));
+}
+
+.toolbar-tools { gap: 6px !important; }
+
+.label-button {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.tool-button img {
+  filter:
+    brightness(0) saturate(100%)
+    invert(21%) sepia(38%) saturate(1144%) hue-rotate(181deg)
+    brightness(88%) contrast(88%) !important;
+}
+
+.tool-button:hover,
+.stop-button:hover {
+  color: #143d79 !important;
+  background: linear-gradient(180deg, var(--button-hover) 0%, #e4f0ff 45%, var(--button-hover-2) 100%) !important;
+  border-color: #ffffff #3e6da9 #356196 #ffffff !important;
+  box-shadow:
+    inset 2px 2px 0 #ffffff,
+    inset -2px -2px 0 rgba(47,92,147,.45),
+    0 0 0 2px rgba(94,149,220,.38) !important;
+}
+
+.tool-button:active,
+.stop-button:active {
+  background: linear-gradient(180deg, var(--button-active) 0%, #ccd7e8 100%) !important;
+  border-color: #56606f #ffffff #ffffff #56606f !important;
+  box-shadow:
+    inset 3px 3px 0 rgba(70,80,96,.5),
+    inset -1px -1px 0 rgba(255,255,255,.75) !important;
+}
+
+.stop-button__icon {
+  background: linear-gradient(135deg, #446fb0 0%, #1d3b70 100%) !important;
+  border: 2px solid #7f9ccc !important;
+  border-radius: 0 !important;
+  box-shadow:
+    inset 2px 2px 0 rgba(255,255,255,.35),
+    inset -2px -2px 0 rgba(0,0,0,.25) !important;
+}
+
+.project-path { border-radius: 0 !important; background: #ffffff !important; color: #1b2535 !important; }

@@ -1,0 +1,6 @@
+/* CBE skin — Codex Black (the original). Empty by design: the panel's
+   inline <style> block IS the Black Edition look. Selecting this skin
+   simply swaps the previous skin's <link href> away so the inline rules
+   apply unmodified. Kept as a named, distributable package so the user
+   can pick "Codex Black" in the dropdown to return to the default. */
+/* (no overrides) */

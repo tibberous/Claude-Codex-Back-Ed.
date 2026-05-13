@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<skin>
+  <id>tamagotchi</id>
+  <name>Tamagotchi</name>
+  <version>1.0</version>
+  <author>OpenAI ChatGPT</author>
+  <accent>#4d8b18</accent>
+  <stylesheet>styles.css</stylesheet>
+  <description>Pixel-pet LCD lime-green look with retro chunky shadows.</description>
+</skin>

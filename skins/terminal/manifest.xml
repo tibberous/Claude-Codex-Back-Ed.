@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<skin>
+  <id>terminal</id>
+  <name>Terminal Hacker</name>
+  <version>1.0</version>
+  <author>OpenAI ChatGPT</author>
+  <accent>#33ff82</accent>
+  <stylesheet>styles.css</stylesheet>
+  <description>Black + phosphor-green CRT with scanlines and glow.</description>
+</skin>

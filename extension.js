@@ -7,13 +7,17 @@
    ───────────────────────────────────────────────────────────────────── */
 const vscode = require('vscode');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const { spawn } = require('child_process');
 const { BrowserBridge } = require('./bridge/browser-bridge');
 const { SuperGrokBridge } = require('./bridge/supergrok-bridge');
 
 const SECRET_KEY_PREFIX = 'codexBlackEd.';   /* per-provider secret = `${PREFIX}${id}.apiKey` */
 const STATE_PROVIDER = 'codexBlackEd.activeProvider';
 const STATE_MODEL    = 'codexBlackEd.activeModel';
+const STATE_SKIN     = 'codexBlackEd.skin';   /* bare filename, e.g. 'noir.css' */
+const SKINS_DIR_NAME = 'skins';
 const CONFIG_INI_NAME = 'config.ini';
 const secretsCache = {};   /* providerId -> apiKey | null. Populated at activate. */
 
@@ -349,11 +353,91 @@ function getMaxTokens() {
 let activePanel;
 let conversation = [];
 let outChan;
+/* Our owned terminal — recreated on click if the user closed it. Kept here
+   (module scope) so the openTerminal handler reveals the SAME terminal it
+   created, not whatever VSCode picked as activeTerminal. */
+let cbeTerm = null;
 let statusBar;
 let anthropicClient;
 const browserBridges = {};   /* providerId -> BrowserBridge (lazy, persists across sends) */
 const superGrokBridges = {}; /* providerId -> SuperGrokBridge (TCP shim over SuperGrok's service) */
 let extensionContext = null; /* captured during activate so commands can resolve globalStorageUri */
+
+/* ── Speech-to-Text (SAPI fallback) ────────────────────────────────────────
+   VSCode webviews cannot use the Web Speech API — the sandbox denies
+   microphone permission silently (Voice: not-allowed). The fix is to fall
+   back to Windows SAPI on the host side: launch PowerShell with
+   System.Speech.Recognition.SpeechRecognitionEngine, capture the default
+   mic via SetInputToDefaultAudioDevice(), and return the transcript over
+   stdout. The webview posts {type:'sttStart'} when the Web Speech API
+   throws not-allowed; we reply with {type:'sttResult', text} so panel.js
+   appends the transcript to the prompt textarea.
+   No ffmpeg, no external dependencies — uses Windows-bundled SAPI. */
+let __sttProc = null;
+function startSapiStt(panel) {
+    if (__sttProc) {
+        try { __sttProc.kill(); } catch (e) {}
+        __sttProc = null;
+    }
+    /* InitialSilenceTimeout: how long to wait for speech to start.
+       EndSilenceTimeout: how long of trailing silence ends the utterance.
+       BabbleTimeout: caps total recognition window so a stuck mic can't hang. */
+    const psScript = [
+        '$ErrorActionPreference = "Stop"',
+        'Add-Type -AssemblyName System.Speech',
+        'try {',
+        '  $r = New-Object System.Speech.Recognition.SpeechRecognitionEngine',
+        '  $r.InitialSilenceTimeout = [TimeSpan]::FromSeconds(8)',
+        '  $r.EndSilenceTimeout = [TimeSpan]::FromSeconds(1.2)',
+        '  $r.BabbleTimeout = [TimeSpan]::FromSeconds(30)',
+        '  $r.LoadGrammar([System.Speech.Recognition.DictationGrammar]::new())',
+        '  $r.SetInputToDefaultAudioDevice()',
+        '  $res = $r.Recognize([TimeSpan]::FromSeconds(30))',
+        '  if ($res) { Write-Output $res.Text } else { Write-Output "" }',
+        '} catch {',
+        '  Write-Error $_.Exception.Message',
+        '  exit 1',
+        '}',
+    ].join('\n');
+    trace('stt: spawning powershell SAPI');
+    let proc;
+    try {
+        proc = spawn('powershell.exe',
+            ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript],
+            { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) {
+        traceErr('stt spawn', e);
+        try { panel.webview.postMessage({ type: 'sttResult', text: '', error: 'spawn failed: ' + (e.message || e) }); } catch (_) {}
+        return;
+    }
+    __sttProc = proc;
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', d => { stdout += d.toString(); });
+    proc.stderr.on('data', d => { stderr += d.toString(); });
+    proc.on('error', err => {
+        traceErr('stt proc error', err);
+        if (__sttProc === proc) __sttProc = null;
+        try { panel.webview.postMessage({ type: 'sttResult', text: '', error: err.message || String(err) }); } catch (_) {}
+    });
+    proc.on('close', code => {
+        trace('stt: ps closed code=' + code + ' stdoutBytes=' + stdout.length + ' stderrBytes=' + stderr.length);
+        if (__sttProc === proc) __sttProc = null;
+        const text = (stdout || '').trim();
+        if (code === 0) {
+            try { panel.webview.postMessage({ type: 'sttResult', text }); } catch (_) {}
+        } else {
+            const err = (stderr || '').trim() || ('exit ' + code);
+            try { panel.webview.postMessage({ type: 'sttResult', text: '', error: err }); } catch (_) {}
+        }
+    });
+}
+function stopSapiStt() {
+    if (!__sttProc) return;
+    trace('stt: stopping ps proc');
+    try { __sttProc.kill(); } catch (e) {}
+    __sttProc = null;
+}
 
 /* ── Tracing ──────────────────────────────────────────────────────────── */
 
@@ -478,6 +562,9 @@ async function activate(context) {
         vscode.commands.registerCommand('codexBlackEd.showTrace', () => outChan.show(true)),
         vscode.commands.registerCommand('codexBlackEd.openWebLogin', () => openWebLogin(context)),
         vscode.commands.registerCommand('codexBlackEd.disposeWebBridge', () => disposeAllBridges()),
+        /* If the user closes our terminal, drop the reference so the next
+           click on the Terminal button creates a fresh one in the right cwd. */
+        vscode.window.onDidCloseTerminal((t) => { if (t === cbeTerm) cbeTerm = null; }),
         outChan,
     );
     endCmds(`(${9} commands)`);
@@ -574,6 +661,174 @@ async function openWebLogin(context) {
 
 /* ── Settings payload (sent to webview to populate the settings modal) ── */
 
+/* ── Skin discovery ───────────────────────────────────────────────────────
+   Skins are FOLDERS inside <extension>/skins. Each folder contains:
+     manifest.xml  — <skin><id><name><version><author><description><accent></skin>
+     styles.css    — the actual override stylesheet (linked at runtime)
+     assets/       — optional supporting files (icons, gifs, fonts)
+   The discovery scan is lazy: every `listSkins` call hits the filesystem
+   fresh so dropping a new skin folder works without restarting the panel.
+   `resolveSkin()` validates a requested skin id against the current
+   on-disk folders before we apply it. */
+function parseSkinManifest(manifestPath) {
+    /* Tiny ad-hoc parser — manifest.xml is flat, no nesting, no attrs.
+       Reads <tagName>value</tagName> pairs. Anything not matched falls
+       back to a sensible default at the caller. */
+    try {
+        const xml = fs.readFileSync(manifestPath, 'utf8');
+        const pick = (tag) => {
+            const m = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i').exec(xml);
+            return m ? m[1].trim() : '';
+        };
+        return {
+            id:          pick('id'),
+            name:        pick('name'),
+            version:     pick('version'),
+            author:      pick('author'),
+            accent:      pick('accent'),
+            stylesheet:  pick('stylesheet') || 'styles.css',
+            description: pick('description'),
+        };
+    } catch (_) {
+        return null;
+    }
+}
+
+function listSkins(context, webview) {
+    const dir = path.join(context.extensionPath, SKINS_DIR_NAME);
+    let entries = [];
+    try {
+        if (!fs.existsSync(dir)) return [];
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (e) {
+        traceErr('listSkins', e);
+        return [];
+    }
+    const out = [];
+    for (const ent of entries) {
+        if (!ent.isDirectory()) continue;
+        const skinRoot = path.join(dir, ent.name);
+        const manifestPath = path.join(skinRoot, 'manifest.xml');
+        if (!fs.existsSync(manifestPath)) continue;
+        const meta = parseSkinManifest(manifestPath);
+        if (!meta) continue;
+        const cssPath = path.join(skinRoot, meta.stylesheet);
+        if (!fs.existsSync(cssPath)) continue;
+        const uri = webview
+            ? webview.asWebviewUri(vscode.Uri.file(cssPath)).toString()
+            : '';
+        out.push({
+            name:        ent.name,                     /* directory id, used as the picker value */
+            label:       meta.name || ent.name,        /* pretty display name from <name> */
+            uri,
+            accent:      meta.accent || '',
+            author:      meta.author || '',
+            description: meta.description || '',
+        });
+    }
+    out.sort((a, b) => a.label.localeCompare(b.label));
+    return out;
+}
+
+function resolveSkin(context, requestedName) {
+    /* '' / unknown id → cleared skin. Otherwise return the styles.css path
+       as a vscode.Uri so the caller can produce a webview URI. */
+    if (!requestedName) return { name: '', uri: null };
+    const dir = path.join(context.extensionPath, SKINS_DIR_NAME);
+    const safe = path.basename(requestedName);   /* strip any path traversal */
+    const skinRoot = path.join(dir, safe);
+    const manifestPath = path.join(skinRoot, 'manifest.xml');
+    try {
+        if (!fs.existsSync(manifestPath)) return { name: '', uri: null };
+        const meta = parseSkinManifest(manifestPath);
+        if (!meta) return { name: '', uri: null };
+        const cssPath = path.join(skinRoot, meta.stylesheet || 'styles.css');
+        if (!fs.existsSync(cssPath)) return { name: '', uri: null };
+        return { name: safe, uri: vscode.Uri.file(cssPath) };
+    } catch (_) {
+        return { name: '', uri: null };
+    }
+}
+
+/* ── NameSilo domain list ────────────────────────────────────────────────
+   Reads the API key from config.ini ([namesilo] api_key, fallback
+   [api_keys].namesilo_api_key), hits /listDomains then /getDomainInfo per
+   domain for nameservers. Returns { domains: [{name, nameservers[]}] } or
+   { error: '...' }. Pure stdlib — uses node's https module, no axios. */
+async function listNameSiloDomains(context) {
+    const cfg = readConfigIni(context.extensionPath) || {};
+    let apiKey = (cfg.namesilo && cfg.namesilo.api_key) || (cfg.api_keys && cfg.api_keys.namesilo_api_key) || '';
+    apiKey = String(apiKey || '').trim();
+    if (!apiKey) {
+        return { error: 'No NameSilo API key in config.ini ([namesilo] api_key or [api_keys] namesilo_api_key).' };
+    }
+    const baseUrl = (cfg.namesilo && cfg.namesilo.base_url) || 'https://www.namesilo.com/api';
+    const https = require('https');
+    const url = require('url');
+
+    function call(endpoint, extra) {
+        const params = new URLSearchParams({ version: '1', type: 'json', key: apiKey, ...(extra || {}) });
+        const full = `${baseUrl}/${endpoint}?${params.toString()}`;
+        const parsed = url.parse(full);
+        return new Promise((resolve, reject) => {
+            const req = https.request({
+                method: 'GET',
+                hostname: parsed.hostname,
+                port: parsed.port || 443,
+                path: parsed.path,
+                headers: { 'Accept': 'application/json' },
+                timeout: 30000,
+            }, (res) => {
+                let buf = '';
+                res.setEncoding('utf8');
+                res.on('data', (d) => buf += d);
+                res.on('end', () => {
+                    try { resolve(JSON.parse(buf)); }
+                    catch (e) { reject(new Error('non-JSON reply: ' + buf.slice(0, 120))); }
+                });
+            });
+            req.on('error', reject);
+            req.on('timeout', () => req.destroy(new Error('timeout')));
+            req.end();
+        });
+    }
+
+    let listed;
+    try { listed = await call('listDomains'); }
+    catch (e) { return { error: 'listDomains: ' + (e.message || e) }; }
+    const reply = (listed && listed.reply) || {};
+    if (reply.code !== 300) {
+        return { error: `NameSilo API ${reply.code}: ${reply.detail || ''}` };
+    }
+    let raw = (reply.domains && reply.domains.domain) || [];
+    if (typeof raw === 'string') raw = [raw];
+    if (!Array.isArray(raw)) raw = [];
+
+    const domains = [];
+    for (const name of raw) {
+        const dname = String(name || '').trim();
+        if (!dname) continue;
+        try {
+            const info = await call('getDomainInfo', { domain: dname });
+            const ir = (info && info.reply) || {};
+            if (ir.code !== 300) {
+                domains.push({ name: dname, nameservers: [`(error ${ir.code}: ${ir.detail || ''})`] });
+                continue;
+            }
+            let ns = (ir.nameservers && ir.nameservers.nameserver) || [];
+            if (typeof ns === 'string') ns = [ns];
+            const cleaned = (Array.isArray(ns) ? ns : []).map(n => {
+                if (n && typeof n === 'object') return String(n['#text'] || n.host || '').trim();
+                return String(n || '').trim();
+            }).filter(Boolean);
+            domains.push({ name: dname, nameservers: cleaned.length ? cleaned : ['(none)'] });
+        } catch (e) {
+            domains.push({ name: dname, nameservers: [`(lookup failed: ${e.message || e})`] });
+        }
+    }
+    return { domains };
+}
+
 function buildSettingsPayload(context) {
     const endPay = timeStep('    buildSettingsPayload');
     const endIni = timeStep('      readConfigIni');
@@ -611,8 +866,14 @@ function buildSettingsPayload(context) {
 function openPanel(context) {
     const endOpen = timeStep('openPanel');
     if (activePanel) { activePanel.reveal(undefined, false); endOpen('reveal existing'); return; }
+    /* Scan existing tabs. If we find a CBE panel tab BUT activePanel is null
+       (i.e. it's a leftover restored by VSCode from a previous session that
+       our serializer disposed — the tab shell can outlive the webview), we
+       CLOSE it and fall through to create a fresh panel. Without this the
+       command silently focuses a dead tab and the user thinks it's broken. */
     const endScan = timeStep('  scanExistingTabs');
     let scanned = 0;
+    const staleTabs = [];
     for (const group of vscode.window.tabGroups.all) {
         for (const tab of group.tabs) {
             scanned++;
@@ -621,14 +882,19 @@ function openPanel(context) {
             if (tab.input instanceof vscode.TabInputWebview &&
                 typeof tab.input.viewType === 'string' &&
                 tab.input.viewType.endsWith('codexBlackEd.panel')) {
-                endScan(`hit at scanned=${scanned}`);
-                vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
-                endOpen('focused existing tab');
-                return;
+                staleTabs.push(tab);
             }
         }
     }
-    endScan(`miss scanned=${scanned}`);
+    if (staleTabs.length) {
+        endScan(`stale=${staleTabs.length} of ${scanned}; closing then re-creating`);
+        for (const t of staleTabs) {
+            try { vscode.window.tabGroups.close(t, true); }
+            catch (e) { traceErr('openPanel.closeStale', e); }
+        }
+    } else {
+        endScan(`miss scanned=${scanned}`);
+    }
     const endCreate = timeStep('  createWebviewPanel');
     const panel = vscode.window.createWebviewPanel(
         'codexBlackEd.panel',
@@ -641,7 +907,12 @@ function openPanel(context) {
                 vscode.Uri.file(path.join(context.extensionPath, 'panel')),
                 vscode.Uri.file(path.join(context.extensionPath, 'assets')),
                 vscode.Uri.file(path.join(context.extensionPath, 'lib')),
-                vscode.Uri.file(path.join(context.extensionPath, 'sounds'))
+                vscode.Uri.file(path.join(context.extensionPath, 'sounds')),
+                /* Skins live in /skins. Loaded as a stylesheet at runtime via
+                   asWebviewUri(); the file list is discovered lazily when the
+                   user opens Settings (not at activation), so dropping a new
+                   .css in /skins works without restarting the panel. */
+                vscode.Uri.file(path.join(context.extensionPath, SKINS_DIR_NAME)),
             ]
         }
     );
@@ -669,7 +940,17 @@ function bindPanel(context, panel) {
                 case 'ready': {
                     const endReady = timeStep('webview ready -> server response');
                     const endInit = timeStep('  buildSettingsPayload + postMessage init');
-                    panel.webview.postMessage({ type: 'init', ...buildSettingsPayload(context) });
+                    /* Resolve persisted skin to a webview URI (or empty if the
+                       file is gone) so the panel can apply it on first paint. */
+                    const savedSkinName = context.workspaceState.get(STATE_SKIN, '') || '';
+                    const resolved = resolveSkin(context, savedSkinName);
+                    const skinUri = resolved.uri ? panel.webview.asWebviewUri(resolved.uri).toString() : '';
+                    panel.webview.postMessage({
+                        type: 'init',
+                        ...buildSettingsPayload(context),
+                        skin: resolved.name,
+                        skinUri,
+                    });
                     endInit();
                     const endHist = timeStep('  loadPromptHistory');
                     const histItems = loadPromptHistory(context);
@@ -768,6 +1049,9 @@ function bindPanel(context, panel) {
                     panel.webview.postMessage({ type: 'prompts', items: loadPrompts(context) });
                     break;
                 case 'openPromptsFile':
+                    /* Kept for the /prompts slash-command (power users who want
+                       to edit the raw prompts.txt file directly). The toolbar
+                       button now opens an in-panel modal — see saveStoredPrompts. */
                     await openPromptsFile(context);
                     /* Re-send prompts list after the user has a chance to edit
                        — done on file save via the watcher below. Send the
@@ -775,6 +1059,21 @@ function bindPanel(context, panel) {
                        something while the editor is open. */
                     panel.webview.postMessage({ type: 'prompts', items: loadPrompts(context) });
                     break;
+                case 'saveStoredPrompts': {
+                    /* In-panel modal save. Writes prompts.txt atomically then
+                       broadcasts the fresh list back so the panel's
+                       __cbePrompts (and any open modal) re-sync immediately. */
+                    try {
+                        savePrompts(context, msg.items || []);
+                    } catch (e) {
+                        panel.webview.postMessage({
+                            type: 'error',
+                            message: 'saveStoredPrompts: ' + (e.message || e),
+                        });
+                    }
+                    panel.webview.postMessage({ type: 'prompts', items: loadPrompts(context) });
+                    break;
+                }
                 case 'openChatHistory':
                     await openChatHistory(context);
                     break;
@@ -818,6 +1117,27 @@ function bindPanel(context, panel) {
                 case 'reset':
                     conversation = [];
                     panel.webview.postMessage({ type: 'info', text: 'Conversation reset.' });
+                    /* Re-fire the auto-context (dir tree + handbook) so each
+                       fresh conversation starts with the model knowing the
+                       project shape — same as the initial session start. */
+                    __autoContextSent = false;
+                    {
+                        const cur = context.workspaceState.get('codexBlackEd.projectFolder', '');
+                        if (cur && fs.existsSync(cur)) {
+                            setImmediate(() => {
+                                try {
+                                    const tree = buildDirTree(cur);
+                                    const hp = path.join(context.extensionPath, 'handbook.txt');
+                                    const handbook = fs.existsSync(hp) ? fs.readFileSync(hp, 'utf8') : '(handbook.txt not found)';
+                                    const text = buildAutoContextPrompt(cur, tree, handbook);
+                                    panel.webview.postMessage({ type: 'autoPrompt', text });
+                                    __autoContextSent = true;
+                                } catch (e) {
+                                    traceErr('autoContext on reset', e);
+                                }
+                            });
+                        }
+                    }
                     break;
                 case 'openSettings':
                     panel.webview.postMessage({ type: 'openSettings', ...buildSettingsPayload(context) });
@@ -835,11 +1155,51 @@ function bindPanel(context, panel) {
                         const v = Math.max(0, Math.min(1, msg.sfxVolume));
                         await context.workspaceState.update('codexBlackEd.sfxVolume', v);
                     }
+                    if (typeof msg.skin === 'string') {
+                        /* Validate the skin filename against what's actually on disk
+                           right now — refusing arbitrary strings keeps a malformed
+                           webview message from injecting a stray <link href>. Empty
+                           string clears the skin. */
+                        const safe = resolveSkin(context, msg.skin);
+                        await context.workspaceState.update(STATE_SKIN, safe.name);
+                        panel.webview.postMessage({ type: 'applySkin', skin: safe.name, skinUri: safe.uri ? panel.webview.asWebviewUri(safe.uri).toString() : '' });
+                    }
                     conversation = [];
-                    trace(`active provider set: ${msg.provider} / ${msg.model || '(default)'} sfx=${msg.sfxEnabled}/${msg.sfxVolume}`);
+                    trace(`active provider set: ${msg.provider} / ${msg.model || '(default)'} sfx=${msg.sfxEnabled}/${msg.sfxVolume} skin=${msg.skin || '(none)'}`);
                     setStatus('idle', false, msg.provider);
                     panel.webview.postMessage({ type: 'info', text: `Provider → ${PROVIDERS[msg.provider].label} · ${msg.model || getActiveModel(context, msg.provider)}` });
                     break;
+                case 'listSkins': {
+                    /* Lazy scan: discover skins on-demand each time the webview
+                       asks, so a user can drop a new .css into /skins and have
+                       it appear without reloading the panel. Returns
+                       [{ name, label, uri }] with webview-safe URIs. */
+                    const skins = listSkins(context, panel.webview);
+                    panel.webview.postMessage({ type: 'skinsList', skins });
+                    break;
+                }
+                case 'debugComputed': {
+                    /* Forward webview-side getComputedStyle reports to the trace
+                       channel so we can see what the cascade actually resolves
+                       to on a real session — diagnostic for the "still not
+                       monospace" complaint without needing DevTools. */
+                    const t = msg.target || '?';
+                    const r = msg.report || {};
+                    trace(`computed ${t} [${msg.reason||''}]: font-family=${r.fontFamily} size=${r.fontSize} weight=${r.fontWeight} font="${r.font}"`);
+                    break;
+                }
+                case 'listDomains': {
+                    /* NameSilo domain list. Reads the API key from config.ini,
+                       hits /listDomains then /getDomainInfo per domain for
+                       nameservers. Pure stdlib, no extra deps. */
+                    listNameSiloDomains(context).then(payload => {
+                        panel.webview.postMessage({ type: 'domainsList', ...payload });
+                    }).catch(e => {
+                        traceErr('listDomains', e);
+                        panel.webview.postMessage({ type: 'domainsList', error: String(e && e.message || e) });
+                    });
+                    break;
+                }
                 case 'labelClick':
                     panel.webview.postMessage({ type: 'openSettings', ...buildSettingsPayload(context) });
                     break;
@@ -896,16 +1256,34 @@ function bindPanel(context, panel) {
                     break;
                 }
                 case 'openTerminal': {
-                    /* Reveal an integrated terminal — reuse the active one if
-                       there is one, else create a fresh "Claude Codex Black"
-                       terminal. cwd defaults to the user's project folder if
-                       configured. */
-                    let term = vscode.window.activeTerminal;
-                    if (!term) {
-                        const cwd = context.workspaceState.get('codexBlackEd.projectFolder', '') || undefined;
-                        term = vscode.window.createTerminal({ name: 'Claude Codex Black', cwd });
+                    /* Open our named "Claude Codex Black" terminal so the user
+                       can run shell commands. cwd resolution, in order:
+                         1. The active project folder if one is set
+                         2. The user's Desktop as the universal fallback
+                       We deliberately do NOT reuse VSCode's activeTerminal —
+                       that might be sitting in some unrelated cwd from another
+                       extension. Instead we own a single CBE terminal: reveal
+                       it if still alive, otherwise spin up a fresh one rooted
+                       in the right cwd. */
+                    const projectFolder = context.workspaceState.get('codexBlackEd.projectFolder', '') || '';
+                    let cwd = '';
+                    if (projectFolder && fs.existsSync(projectFolder)) {
+                        cwd = projectFolder;
+                    } else {
+                        const desktop = path.join(os.homedir(), 'Desktop');
+                        if (fs.existsSync(desktop)) cwd = desktop;
                     }
-                    term.show(false);
+                    /* Find an existing CBE terminal if we haven't closed it. */
+                    const existing = vscode.window.terminals.find(t => t === cbeTerm);
+                    if (existing) {
+                        existing.show(false);
+                    } else {
+                        cbeTerm = vscode.window.createTerminal({
+                            name: 'Claude Codex Black',
+                            cwd: cwd || undefined,
+                        });
+                        cbeTerm.show(false);
+                    }
                     break;
                 }
                 case 'openWebLogin':
@@ -943,6 +1321,31 @@ function bindPanel(context, panel) {
                     try { await vscode.commands.executeCommand('workbench.action.webview.openDeveloperTools'); }
                     catch (e) { traceErr('openDevTools', e); panel.webview.postMessage({ type: 'error', message: 'DevTools: ' + (e.message || e) }); }
                     break;
+                case 'refreshPanel':
+                    /* Re-read panel/index.html + re-resolve all template URIs and
+                       reassign panel.webview.html. The webview tears itself down
+                       and re-fires `ready` on the new document, which rehydrates
+                       provider/skin/sfx state from buildSettingsPayload. This
+                       is NOT a full VSCode reload — extension host stays alive,
+                       message handlers stay registered, terminal stays open. */
+                    try {
+                        const html = getPanelHtml(context, panel.webview);
+                        panel.webview.html = html;
+                        trace('panel refreshed via context menu');
+                    } catch (e) {
+                        traceErr('refreshPanel', e);
+                    }
+                    break;
+                case 'sttStart':
+                    /* Fallback path: webview's Web Speech API got `not-allowed`
+                       (VSCode sandboxes the iframe out of the mic permission).
+                       Launch Windows SAPI on the host instead and post the
+                       transcript back as sttResult. */
+                    startSapiStt(panel);
+                    break;
+                case 'sttStop':
+                    stopSapiStt();
+                    break;
                 default:
                     trace('  unhandled type: ' + msg.type);
             }
@@ -955,6 +1358,9 @@ function bindPanel(context, panel) {
     panel.onDidDispose(() => {
         trace('panel disposed');
         if (activePanel === panel) activePanel = undefined;
+        /* Reap any in-flight SAPI recognizer so the PowerShell process doesn't
+           outlive the panel that was waiting on its transcript. */
+        stopSapiStt();
     });
 }
 
@@ -1068,6 +1474,36 @@ function loadPrompts(context) {
     } catch (e) {
         traceErr('loadPrompts', e);
         return [];
+    }
+}
+
+/* Persist the user-curated prompt list back to prompts.txt. Each entry is
+   written as its own block separated by a line that is exactly "---".
+   Empty / whitespace-only entries are dropped to keep the file clean.
+   Atomic write: stage to a sibling .tmp file then rename over the target
+   so partial writes can't corrupt the canonical file. Returns the array
+   that was actually written (i.e. after the empty-entry filter). */
+function savePrompts(context, items) {
+    const p = promptsFilePath(context);
+    const cleaned = (Array.isArray(items) ? items : [])
+        .map(s => String(s == null ? '' : s).replace(/^\s+|\s+$/g, ''))
+        .filter(s => s.length > 0);
+    /* Body = entries joined by "\n---\n", trailing newline so the file is
+       POSIX-friendly and `cat` doesn't dirty the next shell prompt. */
+    const body = cleaned.length
+        ? cleaned.join('\n' + PROMPTS_SEPARATOR + '\n') + '\n'
+        : '';
+    const tmp = p + '.tmp';
+    try {
+        fs.writeFileSync(tmp, body, 'utf8');
+        /* fs.renameSync is atomic on the same filesystem (Win32 + POSIX). */
+        fs.renameSync(tmp, p);
+        return cleaned;
+    } catch (e) {
+        /* Best-effort cleanup of the orphaned tmp file. */
+        try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (e2) { traceErr('savePrompts cleanup', e2); }
+        traceErr('savePrompts', e);
+        throw e;
     }
 }
 

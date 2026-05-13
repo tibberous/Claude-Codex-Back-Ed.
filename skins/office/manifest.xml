@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<skin>
+  <id>office</id>
+  <name>Square Office</name>
+  <version>1.0</version>
+  <author>OpenAI ChatGPT</author>
+  <accent>#244372</accent>
+  <stylesheet>styles.css</stylesheet>
+  <description>Hard-corner Windows-9x bevel UI with blue Office accent.</description>
+</skin>

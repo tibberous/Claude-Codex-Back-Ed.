@@ -1,0 +1,163 @@
+/* ────────────────────────────────────────────────────────────────────────
+   CBE skin — overrides the panel via CSS variables. Skin styles.css is
+   loaded after the panel's inline <style>, so these rules win the cascade.
+   Generated from promptbar_theme_pack — selectors remapped to real CBE
+   class names (.prompt-shell, .prompt-input-wrap, .tool-button,
+   .label-button, .stop-button, etc).
+   ──────────────────────────────────────────────────────────────────────── */
+:root {
+  --stage-bg:
+    repeating-linear-gradient(0deg, rgba(51,255,142,.035) 0 1px, transparent 1px 4px),
+    radial-gradient(circle at 50% 50%, rgba(30,255,125,.14), transparent 38%),
+    linear-gradient(180deg, #031006 0%, #010603 100%);
+  --shell-bg: linear-gradient(180deg, #08160d 0%, #030a05 100%);
+  --shell-border: #27e66d;
+  --shell-radius: 0;
+  --shell-shadow: 0 0 26px rgba(38,255,117,.22), 0 18px 40px rgba(0,0,0,.55);
+  --inner-shadow: inset 0 0 0 1px rgba(38,255,117,.22);
+  --button-bg: linear-gradient(180deg, #0b2112 0%, #041008 100%);
+  --button-hover: linear-gradient(180deg, #12351d 0%, #072111 100%);
+  --button-active: linear-gradient(180deg, #020804 0%, #0d2a16 100%);
+  --button-border: #28c763;
+  --button-radius: 0;
+  --button-text: #6dff9d;
+  --accent: #33ff82;
+  --accent-glow: rgba(51,255,130,.38);
+  --field-bg: #020704;
+  --field-text: #7cffaa;
+  --field-placeholder: #57d985;
+  --field-border: #2ece69;
+  --font-ui: "Consolas", "Lucida Console", monospace;
+  --font-mono: "Consolas", "Lucida Console", monospace;
+  --icon-filter: brightness(0) saturate(100%) invert(86%) sepia(52%) saturate(730%) hue-rotate(75deg) brightness(106%) contrast(105%);
+}
+
+body {
+  background: var(--stage-bg, inherit) !important;
+}
+
+/* ── Prompt shell + input frame ─────────────────────────────────────── */
+.prompt-shell {
+  border-radius: var(--shell-radius, 14px) !important;
+  border: 1px solid var(--shell-border, rgba(255,255,255,0.08)) !important;
+  background: var(--shell-bg) !important;
+  box-shadow: var(--shell-shadow, 0 18px 40px rgba(0,0,0,.35)),
+              var(--inner-shadow, inset 0 1px 0 rgba(255,255,255,.06)) !important;
+}
+
+.prompt-input-wrap {
+  border-radius: calc(var(--button-radius, 10px) + 6px) !important;
+  border: 1px solid var(--field-border) !important;
+  background: var(--field-bg) !important;
+  box-shadow:
+    inset 0 1px 2px rgba(0,0,0,.08),
+    inset 0 1px 0 rgba(255,255,255,.85) !important;
+}
+
+.prompt-input {
+  color: var(--field-text) !important;
+  font-family: var(--font-mono) !important;
+}
+
+.prompt-input::placeholder {
+  color: var(--field-placeholder, color-mix(in srgb, var(--field-text), transparent 60%)) !important;
+}
+
+/* ── Send button — keep the panel's arrow PNG visible.
+   The original .send-button uses `background: transparent url(send.png)`
+   for its arrow. Overriding `background` here wipes the image and leaves
+   a solid-colored square. Only nudge border + glow; let the PNG show. */
+.send-button {
+  border-radius: calc(var(--button-radius, 10px) + 2px) !important;
+  filter: drop-shadow(0 0 8px var(--accent-glow));
+}
+
+/* ── Toolbar (all .tool-button children inherit) ─────────────────────── */
+.prompt-toolbar {
+  font-family: var(--font-ui) !important;
+}
+
+/* Skins pack the icon row tighter than the default 10px gap — the extra
+   buttons we added (Help, Domains) pushed the toolbar to wrap; tightening
+   the gap keeps everything on one row at common widths. */
+.toolbar-tools {
+  gap: 6px !important;
+}
+
+.tool-button {
+  border: 1px solid var(--button-border) !important;
+  border-radius: var(--button-radius, 10px) !important;
+  background: var(--button-bg) !important;
+  color: var(--button-text) !important;
+  box-shadow: var(--inner-shadow, inset 0 1px 0 rgba(255,255,255,.06)),
+              0 5px 12px rgba(0,0,0,.12) !important;
+  transition: transform .12s ease, filter .12s ease, background .12s ease,
+              box-shadow .12s ease, border-color .12s ease, color .12s ease !important;
+}
+
+.tool-button img {
+  filter: var(--icon-filter, none) !important;
+  opacity: .94;
+}
+
+.tool-button:hover {
+  background: var(--button-hover) !important;
+  border-color: var(--accent) !important;
+  box-shadow: var(--inner-shadow, inset 0 1px 0 rgba(255,255,255,.06)),
+              0 7px 15px rgba(0,0,0,.16),
+              0 0 0 2px var(--accent-glow) !important;
+  transform: translateY(-1px);
+}
+
+.tool-button:active {
+  background: var(--button-active) !important;
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.22) !important;
+  transform: translateY(1px);
+}
+
+/* ── Label pill — DELIBERATELY UNSTYLED ──────────────────────────────
+   The label is a self-contained PNG with its own rounded border. Drawing
+   a skin button-chrome behind it stacks two borders + two backgrounds
+   and creates a visible orange/skin frame around the pill. Keep the
+   skin out of this button's way. */
+.label-button {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+/* ── Project-path pill ───────────────────────────────────────────────── */
+.project-path {
+  border: 1px solid var(--button-border) !important;
+  background: var(--field-bg) !important;
+  color: var(--field-text) !important;
+}
+
+/* ── Stop button — text + square get the accent ─────────────────────── */
+.stop-button {
+  border: 1px solid var(--button-border) !important;
+  border-radius: var(--button-radius, 10px) !important;
+  background: var(--button-bg) !important;
+  color: var(--button-text) !important;
+  font-family: var(--font-ui) !important;
+  box-shadow: var(--inner-shadow, inset 0 1px 0 rgba(255,255,255,.06)),
+              0 5px 12px rgba(0,0,0,.12) !important;
+}
+
+.stop-button:hover {
+  background: var(--button-hover) !important;
+  border-color: var(--accent) !important;
+}
+
+.stop-button__icon {
+  background: var(--accent) !important;
+  border-radius: max(0px, calc(var(--button-radius, 10px) / 3)) !important;
+}
+
+/* ── Tooltip ─────────────────────────────────────────────────────────── */
+.tooltip {
+  background: var(--shell-bg) !important;
+  color: var(--field-text) !important;
+  border: 1px solid var(--button-border) !important;
+}

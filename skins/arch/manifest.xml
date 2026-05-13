@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<skin>
+  <id>arch</id>
+  <name>Arch Minimalist Rice</name>
+  <version>1.0</version>
+  <author>OpenAI ChatGPT</author>
+  <accent>#1793d1</accent>
+  <stylesheet>styles.css</stylesheet>
+  <description>Dark translucent shell, sharp 3px corners, Arch cyan accent.</description>
+</skin>

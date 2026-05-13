@@ -338,6 +338,7 @@ document.getElementById('terminalBtn').onclick = () => { if (api) api.postMessag
 document.getElementById('setupBtn').onclick    = () => { if (api) api.postMessage({ type: 'loadSetup' }); };
 document.getElementById('label-pill').onclick  = () => { if (api) api.postMessage({ type: 'labelClick' }); };
 document.getElementById('settingsBtn').onclick = () => { if (api) api.postMessage({ type: 'openSettings' }); };
+document.getElementById('domainsBtn').onclick  = () => { if (api) api.postMessage({ type: 'listDomains' }); };
 
 /* ── Read aloud (TTS 🔊) — click=read last reply, double-click=auto-read ─ */
 const tts = (function() {
@@ -378,12 +379,35 @@ const tts = (function() {
     if (lastReply) speak(lastReply);
   });
 
+  /* Right-click toggles auto-read-aloud mode. The .autoread class makes
+     the neon-blue spinner SVG overlay appear on the TTS button. Every new
+     assistant reply will then be spoken automatically via onAssistantDone. */
+  btn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    autoRead = !autoRead;
+    btn.classList.toggle('autoread', autoRead);
+    btn.setAttribute('data-tooltip', autoRead
+      ? 'Auto-read ON — right-click to disable'
+      : 'Read aloud · right-click = auto-read every reply');
+    if (autoRead) {
+      playSfx('enable');
+      /* If a reply is already on screen, speak it now so the user gets
+         immediate feedback that the mode just turned on. */
+      if (lastReply) speak(lastReply);
+    } else {
+      playSfx('disable');
+      stopAll();
+    }
+  });
+
+  /* dblclick kept as an alternate way to toggle (back-compat with the
+     prior behavior) — same logic as the right-click branch above. */
   btn.addEventListener('dblclick', () => {
     autoRead = !autoRead;
     btn.classList.toggle('autoread', autoRead);
-    btn.title = autoRead
-      ? 'Auto-read ON — double-click to disable'
-      : 'Read aloud last reply — double-click for auto-read';
+    btn.setAttribute('data-tooltip', autoRead
+      ? 'Auto-read ON — double-click / right-click to disable'
+      : 'Read aloud · right-click = auto-read every reply');
     if (!autoRead) stopAll();
   });
 
@@ -397,22 +421,42 @@ const tts = (function() {
   };
 })();
 
-/* ── Web Speech dictation (STT button, .speaking class toggles a red tint) ─ */
+/* ── Web Speech dictation (STT button, .speaking class toggles a red tint) ─
+   VSCode webviews silently deny microphone permission to the Web Speech API,
+   so the first try fires "not-allowed" right after start(). When that happens
+   we fall back to the host-side SAPI path: post `sttStart` to extension.js,
+   which spawns PowerShell + System.Speech and posts back `sttResult` with
+   the transcript. From the user's POV the button just works — they don't
+   see the fallback. */
 (function() {
   const sttBtn = document.getElementById('sttBtn');
   let recog = null;
   let listening = false;
+  let mode = 'idle';            /* 'idle' | 'sr' (Web Speech) | 'sapi' (host fallback) */
+
+  function setListeningUI(on) {
+    if (on) {
+      sttBtn.classList.add('speaking');
+      sttBtn.title = 'Listening… click to stop';
+    } else {
+      sttBtn.classList.remove('speaking');
+      sttBtn.title = 'Speech to Text — click to start/stop';
+    }
+  }
 
   function stopMic() {
-    const wasListening = listening || !!recog;
+    const wasListening = listening;
     if (recog) {
       try { recog.stop(); }
       catch (e) { console.debug('[cbe.stt] recog.stop', e && e.message); }
       recog = null;
     }
+    if (mode === 'sapi' && api) {
+      try { api.postMessage({ type: 'sttStop' }); } catch (e) {}
+    }
     listening = false;
-    sttBtn.classList.remove('speaking');
-    sttBtn.title = 'Speech to Text — click to start/stop';
+    mode = 'idle';
+    setListeningUI(false);
     if (wasListening) playSfx('disable');
   }
 
@@ -423,11 +467,23 @@ const tts = (function() {
     ti.focus();
   }
 
-  sttBtn.onclick = () => {
-    if (listening) { stopMic(); return; }
+  function startSapi() {
+    if (!api) {
+      addMsg('Voice: extension API unavailable — cannot start SAPI fallback.', 'error');
+      return;
+    }
+    mode = 'sapi';
+    listening = true;
+    setListeningUI(true);
+    playSfx('connect');
+    api.postMessage({ type: 'sttStart' });
+  }
+
+  function startWebSpeech() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
-      addMsg('Web Speech API not available in this webview.', 'error');
+      /* No Web Speech API at all — go straight to SAPI. */
+      startSapi();
       return;
     }
     try {
@@ -440,20 +496,60 @@ const tts = (function() {
         if (r && r.transcript) appendToInput(r.transcript.trim());
       };
       recog.onerror = (e) => {
-        addMsg('Voice: ' + (e.error || 'error'), 'error');
+        const err = e && e.error;
+        /* VSCode webview sandbox blocks mic access. On not-allowed /
+           service-not-allowed, transparently retry on the host via SAPI
+           instead of surfacing a useless error. */
+        if (err === 'not-allowed' || err === 'service-not-allowed') {
+          console.debug('[cbe.stt] Web Speech denied (' + err + ') — falling back to host SAPI');
+          /* Tear down the recognizer first so its onend doesn't clobber UI. */
+          if (recog) { try { recog.onend = null; recog.stop(); } catch (_) {} recog = null; }
+          mode = 'idle';
+          listening = false;
+          startSapi();
+          return;
+        }
+        if (err && err !== 'aborted' && err !== 'no-speech') {
+          addMsg('Voice: ' + err, 'error');
+        }
         stopMic();
       };
-      recog.onend = () => stopMic();
+      recog.onend = () => { if (mode === 'sr') stopMic(); };
       recog.start();
+      mode = 'sr';
       listening = true;
-      sttBtn.classList.add('speaking');
-      sttBtn.title = 'Listening… click to stop';
+      setListeningUI(true);
       playSfx('connect');
     } catch (e) {
-      addMsg('Voice start failed: ' + (e.message || e), 'error');
-      stopMic();
+      /* SR constructor itself can throw in some webviews — go straight to SAPI. */
+      console.debug('[cbe.stt] SR ctor threw — using SAPI', e && e.message);
+      if (recog) { try { recog.stop(); } catch (_) {} recog = null; }
+      startSapi();
     }
+  }
+
+  sttBtn.onclick = () => {
+    if (listening) { stopMic(); return; }
+    startWebSpeech();
   };
+
+  /* SAPI result coming back from extension.js. */
+  window.addEventListener('message', (e) => {
+    const m = e.data || {};
+    if (m.type !== 'sttResult') return;
+    if (m.error) {
+      addMsg('Voice (SAPI): ' + m.error, 'error');
+    } else if (m.text) {
+      appendToInput(String(m.text).trim());
+    } else {
+      addMsg('Voice: no speech detected.', 'info');
+    }
+    /* Recognizer has already exited on the host. Reset UI. */
+    listening = false;
+    mode = 'idle';
+    setListeningUI(false);
+    playSfx('disable');
+  });
 })();
 
 
@@ -470,7 +566,14 @@ const tts = (function() {
     });
   }
   bind('stopBtn',           'cancelInFlight');
-  bind('storedPromptsBtn',  'openPromptsFile');
+  /* storedPromptsBtn handled inline below — opens an in-panel modal with
+     combo + textarea + Add/Save/Delete/Use/Close. Slash-command /prompts
+     still opens the raw prompts.txt file for power users. */
+  (function() {
+    const el = document.getElementById('storedPromptsBtn');
+    if (!el) return;
+    el.addEventListener('click', () => openStoredPromptsModal());
+  })();
   bind('chatHistoryBtn',    'openChatHistory'); /* host opens QuickPick of chats/*.log */
   bind('attachFileBtn',     'attachFile'); /* host opens file picker, returns content */
   bind('autoReplyBtn',      'toggleAutoReply');
@@ -506,6 +609,104 @@ const tts = (function() {
 /* ── Settings modal ──────────────────────────────────────────────────── */
 let __cbeProviders = [];   /* {id,label,models[],current,haveKey} */
 let __cbeActive = null;
+let __cbeActiveSkin = '';  /* bare filename, e.g. 'noir.css'. '' = no skin */
+let __cbeSkinsList  = null;/* null = not yet discovered for this session; [] = scanned, empty */
+
+function applySkinUri(uri) {
+  /* Swap the <link id="cbe-skin"> href. Empty/missing uri clears the
+     stylesheet. Browsers handle href="" as a no-op load, so we set the
+     href to empty string to unload the previous skin. */
+  const link = document.getElementById('cbe-skin');
+  if (!link) return;
+  link.setAttribute('href', uri || '');
+}
+
+function showDomainsModal(payload) {
+  /* Render a quick modal listing NameSilo domains + their nameservers. Uses
+     the same overlay conventions as the settings modal so it picks up the
+     active skin's styling automatically. */
+  const old = document.getElementById('cbe-domains-modal');
+  if (old) old.remove();
+  playSfx('open_modal');
+  const overlay = document.createElement('div');
+  overlay.id = 'cbe-domains-modal';
+  overlay.className = 'cbe-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;';
+
+  let bodyHtml;
+  if (payload.error) {
+    bodyHtml = `<div style="padding:20px;color:#ffb6b6;">${escapeHtml(payload.error)}</div>`;
+  } else if (!payload.domains || !payload.domains.length) {
+    bodyHtml = '<div style="padding:20px;color:#e8e8e8;">No domains on this NameSilo account.</div>';
+  } else {
+    const rows = payload.domains.map(d => `
+      <tr>
+        <td style="padding:6px 12px;border-bottom:1px solid #2a2a2a;color:#ffd09e;font-family:Consolas,monospace;">${escapeHtml(d.name)}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid #2a2a2a;color:#e8e8e8;font-family:Consolas,monospace;font-size:12px;">${(d.nameservers || []).map(escapeHtml).join('<br>')}</td>
+      </tr>`).join('');
+    bodyHtml = `
+      <div style="padding:14px 18px;max-height:60vh;overflow:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr>
+            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid #444;color:#ffb084;">Domain</th>
+            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid #444;color:#ffb084;">Nameservers</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  overlay.innerHTML =
+    '<div class="cbe-box" style="background:#1a1a1a;border:2px solid #e8621a;border-radius:10px;width:700px;max-width:92vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
+      '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,#b83c00,#e8621a);color:#fff;font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
+        `<span>NameSilo Domains${payload.domains ? ` (${payload.domains.length})` : ''}</span>` +
+        '<button type="button" data-act="close" aria-label="Close" style="background:transparent;border:0;color:#fff;font-size:18px;cursor:pointer;">×</button>' +
+      '</div>' +
+      bodyHtml +
+      '<div class="cbe-foot" style="padding:10px 16px;border-top:1px solid #2a2a2a;display:flex;justify-content:flex-end;gap:8px;">' +
+        '<button type="button" data-act="close" style="background:#3a3a3a;color:#e8e8e8;border:1px solid #555;border-radius:6px;padding:6px 14px;cursor:pointer;">Close</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay || (e.target.getAttribute && e.target.getAttribute('data-act') === 'close')) {
+      overlay.remove();
+      playSfx('close_modal');
+    }
+  });
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function renderSkinDropdown() {
+  /* If the settings modal is open, fill its skin <select>. Called both when
+     the skins list arrives from the host and when settings re-opens with a
+     fresh scan in flight. */
+  const sel = document.getElementById('cbe-set-skin');
+  if (!sel) return;
+  sel.innerHTML = '';
+  const none = document.createElement('option');
+  none.value = ''; none.textContent = '— None —';
+  sel.appendChild(none);
+  if (!__cbeSkinsList) {
+    const o = document.createElement('option');
+    o.value = ''; o.textContent = 'Loading skins…'; o.disabled = true;
+    sel.appendChild(o);
+    sel.value = '';
+    return;
+  }
+  __cbeSkinsList.forEach(s => {
+    const o = document.createElement('option');
+    o.value = s.name; o.textContent = s.label || s.name;
+    o.dataset.uri = s.uri || '';
+    sel.appendChild(o);
+  });
+  sel.value = __cbeActiveSkin || '';
+}
 
 function openSettings(payload) {
   __cbeProviders = payload.providers || [];
@@ -521,6 +722,7 @@ function openSettings(payload) {
     +     '<div><label>Provider</label><select id="cbe-set-provider"></select></div>'
     +     '<div><label>Model</label><select id="cbe-set-model"></select></div>'
     +     '<div class="cbe-warn" id="cbe-set-warn">No API key configured for this provider in config.ini.</div>'
+    +     '<div><label>Skin</label><select id="cbe-set-skin"><option value="">Loading skins…</option></select></div>'
     +     '<div style="display:flex;align-items:center;gap:10px;margin-top:4px;">'
     +       '<label for="cbe-set-sfx-enabled" style="margin:0;flex:1;">Sound Effects</label>'
     +       '<input type="checkbox" id="cbe-set-sfx-enabled" style="width:auto;accent-color:#e8621a;cursor:pointer;">'
@@ -592,6 +794,25 @@ function openSettings(payload) {
   sel.addEventListener('change', renderModels);
   renderModels();
 
+  /* Skin discovery: ask the host to scan /skins NOW (not at startup) so
+     freshly-dropped-in skin files show up without restarting the panel.
+     The host replies with `skinsList`; renderSkinDropdown() fills the
+     <select>. Until then the placeholder option says "Loading skins…". */
+  __cbeSkinsList = null;
+  renderSkinDropdown();
+  if (api) api.postMessage({ type: 'listSkins' });
+
+  /* Live-preview skin choice while the dropdown is open. We swap the
+     <link> href immediately on `change` so the user sees the effect;
+     Cancel reverts to the saved skin, Save persists the new one. */
+  const __cbeSavedSkinAtOpen = __cbeActiveSkin;
+  const __cbeSavedSkinUriAtOpen = (document.getElementById('cbe-skin') || {}).href || '';
+  overlay.querySelector('#cbe-set-skin').addEventListener('change', (e) => {
+    const opt = e.target.options[e.target.selectedIndex];
+    const uri = (opt && opt.dataset && opt.dataset.uri) || '';
+    applySkinUri(uri);
+  });
+
   /* SFX controls. Hydrate from current window state, wire live preview so
      user hears the volume change while dragging the slider; persistence
      fires on Save. */
@@ -612,9 +833,11 @@ function openSettings(payload) {
   overlay.addEventListener('click', (e) => {
     const act = e.target.getAttribute && e.target.getAttribute('data-act');
     if (act === 'cancel' || e.target === overlay) {
-      /* Revert live-previewed SFX changes if the user cancels. */
+      /* Revert live-previewed SFX + skin changes if the user cancels. */
       setSfxEnabled(__cbeSavedSfxEnabled);
       setSfxVolume(__cbeSavedSfxVolume);
+      applySkinUri(__cbeSavedSkinUriAtOpen);
+      __cbeActiveSkin = __cbeSavedSkinAtOpen;
       closeSettings();
       return;
     }
@@ -628,9 +851,13 @@ function openSettings(payload) {
       setSfxVolume(sfxVolumeVal);
       __cbeSavedSfxEnabled = sfxEnabledVal;
       __cbeSavedSfxVolume  = sfxVolumeVal;
+      const skinSel = overlay.querySelector('#cbe-set-skin');
+      const skin    = (skinSel && skinSel.value) || '';
+      __cbeActiveSkin = skin;
       if (api) api.postMessage({
         type: 'setProvider', provider, model,
         sfxEnabled: sfxEnabledVal, sfxVolume: sfxVolumeVal,
+        skin,
       });
       closeSettings();
     }
@@ -657,6 +884,42 @@ function closeSettings(suppressSfx) {
 
 /* Tell host we're ready to receive init payload. */
 if (api) api.postMessage({ type: 'ready' });
+
+/* Diagnostic: log the resolved font stack on #textInput right after first
+   paint so we can confirm the monospace lock actually computes through.
+   This used to be a silent assumption — surfacing the values means future
+   regressions show up immediately in the trace channel ("VSCode monitor"
+   button). Result also lands in window.__cbeComputedPromptFont for any
+   slash-command introspection. */
+function _cbeReportPromptFont(reason) {
+  try {
+    const el = document.getElementById('textInput');
+    if (!el) return;
+    const cs = getComputedStyle(el);
+    const report = {
+      reason,
+      fontFamily: cs.fontFamily,
+      fontSize:   cs.fontSize,
+      fontWeight: cs.fontWeight,
+      lineHeight: cs.lineHeight,
+      font:       cs.font,
+    };
+    window.__cbeComputedPromptFont = report;
+    if (api) api.postMessage({ type: 'debugComputed', target: '#textInput', report });
+  } catch (e) { /* probe is best-effort */ }
+}
+/* Fire once on load, once after fonts settle (system fonts can change the
+   resolved family slightly), and expose a window helper for ad-hoc checks. */
+window.addEventListener('load', () => _cbeReportPromptFont('load'));
+if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
+  document.fonts.ready.then(() => _cbeReportPromptFont('fonts-ready'));
+}
+window.__cbeProbeFont = (sel) => {
+  const el = sel ? document.querySelector(sel) : document.getElementById('textInput');
+  if (!el) return null;
+  const cs = getComputedStyle(el);
+  return { selector: sel || '#textInput', fontFamily: cs.fontFamily, fontSize: cs.fontSize, font: cs.font };
+};
 
 /* Kick off Prism load in the background AFTER `ready` is posted, so it
    never blocks the boot path. Code blocks rendered before Prism arrives
@@ -773,6 +1036,213 @@ function promptsRight() {
   }
 }
 function promptsResetRecall() { __cbePromptIdx = -1; __cbePromptDraft = ''; }
+
+/* ── Stored Prompts modal ─────────────────────────────────────────────────
+   In-panel editor for prompts.txt. Combo box lists every saved entry
+   (truncated to 60 chars), textarea shows the full content, footer has
+   Add / Save / Delete / Use / Close. Save round-trips through the host
+   which rewrites prompts.txt and broadcasts a fresh `prompts` list back
+   so the modal (and __cbePrompts for arrow-recall) stay in sync. */
+let __cbePromptsModalSelIdx = -1;  /* index into __cbePrompts; -1 = unsaved/new */
+
+function _cbePromptShort(s) {
+  const oneLine = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  if (oneLine.length <= 60) return oneLine || '(empty)';
+  return oneLine.slice(0, 60) + '…';
+}
+
+function openStoredPromptsModal() {
+  if (document.getElementById('cbe-prompts-modal')) return;
+  playSfx('open_modal');
+  const modal = document.createElement('div');
+  modal.id = 'cbe-prompts-modal';
+  modal.innerHTML = `
+    <div class="cbe-box" role="dialog" aria-modal="true" aria-label="Stored Prompts">
+      <div class="cbe-hdr">
+        <span>Stored Prompts</span>
+        <button type="button" class="cbe-x-svg" aria-label="Close" title="Close (Esc)"></button>
+      </div>
+      <div class="cbe-body">
+        <div>
+          <label for="cbe-prompts-sel">Saved prompts</label>
+          <select id="cbe-prompts-sel"></select>
+        </div>
+        <div style="display:flex;flex-direction:column;flex:1 1 auto;min-height:0;">
+          <label for="cbe-prompts-ta">Prompt text</label>
+          <textarea id="cbe-prompts-ta" spellcheck="false" placeholder="Type a prompt, then Save to add it."></textarea>
+        </div>
+      </div>
+      <div class="cbe-foot">
+        <div class="cbe-foot-left">
+          <button type="button" class="cbe-btn cbe-btn--add"    data-act="add">+ Add</button>
+          <button type="button" class="cbe-btn cbe-btn--delete" data-act="delete">Delete</button>
+          <span class="cbe-status" data-role="status"></span>
+        </div>
+        <div class="cbe-foot-right">
+          <button type="button" class="cbe-btn cbe-btn--use"   data-act="use">Use</button>
+          <button type="button" class="cbe-btn cbe-btn--close" data-act="close">Close</button>
+          <button type="button" class="cbe-btn cbe-btn--save"  data-act="save">Save</button>
+        </div>
+      </div>
+    </div>`;
+  modal.addEventListener('click', e => { if (e.target === modal) closeStoredPromptsModal(); });
+  document.body.appendChild(modal);
+
+  __cbePromptsModalSelIdx = __cbePrompts.length ? 0 : -1;
+  renderStoredPromptsModal();
+
+  const sel = modal.querySelector('#cbe-prompts-sel');
+  const ta  = modal.querySelector('#cbe-prompts-ta');
+
+  sel.addEventListener('change', () => {
+    const v = parseInt(sel.value, 10);
+    __cbePromptsModalSelIdx = isNaN(v) ? -1 : v;
+    if (__cbePromptsModalSelIdx >= 0 && __cbePromptsModalSelIdx < __cbePrompts.length) {
+      ta.value = __cbePrompts[__cbePromptsModalSelIdx] || '';
+    } else {
+      ta.value = '';
+    }
+    setStoredPromptsStatus('');
+  });
+
+  ta.addEventListener('input', () => setStoredPromptsStatus(''));
+
+  modal.querySelectorAll('button[data-act]').forEach(b => {
+    b.addEventListener('click', () => {
+      const act = b.getAttribute('data-act');
+      if (act === 'close') return closeStoredPromptsModal();
+      if (act === 'add')    return storedPromptsAdd();
+      if (act === 'save')   return storedPromptsSave();
+      if (act === 'delete') return storedPromptsDelete();
+      if (act === 'use')    return storedPromptsUse();
+    });
+  });
+  modal.querySelector('.cbe-x-svg').addEventListener('click', closeStoredPromptsModal);
+}
+
+function renderStoredPromptsModal() {
+  const modal = document.getElementById('cbe-prompts-modal');
+  if (!modal) return;
+  const sel = modal.querySelector('#cbe-prompts-sel');
+  const ta  = modal.querySelector('#cbe-prompts-ta');
+  if (!sel || !ta) return;
+
+  /* Rebuild combo from __cbePrompts. Clamp selection if it went out of range. */
+  sel.innerHTML = '';
+  if (!__cbePrompts.length) {
+    const opt = document.createElement('option');
+    opt.value = '-1';
+    opt.textContent = '(no saved prompts yet)';
+    opt.disabled = true;
+    opt.selected = true;
+    sel.appendChild(opt);
+    __cbePromptsModalSelIdx = -1;
+  } else {
+    __cbePrompts.forEach((p, i) => {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = `${i + 1}. ${_cbePromptShort(p)}`;
+      sel.appendChild(opt);
+    });
+    if (__cbePromptsModalSelIdx < 0 || __cbePromptsModalSelIdx >= __cbePrompts.length) {
+      __cbePromptsModalSelIdx = 0;
+    }
+    sel.value = String(__cbePromptsModalSelIdx);
+    ta.value = __cbePrompts[__cbePromptsModalSelIdx] || '';
+  }
+
+  /* Disable Delete when nothing real is selected. */
+  const delBtn = modal.querySelector('button[data-act="delete"]');
+  if (delBtn) delBtn.disabled = (__cbePromptsModalSelIdx < 0 || !__cbePrompts.length);
+}
+
+function setStoredPromptsStatus(text) {
+  const modal = document.getElementById('cbe-prompts-modal');
+  if (!modal) return;
+  const s = modal.querySelector('[data-role="status"]');
+  if (s) s.textContent = text || '';
+}
+
+function storedPromptsAdd() {
+  const modal = document.getElementById('cbe-prompts-modal');
+  if (!modal) return;
+  const ta = modal.querySelector('#cbe-prompts-ta');
+  const sel = modal.querySelector('#cbe-prompts-sel');
+  __cbePromptsModalSelIdx = -1;
+  if (sel) {
+    /* No real entry selected — show "(new)" option temporarily. */
+    if (!sel.querySelector('option[value="-1"]')) {
+      const opt = document.createElement('option');
+      opt.value = '-1';
+      opt.textContent = '(new prompt — unsaved)';
+      sel.insertBefore(opt, sel.firstChild);
+    }
+    sel.value = '-1';
+  }
+  if (ta) { ta.value = ''; ta.focus(); }
+  setStoredPromptsStatus('New prompt — type then Save.');
+}
+
+function storedPromptsSave() {
+  const modal = document.getElementById('cbe-prompts-modal');
+  if (!modal) return;
+  const ta = modal.querySelector('#cbe-prompts-ta');
+  const text = (ta && ta.value || '').replace(/^\s+|\s+$/g, '');
+  if (!text) {
+    setStoredPromptsStatus('Cannot save an empty prompt.');
+    return;
+  }
+  const next = __cbePrompts.slice();
+  if (__cbePromptsModalSelIdx >= 0 && __cbePromptsModalSelIdx < next.length) {
+    next[__cbePromptsModalSelIdx] = text;
+  } else {
+    next.push(text);
+    __cbePromptsModalSelIdx = next.length - 1;
+  }
+  __cbePrompts = next;
+  promptsResetRecall();
+  if (api) api.postMessage({ type: 'saveStoredPrompts', items: next });
+  setStoredPromptsStatus('Saved.');
+  renderStoredPromptsModal();
+}
+
+function storedPromptsDelete() {
+  if (__cbePromptsModalSelIdx < 0 || __cbePromptsModalSelIdx >= __cbePrompts.length) return;
+  const which = _cbePromptShort(__cbePrompts[__cbePromptsModalSelIdx]);
+  if (!confirm(`Delete this prompt?\n\n${which}`)) return;
+  const next = __cbePrompts.slice();
+  next.splice(__cbePromptsModalSelIdx, 1);
+  __cbePrompts = next;
+  promptsResetRecall();
+  __cbePromptsModalSelIdx = next.length ? Math.min(__cbePromptsModalSelIdx, next.length - 1) : -1;
+  if (api) api.postMessage({ type: 'saveStoredPrompts', items: next });
+  setStoredPromptsStatus('Deleted.');
+  renderStoredPromptsModal();
+}
+
+function storedPromptsUse() {
+  const modal = document.getElementById('cbe-prompts-modal');
+  if (!modal) return;
+  const ta = modal.querySelector('#cbe-prompts-ta');
+  const text = (ta && ta.value) || '';
+  if (!text) { setStoredPromptsStatus('Nothing to use — textarea is empty.'); return; }
+  ti.value = text;
+  ti.dispatchEvent(new Event('input'));
+  try { ti.setSelectionRange(text.length, text.length); } catch (e) { /* noop */ }
+  closeStoredPromptsModal();
+  ti.focus();
+}
+
+function closeStoredPromptsModal() {
+  const m = document.getElementById('cbe-prompts-modal');
+  if (m) {
+    m.remove();
+    playSfx('close_modal');
+  }
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('cbe-prompts-modal')) closeStoredPromptsModal();
+});
 
 function caretAtAbsoluteStart() {
   return (ti.selectionStart || 0) === 0 && (ti.selectionEnd || 0) === 0;
@@ -1086,6 +1556,11 @@ window.addEventListener('message', e => {
       streamingEl = null;
       try { tts.onAssistantDone(fullText); } catch (e) { console.debug('[cbe.tts] onAssistantDone', e && e.message); }
       if (api && fullText) api.postMessage({ type: 'logChatTurn', role: 'ASSISTANT', text: fullText });
+      /* Notification ping — fires when a new assistant message fully
+         arrives (Slack/iMessage-style). Provider-specific cue already
+         fires on the FIRST chunk; this one signals completion so the
+         user knows the reply is ready to read. */
+      playSfx('popup');
     }
     setBusy(false);
     ti.focus();
@@ -1104,10 +1579,27 @@ window.addEventListener('message', e => {
     if (typeof m.sfxEnabled === 'boolean') { setSfxEnabled(m.sfxEnabled); __cbeSavedSfxEnabled = m.sfxEnabled; }
     if (typeof m.sfxVolume  === 'number')  { setSfxVolume(m.sfxVolume);   __cbeSavedSfxVolume  = m.sfxVolume; }
     if (typeof m.bigFont    === 'boolean' && window.__cbApplyBig) { window.__cbApplyBig(m.bigFont); }
+    /* Apply previously-saved skin on boot. m.skinUri is the asWebviewUri()
+       form ready for <link href>; m.skin is the bare filename used to mark
+       the dropdown selection when settings opens. */
+    if (typeof m.skin === 'string') __cbeActiveSkin = m.skin;
+    if (m.skinUri) applySkinUri(m.skinUri);
     if (!__cbeOpenAppPlayed) {
       __cbeOpenAppPlayed = true;
       playSfx('open_and_close_application');
     }
+  } else if (m.type === 'applySkin') {
+    /* Host-driven skin swap. m.skin = bare filename ('' to clear),
+       m.skinUri = full webview URI ('' to clear). */
+    __cbeActiveSkin = m.skin || '';
+    applySkinUri(m.skinUri || '');
+  } else if (m.type === 'skinsList') {
+    /* Lazy-discovered skin list — populates the dropdown if settings is open. */
+    __cbeSkinsList = Array.isArray(m.skins) ? m.skins.slice() : [];
+    renderSkinDropdown();
+  } else if (m.type === 'domainsList') {
+    /* NameSilo domain listing — render a modal table. */
+    showDomainsModal(m);
   } else if (m.type === 'openSettings') {
     __cbeActiveProvider = m.active || __cbeActiveProvider;
     openSettings(m);
@@ -1119,6 +1611,12 @@ window.addEventListener('message', e => {
   } else if (m.type === 'prompts') {
     __cbePrompts = Array.isArray(m.items) ? m.items.slice() : [];
     promptsResetRecall();
+    /* If the Stored Prompts modal is open, re-render so it reflects the
+       fresh list (e.g. after a save round-trip from the host, or after the
+       user edited prompts.txt directly via the /prompts slash-command). */
+    if (document.getElementById('cbe-prompts-modal')) {
+      renderStoredPromptsModal();
+    }
   } else if (m.type === 'handbook') {
     __cbeHandbookText = String(m.text || '');
     const modal = document.getElementById('cbe-handbook-modal');
@@ -1370,6 +1868,46 @@ window.addEventListener('resize', fitProjectPath);
     var menu = document.createElement('div');
     menu.id = CMENU_ID;
 
+    /* Copy — copies the current text selection if any, else falls back to
+       the clicked code block's full text. Webview blocks the native
+       browser context menu so this entry is how the user actually copies. */
+    var copy = document.createElement('div');
+    copy.className = 'cbe-item';
+    var sel = (function() {
+      try { return String(window.getSelection() || ''); } catch (e) { return ''; }
+    })();
+    var hasSelection = !!sel.trim();
+    copy.textContent = '📋 Copy' + (hasSelection ? '' : (codeEl ? ' code block' : ''));
+    copy.addEventListener('mousedown', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      removeMenu();
+      var text = hasSelection ? sel : (codeEl ? (codeEl.textContent || '') : '');
+      if (!text) return;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).catch(function() {
+            /* Fallback: textarea + execCommand */
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed'; ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (e) {}
+            document.body.removeChild(ta);
+          });
+        } else {
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed'; ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); } catch (e) {}
+          document.body.removeChild(ta);
+        }
+      } catch (e) { /* swallow */ }
+    });
+    menu.appendChild(copy);
+
     /* View Source — always enabled. If the right-click landed inside a
        <pre><code>, show that block. Otherwise show the panel's full
        <html> source (the webview's actual DOM as currently rendered). */
@@ -1402,6 +1940,20 @@ window.addEventListener('resize', fitProjectPath);
       if (api) api.postMessage({ type: 'openDevTools' });
     });
     menu.appendChild(dev);
+
+    /* Refresh — asks the host to re-read panel/index.html + panel.js from
+       disk and re-assign panel.webview.html. This is the supported way to
+       pick up CSS / JS edits without rebooting VSCode. The webview will
+       re-fire its `ready` message and rehydrate state from the host. */
+    var refresh = document.createElement('div');
+    refresh.className = 'cbe-item';
+    refresh.textContent = '🔄 Refresh';
+    refresh.addEventListener('mousedown', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      removeMenu();
+      if (api) api.postMessage({ type: 'refreshPanel' });
+    });
+    menu.appendChild(refresh);
 
     menu.style.left = x + 'px';
     menu.style.top  = y + 'px';
