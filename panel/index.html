@@ -128,6 +128,62 @@ body {
 .send-button:active,
 .send-button.is-active { background-image: url('{{ASSETS_BASE}}/send_click.png'); }
 
+/* Attachments row — sits between the input and the toolbar. Each chip
+   is a queued file the user has attached; the red minus button on each
+   chip removes it. The row collapses to zero height when there are no
+   attachments. */
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  min-height: 0;
+  transition: margin .12s ease;
+}
+.attachments:not(:empty) {
+  margin: 6px 0 10px 0;
+}
+.attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  max-width: 240px;
+  padding: 0 6px 0 10px;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(255, 160, 30, 0.55);
+  border-radius: 8px;
+  color: #ffe4c8;
+  font-family: Consolas, "Fira Mono", monospace;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.attach-chip .attach-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.attach-chip .attach-size {
+  color: #ffb060;
+  opacity: 0.75;
+  font-size: 11px;
+}
+.attach-chip .attach-remove {
+  all: unset;
+  cursor: pointer;
+  width: 20px; height: 20px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  flex: 0 0 auto;
+}
+.attach-chip .attach-remove:hover { background: rgba(255, 56, 56, 0.18); }
+.attach-chip .attach-remove svg { display: block; }
+
 .prompt-toolbar {
   display: flex;
   align-items: center;
@@ -404,33 +460,33 @@ body {
   .prompt-input { font-size: calc(20px * var(--cb-font-scale)); }
   .stop-button { font-size: calc(19px * var(--cb-font-scale)); }
 
-  /* Chat thread — dark CBE palette, sits directly on body */
+  /* Chat thread — original CBE palette (restored from 79feba5) */
   #thread {
     flex: 1 1 0; min-height: 0; overflow-y: auto;
     width: 100%;
-    padding: 12px 4px;
-    display: flex; flex-direction: column; gap: 10px;
-    color: #e0e0e0;
+    padding: 18px;
+    display: flex; flex-direction: column; gap: 12px;
+    color: #e8e8e8;
     background: transparent;
   }
-  #thread::-webkit-scrollbar { width: 6px; }
-  #thread::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
+  #thread::-webkit-scrollbar { width: 4px; }
+  #thread::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
   .msg {
-    padding: 8px 14px; border-radius: 10px;
-    font-size: calc(14px * var(--cb-font-scale));
+    padding: 10px 14px; border-radius: 6px;
+    font-size: calc(13px * var(--cb-font-scale));
     line-height: 1.55; max-width: 92%;
     word-break: break-word; white-space: pre-wrap;
     font-family: Inter, "Segoe UI", system-ui, sans-serif;
   }
-  .msg.sent      { background: #262626; border: 1px solid #3a3a3a;
-                   align-self: flex-end;   color: #f0f0f0; }
-  .msg.assistant { background: #1c1c1c; border: 1px solid #2c2c2c;
-                   align-self: flex-start; color: #e0e0e0; }
-  .msg.info      { background: transparent; border: 0;
-                   align-self: flex-start; color: #888;
-                   font-size: calc(12px * var(--cb-font-scale));
-                   font-style: italic; padding: 4px 8px; }
-  .msg.error     { background: #3a1a1a; border: 1px solid #5a2a2a;
+  .msg.sent      { background: #1c1c1c; border: 1px solid #2a2a2a;
+                   align-self: flex-end;   color: #e8e8e8; }
+  .msg.assistant { background: #15171c; border: 1px solid #232a37;
+                   align-self: flex-start; color: #d9e2f3; }
+  .msg.info      { background: #131313; border: 1px solid #1f1f1f;
+                   align-self: flex-start; color: #777;
+                   font-size: calc(11px * var(--cb-font-scale));
+                   font-style: italic; padding: 6px 10px; }
+  .msg.error     { background: #2a1212; border: 1px solid #5a1f1f;
                    align-self: flex-start; color: #ff9b9b; }
   .msg.assistant.streaming::after { content: '▍'; opacity: .6; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 0%,50% { opacity: .6 } 51%,100% { opacity: 0 } }
@@ -737,6 +793,8 @@ body {
           <textarea id="textInput" class="prompt-input" rows="1" placeholder="Queue another message..."></textarea>
           <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" aria-label="Send message"></button>
         </div>
+
+        <div id="attachments" class="attachments" aria-label="Queued file attachments"></div>
 
         <div class="prompt-toolbar">
           <button id="addBtn" class="tool-button" type="button" data-tooltip="New conversation" aria-label="New conversation">
@@ -1048,13 +1106,23 @@ function setBusy(b) {
 function send() {
   if (busy) return;
   const txt = (ti.value || '').trim();
-  if (!txt) return;
-  addMsg(txt, 'sent');
-  if (api) api.postMessage({ type: 'sendText', text: txt });
-  if (api) api.postMessage({ type: 'logChatTurn', role: 'USER', text: txt });
-  historyPush(txt);
+  const attachBlock = buildAttachmentBlocks();
+  if (!txt && !attachBlock) return;
+  const fullText = attachBlock ? (txt + (txt ? '\n' : '') + attachBlock) : txt;
+  /* Display the user-typed line only, plus a small chip summary if there
+     are attachments — keep the chat compact, no need to re-paste content. */
+  let displayText = txt;
+  if (__cbeAttachments.length) {
+    const names = __cbeAttachments.map(a => '📎 ' + a.name).join('  ');
+    displayText = (txt ? txt + '\n\n' : '') + names;
+  }
+  addMsg(displayText, 'sent');
+  if (api) api.postMessage({ type: 'sendText', text: fullText });
+  if (api) api.postMessage({ type: 'logChatTurn', role: 'USER', text: fullText });
+  historyPush(txt);   /* history stores the user's typed line, not attachments */
   historyReset();
   promptsResetRecall();
+  clearAttachments();
   ti.value = '';
   ti.style.height = '';
   setBusy(true);
@@ -1874,20 +1942,93 @@ window.addEventListener('message', e => {
       setTimeout(() => { try { send(); } catch (e) { console.debug('[cbe.autoCtx] send', e && e.message); } }, 50);
     }
   } else if (m.type === 'attachFile') {
-    /* Insert the file content at the caret as a fenced code block. */
-    const name = m.name || 'attachment';
-    const ext  = (m.ext || '').toLowerCase();
-    const lang = ext || '';
-    const fence = `\n\n📎 ${name}\n\`\`\`${lang}\n${m.text || ''}\n\`\`\`\n\n`;
-    const start = ti.selectionStart || ti.value.length;
-    const end   = ti.selectionEnd   || start;
-    ti.value = ti.value.slice(0, start) + fence + ti.value.slice(end);
-    ti.dispatchEvent(new Event('input'));
-    const newCaret = start + fence.length;
-    try { ti.setSelectionRange(newCaret, newCaret); } catch (e) { console.debug('[cbe.attach] caret', e && e.message); }
-    ti.focus();
+    /* Queue the file as a chip below the input. send() will splice the
+       file content into the outgoing prompt at submit time. */
+    pushAttachment({
+      name:  m.name || 'attachment',
+      ext:   (m.ext || '').toLowerCase(),
+      text:  m.text || '',
+      path:  m.path || '',
+      bytes: m.bytes || 0,
+    });
   }
 });
+
+/* ── Attachments (file chips queued below the input) ───────────────────
+   The host's attachFile picker posts back the file content; we keep an
+   in-memory queue of { name, ext, text, path, bytes }. Each chip renders
+   the filename + size + a red − to remove. On send(), every queued
+   attachment is spliced into the outgoing prompt as a fenced code block
+   prefixed with 📎 filename, then the queue is cleared. */
+let __cbeAttachments = [];
+const __cbeAttachmentsEl = document.getElementById('attachments');
+
+function fmtBytes(n) {
+  if (n < 1024) return n + 'B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'KB';
+  return (n / 1024 / 1024).toFixed(1) + 'MB';
+}
+function renderAttachments() {
+  if (!__cbeAttachmentsEl) return;
+  __cbeAttachmentsEl.innerHTML = '';
+  __cbeAttachments.forEach((a, idx) => {
+    const chip = document.createElement('span');
+    chip.className = 'attach-chip';
+    chip.title = a.path || a.name;
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'attach-name';
+    nameEl.textContent = '📎 ' + a.name;
+    chip.appendChild(nameEl);
+
+    if (a.bytes) {
+      const sz = document.createElement('span');
+      sz.className = 'attach-size';
+      sz.textContent = fmtBytes(a.bytes);
+      chip.appendChild(sz);
+    }
+
+    const rm = document.createElement('button');
+    rm.type = 'button';
+    rm.className = 'attach-remove';
+    rm.title = 'Remove attachment';
+    rm.setAttribute('aria-label', 'Remove ' + a.name);
+    rm.innerHTML =
+      '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">' +
+        '<path d="M5 12h14" stroke="#ff3838" stroke-width="3" stroke-linecap="round" ' +
+              'style="filter: drop-shadow(0 0 2px rgba(255,56,56,0.6));"/>' +
+      '</svg>';
+    rm.addEventListener('click', () => removeAttachment(idx));
+    chip.appendChild(rm);
+
+    __cbeAttachmentsEl.appendChild(chip);
+  });
+}
+function pushAttachment(a) {
+  __cbeAttachments.push(a);
+  renderAttachments();
+}
+function removeAttachment(idx) {
+  __cbeAttachments.splice(idx, 1);
+  renderAttachments();
+}
+function clearAttachments() {
+  __cbeAttachments = [];
+  renderAttachments();
+}
+function buildAttachmentBlocks() {
+  if (!__cbeAttachments.length) return '';
+  const parts = ['']; /* leading blank line */
+  for (const a of __cbeAttachments) {
+    const lang = a.ext || '';
+    parts.push(`📎 ${a.name}`);
+    parts.push('```' + lang);
+    parts.push(a.text);
+    parts.push('```');
+    parts.push('');
+  }
+  return parts.join('\n');
+}
 
 /* ── Project folder pill ────────────────────────────────────────────────
    Display only — the actual picker lives in extension.js, triggered by
@@ -2026,21 +2167,26 @@ window.addEventListener('resize', fitProjectPath);
     var menu = document.createElement('div');
     menu.id = CMENU_ID;
 
-    /* View Source — enabled only when right-clicked on a <pre><code>. */
+    /* View Source — always enabled. If the right-click landed inside a
+       <pre><code>, show that block. Otherwise show the panel's full
+       <html> source (the webview's actual DOM as currently rendered). */
     var item = document.createElement('div');
-    item.className = 'cbe-item' + (codeEl ? '' : ' disabled');
+    item.className = 'cbe-item';
     var lang = '';
     if (codeEl) {
       lang = (codeEl.className.match(/language-(\S+)/) || [])[1] || '';
     }
-    item.textContent = '📄 View Source' + (lang ? ' (' + lang + ')' : '');
-    if (codeEl) {
-      item.addEventListener('mousedown', function(e) {
-        e.preventDefault(); e.stopPropagation();
-        removeMenu();
-        showSourceModal(codeEl.textContent, lang);
-      });
-    }
+    item.textContent = '📄 View Source' + (codeEl && lang ? ' (' + lang + ')' : codeEl ? '' : ' (panel)');
+    item.addEventListener('mousedown', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      removeMenu();
+      if (codeEl) {
+        showSourceModal(codeEl.textContent, lang || 'markup');
+      } else {
+        var html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+        showSourceModal(html, 'markup');
+      }
+    });
     menu.appendChild(item);
 
     /* Open DevTools — always enabled. Asks host to fire the VS Code command. */
