@@ -232,6 +232,62 @@ THEMES = {
         "author": "OpenAI ChatGPT",
         "description": "Pixel-pet LCD lime-green look with retro chunky shadows.",
         "accent": "#4d8b18",
+        # Extra CSS appended after the base — only the Tamagotchi skin needs
+        # this so the LCD pet panel doesn't bloat every other skin's stylesheet.
+        "extra_css": """\
+
+/* ── Tamagotchi pet panel ──────────────────────────────────────────────
+   Pure-CSS injection of assets/tamagotchi.gif on the left edge of the
+   prompt shell via a ::before pseudo-element. No DOM/JS changes — the
+   GIF is loaded as a background-image (animation works in
+   background-image just like in <img>). The frame uses the same chunky
+   inset bevel + pulsing green glow the original demo had. */
+.prompt-shell {
+  position: relative !important;
+  padding-left: 168px !important;
+}
+.prompt-shell::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  width: 132px;
+  height: 138px;
+  padding: 10px;
+  border: 3px solid #416b18;
+  background:
+    url('assets/tamagotchi.gif') center/92px 92px no-repeat,
+    #86bd3e;
+  box-shadow:
+    inset 4px 4px 0 rgba(233,255,172,.55),
+    inset -4px -4px 0 rgba(49,86,17,.62),
+    0 0 0 2px rgba(98,165,31,.65),
+    8px 8px 0 rgba(0,0,0,.32),
+    0 0 18px rgba(144,255,64,.55);
+  image-rendering: pixelated;
+  animation: cbe-tamagotchi-glow 1.35s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+@keyframes cbe-tamagotchi-glow {
+  0%, 100% {
+    box-shadow:
+      inset 4px 4px 0 rgba(233,255,172,.55),
+      inset -4px -4px 0 rgba(49,86,17,.62),
+      0 0 0 2px rgba(98,165,31,.65),
+      8px 8px 0 rgba(0,0,0,.32),
+      0 0 12px rgba(144,255,64,.40);
+  }
+  50% {
+    box-shadow:
+      inset 4px 4px 0 rgba(233,255,172,.55),
+      inset -4px -4px 0 rgba(49,86,17,.62),
+      0 0 0 2px rgba(172,255,80,.92),
+      8px 8px 0 rgba(0,0,0,.32),
+      0 0 28px rgba(144,255,64,.85);
+  }
+}
+""",
         "vars": """\
   --stage-bg:
     radial-gradient(circle at 20% 15%, rgba(155, 215, 68, .24), transparent 28%),
@@ -320,11 +376,24 @@ body {
   font-family: var(--font-ui) !important;
 }
 
-/* Skins pack the icon row tighter than the default 10px gap — the extra
-   buttons we added (Help, Domains) pushed the toolbar to wrap; tightening
-   the gap keeps everything on one row at common widths. */
+/* Skins pack the icon row tighter than the default 10px gap + 48x48 buttons.
+   With 21 buttons (Help + Domains added), the default layout wraps. Shrinking
+   to 38x38 + 4px gap keeps every button on a single row at common widths
+   (~840px) and gives the skinned look a denser, app-bar feel.
+   nowrap is explicit — if the panel does shrink below the threshold the row
+   will scroll horizontally instead of stacking. */
 .toolbar-tools {
-  gap: 6px !important;
+  gap: 4px !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
+}
+.tool-button {
+  width: 38px !important;
+  height: 38px !important;
+}
+.tool-button img {
+  width: 20px !important;
+  height: 20px !important;
 }
 
 .tool-button {
@@ -492,17 +561,26 @@ body {
   filter: drop-shadow(0 0 10px var(--shadow-soft));
 }
 
-.toolbar-tools { gap: 6px !important; }
+.toolbar-tools {
+  gap: 4px !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
+}
+.tool-button {
+  width: 38px !important;
+  height: 38px !important;
+}
+.tool-button img {
+  width: 20px !important;
+  height: 20px !important;
+  filter: brightness(0) saturate(100%) invert(92%) sepia(26%) saturate(544%) hue-rotate(183deg) brightness(103%) contrast(101%) !important;
+}
 
 .label-button {
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
   padding: 0 !important;
-}
-
-.tool-button img {
-  filter: brightness(0) saturate(100%) invert(92%) sepia(26%) saturate(544%) hue-rotate(183deg) brightness(103%) contrast(101%) !important;
 }
 
 .tool-button:hover,
@@ -598,20 +676,29 @@ body {
   filter: drop-shadow(0 0 3px rgba(94,149,220,.55));
 }
 
-.toolbar-tools { gap: 6px !important; }
+.toolbar-tools {
+  gap: 4px !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
+}
+.tool-button {
+  width: 38px !important;
+  height: 38px !important;
+}
+.tool-button img {
+  width: 20px !important;
+  height: 20px !important;
+  filter:
+    brightness(0) saturate(100%)
+    invert(21%) sepia(38%) saturate(1144%) hue-rotate(181deg)
+    brightness(88%) contrast(88%) !important;
+}
 
 .label-button {
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
   padding: 0 !important;
-}
-
-.tool-button img {
-  filter:
-    brightness(0) saturate(100%)
-    invert(21%) sepia(38%) saturate(1144%) hue-rotate(181deg)
-    brightness(88%) contrast(88%) !important;
 }
 
 .tool-button:hover,
@@ -721,11 +808,12 @@ def main():
 
     # ── 8 parametric themes from the pack
     for sid, meta in THEMES.items():
-        css = BASE_CSS.replace("{VARS}", meta["vars"])
+        css = BASE_CSS.replace("{VARS}", meta["vars"]) + meta.get("extra_css", "")
         extra = None
         if sid == "tamagotchi":
-            # Include the original pixel-pet GIF for posterity, even though
-            # the current skin format is CSS-only and won't render it.
+            # Bundle the pixel-pet GIF — the Tamagotchi skin's extra_css
+            # references it via `url('assets/tamagotchi.gif')`, resolved
+            # relative to the skin's styles.css when the webview loads it.
             gif = PACK_DIR / "assets" / "tamagotchi.gif"
             if gif.exists():
                 extra = {"assets/tamagotchi.gif": gif.read_bytes()}

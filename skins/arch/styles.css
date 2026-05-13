@@ -74,11 +74,24 @@ body {
   font-family: var(--font-ui) !important;
 }
 
-/* Skins pack the icon row tighter than the default 10px gap — the extra
-   buttons we added (Help, Domains) pushed the toolbar to wrap; tightening
-   the gap keeps everything on one row at common widths. */
+/* Skins pack the icon row tighter than the default 10px gap + 48x48 buttons.
+   With 21 buttons (Help + Domains added), the default layout wraps. Shrinking
+   to 38x38 + 4px gap keeps every button on a single row at common widths
+   (~840px) and gives the skinned look a denser, app-bar feel.
+   nowrap is explicit — if the panel does shrink below the threshold the row
+   will scroll horizontally instead of stacking. */
 .toolbar-tools {
-  gap: 6px !important;
+  gap: 4px !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
+}
+.tool-button {
+  width: 38px !important;
+  height: 38px !important;
+}
+.tool-button img {
+  width: 20px !important;
+  height: 20px !important;
 }
 
 .tool-button {

@@ -68,20 +68,29 @@ body {
   filter: drop-shadow(0 0 3px rgba(94,149,220,.55));
 }
 
-.toolbar-tools { gap: 6px !important; }
+.toolbar-tools {
+  gap: 4px !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
+}
+.tool-button {
+  width: 38px !important;
+  height: 38px !important;
+}
+.tool-button img {
+  width: 20px !important;
+  height: 20px !important;
+  filter:
+    brightness(0) saturate(100%)
+    invert(21%) sepia(38%) saturate(1144%) hue-rotate(181deg)
+    brightness(88%) contrast(88%) !important;
+}
 
 .label-button {
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
   padding: 0 !important;
-}
-
-.tool-button img {
-  filter:
-    brightness(0) saturate(100%)
-    invert(21%) sepia(38%) saturate(1144%) hue-rotate(181deg)
-    brightness(88%) contrast(88%) !important;
 }
 
 .tool-button:hover,

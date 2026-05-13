@@ -66,17 +66,26 @@ body {
   filter: drop-shadow(0 0 10px var(--shadow-soft));
 }
 
-.toolbar-tools { gap: 6px !important; }
+.toolbar-tools {
+  gap: 4px !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
+}
+.tool-button {
+  width: 38px !important;
+  height: 38px !important;
+}
+.tool-button img {
+  width: 20px !important;
+  height: 20px !important;
+  filter: brightness(0) saturate(100%) invert(92%) sepia(26%) saturate(544%) hue-rotate(183deg) brightness(103%) contrast(101%) !important;
+}
 
 .label-button {
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
   padding: 0 !important;
-}
-
-.tool-button img {
-  filter: brightness(0) saturate(100%) invert(92%) sepia(26%) saturate(544%) hue-rotate(183deg) brightness(103%) contrast(101%) !important;
 }
 
 .tool-button:hover,

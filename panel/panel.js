@@ -64,7 +64,15 @@ const addBtn = document.getElementById('addBtn');
    playSfx() is fire-and-forget; failed plays are swallowed so the UI never
    throws over a sound glitch. Volume kept low (0.55) so the UI doesn't
    become a casino. */
-const SFX_BASE = window.__cbeUris.SOUNDS_BASE;
+/* SOUNDS_BASE is the asWebviewUri() of <extensionPath>/sounds, set by
+   extension.js via template substitution in the inline <script> at the
+   bottom of index.html. If the substitution failed (token still wrapped
+   in braces) we log loudly — silently building URLs like "{{SOUNDS_BASE}}/click.ogg"
+   would make every playSfx() a mystery 404. */
+const SFX_BASE = (window.__cbeUris && window.__cbeUris.SOUNDS_BASE) || '';
+if (!SFX_BASE || SFX_BASE.indexOf('{{') === 0) {
+  console.warn('[cbe.sfx] SOUNDS_BASE missing or unsubstituted:', SFX_BASE);
+}
 const SFX = {};  // name -> HTMLAudioElement
 /* User-controlled SFX gates. Hydrated from the host on `init` and updated by
    the settings modal. Defaults: enabled, 0.55 volume. */
@@ -79,13 +87,54 @@ function preloadSfx(name) {
   }
   return SFX[name];
 }
+/* Chromium autoplay policy: <audio>.play() rejects with NotAllowedError until
+   the document has received a user gesture (click/keydown). The first call —
+   typically the boot 'open_and_close_application' cue from `init` — happens
+   BEFORE any gesture and will reject silently. We queue any pre-gesture plays
+   and flush them once the first user gesture lands. After that, normal calls
+   flow through immediately. */
+let __cbeAudioUnlocked = false;
+const __cbeSfxQueue    = [];
+function __cbeUnlockSfx() {
+  if (__cbeAudioUnlocked) return;
+  __cbeAudioUnlocked = true;
+  while (__cbeSfxQueue.length) {
+    const n = __cbeSfxQueue.shift();
+    try { __cbePlaySfxNow(n); } catch (e) { /* swallow */ }
+  }
+}
+window.addEventListener('pointerdown', __cbeUnlockSfx, { capture: true, once: false });
+window.addEventListener('keydown',     __cbeUnlockSfx, { capture: true, once: false });
+window.addEventListener('click',       __cbeUnlockSfx, { capture: true, once: false });
+
+function __cbePlaySfxNow(name) {
+  const a = preloadSfx(name);
+  a.volume = window.SFX_VOLUME;
+  a.currentTime = 0;
+  const p = a.play();
+  if (p && typeof p.catch === 'function') {
+    p.catch((err) => {
+      /* NotAllowedError → autoplay block; queue for next gesture. Other
+         errors (decode, network) we just log and drop. */
+      if (err && err.name === 'NotAllowedError') {
+        __cbeAudioUnlocked = false;
+        if (__cbeSfxQueue.indexOf(name) === -1) __cbeSfxQueue.push(name);
+      } else {
+        console.debug('[cbe.sfx] play rejected', name, err && err.message);
+      }
+    });
+  }
+}
 function playSfx(name) {
   if (!window.SFX_ENABLED) return;
   try {
-    const a = preloadSfx(name);
-    a.volume = window.SFX_VOLUME;
-    a.currentTime = 0;
-    a.play().catch((err) => console.debug('[cbe.sfx] play rejected', name, err && err.message));
+    if (!__cbeAudioUnlocked) {
+      /* Pre-gesture: queue, don't even attempt — avoids the silent NotAllowed
+         spam in the console for every boot cue. */
+      if (__cbeSfxQueue.indexOf(name) === -1) __cbeSfxQueue.push(name);
+      return;
+    }
+    __cbePlaySfxNow(name);
   } catch (e) { console.debug('[cbe.sfx] playSfx threw', name, e && e.message); }
 }
 function setSfxVolume(v) {
@@ -1877,7 +1926,7 @@ window.addEventListener('resize', fitProjectPath);
       try { return String(window.getSelection() || ''); } catch (e) { return ''; }
     })();
     var hasSelection = !!sel.trim();
-    copy.textContent = '📋 Copy' + (hasSelection ? '' : (codeEl ? ' code block' : ''));
+    copy.textContent = 'Copy' + (hasSelection ? '' : (codeEl ? ' code block' : ''));
     copy.addEventListener('mousedown', function(e) {
       e.preventDefault(); e.stopPropagation();
       removeMenu();
@@ -1917,7 +1966,7 @@ window.addEventListener('resize', fitProjectPath);
     if (codeEl) {
       lang = (codeEl.className.match(/language-(\S+)/) || [])[1] || '';
     }
-    item.textContent = '📄 View Source' + (codeEl && lang ? ' (' + lang + ')' : codeEl ? '' : ' (panel)');
+    item.textContent = 'View Source' + (codeEl && lang ? ' (' + lang + ')' : codeEl ? '' : ' (panel)');
     item.addEventListener('mousedown', function(e) {
       e.preventDefault(); e.stopPropagation();
       removeMenu();
@@ -1933,7 +1982,7 @@ window.addEventListener('resize', fitProjectPath);
     /* Open DevTools — always enabled. Asks host to fire the VS Code command. */
     var dev = document.createElement('div');
     dev.className = 'cbe-item';
-    dev.textContent = '🔧 Open DevTools';
+    dev.textContent = 'Open DevTools';
     dev.addEventListener('mousedown', function(e) {
       e.preventDefault(); e.stopPropagation();
       removeMenu();
@@ -1947,7 +1996,7 @@ window.addEventListener('resize', fitProjectPath);
        re-fire its `ready` message and rehydrate state from the host. */
     var refresh = document.createElement('div');
     refresh.className = 'cbe-item';
-    refresh.textContent = '🔄 Refresh';
+    refresh.textContent = 'Refresh';
     refresh.addEventListener('mousedown', function(e) {
       e.preventDefault(); e.stopPropagation();
       removeMenu();

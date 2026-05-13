@@ -1204,7 +1204,16 @@ function bindPanel(context, panel) {
                     panel.webview.postMessage({ type: 'openSettings', ...buildSettingsPayload(context) });
                     break;
                 case 'showTrace':
-                    outChan.show(true);
+                    // preserveFocus=false: actively switch focus to the output
+                    // channel so the user sees the panel come up. The prior
+                    // preserveFocus=true call kept focus in the webview, which
+                    // meant clicking the monitor button often looked like nothing
+                    // happened when the Output pane was already open on a
+                    // different channel. Trace a fresh line on every click so
+                    // even an already-visible panel scrolls and confirms it
+                    // received the click.
+                    trace(`monitor: clicked at ${new Date().toISOString()} — focused output channel`);
+                    outChan.show(false);
                     break;
                 case 'loadSetup': {
                     /* Read config.ini and post back a flat "section.key" ->

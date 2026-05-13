@@ -12,7 +12,7 @@
 <!-- CSP: allow scripts/styles/images/media from the webview origin + the
      inline <script> block. {{CSP_SOURCE}} is replaced by extension.js with
      webview.cspSource. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{CSP_SOURCE}} data:; script-src {{CSP_SOURCE}} 'unsafe-inline'; style-src {{CSP_SOURCE}} 'unsafe-inline'; font-src {{CSP_SOURCE}} data:; media-src {{CSP_SOURCE}}; frame-src {{CSP_SOURCE}};" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{CSP_SOURCE}} data:; script-src {{CSP_SOURCE}} 'unsafe-inline'; style-src {{CSP_SOURCE}} 'unsafe-inline'; font-src {{CSP_SOURCE}} data:; media-src {{CSP_SOURCE}} blob: data:; frame-src {{CSP_SOURCE}};" />
 <title>Claude Codex Black</title>
 <!-- Prism CSS deferred: load with media="print" (non-blocking), then JS swaps
      to media="all" once loaded. The chat thread is rendered without code-block
@@ -1113,7 +1113,7 @@ html body textarea#textInput.prompt-input {
 
         <div class="toolbar-meta">
           <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" aria-label="Current assistant profile">
-            <img src="{{ASSETS_BASE}}/label.png" alt="Claude Codex — Black Edition" />
+            <img src="{{ASSETS_BASE}}/label-alpha.png" alt="Claude Codex — Black Edition" />
           </button>
 
           <div id="project-path" class="project-path" data-tooltip="No project folder — click the folder button to pick one" aria-label="Active project folder" title=""></div>
