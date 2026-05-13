@@ -186,12 +186,25 @@ body {
 
 .prompt-toolbar {
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 60px;
+}
+.toolbar-tools {
+  display: flex;
   align-items: center;
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
-  min-height: 60px;
 }
+.toolbar-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.toolbar-meta > .project-path { margin: 0 auto; }
 
 .toolbar-spacer { display: none; }
 
@@ -313,9 +326,12 @@ body {
 }
 
 .label-button {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 280px;
-  border-radius: 20px;
+  height: 56px;
+  border-radius: 18px;
   overflow: hidden;
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.33);
   transition: transform .14s ease, filter .14s ease, box-shadow .14s ease;
@@ -323,7 +339,8 @@ body {
 .label-button img {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
+  object-fit: contain;
 }
 .label-button:hover {
   filter: brightness(1.12);
@@ -368,14 +385,14 @@ body {
 }
 
 .stop-button {
-  height: 52px;
-  padding: 0 20px;
-  border-radius: 14px;
+  height: 56px;
+  padding: 0 22px;
+  border-radius: 18px;
   display: inline-flex;
   align-items: center;
   gap: 12px;
   color: #f3f3f3;
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 600;
   letter-spacing: .01em;
   border: 1px solid rgba(255,255,255,0.12);
@@ -460,36 +477,32 @@ body {
   .prompt-input { font-size: calc(20px * var(--cb-font-scale)); }
   .stop-button { font-size: calc(19px * var(--cb-font-scale)); }
 
-  /* Chat thread — original CBE palette (restored from 79feba5) */
+  /* Chat thread — original CBE palette (restored from 61203bf "VSCode-theme chat") */
   #thread {
     flex: 1 1 0; min-height: 0; overflow-y: auto;
     width: 100%;
     padding: 18px;
     display: flex; flex-direction: column; gap: 12px;
-    color: #e8e8e8;
-    background: transparent;
   }
-  #thread::-webkit-scrollbar { width: 4px; }
-  #thread::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
-  .msg {
-    padding: 10px 14px; border-radius: 6px;
+  .msg { padding: 10px 14px; border-radius: 6px;
     font-size: calc(13px * var(--cb-font-scale));
-    line-height: 1.55; max-width: 92%;
-    word-break: break-word; white-space: pre-wrap;
-    font-family: Inter, "Segoe UI", system-ui, sans-serif;
-  }
-  .msg.sent      { background: #1c1c1c; border: 1px solid #2a2a2a;
-                   align-self: flex-end;   color: #e8e8e8; }
-  .msg.assistant { background: #15171c; border: 1px solid #232a37;
-                   align-self: flex-start; color: #d9e2f3; }
-  .msg.info      { background: #131313; border: 1px solid #1f1f1f;
-                   align-self: flex-start; color: #777;
-                   font-size: calc(11px * var(--cb-font-scale));
-                   font-style: italic; padding: 6px 10px; }
-  .msg.error     { background: #2a1212; border: 1px solid #5a1f1f;
-                   align-self: flex-start; color: #ff9b9b; }
+    line-height: 1.55; max-width: 92%; word-break: break-word;
+    white-space: pre-wrap;
+    background: var(--vscode-editorWidget-background, #252526);
+    border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border, #333));
+    color: var(--vscode-foreground, #d4d4d4); }
+  .msg.sent      { align-self: flex-end;   background: var(--vscode-input-background, #3c3c3c); }
+  .msg.assistant { align-self: flex-start; background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526)); }
+  .msg.info      { align-self: flex-start; opacity: 0.72; font-size: calc(11px * var(--cb-font-scale)); font-style: italic;
+                   color: var(--vscode-descriptionForeground, #999); border-color: transparent; }
+  .msg.error     { align-self: flex-start; color: var(--vscode-errorForeground, #ff9b9b);
+                   background: var(--vscode-inputValidation-errorBackground, #2a1212);
+                   border-color: var(--vscode-inputValidation-errorBorder, #5a1f1f); }
   .msg.assistant.streaming::after { content: '▍'; opacity: .6; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 0%,50% { opacity: .6 } 51%,100% { opacity: 0 } }
+  #thread::-webkit-scrollbar { width: 6px; }
+  #thread::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background, #2a2a2a); border-radius: 3px; }
+  #thread::-webkit-scrollbar-thumb:hover { background: var(--vscode-scrollbarSlider-hoverBackground, #3a3a3a); }
 
   /* Layout: dark backdrop; .demo-stage is a column flex container with 18 px
      gutter so #thread fills the space above the prompt-shell. */
@@ -797,6 +810,7 @@ body {
         <div id="attachments" class="attachments" aria-label="Queued file attachments"></div>
 
         <div class="prompt-toolbar">
+        <div class="toolbar-tools">
           <button id="addBtn" class="tool-button" type="button" data-tooltip="New conversation" aria-label="New conversation">
             <img src="{{ASSETS_BASE}}/add.svg" alt="" />
           </button>
@@ -852,7 +866,9 @@ body {
           <button id="fontSizeBtn" class="tool-button" type="button" data-tooltip="Font size (toggle big)" aria-label="Font size">
             <img src="{{ASSETS_BASE}}/font_size.svg" alt="" />
           </button>
+        </div>
 
+        <div class="toolbar-meta">
           <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" aria-label="Current assistant profile">
             <img src="{{ASSETS_BASE}}/label.png" alt="Claude Codex — Black Edition" />
           </button>
@@ -863,6 +879,7 @@ body {
             <span class="stop-button__icon" aria-hidden="true"></span>
             <span class="stop-button__label">Stop</span>
           </button>
+        </div>
         </div>
       </section>
     </div>
