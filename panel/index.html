@@ -25,22 +25,34 @@ html, body { height: 100%; }
 body {
   margin: 0;
   min-height: 100vh;
-  color: #fff;
+  color: #e0e0e0;
   font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background:
-    linear-gradient(135deg, rgba(255,255,255,.02) 25%, transparent 25%) 0 0/28px 28px,
-    linear-gradient(225deg, rgba(255,255,255,.02) 25%, transparent 25%) 0 0/28px 28px,
-    linear-gradient(315deg, rgba(255,255,255,.02) 25%, transparent 25%) 0 0/28px 28px,
-    linear-gradient(45deg, rgba(255,255,255,.02) 25%, transparent 25%) 0 0/28px 28px,
-    linear-gradient(180deg, #2f2420 0%, #1a1110 100%);
+  background: #0a0a0a;
 }
 
 .demo-stage {
   height: 100vh;
-  padding: 18px;
+  padding: 30px 100px 100px 100px;
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+/* Diamond-patterned region behind the prompt window. The chat thread sits
+   directly on body's solid dark; this wrapper gives the prompt-shell a
+   small textured halo all the way around (14 px on each side). */
+.prompt-area {
+  position: relative;
+  padding: 14px;
+  margin-top: 14px;
+  border-radius: 32px;
+  flex: 0 0 auto;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.025) 25%, transparent 25%) 0 0/28px 28px,
+    linear-gradient(225deg, rgba(255,255,255,.025) 25%, transparent 25%) 0 0/28px 28px,
+    linear-gradient(315deg, rgba(255,255,255,.025) 25%, transparent 25%) 0 0/28px 28px,
+    linear-gradient(45deg,  rgba(255,255,255,.025) 25%, transparent 25%) 0 0/28px 28px,
+    linear-gradient(180deg, #2f2420 0%, #1a1110 100%);
 }
 
 .prompt-shell {
@@ -118,19 +130,12 @@ body {
 .prompt-toolbar {
   display: flex;
   align-items: center;
-  gap: 24px;
-  min-height: 74px;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-height: 60px;
 }
 
-.toolbar-group {
-  display: flex;
-  align-items: center;
-  gap: 26px;
-}
-
-.toolbar-group-left { gap: 28px; }
-.toolbar-group-middle { gap: 26px; }
-.toolbar-spacer { flex: 1 1 auto; }
+.toolbar-spacer { flex: 1 1 auto; min-width: 12px; }
 
 .tool-button,
 .label-button,
@@ -143,8 +148,8 @@ body {
 }
 
 .tool-button {
-  width: 58px;
-  height: 58px;
+  width: 48px;
+  height: 48px;
   border-radius: var(--button-radius);
   border: 2px solid rgba(255, 160, 30, 0.96);
   background:
@@ -162,51 +167,65 @@ body {
 }
 
 .tool-button:hover {
-  transform: translateY(-1px);
+  transform: translateY(-2px) scale(1.06);
+  background:
+    linear-gradient(180deg, rgba(255, 195, 60, 1) 0%, rgba(255, 145, 0, 1) 25%, rgba(255, 95, 0, 1) 100%);
+  border-color: rgba(255, 220, 100, 0.95);
   box-shadow:
-    inset 0 2px 0 rgba(255, 224, 125, 0.88),
-    inset 0 -2px 0 rgba(170, 33, 0, 0.42),
-    0 0 0 1px rgba(140, 20, 0, 0.65),
-    0 8px 14px rgba(0, 0, 0, 0.28),
-    0 0 18px rgba(255, 112, 0, 0.65);
+    inset 0 2px 0 rgba(255, 240, 175, 0.95),
+    inset 0 -2px 0 rgba(170, 33, 0, 0.5),
+    0 0 0 2px rgba(255, 200, 50, 0.5),
+    0 10px 22px rgba(0, 0, 0, 0.45),
+    0 0 30px rgba(255, 150, 30, 0.85);
+  filter: brightness(1.10);
 }
 
 .tool-button:active,
 .tool-button.is-active {
-  transform: translateY(1px);
-  filter: brightness(.92);
+  transform: translateY(1px) scale(0.96);
+  filter: brightness(.86);
+  box-shadow:
+    inset 0 3px 6px rgba(0, 0, 0, 0.35),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3),
+    0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .tool-button img {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: block;
   filter: brightness(0) invert(1);
 }
 
 .label-button {
   display: block;
-  width: 526px;
+  width: 280px;
   border-radius: 20px;
   overflow: hidden;
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.33);
+  transition: transform .14s ease, filter .14s ease, box-shadow .14s ease;
 }
 .label-button img {
   display: block;
-  width: 526px;
-  height: 74px;
+  width: 100%;
+  height: auto;
 }
-.label-button:hover { filter: brightness(1.04); }
+.label-button:hover {
+  filter: brightness(1.12);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5), 0 0 18px rgba(255, 150, 30, 0.45);
+}
+.label-button:active { transform: translateY(1px); filter: brightness(.92); }
 
 .stop-button {
-  height: 70px;
-  padding: 0 28px;
-  border-radius: 17px;
+  height: 52px;
+  padding: 0 20px;
+  border-radius: 14px;
   display: inline-flex;
   align-items: center;
-  gap: 15px;
+  gap: 12px;
   color: #f3f3f3;
-  font-size: 25px;
+  font-size: 19px;
   font-weight: 600;
   letter-spacing: .01em;
   border: 1px solid rgba(255,255,255,0.12);
@@ -217,7 +236,19 @@ body {
     inset 0 -2px 0 rgba(0,0,0,0.45),
     0 6px 14px rgba(0,0,0,0.35);
 }
-.stop-button:hover { filter: brightness(1.08); }
+.stop-button {
+  transition: transform .14s ease, filter .14s ease, box-shadow .14s ease;
+}
+.stop-button:hover {
+  filter: brightness(1.18);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.30),
+    inset 0 -2px 0 rgba(0,0,0,0.50),
+    0 8px 18px rgba(0,0,0,0.50),
+    0 0 18px rgba(255, 80, 80, 0.30);
+}
+.stop-button:active { transform: translateY(1px); filter: brightness(.86); }
 
 .stop-button__icon {
   width: 20px;
@@ -259,42 +290,37 @@ body {
   border: 0;
 }
 
-@media (max-width: 1480px) {
-  .prompt-shell { width: calc(100vw - 30px); padding-inline: 18px; }
-  .prompt-toolbar { gap: 14px; flex-wrap: wrap; }
-  .toolbar-group { gap: 14px; }
-  .label-button, .label-button img { width: 420px; height: auto; }
-  .toolbar-spacer { display: none; }
+@media (max-width: 1280px) {
+  .demo-stage { padding: 20px 40px 40px 40px; }
+  .label-button { width: 220px; }
 }
 
-@media (max-width: 960px) {
-  .prompt-input { font-size: 20px; }
-  .tool-button { width: 52px; height: 52px; }
-  .tool-button img { width: 24px; height: 24px; }
-  .stop-button { height: 60px; font-size: 22px; }
-  .label-button, .label-button img { width: min(100%, 526px); }
+@media (max-width: 880px) {
+  .demo-stage { padding: 16px 20px 20px 20px; }
+  .prompt-input { font-size: 16px; }
+  .tool-button { width: 42px; height: 42px; }
+  .tool-button img { width: 22px; height: 22px; }
+  .stop-button { height: 46px; font-size: 16px; }
+  .label-button { width: 180px; }
 }
 
   /* CBE extension hooks added to GPT's design */
   :root { --cb-font-scale: 1; }
   body.cb-big { --cb-font-scale: 1.8; }
-  .prompt-input { font-size: calc(25px * var(--cb-font-scale)); }
-  .stop-button { font-size: calc(25px * var(--cb-font-scale)); }
+  .prompt-input { font-size: calc(20px * var(--cb-font-scale)); }
+  .stop-button { font-size: calc(19px * var(--cb-font-scale)); }
 
-  /* Chat thread above the prompt shell — light card on the dark backdrop */
+  /* Chat thread — dark CBE palette, sits directly on body */
   #thread {
     flex: 1 1 0; min-height: 0; overflow-y: auto;
-    width: 100%; max-width: 1935px;
-    margin: 0 auto 14px auto;
-    padding: 18px 22px;
+    width: 100%;
+    padding: 12px 4px;
     display: flex; flex-direction: column; gap: 10px;
-    color: #1f1f1f;
-    background: #ffffff;
-    border-radius: 18px;
-    box-shadow: 0 14px 36px rgba(0,0,0,0.45), 0 6px 14px rgba(0,0,0,0.30);
+    color: #e0e0e0;
+    background: transparent;
   }
   #thread::-webkit-scrollbar { width: 6px; }
-  #thread::-webkit-scrollbar-thumb { background: #c8c8c8; border-radius: 3px; }
+  #thread::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
   .msg {
     padding: 8px 14px; border-radius: 10px;
     font-size: calc(14px * var(--cb-font-scale));
@@ -302,17 +328,16 @@ body {
     word-break: break-word; white-space: pre-wrap;
     font-family: Inter, "Segoe UI", system-ui, sans-serif;
   }
-  .msg.sent      { background: #f0f0f0; border: 1px solid #d8d8d8;
-                   align-self: flex-end;   color: #1f1f1f; }
-  .msg.assistant { background: #ffffff; border: 1px solid #e0e0e0;
-                   align-self: flex-start; color: #1f1f1f;
-                   box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+  .msg.sent      { background: #262626; border: 1px solid #3a3a3a;
+                   align-self: flex-end;   color: #f0f0f0; }
+  .msg.assistant { background: #1c1c1c; border: 1px solid #2c2c2c;
+                   align-self: flex-start; color: #e0e0e0; }
   .msg.info      { background: transparent; border: 0;
-                   align-self: flex-start; color: #6c6c6c;
+                   align-self: flex-start; color: #888;
                    font-size: calc(12px * var(--cb-font-scale));
                    font-style: italic; padding: 4px 8px; }
-  .msg.error     { background: #fde8e8; border: 1px solid #f5c0c0;
-                   align-self: flex-start; color: #8a1f1f; }
+  .msg.error     { background: #3a1a1a; border: 1px solid #5a2a2a;
+                   align-self: flex-start; color: #ff9b9b; }
   .msg.assistant.streaming::after { content: '▍'; opacity: .6; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 0%,50% { opacity: .6 } 51%,100% { opacity: 0 } }
 
@@ -505,70 +530,88 @@ body {
       <div class="msg info">Claude Codex Black — standalone. Type to send. First send will prompt for your API key.</div>
     </div>
 
-    <section class="prompt-shell" aria-label="Prompt composer">
-      <div class="prompt-input-wrap" id="input-box">
-        <label class="sr-only" for="textInput">Message</label>
-        <textarea id="textInput" class="prompt-input" rows="1" placeholder="Queue another message..."></textarea>
-        <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" aria-label="Send message"></button>
-      </div>
+    <div class="prompt-area">
+      <section class="prompt-shell" aria-label="Prompt composer">
+        <div class="prompt-input-wrap" id="input-box">
+          <label class="sr-only" for="textInput">Message</label>
+          <textarea id="textInput" class="prompt-input" rows="1" placeholder="Queue another message..."></textarea>
+          <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" aria-label="Send message"></button>
+        </div>
 
-      <div class="prompt-toolbar">
-        <div class="toolbar-group toolbar-group-left">
+        <div class="prompt-toolbar">
           <button id="addBtn" class="tool-button" type="button" data-tooltip="New conversation" aria-label="New conversation">
             <img src="{{ASSETS_BASE}}/add.svg" alt="" />
           </button>
-
-          <button id="savedPromptsBtn" class="tool-button" type="button" data-tooltip="Stored prompts" aria-label="Stored prompts">
+          <button id="savedPromptsBtn" class="tool-button" type="button" data-tooltip="Saved prompts" aria-label="Saved prompts">
+            <img src="{{ASSETS_BASE}}/saved_prompts.svg" alt="" />
+          </button>
+          <button id="storedPromptsBtn" class="tool-button" type="button" data-tooltip="Stored prompts" aria-label="Stored prompts">
             <img src="{{ASSETS_BASE}}/stored_prompts.svg" alt="" />
+          </button>
+          <button id="chatHistoryBtn" class="tool-button" type="button" data-tooltip="Chat history" aria-label="Chat history">
+            <img src="{{ASSETS_BASE}}/chat_history.svg" alt="" />
+          </button>
+          <button id="attachFileBtn" class="tool-button" type="button" data-tooltip="Attach file" aria-label="Attach file">
+            <img src="{{ASSETS_BASE}}/attach_file.svg" alt="" />
+          </button>
+          <button id="ttsBtn" class="tool-button" type="button" data-tooltip="Read aloud (double-click = auto-read)" aria-label="Text to speech">
+            <img src="{{ASSETS_BASE}}/tts.svg" alt="" />
+          </button>
+          <button id="sttBtn" class="tool-button" type="button" data-tooltip="Speech to text" aria-label="Speech to text">
+            <img src="{{ASSETS_BASE}}/stt.svg" alt="" />
+          </button>
+          <button id="autoReplyBtn" class="tool-button" type="button" data-tooltip="Auto reply" aria-label="Auto reply">
+            <img src="{{ASSETS_BASE}}/auto_reply.svg" alt="" />
+          </button>
+          <button id="wakeUpBtn" class="tool-button" type="button" data-tooltip="Wake-up response" aria-label="Wake-up response">
+            <img src="{{ASSETS_BASE}}/wake_up.svg" alt="" />
+          </button>
+          <button id="showCommandsBtn" class="tool-button" type="button" data-tooltip="Show command menu" aria-label="Show command menu">
+            <img src="{{ASSETS_BASE}}/show_command_menu.svg" alt="" />
+          </button>
+          <button id="compactBtn" class="tool-button" type="button" data-tooltip="Compact conversation" aria-label="Compact">
+            <img src="{{ASSETS_BASE}}/compact.svg" alt="" />
+          </button>
+          <button id="handbookBtn" class="tool-button" type="button" data-tooltip="Handbook" aria-label="Handbook">
+            <img src="{{ASSETS_BASE}}/handbook.svg" alt="" />
+          </button>
+          <button id="helpBtn" class="tool-button" type="button" data-tooltip="Help" aria-label="Help">
+            <img src="{{ASSETS_BASE}}/help.svg" alt="" />
+          </button>
+          <button id="settingsBtn" class="tool-button" type="button" data-tooltip="Settings" aria-label="Settings">
+            <img src="{{ASSETS_BASE}}/settings.svg" alt="" />
+          </button>
+          <button id="extensionsBtn" class="tool-button" type="button" data-tooltip="Extensions" aria-label="Extensions">
+            <img src="{{ASSETS_BASE}}/extensions.svg" alt="" />
+          </button>
+          <button id="projectFolderBtn" class="tool-button" type="button" data-tooltip="Project folder" aria-label="Project folder">
+            <img src="{{ASSETS_BASE}}/project_folder.svg" alt="" />
+          </button>
+          <button id="monitorBtn" class="tool-button" type="button" data-tooltip="VSCode monitor" aria-label="VSCode monitor">
+            <img src="{{ASSETS_BASE}}/vscode_monitor.svg" alt="" />
+          </button>
+          <button id="gitBtn" class="tool-button" type="button" data-tooltip="Git" aria-label="Git">
+            <img src="{{ASSETS_BASE}}/git.svg" alt="" />
+          </button>
+          <button id="githubBtn" class="tool-button" type="button" data-tooltip="GitHub" aria-label="GitHub">
+            <img src="{{ASSETS_BASE}}/github.svg" alt="" />
+          </button>
+          <button id="fontSizeBtn" class="tool-button" type="button" data-tooltip="Font size (toggle big)" aria-label="Font size">
+            <img src="{{ASSETS_BASE}}/font_size.svg" alt="" />
           </button>
 
           <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" aria-label="Current assistant profile">
             <img src="{{ASSETS_BASE}}/label.png" alt="Claude Codex — Black Edition" />
           </button>
-        </div>
 
-        <div class="toolbar-group toolbar-group-middle">
-          <button id="ttsBtn" class="tool-button" type="button" data-tooltip="Read aloud last reply (double-click = auto-read)" aria-label="Text to speech">
-            <img src="{{ASSETS_BASE}}/tts.svg" alt="" />
-          </button>
+          <div class="toolbar-spacer" aria-hidden="true"></div>
 
-          <button id="sttBtn" class="tool-button" type="button" data-tooltip="Speech to text — click to start/stop" aria-label="Speech to text">
-            <img src="{{ASSETS_BASE}}/stt.svg" alt="" />
-          </button>
-
-          <button id="autoReplyBtn" class="tool-button" type="button" data-tooltip="Auto reply" aria-label="Auto reply">
-            <img src="{{ASSETS_BASE}}/auto_reply.svg" alt="" />
+          <button id="stopBtn" class="stop-button" type="button" data-tooltip="Stop generation" aria-label="Stop generation">
+            <span class="stop-button__icon" aria-hidden="true"></span>
+            <span class="stop-button__label">Stop</span>
           </button>
         </div>
-
-        <div class="toolbar-spacer" aria-hidden="true"></div>
-
-        <button id="stopBtn" class="stop-button" type="button" data-tooltip="Stop generation" aria-label="Stop generation">
-          <span class="stop-button__icon" aria-hidden="true"></span>
-          <span class="stop-button__label">Stop</span>
-        </button>
-      </div>
-    </section>
-
-    <!-- Hidden cluster: features good.png doesn't surface in the toolbar.
-         Kept in the DOM so existing JS click-handlers still bind. Reachable
-         via the settings modal or VSCode commands. -->
-    <div id="toolbar-hidden">
-      <button class="tb-btn" type="button" id="chatHistoryBtn"    title="Chat History"></button>
-      <button class="tb-btn" type="button" id="storedPromptsBtn"  title="Stored Prompts"></button>
-      <button class="tb-btn" type="button" id="attachFileBtn"     title="Attach File"></button>
-      <button class="tb-btn" type="button" id="wakeUpBtn"         title="Wake Up Response"></button>
-      <button class="tb-btn" type="button" id="showCommandsBtn"   title="Show Command Menu"></button>
-      <button class="tb-btn" type="button" id="compactBtn"        title="Compact"></button>
-      <button class="tb-btn" type="button" id="handbookBtn"       title="Handbook"></button>
-      <button class="tb-btn" type="button" id="helpBtn"           title="Help"></button>
-      <button class="tb-btn" type="button" id="settingsBtn"       title="Settings"></button>
-      <button class="tb-btn" type="button" id="extensionsBtn"     title="Extensions"></button>
-      <button class="tb-btn" type="button" id="projectFolderBtn"  title="Project Folder"></button>
-      <button class="tb-btn" type="button" id="monitorBtn"        title="VSCode Monitor"></button>
-      <button class="tb-btn" type="button" id="gitBtn"            title="Git"></button>
-      <button class="tb-btn" type="button" id="githubBtn"         title="GitHub"></button>
-      <button class="tb-btn" type="button" id="fontSizeBtn"       title="Font Size"></button>
+      </section>
     </div>
   </main>
 
