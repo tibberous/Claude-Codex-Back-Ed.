@@ -876,6 +876,27 @@ function resolveSkin(context, requestedName) {
 const SUPERVISOR_SERVICE_NAME = 'CBEVSCodeSupervisor';
 const SUPERVISOR_DISPLAY_NAME = 'Claude Codex Black — VSCode Supervisor';
 
+function _supervisorHttpAlive() {
+    /* Quick liveness probe — supervisor.ps1 binds 127.0.0.1:3434 and replies
+       to GET / with `Status: 200 OK` and a JSON status blob. A 200 here is
+       proof the script is actually executing inside its NSSM-managed process,
+       not just that SCM thinks the service is running. Returns a Promise that
+       resolves to true on 200 within 700ms, false otherwise. */
+    return new Promise((resolve) => {
+        try {
+            const http = require('http');
+            const req = http.request({ host: '127.0.0.1', port: 3434, path: '/', method: 'GET', timeout: 700 }, (res) => {
+                const ok = res.statusCode === 200;
+                res.resume(); /* drain so the socket can close */
+                resolve(ok);
+            });
+            req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve(false); });
+            req.on('error', () => resolve(false));
+            req.end();
+        } catch (_) { resolve(false); }
+    });
+}
+
 function _scQueryState(serviceName) {
     /* Returns 'running' | 'stopped' | 'not-installed' | 'unknown'. Read-only,
        no UAC needed. */
@@ -983,43 +1004,50 @@ async function installSupervisorService(context) {
     if (!codePath) {
         throw new Error('could not locate Code.exe to supervise');
     }
-    // Quote every path defensively — these flow into NSSM "set" calls and
-    // eventually into the service's registry ImagePath. NSSM accepts repeated
-    // -- escapes natively, but quoting still matters for spaces.
-    const q = (s) => `"${String(s).replace(/"/g, '\\"')}"`;
-    const nssmQ      = q(nssm);
-    const psExe      = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
-    const psExeQ     = q(psExe);
-    const argLine    = `-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ${q(scriptPath)} -CodePath ${q(codePath)}`;
-    const logDir     = path.join(os.tmpdir());
-    const stdoutLog  = q(path.join(logDir, 'cbe_supervisor.stdout.log'));
-    const stderrLog  = q(path.join(logDir, 'cbe_supervisor.stderr.log'));
-    // Single elevated PowerShell snippet: install + configure + ACL-widen.
-    // Each line writes its rc to the transcript so we can diagnose post hoc.
-    // We pipe `Y` to remove to suppress NSSM's interactive confirm if it
-    // somehow detects a leftover entry from a previous failed install.
+    // Path quoting for PowerShell. Single-quoted PS strings are LITERAL —
+    // no $-expansion, no escape sequences — which makes them the safest
+    // form for paths with spaces. The previous double-quoted form lost the
+    // outer quotes when PowerShell handed argv to nssm, splitting the
+    // "Microsoft VS Code" path into three tokens and tripping the install.
+    const sq = (s) => `'${String(s).replace(/'/g, "''")}'`;
+    const psExe = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
+    // AppParameters is stored AS A SINGLE STRING in the registry. NSSM
+    // re-uses it verbatim when spawning, so paths with spaces inside the
+    // arg string need their OWN embedded double-quotes (which we double-up
+    // inside the PowerShell single-quoted outer string).
+    const appParams = `-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${scriptPath}" -CodePath "${codePath}"`;
+    const logDir    = os.tmpdir();
+    const stdoutLog = path.join(logDir, 'cbe_supervisor.stdout.log');
+    const stderrLog = path.join(logDir, 'cbe_supervisor.stderr.log');
+    // Stub-then-set install: avoids the quote-chain disaster of trying to
+    // pass Application + AppParameters in one giant `nssm install` call.
+    // Each `nssm set` takes ONE value, single-quoted, so PowerShell can't
+    // split it on spaces. `nssm install <name>` with no app argument
+    // creates a stub the subsequent `set` calls fill in.
     const ps = [
-        `& ${nssmQ} stop ${SUPERVISOR_SERVICE_NAME} 2>&1 | Out-Null`,
-        `& ${nssmQ} remove ${SUPERVISOR_SERVICE_NAME} confirm 2>&1 | Out-Null`,
-        `& ${nssmQ} install ${SUPERVISOR_SERVICE_NAME} ${psExeQ} ${argLine}`,
-        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} DisplayName ${q(SUPERVISOR_DISPLAY_NAME)}`,
-        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} Description "Keeps VSCode (Code.exe) alive — relaunches on crash. Managed by Claude Codex Black."`,
-        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} Start SERVICE_DEMAND_START`,
-        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} AppStdout ${stdoutLog}`,
-        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} AppStderr ${stderrLog}`,
-        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} AppRotateFiles 1`,
-        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} AppRotateBytes 1048576`,
-        // NSSM sends Ctrl+C (SIGINT-equivalent) on stop — our ps1 loop checks
-        // $script:stopRequested but that's not actually set by Ctrl+C. Give NSSM
-        // 3s to send Ctrl+C, then kill the process tree. Good enough for our case.
-        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} AppStopMethodSkip 0`,
-        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} AppStopMethodConsole 3000`,
-        // Run as LocalSystem so we can spawn into the active interactive session.
-        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} ObjectName LocalSystem`,
-        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} Type SERVICE_INTERACTIVE_PROCESS`,
-        // SDDL: SY=LocalSystem (full), BA=BuiltinAdmins (full), AU=AuthUsers
-        // (start/stop/query). Lets the panel toggle without UAC after install.
-        `sc.exe sdset ${SUPERVISOR_SERVICE_NAME} "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPLORC;;;AU)" | Out-Null`,
+        `& ${sq(nssm)} stop ${SUPERVISOR_SERVICE_NAME} 2>&1 | Out-Null`,
+        `& ${sq(nssm)} remove ${SUPERVISOR_SERVICE_NAME} confirm 2>&1 | Out-Null`,
+        // Installing with placeholder so older NSSM builds that require an
+        // app argument don't reject the stub. We overwrite it immediately.
+        `& ${sq(nssm)} install ${SUPERVISOR_SERVICE_NAME} ${sq(psExe)}`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} Application       ${sq(psExe)}`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppParameters     ${sq(appParams)}`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppDirectory      ${sq(path.dirname(scriptPath))}`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} DisplayName       ${sq(SUPERVISOR_DISPLAY_NAME)}`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} Description       ${sq('Keeps VSCode (Code.exe) alive - relaunches on crash. Managed by Claude Codex Black.')}`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} Start             SERVICE_DEMAND_START`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppStdout         ${sq(stdoutLog)}`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppStderr         ${sq(stderrLog)}`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppRotateFiles    1`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppRotateBytes    1048576`,
+        // NSSM sends CTRL+C on stop. supervisor.ps1's CancelKeyPress handler
+        // catches it and breaks the loop. 3s gives the loop time to drain.
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppStopMethodSkip    0`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppStopMethodConsole 3000`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} ObjectName        LocalSystem`,
+        // SDDL: SY=LocalSystem (full), BA=BuiltinAdmins (full),
+        // AU=AuthUsers (start/stop/query) — so post-install toggles need no UAC.
+        `sc.exe sdset ${SUPERVISOR_SERVICE_NAME} 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPLORC;;;AU)' | Out-Null`,
         `Write-Output "INSTALL_OK"`,
     ].join("\r\n");
     const ok = await _runElevated(ps, 'install');
@@ -1676,10 +1704,20 @@ function bindPanel(context, panel) {
                     toggleSupervisorService(context, panel).catch(e => traceErr('toggleMonitor', e));
                     break;
                 case 'monitorStatus': {
-                    /* Read-only status probe. Used by panel.js on init + after
-                       refresh to sync the spinner glow with reality. */
+                    /* Read-only status probe. Glow tracks the HTTP liveness on
+                       :3434 (200 OK means the supervisor script is actually
+                       running and serving). `state` from sc.exe is reported
+                       too so the UI can tell "installed but stopped" apart
+                       from "not installed at all". */
                     const state = _scQueryState(SUPERVISOR_SERVICE_NAME);
-                    panel.webview.postMessage({ type: 'monitorState', running: state === 'running', state });
+                    _supervisorHttpAlive().then(alive => {
+                        panel.webview.postMessage({
+                            type: 'monitorState',
+                            running: alive,                  /* drives the blue glow */
+                            state,                           /* sc state for tooltips */
+                            httpAlive: alive,
+                        });
+                    });
                     break;
                 }
                 case 'listDomains': {

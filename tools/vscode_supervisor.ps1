@@ -45,7 +45,7 @@ $null = Register-EngineEvent -SourceIdentifier ConsoleCancelEventHandler -Action
 # one is what NSSM's AppStopMethodConsole actually trips.
 try {
     [Console]::CancelKeyPress += {
-        param($sender, $e)
+        param($cancelSender, $e)
         $e.Cancel = $true
         $script:stopRequested = $true
         Write-Log 'supervisor:cancel-key-press'
@@ -55,6 +55,46 @@ try {
 }
 
 Write-Log "supervisor:start code='$CodePath' poll=$PollSeconds pid=$PID"
+
+# ── HTTP status endpoint on :3434 ────────────────────────────────────────
+#   GET /         → 200 OK with a tiny JSON status blob
+#   GET /health   → same
+# Lets the CBE panel poll service liveness via HTTP instead of `sc query`,
+# which (1) doesn't require admin and (2) confirms the script is ACTUALLY
+# running, not just that SCM thinks it is. Bound on 127.0.0.1 only so this
+# never goes over the network.
+$listener = New-Object System.Net.HttpListener
+try {
+    $listener.Prefixes.Add('http://127.0.0.1:3434/')
+    $listener.Start()
+    Write-Log 'supervisor:http:listening 127.0.0.1:3434'
+} catch {
+    Write-Log "supervisor:http:bind-failed $($_.Exception.Message)"
+    $listener = $null
+}
+$script:relaunchCount = 0
+$script:lastRelaunchTs = ''
+function Serve-HttpRequests {
+    if (-not $listener) { return }
+    # BeginGetContext is async; just drain whatever's queued each poll tick.
+    while ($listener.IsListening) {
+        $task = $listener.GetContextAsync()
+        if (-not $task.Wait(50)) { break }
+        try {
+            $ctx = $task.Result
+            $body = '{"status":"OK","pid":' + $PID + ',"relaunches":' + $script:relaunchCount + ',"lastRelaunch":"' + $script:lastRelaunchTs + '","code":"' + ($CodePath -replace '\\','\\') + '"}'
+            $buf = [System.Text.Encoding]::UTF8.GetBytes($body)
+            $ctx.Response.StatusCode = 200
+            $ctx.Response.StatusDescription = 'OK'
+            $ctx.Response.ContentType = 'application/json; charset=utf-8'
+            $ctx.Response.ContentLength64 = $buf.Length
+            $ctx.Response.OutputStream.Write($buf, 0, $buf.Length)
+            $ctx.Response.OutputStream.Close()
+        } catch {
+            Write-Log "supervisor:http:serve-error $($_.Exception.Message)"
+        }
+    }
+}
 
 # Sanity: if Code.exe doesn't exist where we were told, bail with a clear log
 # entry instead of silently spinning forever.
@@ -128,24 +168,36 @@ while (-not $script:stopRequested) {
             } catch { }
         }
         if (-not $alive) {
-            Write-Log "supervisor:relaunch Code.exe is not running — starting"
+            Write-Log "supervisor:relaunch Code.exe is not running - starting"
             $ok = Start-CodeInUserSession -Path $CodePath
             if ($ok) {
-                Write-Log "supervisor:relaunch:ok"
+                $script:relaunchCount++
+                $script:lastRelaunchTs = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ss')
+                Write-Log "supervisor:relaunch:ok count=$script:relaunchCount"
             } else {
                 Write-Log "supervisor:relaunch:all-methods-failed"
             }
             # Give VSCode time to come up before the next poll so we don't
-            # double-fire on a slow boot.
-            for ($i=0; $i -lt 8 -and -not $script:stopRequested; $i++) { Start-Sleep -Seconds 1 }
+            # double-fire on a slow boot. Serve HTTP between sleeps so the
+            # status endpoint stays responsive during the boot window.
+            for ($i=0; $i -lt 8 -and -not $script:stopRequested; $i++) {
+                Start-Sleep -Seconds 1
+                Serve-HttpRequests
+            }
         }
     } catch {
         Write-Log "supervisor:loop-error $($_.Exception.Message)"
     }
-    # Sleep in 1s chunks so a stop signal interrupts within ~1s instead of waiting
-    # out a full poll interval.
-    for ($i=0; $i -lt $PollSeconds -and -not $script:stopRequested; $i++) { Start-Sleep -Seconds 1 }
+    # Drain any pending HTTP polls + sleep in 1s chunks so stop signals
+    # interrupt within ~1s instead of waiting out a full poll interval.
+    for ($i=0; $i -lt $PollSeconds -and -not $script:stopRequested; $i++) {
+        Serve-HttpRequests
+        Start-Sleep -Seconds 1
+    }
 }
 
+if ($listener) {
+    try { $listener.Stop(); $listener.Close() } catch { }
+}
 Write-Log "supervisor:stop (clean)"
 exit 0
