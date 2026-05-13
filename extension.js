@@ -448,8 +448,69 @@ function bindPanel(context, panel) {
                     {
                         const cur = context.workspaceState.get('codexBlackEd.projectFolder', '');
                         if (cur) panel.webview.postMessage({ type: 'projectFolder', path: cur });
+                        /* One-time auto-context: dir tree + handbook, sent as
+                           the first user prompt so the model has the project
+                           shape and house rules before any real question.
+                           Only fires once per extension activation and only
+                           when a project folder is set. */
+                        if (!__autoContextSent && cur && fs.existsSync(cur)) {
+                            try {
+                                const tree = buildDirTree(cur);
+                                const hp = path.join(context.extensionPath, 'handbook.txt');
+                                const handbook = fs.existsSync(hp) ? fs.readFileSync(hp, 'utf8') : '(handbook.txt not found)';
+                                const text = buildAutoContextPrompt(cur, tree, handbook);
+                                panel.webview.postMessage({ type: 'autoPrompt', text });
+                                __autoContextSent = true;
+                            } catch (e) {
+                                traceErr('autoContext', e);
+                            }
+                        }
                     }
                     break;
+                case 'attachFile': {
+                    const picked = await vscode.window.showOpenDialog({
+                        canSelectFiles: true,
+                        canSelectFolders: false,
+                        canSelectMany: false,
+                        openLabel: 'Attach file',
+                    });
+                    if (!picked || !picked[0]) break;
+                    const fp = picked[0].fsPath;
+                    try {
+                        const stat = fs.statSync(fp);
+                        if (stat.size > 1024 * 1024) {
+                            panel.webview.postMessage({ type: 'info', text: `Attach skipped: ${path.basename(fp)} is larger than 1 MB.` });
+                            break;
+                        }
+                        const buf = fs.readFileSync(fp);
+                        /* Cheap binary detector — if more than 1% of the bytes
+                           are zeros or high-ASCII control bytes, treat as binary. */
+                        let bin = 0;
+                        for (let i = 0; i < buf.length && i < 4096; i++) {
+                            const c = buf[i];
+                            if (c === 0 || (c < 9) || (c > 13 && c < 32)) bin++;
+                        }
+                        const isBinary = bin > Math.max(2, Math.min(40, buf.length / 100));
+                        let text;
+                        if (isBinary) {
+                            text = `(binary file, ${stat.size} bytes — content omitted)`;
+                        } else {
+                            text = buf.toString('utf8');
+                        }
+                        panel.webview.postMessage({
+                            type: 'attachFile',
+                            name: path.basename(fp),
+                            path: fp,
+                            ext: path.extname(fp).replace(/^\./, ''),
+                            text,
+                            bytes: stat.size,
+                        });
+                    } catch (e) {
+                        traceErr('attachFile', e);
+                        panel.webview.postMessage({ type: 'error', message: 'attach: ' + (e.message || e) });
+                    }
+                    break;
+                }
                 case 'pushPromptHistory':
                     pushPromptHistory(context, msg.text || '');
                     break;
@@ -756,6 +817,78 @@ async function openChatHistory(context) {
         traceErr('open chat log', e);
         vscode.window.showErrorMessage('CBE: failed to open log: ' + (e.message || e));
     }
+}
+
+/* Auto-context — built once per extension activation. Recursive dir tree of
+   the currently-set project folder (depth 3, common big folders skipped)
+   plus the handbook content, sent as the first user message so the model
+   has the project shape + house rules before answering anything. */
+let __autoContextSent = false;
+const AUTO_CTX_IGNORE = new Set([
+    '.git', '.svn', '.hg', 'node_modules', '__pycache__', '.venv', 'venv',
+    'dist', 'build', 'out', '.next', '.cache', '.idea', '.vscode',
+    'chats', 'target', 'bin', 'obj',
+]);
+const AUTO_CTX_TREE_DEPTH = 3;
+const AUTO_CTX_TREE_BUDGET = 18000; /* chars */
+const AUTO_CTX_FILE_LIMIT_PER_DIR = 80; /* don't list more than this per dir */
+
+function buildDirTree(rootPath, maxDepth = AUTO_CTX_TREE_DEPTH) {
+    const lines = [];
+    let used = 0;
+    function over() { return used > AUTO_CTX_TREE_BUDGET; }
+    function add(s) { lines.push(s); used += s.length + 1; }
+    function walk(p, prefix, depthLeft) {
+        if (over()) return;
+        let entries;
+        try { entries = fs.readdirSync(p, { withFileTypes: true }); }
+        catch (e) { add(prefix + '(unreadable)'); return; }
+        entries = entries.filter(e => !AUTO_CTX_IGNORE.has(e.name));
+        entries.sort((a, b) => {
+            if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
+            return a.name.localeCompare(b.name);
+        });
+        const trimmed = entries.length > AUTO_CTX_FILE_LIMIT_PER_DIR
+            ? entries.slice(0, AUTO_CTX_FILE_LIMIT_PER_DIR)
+            : entries;
+        trimmed.forEach((e, i) => {
+            if (over()) return;
+            const isLast = i === trimmed.length - 1;
+            add(prefix + (isLast ? '└── ' : '├── ') + e.name + (e.isDirectory() ? '/' : ''));
+            if (e.isDirectory() && depthLeft > 0) {
+                walk(path.join(p, e.name), prefix + (isLast ? '    ' : '│   '), depthLeft - 1);
+            }
+        });
+        if (entries.length > AUTO_CTX_FILE_LIMIT_PER_DIR) {
+            add(prefix + `… (${entries.length - AUTO_CTX_FILE_LIMIT_PER_DIR} more)`);
+        }
+    }
+    add(path.basename(rootPath) || rootPath);
+    walk(rootPath, '', maxDepth);
+    if (over()) add('… (tree truncated at ' + AUTO_CTX_TREE_BUDGET + ' chars)');
+    return lines.join('\n');
+}
+
+function buildAutoContextPrompt(folder, treeText, handbookText) {
+    return [
+        '[Claude Codex — Black Edition · automatic session context]',
+        '',
+        `PROJECT DIRECTORY: ${folder}`,
+        '',
+        'Recursive tree (depth ' + AUTO_CTX_TREE_DEPTH + ', common build/vendor dirs skipped):',
+        '',
+        '```',
+        treeText,
+        '```',
+        '',
+        'EMPLOYEE HANDBOOK (handbook.txt) — house rules, code style, behavior:',
+        '',
+        '```',
+        handbookText,
+        '```',
+        '',
+        '(This message was auto-sent at session start so you have project shape + house rules before the first real question. Ready for instructions.)',
+    ].join('\n');
 }
 
 async function openPromptsFile(context) {

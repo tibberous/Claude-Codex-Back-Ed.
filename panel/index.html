@@ -1188,7 +1188,7 @@ const tts = (function() {
   bind('stopBtn',           'cancelInFlight');
   bind('storedPromptsBtn',  'openPromptsFile');
   bind('chatHistoryBtn',    'openChatHistory'); /* host opens QuickPick of chats/*.log */
-  bind('attachFileBtn',     'attachFile');
+  bind('attachFileBtn',     'attachFile'); /* host opens file picker, returns content */
   bind('autoReplyBtn',      'toggleAutoReply');
   bind('wakeUpBtn',         'toggleWakeUp');
   /* showCommandsBtn handled inline — opens the in-panel slash menu */
@@ -1840,6 +1840,28 @@ window.addEventListener('message', e => {
       if (status) { status.textContent = 'Saved'; status.classList.remove('dirty'); status.classList.add('saved'); }
       __cbeHandbookDirty = false;
     }
+  } else if (m.type === 'autoPrompt') {
+    /* One-time session-start prompt from the host: insert the text and
+       fire send() right away so the model sees project dir + handbook
+       before any user question. */
+    if (m.text) {
+      ti.value = m.text;
+      ti.dispatchEvent(new Event('input'));
+      setTimeout(() => { try { send(); } catch (e) { console.debug('[cbe.autoCtx] send', e && e.message); } }, 50);
+    }
+  } else if (m.type === 'attachFile') {
+    /* Insert the file content at the caret as a fenced code block. */
+    const name = m.name || 'attachment';
+    const ext  = (m.ext || '').toLowerCase();
+    const lang = ext || '';
+    const fence = `\n\n📎 ${name}\n\`\`\`${lang}\n${m.text || ''}\n\`\`\`\n\n`;
+    const start = ti.selectionStart || ti.value.length;
+    const end   = ti.selectionEnd   || start;
+    ti.value = ti.value.slice(0, start) + fence + ti.value.slice(end);
+    ti.dispatchEvent(new Event('input'));
+    const newCaret = start + fence.length;
+    try { ti.setSelectionRange(newCaret, newCaret); } catch (e) { console.debug('[cbe.attach] caret', e && e.message); }
+    ti.focus();
   }
 });
 
