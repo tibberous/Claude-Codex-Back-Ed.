@@ -1,3 +1,10 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   Claude Codex Black Edition
+   Trenton Tompkins <trenttompkins@gmail.com>
+   (c) 2006 — Released under the MIT license. See license.txt.
+   https://trentontompkins.com    https://github.com/tibberous
+   Call (724) 431-5207 — PHP / Python / node.js / desktop / web / mobile
+   ───────────────────────────────────────────────────────────────────── */
 const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
@@ -93,36 +100,157 @@ const PROVIDERS = {
 
 const DEFAULT_PROVIDER = 'anthropic';
 
-/* ── config.ini reader (full multi-section) ──────────────────────────────
-   Returns an object keyed by section name, each value is a flat key→string
-   map. Looks at <extensionPath>/config.ini then ~/.cbe/config.ini. */
-function readConfigIni(extensionPath) {
-    const candidates = [
-        path.join(extensionPath, CONFIG_INI_NAME),
-        path.join(require('os').homedir(), '.cbe', CONFIG_INI_NAME),
-    ];
-    for (const p of candidates) {
-        if (!fs.existsSync(p)) continue;
-        try {
-            const src = fs.readFileSync(p, 'utf8');
-            const out = {};
-            let cur = null;
-            for (const raw of src.split(/\r?\n/)) {
-                const line = raw.trim();
-                if (!line || line.startsWith('#') || line.startsWith(';')) continue;
-                const sec = line.match(/^\[([^\]]+)\]$/);
-                if (sec) { cur = sec[1].trim(); out[cur] = out[cur] || {}; continue; }
-                if (!cur) continue;
-                const m = line.match(/^([^=]+?)\s*=\s*(.*)$/);
-                if (m) out[cur][m[1].trim()] = m[2].trim();
+/* ── Config singleton ─────────────────────────────────────────────────────
+   `config.ini` is parsed ONCE per activation and stored in `Config`. Every
+   caller that previously did `readConfigIni(extensionPath)` now reads
+   `Config.get()` which returns the cached object (parsing on first access
+   only). Call `Config.reload()` if something writes to the file at runtime
+   and the new values need to be picked up. */
+const Config = (() => {
+    let _cached = null;       /* parsed sections, or null if unparsed/missing */
+    let _loaded = false;       /* tracks "we've tried to parse" so we don't retry every call */
+    let _extPath = null;
+    function _parse(extensionPath) {
+        const candidates = [
+            path.join(extensionPath, CONFIG_INI_NAME),
+            path.join(require('os').homedir(), '.cbe', CONFIG_INI_NAME),
+        ];
+        for (const p of candidates) {
+            if (!fs.existsSync(p)) continue;
+            try {
+                const src = fs.readFileSync(p, 'utf8');
+                const out = {};
+                let cur = null;
+                for (const raw of src.split(/\r?\n/)) {
+                    const line = raw.trim();
+                    if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+                    const sec = line.match(/^\[([^\]]+)\]$/);
+                    if (sec) { cur = sec[1].trim(); out[cur] = out[cur] || {}; continue; }
+                    if (!cur) continue;
+                    const m = line.match(/^([^=]+?)\s*=\s*(.*)$/);
+                    if (m) out[cur][m[1].trim()] = m[2].trim();
+                }
+                trace('Config: parsed ' + p + ' sections=' + Object.keys(out).join(','));
+                return { _path: p, ...out };
+            } catch (e) {
+                traceErr('Config.parse ' + p, e);
             }
-            trace('config.ini parsed from ' + p + ' sections=' + Object.keys(out).join(','));
-            return { _path: p, ...out };
-        } catch (e) {
-            traceErr('reading ' + p, e);
         }
+        trace('Config: no config.ini found');
+        return null;
     }
-    return null;
+    return {
+        /* Lazy first-read; subsequent calls are O(1). Pass the extensionPath
+           on first call (it's captured for future reloads). */
+        get(extensionPath) {
+            if (!_loaded) {
+                _extPath = extensionPath || _extPath;
+                _cached = _parse(_extPath);
+                _loaded = true;
+            }
+            return _cached;
+        },
+        /* Force a fresh read — call after writing config.ini. */
+        reload(extensionPath) {
+            _extPath = extensionPath || _extPath;
+            _cached = _parse(_extPath);
+            _loaded = true;
+            return _cached;
+        },
+        /* For tests / `deactivate` — wipe the cache so the next get() reparses. */
+        invalidate() { _cached = null; _loaded = false; },
+    };
+})();
+
+/* Back-compat shim — all existing call sites use readConfigIni(...). They
+   now hit the cache. (Kept as a single function so the rest of the file
+   doesn't need touching.) */
+function readConfigIni(extensionPath) {
+    return Config.get(extensionPath);
+}
+
+/* Write a flat "section.key" -> value patch back into config.ini WITHOUT
+   destroying comments, blank lines, or section ordering. Each patched key
+   is rewritten in place if it exists; missing keys get appended at the
+   bottom of their section (creating the section if absent). New sections
+   land at the end of the file with a header line. Used by the Setup
+   wizard's saveSetup handler. */
+function writeConfigPatch(filePath, patch) {
+    if (!patch || typeof patch !== 'object') return;
+    /* Group the patch by section so we can do one pass per section. */
+    const bySection = {};
+    for (const fk of Object.keys(patch)) {
+        const dot = fk.indexOf('.');
+        if (dot < 0) continue;
+        const sec = fk.slice(0, dot), key = fk.slice(dot + 1);
+        bySection[sec] = bySection[sec] || {};
+        bySection[sec][key] = patch[fk];
+    }
+    /* Read or create the file. */
+    let lines;
+    try {
+        lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+    } catch (e) {
+        lines = [];
+    }
+    /* Walk: find each [section] block, rewrite known keys, append missing
+       ones at the section's end, then move on. Track which sections still
+       need to be created. */
+    const out = [];
+    const sectionsHandled = new Set();
+    let curSection = null;
+    /* Per-section: track which keys we've already written in this section
+       so we can append the ones that weren't found before the next [section]. */
+    let writtenInCur = null;
+    const flushPending = () => {
+        if (!curSection) return;
+        const patchForSec = bySection[curSection];
+        if (!patchForSec) return;
+        for (const k of Object.keys(patchForSec)) {
+            if (!writtenInCur.has(k)) {
+                out.push(`${k} = ${patchForSec[k]}`);
+                writtenInCur.add(k);
+            }
+        }
+    };
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const sec = line.match(/^\s*\[([^\]]+)\]\s*$/);
+        if (sec) {
+            flushPending();
+            if (curSection) sectionsHandled.add(curSection);
+            curSection = sec[1].trim();
+            writtenInCur = new Set();
+            out.push(line);
+            continue;
+        }
+        /* Inside a section: if this line is `key = value` and we have a patch
+           for this key, rewrite it. Otherwise pass through verbatim. */
+        const kv = line.match(/^(\s*)([^#;=\[\s][^=]*?)\s*=(.*)$/);
+        if (kv && curSection && bySection[curSection]) {
+            const key = kv[2].trim();
+            if (Object.prototype.hasOwnProperty.call(bySection[curSection], key)) {
+                out.push(`${kv[1]}${key} = ${bySection[curSection][key]}`);
+                writtenInCur.add(key);
+                continue;
+            }
+        }
+        out.push(line);
+    }
+    /* End of file: flush whatever's left in the last section. */
+    flushPending();
+    if (curSection) sectionsHandled.add(curSection);
+    /* Append any sections from the patch that don't exist in the file yet. */
+    for (const sec of Object.keys(bySection)) {
+        if (sectionsHandled.has(sec)) continue;
+        /* Guard: don't append a blank section block. */
+        const keys = Object.keys(bySection[sec]);
+        if (!keys.length) continue;
+        out.push('');
+        out.push(`[${sec}]`);
+        for (const k of keys) out.push(`${k} = ${bySection[sec][k]}`);
+    }
+    fs.writeFileSync(filePath, out.join('\n'), 'utf8');
 }
 
 /* ── Provider state lookup ────────────────────────────────────────────── */
@@ -172,12 +300,24 @@ function getProviderKey(context, providerId) {
 }
 
 async function refreshSecretsCache(context) {
-    for (const id of Object.keys(PROVIDERS)) {
+    const ids = Object.keys(PROVIDERS);
+    trace(`  refreshSecretsCache: ${ids.length} providers (parallel)`);
+    /* All 9 secrets.get() calls run concurrently — the previous sequential
+       loop took N×slowest; this takes max(slowest). On a warm vault that's
+       ~125ms instead of ~530ms. */
+    const tStart = Date.now();
+    await Promise.all(ids.map(async (id) => {
+        const tGet = Date.now();
         try {
             const v = await context.secrets.get(SECRET_KEY_PREFIX + id + '.apiKey');
             secretsCache[id] = v || null;
-        } catch (e) { secretsCache[id] = null; }
-    }
+            trace(`    secrets.get(${id}) ${Date.now() - tGet}ms ${v ? 'present' : 'empty'}`);
+        } catch (e) {
+            secretsCache[id] = null;
+            trace(`    secrets.get(${id}) FAILED ${Date.now() - tGet}ms ${e && e.message}`);
+        }
+    }));
+    trace(`  refreshSecretsCache parallel total ${Date.now() - tStart}ms`);
 }
 
 async function pickProvider(promptText) {
@@ -217,22 +357,50 @@ let extensionContext = null; /* captured during activate so commands can resolve
 
 /* ── Tracing ──────────────────────────────────────────────────────────── */
 
+/* T0 = activation start (reset on every activate() call so each run shows
+   times relative to its own activation). Every trace line shows (a) the
+   wall-clock ISO, (b) elapsed ms since T0, and (c) delta ms since the
+   previous trace — so it's easy to see which step is slow. Output is
+   written to the OutputChannel + a debug.log file next to the extension
+   (truncated on each activate). Console.log is intentionally NOT used —
+   it spams the DevTools console. */
+let _T0 = Date.now();
+let _lastTraceTs = _T0;
+let _logFilePath = null;
+function _resetTraceClock() { _T0 = Date.now(); _lastTraceTs = _T0; }
+function _setLogFilePath(p) {
+    _logFilePath = p;
+    try { fs.writeFileSync(p, ''); } catch (e) { /* best effort */ }
+}
+
 function trace(msg) {
-    const ts = new Date().toISOString();
-    /* The logger's own catches can't usefully recurse into trace(); we fall
-       back to process.stderr so a logger failure is still visible somewhere.
-       The bare console.log catch is the genuine last-resort — if even that
-       throws, the runtime is too broken for any further logging to help. */
+    const now = Date.now();
+    const since = now - _T0;
+    const delta = now - _lastTraceTs;
+    _lastTraceTs = now;
+    const ts = new Date(now).toISOString();
+    const line = `[${ts}] [+${since}ms Δ${delta}ms] ${msg}`;
+    /* Traces go ONLY to the file (debug.log next to the extension). The
+       VSCode Output Channel keeps a clean 4-line banner shown at activate;
+       we do not flood it with every step's timing. The file is the place
+       to look for granular timing. */
     try {
-        if (outChan) outChan.appendLine(`[${ts}] ${msg}`);
+        if (_logFilePath) fs.appendFileSync(_logFilePath, line + '\n');
     } catch (e) {
-        try { process.stderr.write(`[codex-black] trace.appendLine failed: ${e && e.message}\n`); } catch (_e) {}
+        try { process.stderr.write(`[codex-black] trace.file failed: ${e && e.message}\n`); } catch (_e) {}
     }
-    try {
-        console.log('[codex-black]', msg);
-    } catch (e) {
-        try { process.stderr.write(`[codex-black] trace.console failed: ${e && e.message}\n`); } catch (_e) {}
-    }
+}
+
+/* Returns a closure that traces "<label> done in Nms" when called. Use to
+   bracket a chunk of work: const end = timeStep('foo'); ...work...; end(); */
+function timeStep(label) {
+    const t0 = Date.now();
+    trace(`▶ ${label} start`);
+    return (extra) => {
+        const ms = Date.now() - t0;
+        trace(`✔ ${label} done (${ms}ms)${extra ? ' ' + extra : ''}`);
+        return ms;
+    };
 }
 
 function traceErr(msg, err) {
@@ -252,16 +420,45 @@ function setStatus(text, busy, providerId) {
 async function activate(context) {
     extensionContext = context;
     outChan = vscode.window.createOutputChannel('Claude Codex Black');
-    trace('=== activate ===');
+    /* Clear stale entries from a previous activation so each run's timing
+       is readable on its own. (VS Code keeps the OutputChannel alive across
+       window reloads, so without this the log just keeps appending.) */
+    try { outChan.clear(); } catch (e) { /* clear is best-effort */ }
+    /* Print the clean banner — this is ALL the user sees in the Output
+       Channel. Granular timing/traces go to debug.log on disk. */
+    try {
+        outChan.appendLine('Claude Codex Black Ed. Loaded');
+        outChan.appendLine('Trenton Tompkins <trenttompkins@gmail.com> (c) 2006 Released under the MIT license.');
+        outChan.appendLine('See license.txt or type /lincense');
+        outChan.appendLine('Call (724) 431-5207 to discuss your next project! (PHP, Python, node.js - desktp, web and mobile)');
+        outChan.appendLine('https://trentontompkins.com    https://github.com/tibberous');
+    } catch (e) { /* output channel might not be ready, best-effort */ }
+    /* Reset T0 to NOW so all timing deltas in this run are relative to
+       this activation, not the module-load time of an earlier session. */
+    _resetTraceClock();
+    /* File-backed log so we can read the timing offline (debug.log next to
+       the extension — truncated on each activate). */
+    _setLogFilePath(path.join(context.extensionPath, 'debug.log'));
+    /* Drop any cached Config from a previous activation so this run picks
+       up edits the user made to config.ini between sessions. */
+    Config.invalidate();
+    const endActivate = timeStep('activate()');
+    trace('=== activate === extPath=' + context.extensionPath);
+    trace('  log file: ' + path.join(context.extensionPath, 'debug.log'));
+    const endSecrets = timeStep('refreshSecretsCache');
     await refreshSecretsCache(context);
+    endSecrets();
     trace('  secretsCache populated: ' + Object.keys(secretsCache).filter(k => secretsCache[k]).join(',') || '(none)');
     trace('  activeProvider=' + getActiveProvider(context) + ' model=' + getActiveModel(context, getActiveProvider(context)));
 
+    const endStatusBar = timeStep('  createStatusBarItem');
     statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
     statusBar.command = 'codexBlackEd.openPanel';
     setStatus('idle', false, getActiveProvider(context));
     context.subscriptions.push(statusBar);
+    endStatusBar();
 
+    const endCmds = timeStep('  registerCommands');
     context.subscriptions.push(
         vscode.commands.registerCommand('codexBlackEd.openPanel', () => openPanel(context)),
         /* Alias kept for command-palette convenience and for chord bindings
@@ -283,12 +480,14 @@ async function activate(context) {
         vscode.commands.registerCommand('codexBlackEd.disposeWebBridge', () => disposeAllBridges()),
         outChan,
     );
+    endCmds(`(${9} commands)`);
 
     /* Serializer intentionally disposes any restored panel instead of rebinding it
        so closing the tab keeps it closed across window reloads. The old behavior
        (`bindPanel(context, webviewPanel)`) made the panel auto-resurrect on every
        reload — see handbook §0822 "VSCode Extension Writing > WebviewPanelSerializer
        makes panels resurrect themselves" for the rationale. */
+    const endSer = timeStep('  registerWebviewPanelSerializer');
     if (vscode.window.registerWebviewPanelSerializer) {
         context.subscriptions.push(
             vscode.window.registerWebviewPanelSerializer('codexBlackEd.panel', {
@@ -298,22 +497,28 @@ async function activate(context) {
             })
         );
     }
+    endSer();
     /* On activate, also close any stale instances of this panel type that
        VSCode tried to restore before the dispose-on-deserialize hook fired.
        This is the "delete the old panels" guarantee. */
+    const endSweep = timeStep('  stalePanelSweep');
+    let sweepCount = 0, closedCount = 0;
     try {
         for (const grp of (vscode.window.tabGroups && vscode.window.tabGroups.all) || []) {
             for (const tab of (grp.tabs || [])) {
+                sweepCount++;
                 const vt = tab.input && tab.input.viewType;
                 if (typeof vt === 'string' && vt.endsWith('codexBlackEd.panel')) {
-                    try { vscode.window.tabGroups.close(tab, true); }
+                    try { vscode.window.tabGroups.close(tab, true); closedCount++; }
                     catch (e) { traceErr('close-stale-panel', e); }
                 }
             }
         }
     } catch (e) { traceErr('stale-panel-sweep', e); }
+    endSweep(`scanned=${sweepCount} closed=${closedCount}`);
 
-    trace('activate complete');
+    endActivate();
+    trace('=== activate complete ===');
 }
 
 function deactivate() {
@@ -370,7 +575,10 @@ async function openWebLogin(context) {
 /* ── Settings payload (sent to webview to populate the settings modal) ── */
 
 function buildSettingsPayload(context) {
+    const endPay = timeStep('    buildSettingsPayload');
+    const endIni = timeStep('      readConfigIni');
     const cfg = readConfigIni(context.extensionPath) || {};
+    endIni();
     const active = getActiveProvider(context);
     const providers = Object.keys(PROVIDERS).map(id => {
         const p = PROVIDERS[id];
@@ -388,6 +596,7 @@ function buildSettingsPayload(context) {
     const sfxEnabled = context.workspaceState.get('codexBlackEd.sfxEnabled');
     const sfxVolume  = context.workspaceState.get('codexBlackEd.sfxVolume');
     const bigFont    = context.workspaceState.get('codexBlackEd.bigFont');
+    endPay(`providers=${providers.length} active=${active}`);
     return {
         providers,
         active,
@@ -400,20 +609,27 @@ function buildSettingsPayload(context) {
 /* ── Panel lifecycle ──────────────────────────────────────────────────── */
 
 function openPanel(context) {
-    trace('openPanel');
-    if (activePanel) { activePanel.reveal(undefined, false); return; }
+    const endOpen = timeStep('openPanel');
+    if (activePanel) { activePanel.reveal(undefined, false); endOpen('reveal existing'); return; }
+    const endScan = timeStep('  scanExistingTabs');
+    let scanned = 0;
     for (const group of vscode.window.tabGroups.all) {
         for (const tab of group.tabs) {
+            scanned++;
             /* viewType is prefixed by VS Code internals (e.g. mainThreadWebview-); use endsWith
                so we survive prefix changes between VS Code versions. */
             if (tab.input instanceof vscode.TabInputWebview &&
                 typeof tab.input.viewType === 'string' &&
                 tab.input.viewType.endsWith('codexBlackEd.panel')) {
+                endScan(`hit at scanned=${scanned}`);
                 vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+                endOpen('focused existing tab');
                 return;
             }
         }
     }
+    endScan(`miss scanned=${scanned}`);
+    const endCreate = timeStep('  createWebviewPanel');
     const panel = vscode.window.createWebviewPanel(
         'codexBlackEd.panel',
         'Claude Codex Black',
@@ -429,22 +645,40 @@ function openPanel(context) {
             ]
         }
     );
+    endCreate();
+    const endBind = timeStep('  bindPanel');
     bindPanel(context, panel);
+    endBind();
+    endOpen();
 }
 
 function bindPanel(context, panel) {
     activePanel = panel;
-    panel.webview.html = getPanelHtml(context, panel.webview);
+    const endGetHtml = timeStep('    bindPanel.getPanelHtml');
+    const html = getPanelHtml(context, panel.webview);
+    endGetHtml(`bytes=${html.length}`);
+    const endAssignHtml = timeStep('    bindPanel.assign webview.html');
+    panel.webview.html = html;
+    endAssignHtml();
 
     panel.webview.onDidReceiveMessage(async (msg) => {
         trace('recv ' + JSON.stringify({ type: msg && msg.type }));
         if (!msg || !msg.type) return;
         try {
             switch (msg.type) {
-                case 'ready':
+                case 'ready': {
+                    const endReady = timeStep('webview ready -> server response');
+                    const endInit = timeStep('  buildSettingsPayload + postMessage init');
                     panel.webview.postMessage({ type: 'init', ...buildSettingsPayload(context) });
-                    panel.webview.postMessage({ type: 'promptHistory', items: loadPromptHistory(context) });
-                    panel.webview.postMessage({ type: 'prompts', items: loadPrompts(context) });
+                    endInit();
+                    const endHist = timeStep('  loadPromptHistory');
+                    const histItems = loadPromptHistory(context);
+                    panel.webview.postMessage({ type: 'promptHistory', items: histItems });
+                    endHist(`items=${histItems.length}`);
+                    const endPrompts = timeStep('  loadPrompts');
+                    const promptItems = loadPrompts(context);
+                    panel.webview.postMessage({ type: 'prompts', items: promptItems });
+                    endPrompts(`items=${promptItems.length}`);
                     {
                         const cur = context.workspaceState.get('codexBlackEd.projectFolder', '');
                         if (cur) panel.webview.postMessage({ type: 'projectFolder', path: cur });
@@ -452,21 +686,37 @@ function bindPanel(context, panel) {
                            the first user prompt so the model has the project
                            shape and house rules before any real question.
                            Only fires once per extension activation and only
-                           when a project folder is set. */
+                           when a project folder is set.
+
+                           DEFERRED: schedule on setImmediate so the panel's
+                           critical path (init/history/prompts) finishes and
+                           the UI paints BEFORE we spend ~100–250ms building
+                           the dir tree + serializing 16KB of context. */
                         if (!__autoContextSent && cur && fs.existsSync(cur)) {
-                            try {
-                                const tree = buildDirTree(cur);
-                                const hp = path.join(context.extensionPath, 'handbook.txt');
-                                const handbook = fs.existsSync(hp) ? fs.readFileSync(hp, 'utf8') : '(handbook.txt not found)';
-                                const text = buildAutoContextPrompt(cur, tree, handbook);
-                                panel.webview.postMessage({ type: 'autoPrompt', text });
-                                __autoContextSent = true;
-                            } catch (e) {
-                                traceErr('autoContext', e);
-                            }
+                            setImmediate(() => {
+                                const endAuto = timeStep('  autoContext (deferred, dir tree + handbook)');
+                                try {
+                                    const endTree = timeStep('    buildDirTree');
+                                    const tree = buildDirTree(cur);
+                                    endTree();
+                                    const endHb = timeStep('    read handbook.txt');
+                                    const hp = path.join(context.extensionPath, 'handbook.txt');
+                                    const handbook = fs.existsSync(hp) ? fs.readFileSync(hp, 'utf8') : '(handbook.txt not found)';
+                                    endHb(`bytes=${handbook.length}`);
+                                    const text = buildAutoContextPrompt(cur, tree, handbook);
+                                    panel.webview.postMessage({ type: 'autoPrompt', text });
+                                    __autoContextSent = true;
+                                    endAuto(`promptBytes=${text.length}`);
+                                } catch (e) {
+                                    traceErr('autoContext', e);
+                                    endAuto('FAILED');
+                                }
+                            });
                         }
                     }
+                    endReady();
                     break;
+                }
                 case 'attachFile': {
                     const picked = await vscode.window.showOpenDialog({
                         canSelectFiles: true,
@@ -596,6 +846,68 @@ function bindPanel(context, panel) {
                 case 'showTrace':
                     outChan.show(true);
                     break;
+                case 'loadSetup': {
+                    /* Read config.ini and post back a flat "section.key" ->
+                       value map for every field the setup wizard knows
+                       about. The wizard renders one step at a time using
+                       these as preset values. */
+                    const cfgFull = Config.get(context.extensionPath) || {};
+                    const wanted = [
+                        'api_keys.anthropic_api_key', 'api_keys.openai_api_key',
+                        'api_keys.gemini_api_key',    'api_keys.xai_api_key',
+                        'github.token',
+                        'email.account',  'email.password',
+                        'cloudflare.api_token',
+                        'twilio.account_sid', 'twilio.auth_token', 'twilio.from_number',
+                        'elevenlabs.api_key',
+                        'stability.api_key',
+                        'runway.api_key',
+                        'sendgrid.api_key', 'sendgrid.from_email',
+                        'serpapi.api_key',
+                        'namesilo.api_key',
+                        'airtable.api_token',
+                        'browserless.token',
+                        'google.service_account_json', 'google.admin_email',
+                    ];
+                    const values = {};
+                    for (const fk of wanted) {
+                        const [section, key] = fk.split('.');
+                        values[fk] = (cfgFull[section] && cfgFull[section][key]) || '';
+                    }
+                    panel.webview.postMessage({ type: 'setupValues', values });
+                    break;
+                }
+                case 'saveSetup': {
+                    /* Write the supplied "section.key" -> value patch back
+                       into config.ini, preserving comments + structure.
+                       Empty values are still written (so the user can clear
+                       a field) — the wizard's Skip path never reaches this
+                       handler, so this only fires for fields they touched. */
+                    try {
+                        const patch = (msg && msg.patch) || {};
+                        const cfgPath = path.join(context.extensionPath, CONFIG_INI_NAME);
+                        writeConfigPatch(cfgPath, patch);
+                        Config.reload(context.extensionPath);
+                        panel.webview.postMessage({ type: 'info', text: 'Setup saved.' });
+                    } catch (e) {
+                        traceErr('saveSetup', e);
+                        panel.webview.postMessage({ type: 'error', message: 'Setup save failed: ' + (e.message || e) });
+                    }
+                    break;
+                }
+                case 'openTerminal': {
+                    /* Reveal an integrated terminal — reuse the active one if
+                       there is one, else create a fresh "Claude Codex Black"
+                       terminal. cwd defaults to the user's project folder if
+                       configured. */
+                    let term = vscode.window.activeTerminal;
+                    if (!term) {
+                        const cwd = context.workspaceState.get('codexBlackEd.projectFolder', '') || undefined;
+                        term = vscode.window.createTerminal({ name: 'Claude Codex Black', cwd });
+                    }
+                    term.show(false);
+                    break;
+                }
                 case 'openWebLogin':
                     /* Triggered by the modal's "Open login" button. msg.provider
                        names a specific webBridge OR superGrok provider; we route
@@ -647,8 +959,13 @@ function bindPanel(context, panel) {
 }
 
 function getPanelHtml(context, webview) {
+    const endHtml = timeStep('getPanelHtml');
     const htmlPath = path.join(context.extensionPath, 'panel', 'index.html');
+    const endRead = timeStep('  read panel/index.html');
     let html = fs.readFileSync(htmlPath, 'utf8');
+    endRead(`bytes=${html.length}`);
+
+    const endUris = timeStep('  buildAssetUris');
     const assetsBase    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets')));
     const labelUri      = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets', 'label-alpha.png')));
     const blankUri      = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets', 'blank.png')));
@@ -658,6 +975,11 @@ function getPanelHtml(context, webview) {
     const prismLangsUri = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-langs.min.js')));
     const prismCssUri   = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-dark.min.css')));
     const soundsBase    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'sounds')));
+    const helpUri       = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'help.html')));
+    const panelJsUri    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'panel', 'panel.js')));
+    endUris();
+
+    const endSubst = timeStep('  substituteTemplateTokens');
     html = html.split('{{ASSETS_BASE}}').join(assetsBase.toString());
     html = html.split('{{SOUNDS_BASE}}').join(soundsBase.toString());
     html = html.split('{{LABEL_ALPHA_URI}}').join(labelUri.toString());
@@ -667,8 +989,11 @@ function getPanelHtml(context, webview) {
     html = html.split('{{PRISM_JS_URI}}').join(prismJsUri.toString());
     html = html.split('{{PRISM_LANGS_URI}}').join(prismLangsUri.toString());
     html = html.split('{{PRISM_CSS_URI}}').join(prismCssUri.toString());
-    const helpUri = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'help.html')));
     html = html.split('{{HELP_URI}}').join(helpUri.toString());
+    html = html.split('{{PANEL_JS_URI}}').join(panelJsUri.toString());
+    html = html.split('{{CSP_SOURCE}}').join(webview.cspSource);
+    endSubst();
+    endHtml(`final bytes=${html.length}`);
     return html;
 }
 

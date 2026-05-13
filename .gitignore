@@ -3,6 +3,8 @@ node_modules/
 *.post-pivot.bak
 collision_report.json
 config.ini
+debug.log
+assets/assets.zip
 __pycache__/
 *.pyc
 .claude/
