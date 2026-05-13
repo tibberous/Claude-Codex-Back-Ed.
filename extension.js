@@ -444,6 +444,7 @@ function bindPanel(context, panel) {
                 case 'ready':
                     panel.webview.postMessage({ type: 'init', ...buildSettingsPayload(context) });
                     panel.webview.postMessage({ type: 'promptHistory', items: loadPromptHistory(context) });
+                    panel.webview.postMessage({ type: 'prompts', items: loadPrompts(context) });
                     {
                         const cur = context.workspaceState.get('codexBlackEd.projectFolder', '');
                         if (cur) panel.webview.postMessage({ type: 'projectFolder', path: cur });
@@ -451,6 +452,17 @@ function bindPanel(context, panel) {
                     break;
                 case 'pushPromptHistory':
                     pushPromptHistory(context, msg.text || '');
+                    break;
+                case 'reloadPrompts':
+                    panel.webview.postMessage({ type: 'prompts', items: loadPrompts(context) });
+                    break;
+                case 'openPromptsFile':
+                    await openPromptsFile(context);
+                    /* Re-send prompts list after the user has a chance to edit
+                       — done on file save via the watcher below. Send the
+                       current list immediately so the panel has at least
+                       something while the editor is open. */
+                    panel.webview.postMessage({ type: 'prompts', items: loadPrompts(context) });
                     break;
                 case 'pickProjectFolder': {
                     const picked = await vscode.window.showOpenDialog({
@@ -581,6 +593,8 @@ function getPanelHtml(context, webview) {
    workspace switches. */
 const PROMPT_HISTORY_FILE = 'prompt_history.txt';
 const PROMPT_HISTORY_MAX  = 500;
+const PROMPTS_FILE        = 'prompts.txt';      /* user-curated, separator: ^---$ */
+const PROMPTS_SEPARATOR   = '---';
 
 function promptHistoryPath(context) {
     return path.join(context.extensionPath, PROMPT_HISTORY_FILE);
@@ -609,6 +623,67 @@ function pushPromptHistory(context, text) {
         fs.writeFileSync(p, trimmed.join('\n') + '\n', 'utf8');
     } catch (e) {
         traceErr('pushPromptHistory', e);
+    }
+}
+
+/* Curated prompts (prompts.txt). Multi-line entries separated by a "---"
+   line. The user edits this file directly (storedPromptsBtn opens it
+   in a normal VSCode editor tab). Empty file or no file → []. */
+function promptsFilePath(context) {
+    return path.join(context.extensionPath, PROMPTS_FILE);
+}
+
+function loadPrompts(context) {
+    try {
+        const p = promptsFilePath(context);
+        if (!fs.existsSync(p)) return [];
+        const raw = fs.readFileSync(p, 'utf8');
+        /* Split on lines that are EXACTLY "---" (no leading/trailing whitespace,
+           a simple format that's easy to type by hand). */
+        const lines = raw.split(/\r?\n/);
+        const out = [];
+        let cur = [];
+        for (const line of lines) {
+            if (line.trim() === PROMPTS_SEPARATOR) {
+                const piece = cur.join('\n').replace(/^\s+|\s+$/g, '');
+                if (piece) out.push(piece);
+                cur = [];
+            } else {
+                cur.push(line);
+            }
+        }
+        const tail = cur.join('\n').replace(/^\s+|\s+$/g, '');
+        if (tail) out.push(tail);
+        return out;
+    } catch (e) {
+        traceErr('loadPrompts', e);
+        return [];
+    }
+}
+
+async function openPromptsFile(context) {
+    const p = promptsFilePath(context);
+    /* Seed an empty file with a friendly comment + one example so the user
+       has something to start from. */
+    if (!fs.existsSync(p)) {
+        const seed =
+`# Saved prompts — one entry per block, separated by a line that is exactly "---".
+# Use Left / Right arrows in the chat input (at start/end of text) to cycle.
+
+Summarize the above in three bullet points.
+---
+Explain this code to a junior developer. Be specific about side effects.
+---
+Refactor the selected function for readability without changing behavior.
+`;
+        try { fs.writeFileSync(p, seed, 'utf8'); } catch (e) { traceErr('seed prompts.txt', e); }
+    }
+    try {
+        const doc = await vscode.workspace.openTextDocument(p);
+        await vscode.window.showTextDocument(doc, { preview: false });
+    } catch (e) {
+        traceErr('open prompts.txt', e);
+        vscode.window.showErrorMessage('CBE: failed to open prompts.txt: ' + (e.message || e));
     }
 }
 
