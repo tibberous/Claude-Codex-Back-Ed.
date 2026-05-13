@@ -7,7 +7,7 @@
 <style>
   /* ── Panel shell + chat thread (GPT's prompt-bar design, hooked into the
      extension's JS via #textInput / #sendBtn / #addBtn / #sttBtn / #ttsBtn /
-     #label-pill / #savedPromptsBtn / #autoReplyBtn) ──────────────────── */
+     #label-pill / #storedPromptsBtn / #autoReplyBtn) ──────────────────── */
 :root {
   --shell-radius: 28px;
   --input-radius: 20px;
@@ -542,9 +542,6 @@ body {
           <button id="addBtn" class="tool-button" type="button" data-tooltip="New conversation" aria-label="New conversation">
             <img src="{{ASSETS_BASE}}/add.svg" alt="" />
           </button>
-          <button id="savedPromptsBtn" class="tool-button" type="button" data-tooltip="Saved prompts" aria-label="Saved prompts">
-            <img src="{{ASSETS_BASE}}/saved_prompts.svg" alt="" />
-          </button>
           <button id="storedPromptsBtn" class="tool-button" type="button" data-tooltip="Stored prompts" aria-label="Stored prompts">
             <img src="{{ASSETS_BASE}}/stored_prompts.svg" alt="" />
           </button>
@@ -1007,7 +1004,6 @@ const tts = (function() {
     });
   }
   bind('stopBtn',           'cancelInFlight');
-  bind('savedPromptsBtn',   'openSavedPrompts');
   bind('storedPromptsBtn',  'openStoredPrompts');
   bind('chatHistoryBtn',    'openChatHistory');
   bind('attachFileBtn',     'attachFile');
