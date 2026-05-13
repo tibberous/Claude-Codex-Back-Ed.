@@ -443,7 +443,29 @@ function bindPanel(context, panel) {
             switch (msg.type) {
                 case 'ready':
                     panel.webview.postMessage({ type: 'init', ...buildSettingsPayload(context) });
+                    panel.webview.postMessage({ type: 'promptHistory', items: loadPromptHistory(context) });
+                    {
+                        const cur = context.workspaceState.get('codexBlackEd.projectFolder', '');
+                        if (cur) panel.webview.postMessage({ type: 'projectFolder', path: cur });
+                    }
                     break;
+                case 'pushPromptHistory':
+                    pushPromptHistory(context, msg.text || '');
+                    break;
+                case 'pickProjectFolder': {
+                    const picked = await vscode.window.showOpenDialog({
+                        canSelectFiles: false,
+                        canSelectFolders: true,
+                        canSelectMany: false,
+                        openLabel: 'Set as project folder',
+                    });
+                    if (picked && picked[0]) {
+                        const fsPath = picked[0].fsPath;
+                        await context.workspaceState.update('codexBlackEd.projectFolder', fsPath);
+                        panel.webview.postMessage({ type: 'projectFolder', path: fsPath });
+                    }
+                    break;
+                }
                 case 'sendText':
                     await handleSendText(context, panel, msg.text || '');
                     break;
@@ -549,7 +571,45 @@ function getPanelHtml(context, webview) {
     html = html.split('{{PRISM_JS_URI}}').join(prismJsUri.toString());
     html = html.split('{{PRISM_LANGS_URI}}').join(prismLangsUri.toString());
     html = html.split('{{PRISM_CSS_URI}}').join(prismCssUri.toString());
+    const helpUri = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'help.html')));
+    html = html.split('{{HELP_URI}}').join(helpUri.toString());
     return html;
+}
+
+/* Prompt-history file (Linux/PowerShell-style up-arrow recall). One line per
+   prompt, capped at 500 lines. Lives next to the extension so it survives
+   workspace switches. */
+const PROMPT_HISTORY_FILE = 'prompt_history.txt';
+const PROMPT_HISTORY_MAX  = 500;
+
+function promptHistoryPath(context) {
+    return path.join(context.extensionPath, PROMPT_HISTORY_FILE);
+}
+
+function loadPromptHistory(context) {
+    try {
+        const p = promptHistoryPath(context);
+        if (!fs.existsSync(p)) return [];
+        const raw = fs.readFileSync(p, 'utf8');
+        return raw.split(/\r?\n/).map(s => s).filter(s => s.length > 0);
+    } catch (e) {
+        traceErr('loadPromptHistory', e);
+        return [];
+    }
+}
+
+function pushPromptHistory(context, text) {
+    if (!text || !text.trim()) return;
+    try {
+        const p = promptHistoryPath(context);
+        const existing = loadPromptHistory(context);
+        if (existing.length && existing[existing.length - 1] === text) return;
+        existing.push(text);
+        const trimmed = existing.slice(-PROMPT_HISTORY_MAX);
+        fs.writeFileSync(p, trimmed.join('\n') + '\n', 'utf8');
+    } catch (e) {
+        traceErr('pushPromptHistory', e);
+    }
 }
 
 /* ── API key utility / Anthropic SDK client ───────────────────────────── */

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Claude Codex Black — Help</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 26px 32px;
+    font-family: Inter, "Segoe UI", system-ui, sans-serif;
+    color: #e6e6e6; background: #161616;
+    line-height: 1.55;
+  }
+  h1 { margin: 0 0 6px 0; font-size: 22px;
+       background: linear-gradient(90deg, #ffb84d 0%, #ff6a00 100%);
+       -webkit-background-clip: text; background-clip: text; color: transparent; }
+  h2 { margin: 22px 0 8px 0; font-size: 15px;
+       color: #ffb84d; text-transform: uppercase; letter-spacing: .06em; }
+  p { margin: 0 0 10px 0; color: #cfcfcf; }
+  ul { margin: 0 0 12px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  kbd { display: inline-block; min-width: 22px; padding: 2px 7px;
+        background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 4px;
+        color: #f0f0f0; font-family: Consolas, "Courier New", monospace;
+        font-size: 12px; line-height: 1.4; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 14px 0; }
+  th, td { padding: 7px 10px; text-align: left;
+           border-bottom: 1px solid #2a2a2a; vertical-align: top; }
+  th { color: #999; font-weight: 600; font-size: 12px;
+       text-transform: uppercase; letter-spacing: .04em; }
+  td:first-child { width: 38%; color: #ffb84d; }
+  a { color: #ff8a3c; }
+  hr { border: 0; border-top: 1px solid #2a2a2a; margin: 18px 0; }
+  .subtitle { color: #888; font-size: 13px; margin: 0 0 14px 0; }
+</style>
+</head>
+<body>
+
+<h1>Claude Codex — Black Edition</h1>
+<p class="subtitle">Standalone webview for Claude, OpenAI, Gemini, and SuperGrok bridges.</p>
+
+<h2>Keyboard</h2>
+<table>
+  <tr><td><kbd>Enter</kbd></td><td>Send the message currently in the input.</td></tr>
+  <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Insert a newline without sending.</td></tr>
+  <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Cycle through prompt history (when the input is empty or the caret is on the first/last line).</td></tr>
+  <tr><td><kbd>Esc</kbd></td><td>Close any open modal.</td></tr>
+</table>
+
+<h2>Toolbar (left → right)</h2>
+<table>
+  <tr><td>New conversation</td><td>Resets the running thread.</td></tr>
+  <tr><td>Stored prompts</td><td>Quick-insert a saved prompt template.</td></tr>
+  <tr><td>Chat history</td><td>Browse past sessions.</td></tr>
+  <tr><td>Attach file</td><td>Send a file alongside the prompt.</td></tr>
+  <tr><td>Read aloud (TTS)</td><td>Click to read the last reply. Double-click toggles auto-read.</td></tr>
+  <tr><td>Speech to text (STT)</td><td>Click to start/stop dictation. Uses the host browser&#39;s speech recognition.</td></tr>
+  <tr><td>Auto reply</td><td>Auto-send a follow-up when the model goes quiet.</td></tr>
+  <tr><td>Wake-up response</td><td>Nudges a stalled stream.</td></tr>
+  <tr><td>Show command menu</td><td>Slash-command palette.</td></tr>
+  <tr><td>Compact</td><td>Summarize and condense the running conversation.</td></tr>
+  <tr><td>Handbook</td><td>Project handbook and tool reference.</td></tr>
+  <tr><td>Settings</td><td>Provider, model, SFX, font size, API keys.</td></tr>
+  <tr><td>Extensions</td><td>Manage installed bridges.</td></tr>
+  <tr><td>Project folder</td><td>Reveal the workspace folder in OS file browser.</td></tr>
+  <tr><td>VSCode monitor</td><td>Open the activity/trace pane.</td></tr>
+  <tr><td>Git / GitHub</td><td>Open source control or the repo on GitHub.</td></tr>
+  <tr><td>Font size</td><td>Toggles between standard and 1.8&#215; (~80&#37; bigger).</td></tr>
+  <tr><td>Codex pill</td><td>Click to open Settings; shows the current provider.</td></tr>
+  <tr><td>Stop</td><td>Cancel the in-flight Claude reply.</td></tr>
+  <tr><td>Help (this window)</td><td>You&#39;re reading it.</td></tr>
+</table>
+
+<h2>API keys</h2>
+<p>The first time you send, the extension prompts for an API key for the active provider. Keys live in VSCode&#39;s secrets store — never in code, never in <code>config.ini</code>, never committed to git. Use the Settings modal to change providers; each one has its own slot.</p>
+
+<h2>SuperGrok bridges</h2>
+<p>For providers that authenticate through a browser (Gemini Web, ChatGPT Web, Grok Web), click the Codex pill → choose the provider → an external Chromium window opens for sign-in. Close that window once signed in; the bridge keeps the session.</p>
+
+<h2>Logs &amp; troubleshooting</h2>
+<ul>
+  <li>VSCode monitor (toolbar) shows live extension trace.</li>
+  <li>Right-click anywhere in the chat for &ldquo;View Source&rdquo; / DevTools (in <code>--debug</code> mode).</li>
+  <li>Audio cues are SFX — toggle them in Settings if they get in the way.</li>
+</ul>
+
+<hr/>
+<p class="subtitle">Build: Claude Codex — Black Edition · <a href="https://github.com/tibberous/Claude-Codex-Back-Ed.">tibberous/Claude-Codex-Back-Ed.</a></p>
+
+</body>
+</html>

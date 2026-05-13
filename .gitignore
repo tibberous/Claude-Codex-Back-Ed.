@@ -8,3 +8,4 @@ __pycache__/
 .claude/
 panel/.index_tmp.pdf
 panel/index.png
+prompt_history.txt
