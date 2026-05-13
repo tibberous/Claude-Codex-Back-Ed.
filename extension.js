@@ -374,62 +374,158 @@ let extensionContext = null; /* captured during activate so commands can resolve
    appends the transcript to the prompt textarea.
    No ffmpeg, no external dependencies — uses Windows-bundled SAPI. */
 let __sttProc = null;
+let __sttScriptPath = null;
+/* Markers so we can pick the real transcript out of arbitrary PS output
+   (progress, warnings, $PSDefaultParameterValues echoes, etc.). The script
+   prints `__CBE_STT_OK__<text>` on success and `__CBE_STT_ERR__<msg>` on
+   failure. Anything else is ignored, which avoids `exit null` looking like
+   a transcript. */
+const STT_OK_MARK = '__CBE_STT_OK__';
+const STT_ERR_MARK = '__CBE_STT_ERR__';
 function startSapiStt(panel) {
     if (__sttProc) {
         try { __sttProc.kill(); } catch (e) {}
         __sttProc = null;
     }
-    /* InitialSilenceTimeout: how long to wait for speech to start.
-       EndSilenceTimeout: how long of trailing silence ends the utterance.
-       BabbleTimeout: caps total recognition window so a stuck mic can't hang. */
-    const psScript = [
+    /* The previous implementation used `-Command <inline-script>` which (a)
+       has nasty quoting issues with the `[TimeSpan]::FromSeconds(8)` casts
+       and (b) defaults to MTA threading. COM-backed speech APIs require an
+       STA apartment, so the COM fallback would silently die — that's what
+       `exit null` was, the recognizer constructor throwing on a thread
+       that can't host its COM proxies. The fix is to write the script to
+       a temp .ps1 and invoke with `-Sta -File`, which gives us STA + a
+       proper file-scoped parser.
+
+       We also try TWO recognizers in order:
+         1. System.Speech.Recognition.SpeechRecognitionEngine (managed,
+            ships with .NET Framework, works on any Windows 10+ with
+            Windows Speech installed).
+         2. SAPI.SpInprocRecognizer COM (older SAPI 5.x, present even
+            when the .NET assembly fails to load — e.g. PowerShell 7+
+            doesn't auto-resolve `System.Speech` from the GAC).
+       Both write to stdout via the marker convention; the parent reads
+       only marker-prefixed lines and ignores everything else. */
+    const psLines = [
         '$ErrorActionPreference = "Stop"',
-        'Add-Type -AssemblyName System.Speech',
+        '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+        'function Emit-Ok($t)  { Write-Host ("' + STT_OK_MARK + '" + $t) }',
+        'function Emit-Err($m) { Write-Host ("' + STT_ERR_MARK + '" + $m) }',
+        '$managedOk = $false',
         'try {',
-        '  $r = New-Object System.Speech.Recognition.SpeechRecognitionEngine',
-        '  $r.InitialSilenceTimeout = [TimeSpan]::FromSeconds(8)',
-        '  $r.EndSilenceTimeout = [TimeSpan]::FromSeconds(1.2)',
-        '  $r.BabbleTimeout = [TimeSpan]::FromSeconds(30)',
-        '  $r.LoadGrammar([System.Speech.Recognition.DictationGrammar]::new())',
-        '  $r.SetInputToDefaultAudioDevice()',
-        '  $res = $r.Recognize([TimeSpan]::FromSeconds(30))',
-        '  if ($res) { Write-Output $res.Text } else { Write-Output "" }',
+        '  Add-Type -AssemblyName System.Speech -ErrorAction Stop',
+        '  $managedOk = $true',
         '} catch {',
-        '  Write-Error $_.Exception.Message',
-        '  exit 1',
+        '  [Console]::Error.WriteLine("System.Speech load failed: " + $_.Exception.Message)',
         '}',
-    ].join('\n');
-    trace('stt: spawning powershell SAPI');
+        'if ($managedOk) {',
+        '  try {',
+        '    $r = New-Object System.Speech.Recognition.SpeechRecognitionEngine',
+        '    $r.InitialSilenceTimeout = [TimeSpan]::FromSeconds(8)',
+        '    $r.EndSilenceTimeout     = [TimeSpan]::FromSeconds(1.2)',
+        '    $r.BabbleTimeout         = [TimeSpan]::FromSeconds(15)',
+        '    $g = New-Object System.Speech.Recognition.DictationGrammar',
+        '    $r.LoadGrammar($g)',
+        '    $r.SetInputToDefaultAudioDevice()',
+        '    $res = $r.Recognize([TimeSpan]::FromSeconds(15))',
+        '    if ($res -and $res.Text) { Emit-Ok $res.Text } else { Emit-Ok "" }',
+        '    try { $r.Dispose() } catch {}',
+        '    exit 0',
+        '  } catch {',
+        '    [Console]::Error.WriteLine("Managed recognizer failed: " + $_.Exception.Message)',
+        '  }',
+        '}',
+        '# COM fallback: SAPI 5.x in-proc recognizer.',
+        'try {',
+        '  $rec = New-Object -ComObject SAPI.SpInprocRecognizer',
+        '  $ctx = $rec.CreateRecoContext()',
+        '  $gra = $ctx.CreateGrammar(0)',
+        '  $gra.DictationLoad()',
+        '  $gra.DictationSetState(1)  # SGDSActive',
+        '  $deadline = (Get-Date).AddSeconds(15)',
+        '  $got = ""',
+        '  while ((Get-Date) -lt $deadline) {',
+        '    $ev = $null',
+        '    try { $ev = $ctx.GetEvents(1, 200) } catch { Start-Sleep -Milliseconds 100; continue }',
+        '    if ($ev -and $ev.Count -gt 0) {',
+        '      foreach ($e in $ev) {',
+        '        if ($e.EventId -eq 1) { # SPEI_RECOGNITION',
+        '          try { $got = $e.RecoResult.PhraseInfo.GetText() } catch {}',
+        '          break',
+        '        }',
+        '      }',
+        '      if ($got) { break }',
+        '    } else {',
+        '      Start-Sleep -Milliseconds 100',
+        '    }',
+        '  }',
+        '  $gra.DictationSetState(0)',
+        '  Emit-Ok $got',
+        '  exit 0',
+        '} catch {',
+        '  Emit-Err ("COM SAPI failed: " + $_.Exception.Message)',
+        '  exit 2',
+        '}',
+    ];
+    let scriptPath;
+    try {
+        scriptPath = path.join(os.tmpdir(), 'cbe-stt-' + process.pid + '-' + Date.now() + '.ps1');
+        fs.writeFileSync(scriptPath, psLines.join('\r\n'), 'utf8');
+    } catch (e) {
+        traceErr('stt: write script', e);
+        try { panel.webview.postMessage({ type: 'sttResult', text: '', error: 'cannot write SAPI script: ' + (e.message || e) }); } catch (_) {}
+        return;
+    }
+    __sttScriptPath = scriptPath;
+    trace('stt: spawning powershell SAPI (Sta, File=' + scriptPath + ')');
     let proc;
     try {
         proc = spawn('powershell.exe',
-            ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript],
+            ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Sta', '-File', scriptPath],
             { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) {
         traceErr('stt spawn', e);
         try { panel.webview.postMessage({ type: 'sttResult', text: '', error: 'spawn failed: ' + (e.message || e) }); } catch (_) {}
+        try { fs.unlinkSync(scriptPath); } catch (_) {}
+        __sttScriptPath = null;
         return;
     }
     __sttProc = proc;
     let stdout = '';
     let stderr = '';
-    proc.stdout.on('data', d => { stdout += d.toString(); });
-    proc.stderr.on('data', d => { stderr += d.toString(); });
+    proc.stdout.on('data', d => { stdout += d.toString('utf8'); });
+    proc.stderr.on('data', d => { stderr += d.toString('utf8'); });
     proc.on('error', err => {
         traceErr('stt proc error', err);
         if (__sttProc === proc) __sttProc = null;
         try { panel.webview.postMessage({ type: 'sttResult', text: '', error: err.message || String(err) }); } catch (_) {}
     });
-    proc.on('close', code => {
-        trace('stt: ps closed code=' + code + ' stdoutBytes=' + stdout.length + ' stderrBytes=' + stderr.length);
+    proc.on('close', (code, signal) => {
+        trace('stt: ps closed code=' + code + ' signal=' + signal +
+              ' stdoutBytes=' + stdout.length + ' stderrBytes=' + stderr.length);
         if (__sttProc === proc) __sttProc = null;
-        const text = (stdout || '').trim();
-        if (code === 0) {
-            try { panel.webview.postMessage({ type: 'sttResult', text }); } catch (_) {}
-        } else {
-            const err = (stderr || '').trim() || ('exit ' + code);
-            try { panel.webview.postMessage({ type: 'sttResult', text: '', error: err }); } catch (_) {}
+        try { if (__sttScriptPath) fs.unlinkSync(__sttScriptPath); } catch (_) {}
+        __sttScriptPath = null;
+        /* Scan stdout for our markers. We deliberately ignore the exit
+           code as the primary signal because powershell scripts can
+           sometimes exit non-zero even after a successful Emit-Ok (e.g.
+           a Dispose() throwing during cleanup). */
+        let okText = null;
+        let errMsg = null;
+        for (const raw of stdout.split(/\r?\n/)) {
+            const line = raw.trim();
+            if (!line) continue;
+            if (line.startsWith(STT_OK_MARK)) okText = line.slice(STT_OK_MARK.length);
+            else if (line.startsWith(STT_ERR_MARK)) errMsg = line.slice(STT_ERR_MARK.length);
         }
+        if (okText !== null) {
+            try { panel.webview.postMessage({ type: 'sttResult', text: okText }); } catch (_) {}
+            if (stderr.trim()) trace('stt: stderr (non-fatal): ' + stderr.trim());
+            return;
+        }
+        const err = errMsg ||
+                    (stderr.trim()) ||
+                    (signal ? ('killed by ' + signal) : ('exit ' + (code === null ? 'null' : code)));
+        try { panel.webview.postMessage({ type: 'sttResult', text: '', error: err }); } catch (_) {}
     });
 }
 function stopSapiStt() {
@@ -437,6 +533,8 @@ function stopSapiStt() {
     trace('stt: stopping ps proc');
     try { __sttProc.kill(); } catch (e) {}
     __sttProc = null;
+    try { if (__sttScriptPath) fs.unlinkSync(__sttScriptPath); } catch (_) {}
+    __sttScriptPath = null;
 }
 
 /* ── Tracing ──────────────────────────────────────────────────────────── */
@@ -513,7 +611,7 @@ async function activate(context) {
     try {
         outChan.appendLine('Claude Codex Black Ed. Loaded');
         outChan.appendLine('Trenton Tompkins <trenttompkins@gmail.com> (c) 2006 Released under the MIT license.');
-        outChan.appendLine('See license.txt or type /lincense');
+        outChan.appendLine('See license.txt or type /license');
         outChan.appendLine('Call (724) 431-5207 to discuss your next project! (PHP, Python, node.js - desktp, web and mobile)');
         outChan.appendLine('https://trentontompkins.com    https://github.com/tibberous');
     } catch (e) { /* output channel might not be ready, best-effort */ }
@@ -671,9 +769,10 @@ async function openWebLogin(context) {
    `resolveSkin()` validates a requested skin id against the current
    on-disk folders before we apply it. */
 function parseSkinManifest(manifestPath) {
-    /* Tiny ad-hoc parser — manifest.xml is flat, no nesting, no attrs.
-       Reads <tagName>value</tagName> pairs. Anything not matched falls
-       back to a sensible default at the caller. */
+    /* Tiny ad-hoc parser — manifest.xml is shallow, no attrs. Reads
+       <tagName>value</tagName> pairs at any depth (so nested <colors><...>
+       still resolves). Anything not matched falls back to a sensible default
+       at the caller. */
     try {
         const xml = fs.readFileSync(manifestPath, 'utf8');
         const pick = (tag) => {
@@ -688,6 +787,19 @@ function parseSkinManifest(manifestPath) {
             accent:      pick('accent'),
             stylesheet:  pick('stylesheet') || 'styles.css',
             description: pick('description'),
+            /* Modal palette — pushed to :root as --cbe-modal-* vars on apply.
+               Tags inside <colors> live at the same regex grep level so the
+               flat pick() picks them up too. Empty string = "use default". */
+            colors: {
+                'modal-bg':         pick('modal-bg'),
+                'modal-fg':         pick('modal-fg'),
+                'modal-border':     pick('modal-border'),
+                'modal-title-bg-1': pick('modal-title-bg-1'),
+                'modal-title-bg-2': pick('modal-title-bg-2'),
+                'modal-title-fg':   pick('modal-title-fg'),
+                'modal-foot-bg':    pick('modal-foot-bg'),
+                'modal-accent':     pick('modal-accent'),
+            },
         };
     } catch (_) {
         return null;
@@ -724,6 +836,7 @@ function listSkins(context, webview) {
             accent:      meta.accent || '',
             author:      meta.author || '',
             description: meta.description || '',
+            colors:      meta.colors || null,          /* modal palette, applied as :root --cbe-modal-* vars */
         });
     }
     out.sort((a, b) => a.label.localeCompare(b.label));
@@ -732,22 +845,242 @@ function listSkins(context, webview) {
 
 function resolveSkin(context, requestedName) {
     /* '' / unknown id → cleared skin. Otherwise return the styles.css path
-       as a vscode.Uri so the caller can produce a webview URI. */
-    if (!requestedName) return { name: '', uri: null };
+       as a vscode.Uri plus the parsed modal-color palette so the caller
+       can push both to the webview in a single message. */
+    if (!requestedName) return { name: '', uri: null, colors: null };
     const dir = path.join(context.extensionPath, SKINS_DIR_NAME);
     const safe = path.basename(requestedName);   /* strip any path traversal */
     const skinRoot = path.join(dir, safe);
     const manifestPath = path.join(skinRoot, 'manifest.xml');
     try {
-        if (!fs.existsSync(manifestPath)) return { name: '', uri: null };
+        if (!fs.existsSync(manifestPath)) return { name: '', uri: null, colors: null };
         const meta = parseSkinManifest(manifestPath);
-        if (!meta) return { name: '', uri: null };
+        if (!meta) return { name: '', uri: null, colors: null };
         const cssPath = path.join(skinRoot, meta.stylesheet || 'styles.css');
-        if (!fs.existsSync(cssPath)) return { name: '', uri: null };
-        return { name: safe, uri: vscode.Uri.file(cssPath) };
+        if (!fs.existsSync(cssPath)) return { name: '', uri: null, colors: null };
+        return { name: safe, uri: vscode.Uri.file(cssPath), colors: meta.colors || null };
     } catch (_) {
-        return { name: '', uri: null };
+        return { name: '', uri: null, colors: null };
     }
+}
+
+/* ── VSCode supervisor service ───────────────────────────────────────────
+   "VSCode monitor" button = toggle for a Windows service that keeps Code.exe
+   alive. If VSCode dies (crash/OOM/GPU fault) the service respawns it. The
+   service wraps tools/vscode_supervisor.ps1.
+
+   Service name: CBEVSCodeSupervisor
+   Initial install requires UAC elevation (sc.exe create). After install, the
+   service ACL is widened so the current user can start/stop without UAC.
+   Subsequent toggles are zero-prompt. */
+const SUPERVISOR_SERVICE_NAME = 'CBEVSCodeSupervisor';
+const SUPERVISOR_DISPLAY_NAME = 'Claude Codex Black — VSCode Supervisor';
+
+function _scQueryState(serviceName) {
+    /* Returns 'running' | 'stopped' | 'not-installed' | 'unknown'. Read-only,
+       no UAC needed. */
+    try {
+        const r = require('child_process').spawnSync('sc.exe', ['query', serviceName], { encoding: 'utf8', windowsHide: true });
+        if (r.status !== 0) return 'not-installed';
+        const m = /STATE\s*:\s*\d+\s+(\w+)/i.exec(r.stdout || '');
+        if (!m) return 'unknown';
+        const s = m[1].toUpperCase();
+        if (s === 'RUNNING' || s === 'START_PENDING') return 'running';
+        if (s === 'STOPPED' || s === 'STOP_PENDING') return 'stopped';
+        return s.toLowerCase();
+    } catch (_) {
+        return 'unknown';
+    }
+}
+
+function _supervisorScriptPath(context) {
+    return path.join(context.extensionPath, 'tools', 'vscode_supervisor.ps1');
+}
+
+function _nssmPath(context) {
+    return path.join(context.extensionPath, 'tools', 'nssm.exe');
+}
+
+function _resolveCodeExePath() {
+    /* Find the running Code.exe. process.execPath in the extension host IS
+       Code.exe on Windows, but we double-check that the basename matches —
+       on remote/SSH hosts it might be node.exe instead, in which case we
+       fall back to a couple of canonical install locations. */
+    try {
+        const exe = process.execPath || '';
+        if (exe && /\bCode\.exe$/i.test(exe) && fs.existsSync(exe)) return exe;
+    } catch (_) {}
+    const candidates = [
+        path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Microsoft VS Code', 'Code.exe'),
+        path.join(process.env.ProgramFiles || '', 'Microsoft VS Code', 'Code.exe'),
+        path.join(process.env['ProgramFiles(x86)'] || '', 'Microsoft VS Code', 'Code.exe'),
+    ];
+    for (const c of candidates) { try { if (c && fs.existsSync(c)) return c; } catch (_) {} }
+    return null;
+}
+
+function _runElevated(psCommand, label) {
+    /* Run a PowerShell snippet with -Verb RunAs so it pops UAC once and
+       executes elevated. We write the command to a temp .ps1 file and run
+       it by path — far safer than threading a multi-line script through
+       JSON.stringify and PowerShell's -Command parser (which previously
+       double-escaped backslashes and quotes, mangling sc.exe's binPath). */
+    return new Promise((resolve) => {
+        let scriptFile = null;
+        try {
+            const cp = require('child_process');
+            const tmp = path.join(os.tmpdir(), `cbe_supervisor_${label}_${Date.now()}.ps1`);
+            // Wrap the script in a try/catch so failures land in a log we can
+            // inspect later instead of vanishing across the UAC boundary.
+            const logFile = path.join(os.tmpdir(), 'cbe_supervisor_install.log');
+            const wrapped =
+                `$ErrorActionPreference = 'Continue'\r\n` +
+                `Start-Transcript -Path '${logFile.replace(/'/g, "''")}' -Append -Force | Out-Null\r\n` +
+                `try {\r\n${psCommand}\r\n} catch { Write-Output "ERROR: $($_.Exception.Message)" }\r\n` +
+                `Stop-Transcript | Out-Null\r\n`;
+            fs.writeFileSync(tmp, wrapped, { encoding: 'utf8' });
+            scriptFile = tmp;
+            const outer = [
+                '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+                // Inner Start-Process: PowerShell unwraps the -ArgumentList
+                // and passes -File <tmp.ps1> to the elevated child. No quote
+                // escaping inside the script body itself.
+                `Start-Process -FilePath powershell.exe -Verb RunAs -Wait -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','${tmp.replace(/'/g, "''")}')`,
+            ];
+            const child = cp.spawn('powershell.exe', outer, { windowsHide: true });
+            child.on('exit', (code) => {
+                trace(`SUPERVISOR:${label}:elevated-exit code=${code} script=${tmp}`);
+                // Leave the temp .ps1 + transcript on disk for postmortem if it failed.
+                if (code === 0) { try { fs.unlinkSync(tmp); } catch (_) {} }
+                resolve(code === 0);
+            });
+            child.on('error', (e) => { traceErr(`SUPERVISOR:${label}:elevated-error`, e); resolve(false); });
+        } catch (e) {
+            traceErr(`SUPERVISOR:${label}:spawn-error`, e);
+            if (scriptFile) { try { fs.unlinkSync(scriptFile); } catch (_) {} }
+            resolve(false);
+        }
+    });
+}
+
+async function installSupervisorService(context) {
+    /* One-time install: wrap the supervisor .ps1 as a Windows service via
+       NSSM (Non-Sucking Service Manager). A raw `powershell.exe -File foo.ps1`
+       under sc.exe always fails error 1053 because PowerShell never signals
+       SERVICE_RUNNING back to SCM. NSSM is a tiny ~330KB exe that handles
+       the SCM dance and stop signals correctly.
+       After install, we widen the service ACL with sc.exe sdset so
+       Authenticated Users can start/stop without re-prompting UAC. */
+    const scriptPath = _supervisorScriptPath(context);
+    if (!fs.existsSync(scriptPath)) {
+        throw new Error('vscode_supervisor.ps1 not found at ' + scriptPath);
+    }
+    const nssm = _nssmPath(context);
+    if (!fs.existsSync(nssm)) {
+        throw new Error('nssm.exe not found at ' + nssm + ' (re-bundle the extension)');
+    }
+    const codePath = _resolveCodeExePath();
+    if (!codePath) {
+        throw new Error('could not locate Code.exe to supervise');
+    }
+    // Quote every path defensively — these flow into NSSM "set" calls and
+    // eventually into the service's registry ImagePath. NSSM accepts repeated
+    // -- escapes natively, but quoting still matters for spaces.
+    const q = (s) => `"${String(s).replace(/"/g, '\\"')}"`;
+    const nssmQ      = q(nssm);
+    const psExe      = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
+    const psExeQ     = q(psExe);
+    const argLine    = `-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ${q(scriptPath)} -CodePath ${q(codePath)}`;
+    const logDir     = path.join(os.tmpdir());
+    const stdoutLog  = q(path.join(logDir, 'cbe_supervisor.stdout.log'));
+    const stderrLog  = q(path.join(logDir, 'cbe_supervisor.stderr.log'));
+    // Single elevated PowerShell snippet: install + configure + ACL-widen.
+    // Each line writes its rc to the transcript so we can diagnose post hoc.
+    // We pipe `Y` to remove to suppress NSSM's interactive confirm if it
+    // somehow detects a leftover entry from a previous failed install.
+    const ps = [
+        `& ${nssmQ} stop ${SUPERVISOR_SERVICE_NAME} 2>&1 | Out-Null`,
+        `& ${nssmQ} remove ${SUPERVISOR_SERVICE_NAME} confirm 2>&1 | Out-Null`,
+        `& ${nssmQ} install ${SUPERVISOR_SERVICE_NAME} ${psExeQ} ${argLine}`,
+        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} DisplayName ${q(SUPERVISOR_DISPLAY_NAME)}`,
+        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} Description "Keeps VSCode (Code.exe) alive — relaunches on crash. Managed by Claude Codex Black."`,
+        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} Start SERVICE_DEMAND_START`,
+        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} AppStdout ${stdoutLog}`,
+        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} AppStderr ${stderrLog}`,
+        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} AppRotateFiles 1`,
+        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} AppRotateBytes 1048576`,
+        // NSSM sends Ctrl+C (SIGINT-equivalent) on stop — our ps1 loop checks
+        // $script:stopRequested but that's not actually set by Ctrl+C. Give NSSM
+        // 3s to send Ctrl+C, then kill the process tree. Good enough for our case.
+        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} AppStopMethodSkip 0`,
+        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} AppStopMethodConsole 3000`,
+        // Run as LocalSystem so we can spawn into the active interactive session.
+        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} ObjectName LocalSystem`,
+        `& ${nssmQ} set ${SUPERVISOR_SERVICE_NAME} Type SERVICE_INTERACTIVE_PROCESS`,
+        // SDDL: SY=LocalSystem (full), BA=BuiltinAdmins (full), AU=AuthUsers
+        // (start/stop/query). Lets the panel toggle without UAC after install.
+        `sc.exe sdset ${SUPERVISOR_SERVICE_NAME} "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPLORC;;;AU)" | Out-Null`,
+        `Write-Output "INSTALL_OK"`,
+    ].join("\r\n");
+    const ok = await _runElevated(ps, 'install');
+    if (!ok) throw new Error('elevated install failed (UAC denied or NSSM error — see %TEMP%\\cbe_supervisor_install.log)');
+    return _scQueryState(SUPERVISOR_SERVICE_NAME);
+}
+
+function startSupervisorService() {
+    /* No UAC needed if install widened the ACL. Returns true on success. */
+    const r = require('child_process').spawnSync('sc.exe', ['start', SUPERVISOR_SERVICE_NAME], { encoding: 'utf8', windowsHide: true });
+    trace(`SUPERVISOR:start rc=${r.status} stdout=${(r.stdout||'').trim().slice(0,200)} stderr=${(r.stderr||'').trim().slice(0,200)}`);
+    return r.status === 0;
+}
+
+function stopSupervisorService() {
+    const r = require('child_process').spawnSync('sc.exe', ['stop', SUPERVISOR_SERVICE_NAME], { encoding: 'utf8', windowsHide: true });
+    trace(`SUPERVISOR:stop rc=${r.status} stdout=${(r.stdout||'').trim().slice(0,200)} stderr=${(r.stderr||'').trim().slice(0,200)}`);
+    return r.status === 0;
+}
+
+function _waitForServiceState(target, timeoutMs) {
+    /* sc.exe start/stop return immediately while the service is still in
+       START_PENDING / STOP_PENDING. Poll _scQueryState briefly so the UI
+       reflects the final state instead of the transient one. */
+    return new Promise((resolve) => {
+        const t0 = Date.now();
+        const tick = () => {
+            const s = _scQueryState(SUPERVISOR_SERVICE_NAME);
+            if (s === target || s === 'not-installed' || Date.now() - t0 > timeoutMs) return resolve(s);
+            setTimeout(tick, 250);
+        };
+        tick();
+    });
+}
+
+async function toggleSupervisorService(context, panel) {
+    const before = _scQueryState(SUPERVISOR_SERVICE_NAME);
+    trace(`SUPERVISOR:toggle state-before=${before}`);
+    let after = before;
+    try {
+        if (before === 'not-installed') {
+            panel.webview.postMessage({ type: 'info', text: 'Installing VSCode supervisor service (UAC will prompt)…' });
+            await installSupervisorService(context);
+            startSupervisorService();
+            after = await _waitForServiceState('running', 8000);
+            panel.webview.postMessage({ type: 'info', text: `Supervisor: ${after}.` });
+        } else if (before === 'running') {
+            stopSupervisorService();
+            after = await _waitForServiceState('stopped', 8000);
+            panel.webview.postMessage({ type: 'info', text: 'Supervisor stopped.' });
+        } else {
+            startSupervisorService();
+            after = await _waitForServiceState('running', 8000);
+            panel.webview.postMessage({ type: 'info', text: 'Supervisor started.' });
+        }
+    } catch (e) {
+        traceErr('SUPERVISOR:toggle', e);
+        panel.webview.postMessage({ type: 'error', message: 'Supervisor toggle failed: ' + (e.message || e) });
+    }
+    panel.webview.postMessage({ type: 'monitorState', running: after === 'running', state: after });
+    return after;
 }
 
 /* ── NameSilo domain list ────────────────────────────────────────────────
@@ -802,11 +1135,18 @@ async function listNameSiloDomains(context) {
     }
     let raw = (reply.domains && reply.domains.domain) || [];
     if (typeof raw === 'string') raw = [raw];
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) raw = [raw];
     if (!Array.isArray(raw)) raw = [];
 
     const domains = [];
-    for (const name of raw) {
-        const dname = String(name || '').trim();
+    for (const entry of raw) {
+        /* NameSilo's /listDomains returns each row as an object
+           { domain, created, expires } — not a bare string. The old code
+           did `String(entry)` which produced "[object Object]" and made
+           every subsequent getDomainInfo call fail. */
+        const dname = (entry && typeof entry === 'object')
+            ? String(entry.domain || entry.name || '').trim()
+            : String(entry || '').trim();
         if (!dname) continue;
         try {
             const info = await call('getDomainInfo', { domain: dname });
@@ -827,6 +1167,133 @@ async function listNameSiloDomains(context) {
         }
     }
     return { domains };
+}
+
+/* ── GitHub repo list ────────────────────────────────────────────────────
+   Reads the PAT from config.ini ([github] token, fallback
+   [api_keys] github_token), hits GET /user/repos with pagination
+   (Link header, capped at 5 pages = 500 repos). Returns
+     { repos: [{ full_name, private, html_url, description,
+                 updated_at, language, stargazers_count }] }
+   or { error: '...' }. Pure stdlib — Node `https` only.
+   Robust against missing PAT, 401, 403 (rate-limit/SSO), and network
+   failures — every failure mode produces a clear error string. */
+async function listGitHubRepos(context) {
+    const cfg = readConfigIni(context.extensionPath) || {};
+    let token = (cfg.github && cfg.github.token) || (cfg.api_keys && cfg.api_keys.github_token) || '';
+    token = String(token || '').trim();
+    if (!token) {
+        return { error: 'No GitHub PAT in config.ini ([github] token or [api_keys] github_token).' };
+    }
+
+    const https = require('https');
+    const baseHost = 'api.github.com';
+    /* affiliation= covers owned + collab + org repos, which is what users
+       expect from a "list my repos" button. per_page=100 minimizes HTTP. */
+    const firstPath = '/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member';
+
+    function call(pathOrUrl) {
+        return new Promise((resolve, reject) => {
+            let hostname = baseHost;
+            let pathPart = pathOrUrl;
+            if (/^https?:\/\//i.test(pathOrUrl)) {
+                try {
+                    const u = new URL(pathOrUrl);
+                    hostname = u.hostname;
+                    pathPart = u.pathname + u.search;
+                } catch (e) { return reject(new Error('bad next-page URL: ' + pathOrUrl)); }
+            }
+            const req = https.request({
+                method: 'GET',
+                hostname,
+                port: 443,
+                path: pathPart,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'application/vnd.github+json',
+                    'X-GitHub-Api-Version': '2022-11-28',
+                    'User-Agent': 'ClaudeCodexBlack',
+                },
+                timeout: 30000,
+            }, (res) => {
+                let buf = '';
+                res.setEncoding('utf8');
+                res.on('data', (d) => buf += d);
+                res.on('end', () => {
+                    resolve({ status: res.statusCode || 0, headers: res.headers || {}, body: buf });
+                });
+            });
+            req.on('error', reject);
+            req.on('timeout', () => req.destroy(new Error('timeout after 30s')));
+            req.end();
+        });
+    }
+
+    /* RFC-5988 Link parser — find rel="next" URL or null. */
+    function nextFromLink(linkHeader) {
+        if (!linkHeader) return null;
+        const parts = String(linkHeader).split(',');
+        for (const p of parts) {
+            const m = p.match(/<([^>]+)>\s*;\s*rel="next"/i);
+            if (m) return m[1];
+        }
+        return null;
+    }
+
+    const all = [];
+    let pathOrUrl = firstPath;
+    const maxPages = 5;
+    for (let page = 0; page < maxPages && pathOrUrl; page++) {
+        let res;
+        try { res = await call(pathOrUrl); }
+        catch (e) {
+            const msg = (e && e.message) || String(e);
+            return { error: `Network error talking to api.github.com: ${msg}` };
+        }
+        if (res.status === 401) {
+            return { error: 'GitHub rejected the token (401 Unauthorized). The PAT in config.ini is invalid, revoked, or expired. Generate a new one at https://github.com/settings/tokens.' };
+        }
+        if (res.status === 403) {
+            const remaining = res.headers['x-ratelimit-remaining'];
+            const reset = res.headers['x-ratelimit-reset'];
+            if (remaining === '0' && reset) {
+                const when = new Date(Number(reset) * 1000).toISOString();
+                return { error: `GitHub rate-limit exhausted (resets at ${when}).` };
+            }
+            let detail = '';
+            try { const j = JSON.parse(res.body); detail = j && j.message ? ` — ${j.message}` : ''; } catch (_) {}
+            return { error: `GitHub 403 Forbidden${detail}. The PAT may lack the "repo" scope, or SSO authorization is required for an org.` };
+        }
+        if (res.status === 404) {
+            return { error: 'GitHub returned 404 for /user/repos — the PAT may be malformed.' };
+        }
+        if (res.status < 200 || res.status >= 300) {
+            let detail = '';
+            try { const j = JSON.parse(res.body); detail = j && j.message ? `: ${j.message}` : ''; } catch (_) {}
+            return { error: `GitHub HTTP ${res.status}${detail}` };
+        }
+        let chunk;
+        try { chunk = JSON.parse(res.body); }
+        catch (e) { return { error: 'GitHub returned non-JSON: ' + String(res.body).slice(0, 200) }; }
+        if (!Array.isArray(chunk)) {
+            return { error: 'GitHub returned unexpected payload (not an array).' };
+        }
+        for (const r of chunk) {
+            if (!r || typeof r !== 'object') continue;
+            all.push({
+                full_name: r.full_name || '',
+                private: !!r.private,
+                html_url: r.html_url || '',
+                description: r.description || '',
+                updated_at: r.updated_at || r.pushed_at || '',
+                language: r.language || '',
+                stargazers_count: r.stargazers_count || 0,
+            });
+        }
+        pathOrUrl = nextFromLink(res.headers.link || res.headers.Link);
+    }
+
+    return { repos: all };
 }
 
 function buildSettingsPayload(context) {
@@ -950,6 +1417,7 @@ function bindPanel(context, panel) {
                         ...buildSettingsPayload(context),
                         skin: resolved.name,
                         skinUri,
+                        skinColors: resolved.colors || null,
                     });
                     endInit();
                     const endHist = timeStep('  loadPromptHistory');
@@ -960,6 +1428,15 @@ function bindPanel(context, panel) {
                     const promptItems = loadPrompts(context);
                     panel.webview.postMessage({ type: 'prompts', items: promptItems });
                     endPrompts(`items=${promptItems.length}`);
+                    /* Pre-fetch the NameSilo domain list on panel boot so clicking
+                       the Domains button serves an instant result. Runs in the
+                       background — startup is not blocked. The webview caches the
+                       payload and re-fetches in the background on each open. */
+                    setImmediate(() => {
+                        listNameSiloDomains(context).then(payload => {
+                            panel.webview.postMessage({ type: 'domainsList', ...payload, prefetched: true });
+                        }).catch(e => traceErr('domains:prefetch', e));
+                    });
                     {
                         const cur = context.workspaceState.get('codexBlackEd.projectFolder', '');
                         if (cur) panel.webview.postMessage({ type: 'projectFolder', path: cur });
@@ -1162,7 +1639,12 @@ function bindPanel(context, panel) {
                            string clears the skin. */
                         const safe = resolveSkin(context, msg.skin);
                         await context.workspaceState.update(STATE_SKIN, safe.name);
-                        panel.webview.postMessage({ type: 'applySkin', skin: safe.name, skinUri: safe.uri ? panel.webview.asWebviewUri(safe.uri).toString() : '' });
+                        panel.webview.postMessage({
+                            type: 'applySkin',
+                            skin: safe.name,
+                            skinUri: safe.uri ? panel.webview.asWebviewUri(safe.uri).toString() : '',
+                            skinColors: safe.colors || null,
+                        });
                     }
                     conversation = [];
                     trace(`active provider set: ${msg.provider} / ${msg.model || '(default)'} sfx=${msg.sfxEnabled}/${msg.sfxVolume} skin=${msg.skin || '(none)'}`);
@@ -1188,6 +1670,18 @@ function bindPanel(context, panel) {
                     trace(`computed ${t} [${msg.reason||''}]: font-family=${r.fontFamily} size=${r.fontSize} weight=${r.fontWeight} font="${r.font}"`);
                     break;
                 }
+                case 'toggleMonitor':
+                    /* VSCode supervisor service toggle. Sends `monitorState`
+                       back when done so the webview can update the glow. */
+                    toggleSupervisorService(context, panel).catch(e => traceErr('toggleMonitor', e));
+                    break;
+                case 'monitorStatus': {
+                    /* Read-only status probe. Used by panel.js on init + after
+                       refresh to sync the spinner glow with reality. */
+                    const state = _scQueryState(SUPERVISOR_SERVICE_NAME);
+                    panel.webview.postMessage({ type: 'monitorState', running: state === 'running', state });
+                    break;
+                }
                 case 'listDomains': {
                     /* NameSilo domain list. Reads the API key from config.ini,
                        hits /listDomains then /getDomainInfo per domain for
@@ -1200,20 +1694,52 @@ function bindPanel(context, panel) {
                     });
                     break;
                 }
+                case 'listGitHubRepos': {
+                    /* GitHub /user/repos listing — PAT from config.ini, paginated
+                       via Link header (5 pages max). All error modes (no PAT,
+                       401, 403, network) come back as { error: '...' }. */
+                    listGitHubRepos(context).then(payload => {
+                        panel.webview.postMessage({ type: 'githubReposList', ...payload });
+                    }).catch(e => {
+                        traceErr('listGitHubRepos', e);
+                        panel.webview.postMessage({ type: 'githubReposList', error: String(e && e.message || e) });
+                    });
+                    break;
+                }
+                case 'openExternal': {
+                    /* Open a URL in the user's default browser. Used by the
+                       GitHub repos modal so clicking a repo name navigates
+                       to github.com without leaving VSCode's host context. */
+                    try {
+                        const url = String(msg.url || '').trim();
+                        if (!url) break;
+                        if (!/^https?:\/\//i.test(url)) {
+                            panel.webview.postMessage({ type: 'error', message: 'openExternal: refused non-http(s) URL.' });
+                            break;
+                        }
+                        await vscode.env.openExternal(vscode.Uri.parse(url));
+                    } catch (e) {
+                        traceErr('openExternal', e);
+                        panel.webview.postMessage({ type: 'error', message: 'openExternal: ' + (e.message || e) });
+                    }
+                    break;
+                }
                 case 'labelClick':
                     panel.webview.postMessage({ type: 'openSettings', ...buildSettingsPayload(context) });
                     break;
                 case 'showTrace':
-                    // preserveFocus=false: actively switch focus to the output
-                    // channel so the user sees the panel come up. The prior
-                    // preserveFocus=true call kept focus in the webview, which
-                    // meant clicking the monitor button often looked like nothing
-                    // happened when the Output pane was already open on a
-                    // different channel. Trace a fresh line on every click so
-                    // even an already-visible panel scrolls and confirms it
-                    // received the click.
-                    trace(`monitor: clicked at ${new Date().toISOString()} — focused output channel`);
-                    outChan.show(false);
+                    /* Triple-tap: outChan.show() switches to our channel,
+                       the workbench command forces the Output panel open
+                       (in case it's collapsed), and a trace line on every
+                       click means even an already-visible channel scrolls
+                       and confirms the click landed. Wrapped in try/catch
+                       so any one failing doesn't prevent the others. */
+                    try { trace(`monitor: clicked at ${new Date().toISOString()}`); } catch (_) {}
+                    try { outChan.show(false); } catch (e) { traceErr('showTrace.outChan.show', e); }
+                    try { await vscode.commands.executeCommand('workbench.panel.output.focus'); }
+                    catch (e) { traceErr('showTrace.output.focus', e); }
+                    try { await vscode.commands.executeCommand('workbench.action.output.show.codexBlackEd'); }
+                    catch (_) { /* expected to fail on most VSCode builds — fallback above already worked */ }
                     break;
                 case 'loadSetup': {
                     /* Read config.ini and post back a flat "section.key" ->
@@ -1330,6 +1856,22 @@ function bindPanel(context, panel) {
                     try { await vscode.commands.executeCommand('workbench.action.webview.openDeveloperTools'); }
                     catch (e) { traceErr('openDevTools', e); panel.webview.postMessage({ type: 'error', message: 'DevTools: ' + (e.message || e) }); }
                     break;
+                case 'showLicense': {
+                    /* /license slash command — read LICENSE.TXT and stream
+                       it into the chat as an info message. Full MIT terms
+                       visible inline without leaving the panel. */
+                    try {
+                        const lic = path.join(context.extensionPath, 'LICENSE.TXT');
+                        const text = fs.existsSync(lic)
+                            ? fs.readFileSync(lic, 'utf8')
+                            : 'LICENSE.TXT not found in the extension folder.';
+                        panel.webview.postMessage({ type: 'info', text });
+                    } catch (e) {
+                        traceErr('showLicense', e);
+                        panel.webview.postMessage({ type: 'error', message: 'LICENSE read failed: ' + (e.message || e) });
+                    }
+                    break;
+                }
                 case 'refreshPanel':
                     /* Re-read panel/index.html + re-resolve all template URIs and
                        reassign panel.webview.html. The webview tears itself down

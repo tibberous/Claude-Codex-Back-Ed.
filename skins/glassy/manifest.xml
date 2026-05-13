@@ -7,4 +7,18 @@
   <accent>#56b7ff</accent>
   <stylesheet>styles.css</stylesheet>
   <description>Frosted translucent shell with cyan glow and beveled buttons.</description>
+  <!-- Modal chrome. Pushed onto :root as --cbe-modal-* CSS variables at
+       apply time so the panel's modals (Settings, Domains, Setup wizard,
+       Handbook, Stored prompts, Help, Source viewer, right-click menu)
+       paint in the theme's accent without duplicating modal markup. -->
+  <colors>
+    <modal-bg>#142440</modal-bg>
+    <modal-fg>#eef6ff</modal-fg>
+    <modal-border>#8fd6ff</modal-border>
+    <modal-title-bg-1>#2d8dff</modal-title-bg-1>
+    <modal-title-bg-2>#56b7ff</modal-title-bg-2>
+    <modal-title-fg>#eef6ff</modal-title-fg>
+    <modal-foot-bg>#0e1a2e</modal-foot-bg>
+    <modal-accent>#56b7ff</modal-accent>
+  </colors>
 </skin>

@@ -7,4 +7,18 @@
   <accent>#244372</accent>
   <stylesheet>styles.css</stylesheet>
   <description>Hard-corner Windows-9x bevel UI with blue Office accent.</description>
+  <!-- Modal chrome. Pushed onto :root as --cbe-modal-* CSS variables at
+       apply time so the panel's modals (Settings, Domains, Setup wizard,
+       Handbook, Stored prompts, Help, Source viewer, right-click menu)
+       paint in the theme's accent without duplicating modal markup. -->
+  <colors>
+    <modal-bg>#ece9d8</modal-bg>
+    <modal-fg>#1b2535</modal-fg>
+    <modal-border>#244372</modal-border>
+    <modal-title-bg-1>#0a246a</modal-title-bg-1>
+    <modal-title-bg-2>#a6caf0</modal-title-bg-2>
+    <modal-title-fg>#ffffff</modal-title-fg>
+    <modal-foot-bg>#d4d0c8</modal-foot-bg>
+    <modal-accent>#244372</modal-accent>
+  </colors>
 </skin>

@@ -22,7 +22,7 @@
 <noscript><link rel="stylesheet" href="{{PRISM_CSS_URI}}" /></noscript>
 <style>
   /* ── Panel shell + chat thread (GPT's prompt-bar design, hooked into the
-     extension's JS via #textInput / #sendBtn / #addBtn / #sttBtn / #ttsBtn /
+     extension's JS via #promptBox / #sendBtn / #addBtn / #sttBtn / #ttsBtn /
      #label-pill / #storedPromptsBtn / #autoReplyBtn) ──────────────────── */
 :root {
   --shell-radius: 28px;
@@ -34,6 +34,19 @@
   --orange-4: #dc3000;
   --orange-5: #9f1600;
   --ink: #111111;
+
+  /* Modal chrome — defaults match the original Codex Black orange-on-black
+     look. Skins push their own values onto :root via manifest.xml so the
+     same modal markup re-paints in the theme's accent without rewriting
+     any modal HTML or JS. */
+  --cbe-modal-bg:         #1a1a1a;
+  --cbe-modal-fg:         #e8e8e8;
+  --cbe-modal-border:     #e8621a;
+  --cbe-modal-title-bg-1: #b83c00;
+  --cbe-modal-title-bg-2: #e8621a;
+  --cbe-modal-title-fg:   #ffffff;
+  --cbe-modal-foot-bg:    #111111;
+  --cbe-modal-accent:     #e8621a;
 }
 
 * { box-sizing: border-box; }
@@ -141,10 +154,10 @@ body {
    `.prompt-input` AND mark it `!important` AND repeat font-family
    immediately after as a longhand !important so any later `font:` reset
    can't strip it. */
-html body .prompt-input-wrap textarea.prompt-input#textInput,
-html body textarea#textInput.prompt-input {
-  font: 400 18px/1.34 Consolas, "Cascadia Mono", "Courier New", ui-monospace, monospace !important;
-  font-family: Consolas, "Cascadia Mono", "Courier New", ui-monospace, monospace !important;
+html body .prompt-input-wrap textarea.prompt-input#promptBox,
+html body textarea#promptBox.prompt-input {
+  font: 400 18px/1.34 Consolas, "Cascadia Mono", "Courier New", monospace !important;
+  font-family: Consolas, "Cascadia Mono", "Courier New", monospace !important;
 }
 .prompt-input::placeholder { color: #434343; opacity: 1;
   font-family: Consolas, "Cascadia Mono", "Courier New", ui-monospace, monospace !important; }
@@ -382,9 +395,17 @@ html body textarea#textInput.prompt-input {
    has visual confirmation that the extension is processing. */
 #monitorBtn { position: relative; }
 #monitorBtn .cbe-spinner {
+  /* Center an explicitly-sized SVG over the button instead of relying on
+     `inset: 2px` + `width: auto`. With the skinned toolbar shrinking
+     `.tool-button` to 38x38, the SVG was rendering at its intrinsic 50x50
+     viewBox and overflowing off-center. Pinning to 70% of the button via
+     50/50 + transform-translate centers cleanly regardless of button size. */
   position: absolute;
-  inset: 2px;
-  width: auto; height: auto;
+  top: 50%;
+  left: 50%;
+  width: 70%;
+  height: 70%;
+  transform: translate(-50%, -50%);
   pointer-events: none;
   opacity: 0;
   transition: opacity .15s ease;
@@ -392,6 +413,50 @@ html body textarea#textInput.prompt-input {
 }
 #monitorBtn.is-monitoring .cbe-spinner { opacity: 1; }
 #monitorBtn.is-monitoring > img:first-of-type {
+  opacity: 0.45;
+  filter: brightness(0) invert(1) drop-shadow(0 0 6px rgba(78,168,255,0.6));
+}
+
+/* Auto Prompt button — identical spinner overlay to the monitor button.
+   Class `is-autoprompting` is toggled by panel.js when the interval is
+   running so the user has a persistent "I am firing the prompt every
+   N seconds" indicator. */
+#autoReplyBtn { position: relative; }
+#autoReplyBtn .cbe-spinner {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 70%; height: 70%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s ease;
+  filter: none !important;
+}
+#autoReplyBtn.is-autoprompting .cbe-spinner { opacity: 1; }
+#autoReplyBtn.is-autoprompting > img:first-of-type {
+  opacity: 0.45;
+  filter: brightness(0) invert(1) drop-shadow(0 0 6px rgba(78,168,255,0.6));
+}
+
+/* STT "recording" overlay — when the mic button is actively listening
+   (either Web Speech API in-webview or the host-side SAPI fallback), the
+   same blue ring used for #monitorBtn spins over the mic icon. Mirrors
+   the #monitorBtn rules above so the visual language is consistent. */
+#sttBtn { position: relative; }
+#sttBtn .cbe-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 70%;
+  height: 70%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s ease;
+  filter: none !important;
+}
+#sttBtn.is-recording .cbe-spinner { opacity: 1; }
+#sttBtn.is-recording > img:first-of-type {
   opacity: 0.45;
   filter: brightness(0) invert(1) drop-shadow(0 0 6px rgba(78,168,255,0.6));
 }
@@ -407,8 +472,8 @@ html body textarea#textInput.prompt-input {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 280px;
-  height: 40px;
+  width: 320px;
+  height: 48px;
   background: transparent;
   border: none;
   padding: 0;
@@ -471,9 +536,9 @@ html body textarea#textInput.prompt-input {
 }
 
 .stop-button {
-  height: 40px;
-  padding: 0 16px;
-  border-radius: 13px;
+  height: 48px;
+  padding: 0 18px;
+  border-radius: 14px;
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -640,13 +705,13 @@ html body textarea#textInput.prompt-input {
     background: rgba(0,0,0,.65); display: flex;
     align-items: center; justify-content: center;
     font-family: system-ui, sans-serif; }
-  #cbe-setup .cbe-box { background: #1a1a1a; border: 2px solid #e8621a;
+  #cbe-setup .cbe-box { background: var(--cbe-modal-bg); border: 2px solid var(--cbe-modal-border);
     border-radius: 10px; width: 560px; max-width: 92vw;
     box-shadow: 0 12px 50px rgba(0,0,0,.7); overflow: hidden;
     display: flex; flex-direction: column; }
   #cbe-setup .cbe-hdr {
     padding: 12px 16px;
-    background: linear-gradient(90deg, #b83c00, #e8621a);
+    background: linear-gradient(90deg, var(--cbe-modal-title-bg-1), var(--cbe-modal-title-bg-2)); color: var(--cbe-modal-title-fg);
     color: #fff; font-weight: 700; font-size: 14px;
     display: flex; justify-content: space-between; align-items: center; }
   #cbe-setup .cbe-progress {
@@ -654,7 +719,7 @@ html body textarea#textInput.prompt-input {
     box-shadow: inset 0 -1px 0 rgba(0,0,0,.4); }
   #cbe-setup .cbe-progress > span {
     display: block; height: 100%;
-    background: linear-gradient(90deg, #e8621a, #ff9a45);
+    background: linear-gradient(90deg, var(--cbe-modal-accent), var(--cbe-modal-title-bg-2));
     transition: width .25s ease; }
   #cbe-setup .cbe-body { padding: 22px;
     display: flex; flex-direction: column; gap: 14px;
@@ -669,8 +734,8 @@ html body textarea#textInput.prompt-input {
     width: 100%; background: #0f0f0f; color: #e8e8e8;
     border: 1px solid #333; border-radius: 5px; padding: 9px 11px;
     font-family: 'Consolas','Courier New',monospace; font-size: 13px; outline: none; }
-  #cbe-setup input:focus { border-color: #e8621a; }
-  #cbe-setup .cbe-foot { padding: 12px 16px; background: #111;
+  #cbe-setup input:focus { border-color: var(--cbe-modal-accent); }
+  #cbe-setup .cbe-foot { padding: 12px 16px; background: var(--cbe-modal-foot-bg);
     border-top: 1px solid #2a2a2a;
     display: flex; justify-content: space-between; gap: 8px; }
   #cbe-setup .cbe-foot-left  { display: flex; gap: 8px; }
@@ -680,7 +745,7 @@ html body textarea#textInput.prompt-input {
     border-radius: 5px; font-size: 13px; font-weight: 600; }
   #cbe-setup button.cbe-skip { background: #2a2a2a; color: #ccc; }
   #cbe-setup button.cbe-skip:hover { background: #3a3a3a; }
-  #cbe-setup button.cbe-next { background: #e8621a; color: #fff; }
+  #cbe-setup button.cbe-next { background: var(--cbe-modal-accent); color: var(--cbe-modal-title-fg); }
   #cbe-setup button.cbe-next:hover { background: #ff7a1a; }
   #cbe-setup button.cbe-back { background: transparent; color: #888; }
   #cbe-setup button.cbe-back:hover { color: #ccc; }
@@ -689,11 +754,11 @@ html body textarea#textInput.prompt-input {
   #cbe-settings { position: fixed; inset: 0; z-index: 2147483645;
     background: rgba(0,0,0,.65); display: flex;
     align-items: center; justify-content: center; }
-  #cbe-settings .cbe-box { background: #1a1a1a; border: 2px solid #e8621a;
+  #cbe-settings .cbe-box { background: var(--cbe-modal-bg); border: 2px solid var(--cbe-modal-border);
     border-radius: 8px; width: 420px; max-width: 90vw;
     box-shadow: 0 8px 40px rgba(0,0,0,.6); overflow: hidden; }
   #cbe-settings .cbe-hdr {
-    padding: 10px 14px; background: linear-gradient(90deg,#b83c00,#e8621a);
+    padding: 10px 14px; background: linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2)); color: var(--cbe-modal-title-fg);
     color: #fff; font-family: system-ui, sans-serif; font-weight: 700;
     font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
   #cbe-settings .cbe-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
@@ -703,19 +768,19 @@ html body textarea#textInput.prompt-input {
   #cbe-settings select { width: 100%; background: #0f0f0f; color: #e8e8e8;
     border: 1px solid #333; border-radius: 5px; padding: 8px 10px;
     font-family: 'Consolas','Courier New',monospace; font-size: 12px; outline: none; }
-  #cbe-settings select:focus { border-color: #e8621a; }
-  #cbe-settings select option { background: #1a1a1a; color: #e8e8e8; }
+  #cbe-settings select:focus { border-color: var(--cbe-modal-accent); }
+  #cbe-settings select option { background: var(--cbe-modal-bg); color: var(--cbe-modal-fg); }
   #cbe-settings .cbe-warn { color: #ff9b9b; font-size: 11px; padding: 6px 8px;
     background: #2a1212; border: 1px solid #5a1f1f; border-radius: 4px;
     font-family: system-ui, sans-serif; display: none; }
   #cbe-settings .cbe-warn.show { display: block; }
-  #cbe-settings .cbe-foot { padding: 12px 18px; background: #111;
+  #cbe-settings .cbe-foot { padding: 12px 18px; background: var(--cbe-modal-foot-bg);
     border-top: 1px solid #222; display: flex; justify-content: flex-end; gap: 8px; }
   #cbe-settings button.cbe-btn { font-family: system-ui, sans-serif;
     font-weight: 700; font-size: 12px; cursor: pointer; padding: 7px 14px;
     border-radius: 5px; border: none; }
   #cbe-settings button.cbe-cancel { background: #2a2a2a; color: #ddd; }
-  #cbe-settings button.cbe-save   { background: #e8621a; color: #fff; }
+  #cbe-settings button.cbe-save   { background: var(--cbe-modal-accent); color: var(--cbe-modal-title-fg); }
   #cbe-settings button.cbe-save:hover { background: #ff7a1a; }
 
   /* ── Context menu (View Source + DevTools) ────────────────── */
@@ -745,7 +810,7 @@ html body textarea#textInput.prompt-input {
     display: flex; align-items: center; justify-content: center;
   }
   #cbe-handbook-modal .cbe-box {
-    background: #161616; border: 2px solid #e8621a;
+    background: var(--cbe-modal-bg); border: 2px solid var(--cbe-modal-border);
     border-radius: 12px; width: 86vw; max-width: 1100px;
     height: 84vh; max-height: 800px;
     display: flex; flex-direction: column;
@@ -754,7 +819,7 @@ html body textarea#textInput.prompt-input {
   }
   #cbe-handbook-modal .cbe-hdr {
     padding: 10px 16px;
-    background: linear-gradient(90deg, #b83c00, #e8621a);
+    background: linear-gradient(90deg, var(--cbe-modal-title-bg-1), var(--cbe-modal-title-bg-2)); color: var(--cbe-modal-title-fg);
     color: #fff; font-family: system-ui, sans-serif; font-weight: 700;
     font-size: 13px;
     display: flex; justify-content: space-between; align-items: center;
@@ -785,7 +850,7 @@ html body textarea#textInput.prompt-input {
     font-size: 13px; line-height: 1.55;
   }
   #cbe-handbook-modal .cbe-foot {
-    padding: 10px 16px; background: #111;
+    padding: 10px 16px; background: var(--cbe-modal-foot-bg);
     border-top: 1px solid #222;
     display: flex; justify-content: space-between; align-items: center; gap: 8px;
   }
@@ -800,7 +865,7 @@ html body textarea#textInput.prompt-input {
     border-radius: 5px; border: none;
   }
   #cbe-handbook-modal .cbe-btn--close { background: #2a2a2a; color: #ddd; }
-  #cbe-handbook-modal .cbe-btn--save { background: #e8621a; color: #fff; }
+  #cbe-handbook-modal .cbe-btn--save { background: var(--cbe-modal-accent); color: var(--cbe-modal-title-fg); }
   #cbe-handbook-modal .cbe-btn--save:hover { background: #ff7a1a; }
 
   /* ── Stored Prompts modal (combo box + textarea + Add/Save/Delete/Use) ── */
@@ -810,7 +875,7 @@ html body textarea#textInput.prompt-input {
     display: flex; align-items: center; justify-content: center;
   }
   #cbe-prompts-modal .cbe-box {
-    background: #1a1a1a; border: 2px solid #e8621a;
+    background: var(--cbe-modal-bg); border: 2px solid var(--cbe-modal-border);
     border-radius: 10px; width: 640px; max-width: 92vw;
     max-height: 86vh; display: flex; flex-direction: column;
     box-shadow: 0 14px 36px rgba(0,0,0,.6), 0 0 30px rgba(255,120,30,.18);
@@ -818,7 +883,7 @@ html body textarea#textInput.prompt-input {
   }
   #cbe-prompts-modal .cbe-hdr {
     padding: 10px 16px;
-    background: linear-gradient(90deg,#b83c00,#e8621a);
+    background: linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2)); color: var(--cbe-modal-title-fg);
     color: #fff; font-family: system-ui, sans-serif; font-weight: 700;
     font-size: 13px;
     display: flex; justify-content: space-between; align-items: center;
@@ -838,8 +903,8 @@ html body textarea#textInput.prompt-input {
     font-family: 'Consolas','Courier New',monospace; font-size: 12px;
     outline: none;
   }
-  #cbe-prompts-modal select:focus { border-color: #e8621a; }
-  #cbe-prompts-modal select option { background: #1a1a1a; color: #e8e8e8; }
+  #cbe-prompts-modal select:focus { border-color: var(--cbe-modal-accent); }
+  #cbe-prompts-modal select option { background: var(--cbe-modal-bg); color: var(--cbe-modal-fg); }
   #cbe-prompts-modal textarea {
     width: 100%; min-height: 180px; max-height: 50vh;
     background: #0e0e0e; color: #e8e8e8;
@@ -849,9 +914,9 @@ html body textarea#textInput.prompt-input {
     font-size: 13px; line-height: 1.5;
     box-sizing: border-box;
   }
-  #cbe-prompts-modal textarea:focus { border-color: #e8621a; }
+  #cbe-prompts-modal textarea:focus { border-color: var(--cbe-modal-accent); }
   #cbe-prompts-modal .cbe-foot {
-    padding: 12px 18px; background: #111;
+    padding: 12px 18px; background: var(--cbe-modal-foot-bg);
     border-top: 1px solid #222;
     display: flex; justify-content: space-between; align-items: center;
     gap: 8px; flex-wrap: wrap;
@@ -873,7 +938,7 @@ html body textarea#textInput.prompt-input {
   #cbe-prompts-modal button.cbe-btn--delete { background: #5a1f1f; color: #ffd6d6; }
   #cbe-prompts-modal button.cbe-btn--delete:hover { background: #7a2a2a; color: #fff; }
   #cbe-prompts-modal button.cbe-btn--close  { background: #2a2a2a; color: #ddd; }
-  #cbe-prompts-modal button.cbe-btn--save   { background: #e8621a; color: #fff; }
+  #cbe-prompts-modal button.cbe-btn--save   { background: var(--cbe-modal-accent); color: var(--cbe-modal-title-fg); }
   #cbe-prompts-modal button.cbe-btn--save:hover   { background: #ff7a1a; }
   #cbe-prompts-modal button.cbe-btn[disabled] {
     opacity: .4; cursor: not-allowed;
@@ -911,7 +976,7 @@ html body textarea#textInput.prompt-input {
     display: flex; align-items: center; justify-content: center;
   }
   #cbe-help-modal .cbe-box {
-    background: #161616; border: 2px solid #e8621a;
+    background: var(--cbe-modal-bg); border: 2px solid var(--cbe-modal-border);
     border-radius: 12px; width: 86vw; max-width: 1100px;
     height: 84vh; max-height: 800px;
     display: flex; flex-direction: column;
@@ -919,14 +984,14 @@ html body textarea#textInput.prompt-input {
     overflow: hidden;
   }
   #cbe-help-modal .cbe-hdr {
-    padding: 10px 16px; background: linear-gradient(90deg, #b83c00, #e8621a);
+    padding: 10px 16px; background: linear-gradient(90deg, var(--cbe-modal-title-bg-1), var(--cbe-modal-title-bg-2)); color: var(--cbe-modal-title-fg);
     color: #fff; font-family: system-ui, sans-serif; font-weight: 700;
     font-size: 13px; display: flex; justify-content: space-between; align-items: center;
   }
   /* (#cbe-help-modal .cbe-x and #cbe-handbook-modal .cbe-x override rules
      removed — shared .cbe-x SVG style above now handles both modals.) */
   #cbe-help-modal iframe {
-    flex: 1 1 auto; width: 100%; border: 0; background: #161616;
+    flex: 1 1 auto; width: 100%; border: 0; background: var(--cbe-modal-bg);
   }
 
   /* ── View Source modal ─────────────────────────────────────── */
@@ -936,15 +1001,15 @@ html body textarea#textInput.prompt-input {
     display: flex; align-items: center; justify-content: center;
   }
   #cbe-source-modal .cbe-box {
-    background: #1e1e1e; border: 2px solid #e8621a;
+    background: var(--cbe-modal-bg); border: 2px solid var(--cbe-modal-border);
     border-radius: 8px; width: 80vw; max-width: 900px;
     max-height: 80vh; display: flex; flex-direction: column;
     box-shadow: 0 8px 40px rgba(0,0,0,.6); overflow: hidden;
   }
   #cbe-source-modal .cbe-hdr {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 8px 14px; border-bottom: 2px solid #e8621a;
-    background: linear-gradient(90deg, #b83c00, #e8621a);
+    padding: 8px 14px; border-bottom: 2px solid var(--cbe-modal-border);
+    background: linear-gradient(90deg, var(--cbe-modal-title-bg-1), var(--cbe-modal-title-bg-2)); color: var(--cbe-modal-title-fg);
     flex-shrink: 0;
   }
   #cbe-source-modal .cbe-title {
@@ -955,7 +1020,7 @@ html body textarea#textInput.prompt-input {
     display: flex; align-items: center; gap: 8px;
   }
   #cbe-source-modal .cbe-copy {
-    background: #e8621a; border: none; color: #fff; cursor: pointer;
+    background: var(--cbe-modal-accent); border: none; color: var(--cbe-modal-title-fg); cursor: pointer;
     font-size: 11px; padding: 4px 10px; border-radius: 4px;
     font-family: system-ui, sans-serif; font-weight: 700;
   }
@@ -1029,8 +1094,19 @@ html body textarea#textInput.prompt-input {
     <div class="prompt-area">
       <section class="prompt-shell" aria-label="Prompt composer">
         <div class="prompt-input-wrap" id="input-box">
-          <label class="sr-only" for="textInput">Message</label>
-          <textarea id="textInput" class="prompt-input" rows="1" placeholder="Queue another message..."></textarea>
+          <label class="sr-only" for="promptBox">Message</label>
+          <!-- promptBox: rebuilt with a fresh id so no stale CSS targeting
+               the old #textInput can interfere. Monospace is baked into
+               style="" inline — that's higher origin than any external
+               sheet, !important or not. Class kept so layout rules still
+               apply. -->
+          <textarea
+            id="promptBox"
+            class="prompt-input"
+            rows="1"
+            placeholder="Queue another message..."
+            style="font: 400 18px/1.34 Consolas, 'Cascadia Mono', 'Courier New', monospace !important; font-family: Consolas, 'Cascadia Mono', 'Courier New', monospace !important;"
+          ></textarea>
           <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" aria-label="Send message"></button>
         </div>
 
@@ -1059,9 +1135,14 @@ html body textarea#textInput.prompt-input {
           </button>
           <button id="sttBtn" class="tool-button" type="button" data-tooltip="Speech to text" aria-label="Speech to text">
             <img src="{{ASSETS_BASE}}/stt.svg" alt="" />
+            <!-- Blue spinner overlay shown while #sttBtn.is-recording. Same
+                 pattern as #monitorBtn so the user gets clear feedback that
+                 the host-side SAPI mic is actively listening. -->
+            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_blue.svg" alt="" />
           </button>
-          <button id="autoReplyBtn" class="tool-button" type="button" data-tooltip="Auto reply" aria-label="Auto reply">
+          <button id="autoReplyBtn" class="tool-button" type="button" data-tooltip="Auto Prompt" aria-label="Auto Prompt">
             <img src="{{ASSETS_BASE}}/auto_reply.svg" alt="" />
+            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_blue.svg" alt="" aria-hidden="true" />
           </button>
           <button id="wakeUpBtn" class="tool-button" type="button" data-tooltip="Wake-up response" aria-label="Wake-up response">
             <img src="{{ASSETS_BASE}}/wake_up.svg" alt="" />

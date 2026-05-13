@@ -7,4 +7,18 @@
   <accent>#e8621a</accent>
   <stylesheet>styles.css</stylesheet>
   <description>The original Claude Codex Black Edition look — dark shell, orange accent, monospace prompt.</description>
+  <!-- Modal chrome. Pushed onto :root as --cbe-modal-* CSS variables at
+       apply time so the panel's modals (Settings, Domains, Setup wizard,
+       Handbook, Stored prompts, Help, Source viewer, right-click menu)
+       paint in the theme's accent without duplicating modal markup. -->
+  <colors>
+    <modal-bg>#1a1a1a</modal-bg>
+    <modal-fg>#e8e8e8</modal-fg>
+    <modal-border>#e8621a</modal-border>
+    <modal-title-bg-1>#b83c00</modal-title-bg-1>
+    <modal-title-bg-2>#e8621a</modal-title-bg-2>
+    <modal-title-fg>#ffffff</modal-title-fg>
+    <modal-foot-bg>#111111</modal-foot-bg>
+    <modal-accent>#e8621a</modal-accent>
+  </colors>
 </skin>

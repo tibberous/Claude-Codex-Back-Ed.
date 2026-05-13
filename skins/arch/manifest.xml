@@ -7,4 +7,18 @@
   <accent>#1793d1</accent>
   <stylesheet>styles.css</stylesheet>
   <description>Dark translucent shell, sharp 3px corners, Arch cyan accent.</description>
+  <!-- Modal chrome. Pushed onto :root as --cbe-modal-* CSS variables at
+       apply time so the panel's modals (Settings, Domains, Setup wizard,
+       Handbook, Stored prompts, Help, Source viewer, right-click menu)
+       paint in the theme's accent without duplicating modal markup. -->
+  <colors>
+    <modal-bg>#0b0e14</modal-bg>
+    <modal-fg>#d7efff</modal-fg>
+    <modal-border>#1793d1</modal-border>
+    <modal-title-bg-1>#0d6ba0</modal-title-bg-1>
+    <modal-title-bg-2>#1793d1</modal-title-bg-2>
+    <modal-title-fg>#d7efff</modal-title-fg>
+    <modal-foot-bg>#05070b</modal-foot-bg>
+    <modal-accent>#1793d1</modal-accent>
+  </colors>
 </skin>

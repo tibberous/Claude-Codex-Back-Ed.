@@ -127,7 +127,9 @@
     "bridge/cdp-client.js",
     "bridge/browser-bridge.js",
     "bridge/dom-scripts.js",
-    "bridge/supergrok-bridge.js"
+    "bridge/supergrok-bridge.js",
+    "tools/vscode_supervisor.ps1",
+    "tools/nssm.exe"
   ],
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",

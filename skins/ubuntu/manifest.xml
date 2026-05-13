@@ -7,4 +7,18 @@
   <accent>#e95420</accent>
   <stylesheet>styles.css</stylesheet>
   <description>Aubergine + orange Yaru styling, light prompt field.</description>
+  <!-- Modal chrome. Pushed onto :root as --cbe-modal-* CSS variables at
+       apply time so the panel's modals (Settings, Domains, Setup wizard,
+       Handbook, Stored prompts, Help, Source viewer, right-click menu)
+       paint in the theme's accent without duplicating modal markup. -->
+  <colors>
+    <modal-bg>#2f2630</modal-bg>
+    <modal-fg>#f4ebe9</modal-fg>
+    <modal-border>#e95420</modal-border>
+    <modal-title-bg-1>#b03c14</modal-title-bg-1>
+    <modal-title-bg-2>#e95420</modal-title-bg-2>
+    <modal-title-fg>#ffffff</modal-title-fg>
+    <modal-foot-bg>#1d171c</modal-foot-bg>
+    <modal-accent>#e95420</modal-accent>
+  </colors>
 </skin>

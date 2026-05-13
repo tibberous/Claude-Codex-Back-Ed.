@@ -33,6 +33,58 @@ SKIN_DIR  = EXT_ROOT / "skins"
 DIST_DIR  = Path(r"C:\Users\moren\Desktop\skins")
 PACK_DIR  = DIST_DIR / "_pack" / "promptbar_theme_pack"
 
+# ── Modal palettes per theme. Picked to match/accent each theme's existing
+#    body palette (NOT just the accent color — the modal needs a coherent
+#    title bar, body, footer and border that read together).
+DEFAULT_MODAL_PALETTE = {
+    "modal_bg": "#1a1a1a", "modal_fg": "#e8e8e8", "modal_border": "#e8621a",
+    "modal_title_bg_1": "#b83c00", "modal_title_bg_2": "#e8621a",
+    "modal_title_fg": "#ffffff", "modal_foot_bg": "#111111", "modal_accent": "#e8621a",
+}
+
+MODAL_PALETTES = {
+    "gnome": {  # Adwaita blue on near-black for contrast against the light shell
+        "modal_bg": "#2e3436", "modal_fg": "#eaeef3", "modal_border": "#3584e4",
+        "modal_title_bg_1": "#2a6dbf", "modal_title_bg_2": "#3584e4",
+        "modal_title_fg": "#ffffff", "modal_foot_bg": "#232729", "modal_accent": "#3584e4",
+    },
+    "kde": {    # frosted dark with Plasma cyan accent
+        "modal_bg": "#0f1825", "modal_fg": "#eef7ff", "modal_border": "#3daee9",
+        "modal_title_bg_1": "#2a8bbb", "modal_title_bg_2": "#3daee9",
+        "modal_title_fg": "#eef7ff", "modal_foot_bg": "#0a1018", "modal_accent": "#3daee9",
+    },
+    "ubuntu": { # aubergine body with Yaru orange chrome
+        "modal_bg": "#2f2630", "modal_fg": "#f4ebe9", "modal_border": "#e95420",
+        "modal_title_bg_1": "#b03c14", "modal_title_bg_2": "#e95420",
+        "modal_title_fg": "#ffffff", "modal_foot_bg": "#1d171c", "modal_accent": "#e95420",
+    },
+    "terminal": {  # phosphor green on near-pitch black, CRT vibe
+        "modal_bg": "#020704", "modal_fg": "#7cffaa", "modal_border": "#28c763",
+        "modal_title_bg_1": "#0b2112", "modal_title_bg_2": "#28c763",
+        "modal_title_fg": "#7cffaa", "modal_foot_bg": "#010503", "modal_accent": "#33ff82",
+    },
+    "xfce": {   # classic GTK greys, navy title bar
+        "modal_bg": "#d8d8d8", "modal_fg": "#202020", "modal_border": "#686868",
+        "modal_title_bg_1": "#3f72a8", "modal_title_bg_2": "#5b8dc4",
+        "modal_title_fg": "#ffffff", "modal_foot_bg": "#c5c5c5", "modal_accent": "#3f72a8",
+    },
+    "arch": {   # dark cyan rice
+        "modal_bg": "#0b0e14", "modal_fg": "#d7efff", "modal_border": "#1793d1",
+        "modal_title_bg_1": "#0d6ba0", "modal_title_bg_2": "#1793d1",
+        "modal_title_fg": "#d7efff", "modal_foot_bg": "#05070b", "modal_accent": "#1793d1",
+    },
+    "redhat": { # enterprise light grey, red accent
+        "modal_bg": "#f2f4f5", "modal_fg": "#252b31", "modal_border": "#ee0000",
+        "modal_title_bg_1": "#b30000", "modal_title_bg_2": "#ee0000",
+        "modal_title_fg": "#ffffff", "modal_foot_bg": "#d5dadd", "modal_accent": "#ee0000",
+    },
+    "tamagotchi": {  # lime LCD with mossy green chrome
+        "modal_bg": "#c9ee75", "modal_fg": "#315912", "modal_border": "#426d1d",
+        "modal_title_bg_1": "#5f8d29", "modal_title_bg_2": "#79a936",
+        "modal_title_fg": "#315912", "modal_foot_bg": "#acd85b", "modal_accent": "#4d8b18",
+    },
+}
+
 # ── Theme variable sets — copied verbatim from the pack, one block per theme.
 THEMES = {
     "gnome": {
@@ -119,6 +171,7 @@ THEMES = {
         "author": "OpenAI ChatGPT",
         "description": "Black + phosphor-green CRT with scanlines and glow.",
         "accent": "#33ff82",
+        "blocky": True,
         "vars": """\
   --stage-bg:
     repeating-linear-gradient(0deg, rgba(51,255,142,.035) 0 1px, transparent 1px 4px),
@@ -151,6 +204,7 @@ THEMES = {
         "author": "OpenAI ChatGPT",
         "description": "Square classic GTK bevels — flat grey, no rounded corners.",
         "accent": "#3f72a8",
+        "blocky": True,
         "vars": """\
   --stage-bg:
     linear-gradient(135deg, #59606a 0%, #303842 100%);
@@ -232,6 +286,7 @@ THEMES = {
         "author": "OpenAI ChatGPT",
         "description": "Pixel-pet LCD lime-green look with retro chunky shadows.",
         "accent": "#4d8b18",
+        "blocky": True,
         # Extra CSS appended after the base — only the Tamagotchi skin needs
         # this so the LCD pet panel doesn't bloat every other skin's stylesheet.
         "extra_css": """\
@@ -380,12 +435,15 @@ body {
    With 21 buttons (Help + Domains added), the default layout wraps. Shrinking
    to 38x38 + 4px gap keeps every button on a single row at common widths
    (~840px) and gives the skinned look a denser, app-bar feel.
-   nowrap is explicit — if the panel does shrink below the threshold the row
-   will scroll horizontally instead of stacking. */
+   `justify-content: flex-start` is critical — the default is `center`, which
+   combined with overflow makes the leftmost buttons inaccessible (centered
+   overflow extends past x=0 and gets clipped). Keep overflow visible so the
+   row never scroll-clips; prompt-shell padding absorbs minor spill. */
 .toolbar-tools {
   gap: 4px !important;
   flex-wrap: nowrap !important;
-  overflow-x: auto;
+  justify-content: flex-start !important;
+  overflow-x: visible !important;
 }
 .tool-button {
   width: 38px !important;
@@ -475,6 +533,29 @@ body {
 }
 """
 
+# Append-only CSS used by every "blocky" theme (square corners, hard bevels).
+# Replaces the rounded label-alpha.png with assets/label-square.png and bumps
+# the .label-button so the pill reads legibly instead of getting squished into
+# the 280x40 default. Path is relative to the skin's styles.css —
+#   <ext>/skins/<id>/styles.css → ../../assets/label-square.png → <ext>/assets/
+BLOCKY_LABEL_CSS = """
+
+/* ── Blocky label override ──────────────────────────────────────────────
+   Replace the default round label-alpha.png with the Win9x-bevel square
+   variant. The panel <img> is hidden; the button paints the new label as
+   a background so the rest of the markup stays untouched. */
+.label-button {
+  width: 360px !important;
+  height: 50px !important;
+  background:
+    url('../../assets/label-square.png') center/contain no-repeat !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+.label-button img { display: none !important; }
+"""
+
 MANIFEST_XML = """\
 <?xml version="1.0" encoding="utf-8"?>
 <skin>
@@ -485,6 +566,20 @@ MANIFEST_XML = """\
   <accent>{accent}</accent>
   <stylesheet>styles.css</stylesheet>
   <description>{description}</description>
+  <!-- Modal chrome. Pushed onto :root as --cbe-modal-* CSS variables at
+       apply time so the panel's modals (Settings, Domains, Setup wizard,
+       Handbook, Stored prompts, Help, Source viewer, right-click menu)
+       paint in the theme's accent without duplicating modal markup. -->
+  <colors>
+    <modal-bg>{modal_bg}</modal-bg>
+    <modal-fg>{modal_fg}</modal-fg>
+    <modal-border>{modal_border}</modal-border>
+    <modal-title-bg-1>{modal_title_bg_1}</modal-title-bg-1>
+    <modal-title-bg-2>{modal_title_bg_2}</modal-title-bg-2>
+    <modal-title-fg>{modal_title_fg}</modal-title-fg>
+    <modal-foot-bg>{modal_foot_bg}</modal-foot-bg>
+    <modal-accent>{modal_accent}</modal-accent>
+  </colors>
 </skin>
 """
 
@@ -564,7 +659,8 @@ body {
 .toolbar-tools {
   gap: 4px !important;
   flex-wrap: nowrap !important;
-  overflow-x: auto;
+  justify-content: flex-start !important;
+  overflow-x: visible !important;
 }
 .tool-button {
   width: 38px !important;
@@ -679,7 +775,8 @@ body {
 .toolbar-tools {
   gap: 4px !important;
   flex-wrap: nowrap !important;
-  overflow-x: auto;
+  justify-content: flex-start !important;
+  overflow-x: visible !important;
 }
 .tool-button {
   width: 38px !important;
@@ -749,6 +846,8 @@ BESPOKE = {
         "description": "The original Claude Codex Black Edition look — dark shell, orange accent, monospace prompt.",
         "accent": "#e8621a",
         "css": CODEX_BLACK_CSS,
+        # Stays on the defaults — orange-on-black is the original look.
+        "palette": dict(DEFAULT_MODAL_PALETTE),
     },
     "glassy": {
         "label": "Glassy Beveled",
@@ -756,27 +855,54 @@ BESPOKE = {
         "description": "Frosted translucent shell with cyan glow and beveled buttons.",
         "accent": "#56b7ff",
         "css": GLASSY_CSS,
+        "palette": {
+            "modal_bg": "#142440",       # deep frosted navy
+            "modal_fg": "#eef6ff",
+            "modal_border": "#8fd6ff",   # cyan accent
+            "modal_title_bg_1": "#2d8dff",
+            "modal_title_bg_2": "#56b7ff",
+            "modal_title_fg": "#eef6ff",
+            "modal_foot_bg": "#0e1a2e",
+            "modal_accent": "#56b7ff",
+        },
     },
     "office": {
         "label": "Square Office",
         "author": "OpenAI ChatGPT",
         "description": "Hard-corner Windows-9x bevel UI with blue Office accent.",
         "accent": "#244372",
-        "css": OFFICE_CSS,
+        "css": OFFICE_CSS + BLOCKY_LABEL_CSS,
+        "palette": {
+            "modal_bg": "#ece9d8",       # classic Win2K beige
+            "modal_fg": "#1b2535",
+            "modal_border": "#244372",
+            "modal_title_bg_1": "#0a246a",  # Win 95/98 active title gradient
+            "modal_title_bg_2": "#a6caf0",
+            "modal_title_fg": "#ffffff",
+            "modal_foot_bg": "#d4d0c8",  # toolbar / 3D face grey
+            "modal_accent": "#244372",
+        },
     },
 }
 
 
-def writeSkin(skinId, label, author, description, accent, css, extra=None):
+def writeSkin(skinId, label, author, description, accent, css, extra=None, palette=None):
     """Drop the skin's manifest.xml + styles.css (+ optional extra files) into
-    <extension>/skins/<id>/. The 'extra' map is {relPath: bytes} for copying
-    additional assets (e.g. tamagotchi.gif). Overwrites prior content. """
+    <extension>/skins/<id>/. The 'palette' dict carries the modal color keys
+    that go into <colors> in the manifest — missing keys fall back to the
+    default Codex Black orange/black palette. The 'extra' map is
+    {relPath: bytes} for copying additional assets (e.g. tamagotchi.gif).
+    Overwrites prior content. """
     root = SKIN_DIR / skinId
     if root.exists():
         shutil.rmtree(root)
     root.mkdir(parents=True, exist_ok=True)
+    pal = dict(DEFAULT_MODAL_PALETTE)
+    if palette:
+        pal.update(palette)
     (root / "manifest.xml").write_text(MANIFEST_XML.format(
-        id=skinId, label=label, author=author, description=description, accent=accent
+        id=skinId, label=label, author=author, description=description, accent=accent,
+        **pal,
     ), encoding="utf-8")
     (root / "styles.css").write_text(css, encoding="utf-8")
     if extra:
@@ -809,6 +935,8 @@ def main():
     # ── 8 parametric themes from the pack
     for sid, meta in THEMES.items():
         css = BASE_CSS.replace("{VARS}", meta["vars"]) + meta.get("extra_css", "")
+        if meta.get("blocky"):
+            css += BLOCKY_LABEL_CSS
         extra = None
         if sid == "tamagotchi":
             # Bundle the pixel-pet GIF — the Tamagotchi skin's extra_css
@@ -818,13 +946,13 @@ def main():
             if gif.exists():
                 extra = {"assets/tamagotchi.gif": gif.read_bytes()}
         writeSkin(sid, meta["label"], meta["author"], meta["description"],
-                  meta["accent"], css, extra)
+                  meta["accent"], css, extra, palette=MODAL_PALETTES.get(sid))
         zipSkin(sid)
 
     # ── 2 bespoke skins
     for sid, meta in BESPOKE.items():
         writeSkin(sid, meta["label"], meta["author"], meta["description"],
-                  meta["accent"], meta["css"])
+                  meta["accent"], meta["css"], palette=meta.get("palette"))
         zipSkin(sid)
 
     # ── Drop the old single-file mint.css; new skins use the folder format.

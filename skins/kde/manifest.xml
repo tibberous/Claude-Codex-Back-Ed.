@@ -7,4 +7,18 @@
   <accent>#3daee9</accent>
   <stylesheet>styles.css</stylesheet>
   <description>Frosted Plasma-style glass with cyan / violet halo.</description>
+  <!-- Modal chrome. Pushed onto :root as --cbe-modal-* CSS variables at
+       apply time so the panel's modals (Settings, Domains, Setup wizard,
+       Handbook, Stored prompts, Help, Source viewer, right-click menu)
+       paint in the theme's accent without duplicating modal markup. -->
+  <colors>
+    <modal-bg>#0f1825</modal-bg>
+    <modal-fg>#eef7ff</modal-fg>
+    <modal-border>#3daee9</modal-border>
+    <modal-title-bg-1>#2a8bbb</modal-title-bg-1>
+    <modal-title-bg-2>#3daee9</modal-title-bg-2>
+    <modal-title-fg>#eef7ff</modal-title-fg>
+    <modal-foot-bg>#0a1018</modal-foot-bg>
+    <modal-accent>#3daee9</modal-accent>
+  </colors>
 </skin>

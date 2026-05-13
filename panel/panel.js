@@ -54,7 +54,7 @@ function ensurePrismLoaded() {
   return _prismLoadDone;
 }
 const thread = document.getElementById('thread');
-const ti     = document.getElementById('textInput');
+const ti     = document.getElementById('promptBox');
 const inBox  = document.getElementById('input-box');
 const sendBtn= document.getElementById('sendBtn');
 const addBtn = document.getElementById('addBtn');
@@ -335,10 +335,9 @@ function setBusy(b) {
   ti.disabled = b;
   sendBtn.disabled = b;
   inBox.classList.toggle('busy', b);
-  /* Toggle the blue loading spinner overlay on the VSCode monitor button
-     so the user has a persistent "extension is actively talking" cue. */
-  const monitorBtn = document.getElementById('monitorBtn');
-  if (monitorBtn) monitorBtn.classList.toggle('is-monitoring', !!b);
+  /* Note: `monitorBtn.is-monitoring` is now bound to the VSCode supervisor
+     service state (CBEVSCodeSupervisor), NOT chat busy. Don't toggle it here
+     anymore — the periodic monitorStatus probe owns that class. */
 }
 
 function send() {
@@ -382,12 +381,31 @@ addBtn.onclick = () => {
   addMsg('Conversation reset.', 'info');
   try { tts.stop(); } catch (e) { console.debug('[cbe.tts] addBtn reset stop', e && e.message); }
 };
-document.getElementById('monitorBtn').onclick = () => { if (api) api.postMessage({ type: 'showTrace' }); };
+/* Monitor button: left-click toggles the VSCode supervisor Windows service
+   (CBEVSCodeSupervisor — keeps Code.exe alive if it crashes). The blue
+   glow on the button is driven by the actual service state, not by a click
+   optimism — host posts back `monitorState` and we sync the class then.
+   Right-click still shows the trace channel for diagnostics. */
+document.getElementById('monitorBtn').onclick = () => {
+  if (api) api.postMessage({ type: 'toggleMonitor' });
+};
+document.getElementById('monitorBtn').addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  if (api) api.postMessage({ type: 'showTrace' });
+});
 document.getElementById('terminalBtn').onclick = () => { if (api) api.postMessage({ type: 'openTerminal' }); };
 document.getElementById('setupBtn').onclick    = () => { if (api) api.postMessage({ type: 'loadSetup' }); };
 document.getElementById('label-pill').onclick  = () => { if (api) api.postMessage({ type: 'labelClick' }); };
 document.getElementById('settingsBtn').onclick = () => { if (api) api.postMessage({ type: 'openSettings' }); };
-document.getElementById('domainsBtn').onclick  = () => { if (api) api.postMessage({ type: 'listDomains' }); };
+document.getElementById('domainsBtn').onclick  = () => {
+  /* If the host already pre-fetched the list on startup, render it
+     instantly from cache so there's zero perceived latency. Always
+     post `listDomains` too so the modal refreshes with fresh data
+     in the background — the second showDomainsModal() replaces the
+     first if anything changed. */
+  if (window.__cbeDomainsCache) showDomainsModal(window.__cbeDomainsCache);
+  if (api) api.postMessage({ type: 'listDomains' });
+};
 
 /* ── Read aloud (TTS 🔊) — click=read last reply, double-click=auto-read ─ */
 const tts = (function() {
@@ -484,11 +502,18 @@ const tts = (function() {
   let mode = 'idle';            /* 'idle' | 'sr' (Web Speech) | 'sapi' (host fallback) */
 
   function setListeningUI(on) {
+    /* `.speaking` is the legacy red-tint state. `.is-recording` drives the
+       blue loading-ring overlay (same SVG as #monitorBtn) so the user can
+       tell at a glance that the mic is actively capturing — important on
+       the SAPI fallback path where the recognizer is silent for up to 8s
+       waiting for the user to start speaking. */
     if (on) {
       sttBtn.classList.add('speaking');
+      sttBtn.classList.add('is-recording');
       sttBtn.title = 'Listening… click to stop';
     } else {
       sttBtn.classList.remove('speaking');
+      sttBtn.classList.remove('is-recording');
       sttBtn.title = 'Speech to Text — click to start/stop';
     }
   }
@@ -625,7 +650,15 @@ const tts = (function() {
   })();
   bind('chatHistoryBtn',    'openChatHistory'); /* host opens QuickPick of chats/*.log */
   bind('attachFileBtn',     'attachFile'); /* host opens file picker, returns content */
-  bind('autoReplyBtn',      'toggleAutoReply');
+  /* autoReplyBtn → opens the Auto Prompt config modal. Sending interval is
+     0 by default (off); set interval > 0 + a prompt and the panel will
+     auto-fire the prompt every N seconds, with a blue spinner overlay on
+     the button as the running indicator (same UX as monitor/STT). */
+  (function() {
+    const el = document.getElementById('autoReplyBtn');
+    if (!el) return;
+    el.addEventListener('click', () => openAutoPromptModal());
+  })();
   bind('wakeUpBtn',         'toggleWakeUp');
   /* showCommandsBtn handled inline — opens the in-panel slash menu */
   bind('compactBtn',        'compactConversation');
@@ -634,7 +667,18 @@ const tts = (function() {
   bind('extensionsBtn',     'openExtensions');
   bind('projectFolderBtn',  'pickProjectFolder');
   bind('gitBtn',            'openGit');
-  bind('githubBtn',         'openGitHub');
+  /* githubBtn — fetches the user's GitHub repos via the host (PAT from
+     config.ini) and shows a themed modal. The old `openGitHub` post had no
+     host handler and was a silent no-op. */
+  (function() {
+    const el = document.getElementById('githubBtn');
+    if (!el) return;
+    el.addEventListener('click', () => {
+      if (!api) { addMsg('(stub) githubBtn clicked', 'info'); return; }
+      showGitHubReposModal({ loading: true });
+      api.postMessage({ type: 'listGitHubRepos' });
+    });
+  })();
 })();
 
 /* Font Size toggle — adds/removes .cb-big on <body>, which flips
@@ -669,6 +713,157 @@ function applySkinUri(uri) {
   if (!link) return;
   link.setAttribute('href', uri || '');
 }
+
+function applySkinColors(colors) {
+  /* Push the modal palette from manifest.xml onto :root as --cbe-modal-*
+     custom properties. Empty/missing values fall back to the defaults
+     baked into the index.html :root block. Removing a previously-set
+     property via removeProperty() (rather than setting it to '') lets
+     the inline default win again when the user picks "None". */
+  const root = document.documentElement;
+  const map = {
+    'modal-bg':         '--cbe-modal-bg',
+    'modal-fg':         '--cbe-modal-fg',
+    'modal-border':     '--cbe-modal-border',
+    'modal-title-bg-1': '--cbe-modal-title-bg-1',
+    'modal-title-bg-2': '--cbe-modal-title-bg-2',
+    'modal-title-fg':   '--cbe-modal-title-fg',
+    'modal-foot-bg':    '--cbe-modal-foot-bg',
+    'modal-accent':     '--cbe-modal-accent',
+  };
+  for (const [k, cssVar] of Object.entries(map)) {
+    const v = colors && colors[k];
+    if (v) root.style.setProperty(cssVar, v);
+    else   root.style.removeProperty(cssVar);
+  }
+}
+
+/* ── Auto Prompt ─────────────────────────────────────────────────────────
+   Modal-driven recurring prompt. User sets a Prompt + Send Interval (sec).
+   If interval > 0, panel fires the configured prompt every N seconds via
+   the same path a normal send goes through (ti.value = ...; send();). The
+   button gets `is-autoprompting` while the interval is running so the
+   blue spinner overlay shows. Interval and prompt persist in localStorage
+   so reloading the panel keeps the same loop running. */
+let __cbeAutoPromptTimer = null;
+let __cbeAutoPromptText  = '';
+let __cbeAutoPromptSecs  = 0;
+
+function _cbeAutoPromptApplyUI(running) {
+  const btn = document.getElementById('autoReplyBtn');
+  if (btn) {
+    btn.classList.toggle('is-autoprompting', !!running);
+    btn.setAttribute('data-tooltip',
+      running ? `Auto Prompt: every ${__cbeAutoPromptSecs}s (click to edit)`
+              : 'Auto Prompt'
+    );
+  }
+}
+
+function startAutoPrompt(text, secs) {
+  stopAutoPrompt();
+  if (!text || !text.trim() || !secs || secs <= 0) return;
+  __cbeAutoPromptText = text;
+  __cbeAutoPromptSecs = secs;
+  __cbeAutoPromptTimer = setInterval(() => {
+    /* Skip a tick if the panel is currently waiting for a reply — don't
+       stack up requests if a previous one is still streaming. */
+    if (typeof busy !== 'undefined' && busy) return;
+    try {
+      ti.value = __cbeAutoPromptText;
+      send();
+    } catch (e) { /* swallow — the next tick will try again */ }
+  }, secs * 1000);
+  _cbeAutoPromptApplyUI(true);
+  try {
+    localStorage.setItem('cbe.autoPrompt', JSON.stringify({ text, secs }));
+  } catch (_) {}
+}
+
+function stopAutoPrompt() {
+  if (__cbeAutoPromptTimer) {
+    clearInterval(__cbeAutoPromptTimer);
+    __cbeAutoPromptTimer = null;
+  }
+  __cbeAutoPromptText = '';
+  __cbeAutoPromptSecs = 0;
+  _cbeAutoPromptApplyUI(false);
+  try { localStorage.removeItem('cbe.autoPrompt'); } catch (_) {}
+}
+
+function openAutoPromptModal() {
+  const old = document.getElementById('cbe-autoprompt-modal');
+  if (old) old.remove();
+  playSfx('open_modal');
+  /* Pre-fill from the running loop if any, else from saved settings. */
+  let prefillText = __cbeAutoPromptText, prefillSecs = __cbeAutoPromptSecs;
+  if (!prefillText && !prefillSecs) {
+    try {
+      const raw = localStorage.getItem('cbe.autoPrompt');
+      if (raw) {
+        const o = JSON.parse(raw);
+        if (o && typeof o.text === 'string')   prefillText = o.text;
+        if (o && typeof o.secs === 'number')   prefillSecs = o.secs;
+      }
+    } catch (_) {}
+  }
+  const overlay = document.createElement('div');
+  overlay.id = 'cbe-autoprompt-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;';
+  overlay.innerHTML =
+    '<div class="cbe-box" style="background:var(--cbe-modal-bg);color:var(--cbe-modal-fg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:520px;max-width:92vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
+      '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
+        '<span>Auto Prompt</span>' +
+        '<button type="button" data-act="cancel" aria-label="Close" style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:18px;cursor:pointer;">×</button>' +
+      '</div>' +
+      '<div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;">' +
+        '<label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">Prompt' +
+          `<textarea id="cbe-ap-text" rows="5" spellcheck="false" style="resize:vertical;font:13px/1.4 Consolas,monospace;background:rgba(0,0,0,.25);color:var(--cbe-modal-fg);border:1px solid var(--cbe-modal-border);border-radius:6px;padding:8px 10px;">${escapeHtml(prefillText)}</textarea>` +
+        '</label>' +
+        '<label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">Send Interval (seconds — 0 to stop)' +
+          `<input id="cbe-ap-secs" type="number" min="0" step="1" value="${Number(prefillSecs)||0}" style="font:14px/1 Consolas,monospace;background:rgba(0,0,0,.25);color:var(--cbe-modal-fg);border:1px solid var(--cbe-modal-border);border-radius:6px;padding:8px 10px;" />` +
+        '</label>' +
+      '</div>' +
+      '<div class="cbe-foot" style="padding:10px 16px;background:var(--cbe-modal-foot-bg);border-top:1px solid rgba(0,0,0,.25);display:flex;justify-content:flex-end;gap:8px;">' +
+        '<button type="button" data-act="cancel" style="background:transparent;color:var(--cbe-modal-fg);border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:6px 14px;cursor:pointer;">Cancel</button>' +
+        '<button type="button" data-act="save" style="background:var(--cbe-modal-accent);color:var(--cbe-modal-title-fg);border:0;border-radius:6px;padding:6px 14px;cursor:pointer;font-weight:600;">Save</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  function done() {
+    try { overlay.remove(); } catch (_) {}
+    document.removeEventListener('keydown', onKey, true);
+    playSfx('close_modal');
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') done();
+  }
+  overlay.addEventListener('click', (e) => {
+    const act = e.target && e.target.getAttribute && e.target.getAttribute('data-act');
+    if (act === 'cancel' || e.target === overlay) return done();
+    if (act === 'save') {
+      const text = (overlay.querySelector('#cbe-ap-text').value || '').trim();
+      const secs = Math.max(0, parseInt(overlay.querySelector('#cbe-ap-secs').value, 10) || 0);
+      if (secs === 0 || !text) stopAutoPrompt();
+      else startAutoPrompt(text, secs);
+      done();
+    }
+  });
+  document.addEventListener('keydown', onKey, true);
+}
+
+/* Resume a previously-running loop on panel load. */
+(function resumeAutoPrompt() {
+  try {
+    const raw = localStorage.getItem('cbe.autoPrompt');
+    if (!raw) return;
+    const o = JSON.parse(raw);
+    if (o && o.text && o.secs && o.secs > 0) {
+      /* Defer until the textarea + send fn exist. */
+      setTimeout(() => startAutoPrompt(o.text, o.secs), 500);
+    }
+  } catch (_) {}
+})();
 
 function showDomainsModal(payload) {
   /* Render a quick modal listing NameSilo domains + their nameservers. Uses
@@ -706,8 +901,8 @@ function showDomainsModal(payload) {
   }
 
   overlay.innerHTML =
-    '<div class="cbe-box" style="background:#1a1a1a;border:2px solid #e8621a;border-radius:10px;width:700px;max-width:92vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
-      '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,#b83c00,#e8621a);color:#fff;font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
+    '<div class="cbe-box" style="background:var(--cbe-modal-bg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:700px;max-width:92vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
+      '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
         `<span>NameSilo Domains${payload.domains ? ` (${payload.domains.length})` : ''}</span>` +
         '<button type="button" data-act="close" aria-label="Close" style="background:transparent;border:0;color:#fff;font-size:18px;cursor:pointer;">×</button>' +
       '</div>' +
@@ -731,6 +926,199 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+/* ── GitHub Repos modal ──────────────────────────────────────────────────
+   Mirrors showDomainsModal's overlay/skin variables so it themes with the
+   active skin. payload shapes:
+     { loading: true }                           // initial "Loading..." state
+     { error: 'message' }                        // PAT missing / 401 / 403 / net
+     { repos: [{ full_name, private, html_url,
+                  description, updated_at,
+                  language, stargazers_count }] }
+*/
+let __cbeGitHubFilter = '';
+let __cbeGitHubSort   = { key: 'updated_at', dir: 'desc' };
+let __cbeGitHubRepos  = [];
+
+function showGitHubReposModal(payload) {
+  const existing = document.getElementById('cbe-github-modal');
+  if (existing) existing.remove();
+  if (!existing) playSfx('open_modal');
+
+  if (payload && Array.isArray(payload.repos)) {
+    __cbeGitHubRepos = payload.repos.slice();
+    __cbeGitHubFilter = '';
+    __cbeGitHubSort = { key: 'updated_at', dir: 'desc' };
+  }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'cbe-github-modal';
+  overlay.className = 'cbe-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;';
+
+  const titleCount = (payload && Array.isArray(payload.repos)) ? ` (${payload.repos.length})` : '';
+  const bodyHost   = '<div id="cbe-github-body" style="padding:14px 18px;max-height:60vh;overflow:auto;"></div>';
+  const searchBar  =
+    '<div style="padding:10px 18px 0 18px;display:flex;gap:8px;align-items:center;">' +
+      '<input id="cbe-github-search" type="text" placeholder="Filter repos..." ' +
+        'style="flex:1;background:#1a1a1a;color:var(--cbe-modal-fg);border:1px solid var(--cbe-modal-border);' +
+        'border-radius:6px;padding:6px 10px;font-family:Consolas,monospace;font-size:13px;outline:none;">' +
+      '<span id="cbe-github-count" style="opacity:.65;font-size:12px;color:var(--cbe-modal-fg);"></span>' +
+    '</div>';
+
+  overlay.innerHTML =
+    '<div class="cbe-box" style="background:var(--cbe-modal-bg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:900px;max-width:94vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
+      '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
+        `<span>GitHub Repositories${titleCount}</span>` +
+        '<button type="button" data-act="close" aria-label="Close" style="background:transparent;border:0;color:#fff;font-size:18px;cursor:pointer;">×</button>' +
+      '</div>' +
+      searchBar +
+      bodyHost +
+      '<div class="cbe-foot" style="padding:10px 16px;background:var(--cbe-modal-foot-bg);border-top:1px solid var(--cbe-modal-border);display:flex;justify-content:flex-end;gap:8px;">' +
+        '<button type="button" data-act="refresh" style="background:#3a3a3a;color:#e8e8e8;border:1px solid #555;border-radius:6px;padding:6px 14px;cursor:pointer;">Refresh</button>' +
+        '<button type="button" data-act="close" style="background:#3a3a3a;color:#e8e8e8;border:1px solid #555;border-radius:6px;padding:6px 14px;cursor:pointer;">Close</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', (e) => {
+    const act = e.target && e.target.getAttribute && e.target.getAttribute('data-act');
+    if (e.target === overlay || act === 'close') {
+      overlay.remove();
+      playSfx('close_modal');
+    } else if (act === 'refresh') {
+      if (api) {
+        renderGitHubModalBody({ loading: true });
+        api.postMessage({ type: 'listGitHubRepos' });
+      }
+    } else {
+      /* Header sort clicks */
+      const th = e.target && e.target.closest && e.target.closest('th[data-sort]');
+      if (th) {
+        const k = th.getAttribute('data-sort');
+        if (__cbeGitHubSort.key === k) {
+          __cbeGitHubSort.dir = __cbeGitHubSort.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+          __cbeGitHubSort = { key: k, dir: (k === 'full_name' || k === 'language') ? 'asc' : 'desc' };
+        }
+        renderGitHubModalBody();
+        return;
+      }
+      /* Row link click — route through host for openExternal */
+      const a = e.target && e.target.closest && e.target.closest('a[data-url]');
+      if (a) {
+        e.preventDefault();
+        const url = a.getAttribute('data-url');
+        if (api && url) api.postMessage({ type: 'openExternal', url });
+      }
+    }
+  });
+
+  const searchEl = overlay.querySelector('#cbe-github-search');
+  if (searchEl) {
+    searchEl.addEventListener('input', () => {
+      __cbeGitHubFilter = searchEl.value || '';
+      renderGitHubModalBody();
+    });
+  }
+
+  renderGitHubModalBody(payload);
+}
+
+function renderGitHubModalBody(payload) {
+  const host = document.getElementById('cbe-github-body');
+  if (!host) return;
+  const countEl = document.getElementById('cbe-github-count');
+
+  if (payload && payload.loading) {
+    host.innerHTML = '<div style="padding:20px;color:var(--cbe-modal-fg);opacity:.75;">Loading repositories…</div>';
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+  if (payload && payload.error) {
+    host.innerHTML = `<div style="padding:20px;color:#ffb6b6;white-space:pre-wrap;">${escapeHtml(payload.error)}</div>`;
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+  if (!__cbeGitHubRepos.length) {
+    host.innerHTML = '<div style="padding:20px;color:var(--cbe-modal-fg);">No repositories found on this account.</div>';
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+
+  const q = __cbeGitHubFilter.trim().toLowerCase();
+  let rows = __cbeGitHubRepos.slice();
+  if (q) {
+    rows = rows.filter(r =>
+      (r.full_name && r.full_name.toLowerCase().includes(q)) ||
+      (r.description && r.description.toLowerCase().includes(q)) ||
+      (r.language && r.language.toLowerCase().includes(q))
+    );
+  }
+  const { key, dir } = __cbeGitHubSort;
+  const mul = dir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    let va = a[key], vb = b[key];
+    if (key === 'stargazers_count') { va = va || 0; vb = vb || 0; return (va - vb) * mul; }
+    if (key === 'updated_at') {
+      const da = va ? new Date(va).getTime() : 0;
+      const db = vb ? new Date(vb).getTime() : 0;
+      return (da - db) * mul;
+    }
+    va = String(va == null ? '' : va).toLowerCase();
+    vb = String(vb == null ? '' : vb).toLowerCase();
+    return va < vb ? -1 * mul : va > vb ? 1 * mul : 0;
+  });
+
+  function arrow(k) { return key === k ? (dir === 'asc' ? ' ▲' : ' ▼') : ''; }
+
+  const fmtDate = (s) => {
+    if (!s) return '';
+    try { const d = new Date(s); if (isNaN(d.getTime())) return s; return d.toISOString().slice(0, 10); }
+    catch (_) { return s; }
+  };
+
+  const accent = 'var(--cbe-modal-accent)';
+  const border = 'var(--cbe-modal-border)';
+  const trs = rows.map(r => {
+    const isPriv = !!r.private;
+    const badge = isPriv
+      ? '<span style="display:inline-block;padding:1px 7px;border-radius:10px;background:#5a2a2a;color:#ffb6b6;font-size:11px;font-weight:600;">private</span>'
+      : '<span style="display:inline-block;padding:1px 7px;border-radius:10px;background:#2a4a2a;color:#b6ffc4;font-size:11px;font-weight:600;">public</span>';
+    return `
+      <tr>
+        <td style="padding:6px 12px;border-bottom:1px solid ${border};font-family:Consolas,monospace;">
+          <a href="${escapeHtml(r.html_url || '#')}" data-url="${escapeHtml(r.html_url || '')}"
+             style="color:${accent};text-decoration:none;font-weight:600;">${escapeHtml(r.full_name || '')}</a>
+          ${r.description ? `<div style="opacity:.7;font-family:system-ui,sans-serif;font-size:11px;margin-top:2px;">${escapeHtml(r.description)}</div>` : ''}
+        </td>
+        <td style="padding:6px 12px;border-bottom:1px solid ${border};">${badge}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid ${border};text-align:right;font-family:Consolas,monospace;">${r.stargazers_count || 0}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid ${border};font-family:Consolas,monospace;font-size:12px;">${escapeHtml(r.language || '')}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid ${border};font-family:Consolas,monospace;font-size:12px;">${escapeHtml(fmtDate(r.updated_at))}</td>
+      </tr>`;
+  }).join('');
+
+  const thStyle = `text-align:left;padding:8px 12px;border-bottom:2px solid ${border};color:${accent};cursor:pointer;user-select:none;`;
+  host.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px;color:var(--cbe-modal-fg);">
+      <thead><tr>
+        <th data-sort="full_name"        style="${thStyle}">Repository${arrow('full_name')}</th>
+        <th data-sort="private"          style="${thStyle}">Visibility${arrow('private')}</th>
+        <th data-sort="stargazers_count" style="${thStyle};text-align:right;">Stars${arrow('stargazers_count')}</th>
+        <th data-sort="language"         style="${thStyle}">Language${arrow('language')}</th>
+        <th data-sort="updated_at"       style="${thStyle}">Updated${arrow('updated_at')}</th>
+      </tr></thead>
+      <tbody>${trs}</tbody>
+    </table>
+    ${rows.length === 0 && q ? `<div style="padding:14px 4px;opacity:.6;color:var(--cbe-modal-fg);">No repos match "${escapeHtml(q)}".</div>` : ''}
+  `;
+  if (countEl) {
+    countEl.textContent = q
+      ? `${rows.length} of ${__cbeGitHubRepos.length}`
+      : `${__cbeGitHubRepos.length} repos`;
+  }
+}
+
 function renderSkinDropdown() {
   /* If the settings modal is open, fill its skin <select>. Called both when
      the skins list arrives from the host and when settings re-opens with a
@@ -752,6 +1140,11 @@ function renderSkinDropdown() {
     const o = document.createElement('option');
     o.value = s.name; o.textContent = s.label || s.name;
     o.dataset.uri = s.uri || '';
+    /* Stash the modal palette as JSON in a data-attr so the live-preview
+       on `change` can apply it without another host round-trip. */
+    if (s.colors) {
+      try { o.dataset.colors = JSON.stringify(s.colors); } catch (_) {}
+    }
     sel.appendChild(o);
   });
   sel.value = __cbeActiveSkin || '';
@@ -774,11 +1167,11 @@ function openSettings(payload) {
     +     '<div><label>Skin</label><select id="cbe-set-skin"><option value="">Loading skins…</option></select></div>'
     +     '<div style="display:flex;align-items:center;gap:10px;margin-top:4px;">'
     +       '<label for="cbe-set-sfx-enabled" style="margin:0;flex:1;">Sound Effects</label>'
-    +       '<input type="checkbox" id="cbe-set-sfx-enabled" style="width:auto;accent-color:#e8621a;cursor:pointer;">'
+    +       '<input type="checkbox" id="cbe-set-sfx-enabled" style="width:auto;accent-color:var(--cbe-modal-accent);cursor:pointer;">'
     +     '</div>'
     +     '<div>'
     +       '<label for="cbe-set-sfx-volume">Volume <span id="cbe-set-sfx-volume-pct" style="opacity:.65;font-weight:400;">55%</span></label>'
-    +       '<input type="range" id="cbe-set-sfx-volume" min="0" max="100" step="1" value="55" style="width:100%;accent-color:#e8621a;cursor:pointer;">'
+    +       '<input type="range" id="cbe-set-sfx-volume" min="0" max="100" step="1" value="55" style="width:100%;accent-color:var(--cbe-modal-accent);cursor:pointer;">'
     +     '</div>'
     +   '</div>'
     +   '<div class="cbe-foot">'
@@ -856,10 +1249,31 @@ function openSettings(payload) {
      Cancel reverts to the saved skin, Save persists the new one. */
   const __cbeSavedSkinAtOpen = __cbeActiveSkin;
   const __cbeSavedSkinUriAtOpen = (document.getElementById('cbe-skin') || {}).href || '';
+  /* Snapshot the live :root style overrides so Cancel can restore exactly
+     what was set before the user started fiddling with the dropdown. */
+  const __cbeSavedColorsAtOpen = (() => {
+    const r = document.documentElement.style;
+    return {
+      'modal-bg':         r.getPropertyValue('--cbe-modal-bg'),
+      'modal-fg':         r.getPropertyValue('--cbe-modal-fg'),
+      'modal-border':     r.getPropertyValue('--cbe-modal-border'),
+      'modal-title-bg-1': r.getPropertyValue('--cbe-modal-title-bg-1'),
+      'modal-title-bg-2': r.getPropertyValue('--cbe-modal-title-bg-2'),
+      'modal-title-fg':   r.getPropertyValue('--cbe-modal-title-fg'),
+      'modal-foot-bg':    r.getPropertyValue('--cbe-modal-foot-bg'),
+      'modal-accent':     r.getPropertyValue('--cbe-modal-accent'),
+    };
+  })();
   overlay.querySelector('#cbe-set-skin').addEventListener('change', (e) => {
     const opt = e.target.options[e.target.selectedIndex];
     const uri = (opt && opt.dataset && opt.dataset.uri) || '';
     applySkinUri(uri);
+    /* Live-preview the modal palette too — pulled out of dataset.colors
+       (set by renderSkinDropdown when the host's listSkins reply arrived). */
+    let colors = null;
+    try { colors = opt && opt.dataset && opt.dataset.colors ? JSON.parse(opt.dataset.colors) : null; }
+    catch (_) { colors = null; }
+    applySkinColors(colors);
   });
 
   /* SFX controls. Hydrate from current window state, wire live preview so
@@ -882,10 +1296,11 @@ function openSettings(payload) {
   overlay.addEventListener('click', (e) => {
     const act = e.target.getAttribute && e.target.getAttribute('data-act');
     if (act === 'cancel' || e.target === overlay) {
-      /* Revert live-previewed SFX + skin changes if the user cancels. */
+      /* Revert live-previewed SFX + skin + modal-palette changes on cancel. */
       setSfxEnabled(__cbeSavedSfxEnabled);
       setSfxVolume(__cbeSavedSfxVolume);
       applySkinUri(__cbeSavedSkinUriAtOpen);
+      applySkinColors(__cbeSavedColorsAtOpen);
       __cbeActiveSkin = __cbeSavedSkinAtOpen;
       closeSettings();
       return;
@@ -934,7 +1349,17 @@ function closeSettings(suppressSfx) {
 /* Tell host we're ready to receive init payload. */
 if (api) api.postMessage({ type: 'ready' });
 
-/* Diagnostic: log the resolved font stack on #textInput right after first
+/* Sync the monitor button's blue glow with the actual supervisor service state
+   on every panel load + every 10s after. Without the periodic re-check the
+   button would lie if the service was stopped externally (Task Manager,
+   sc.exe stop from a terminal, etc). 10s is cheap — sc.exe query takes <20ms. */
+function _cbeRequestMonitorState() {
+  if (api) api.postMessage({ type: 'monitorStatus' });
+}
+_cbeRequestMonitorState();
+setInterval(_cbeRequestMonitorState, 10000);
+
+/* Diagnostic: log the resolved font stack on #promptBox right after first
    paint so we can confirm the monospace lock actually computes through.
    This used to be a silent assumption — surfacing the values means future
    regressions show up immediately in the trace channel ("VSCode monitor"
@@ -942,7 +1367,7 @@ if (api) api.postMessage({ type: 'ready' });
    slash-command introspection. */
 function _cbeReportPromptFont(reason) {
   try {
-    const el = document.getElementById('textInput');
+    const el = document.getElementById('promptBox');
     if (!el) return;
     const cs = getComputedStyle(el);
     const report = {
@@ -954,7 +1379,7 @@ function _cbeReportPromptFont(reason) {
       font:       cs.font,
     };
     window.__cbeComputedPromptFont = report;
-    if (api) api.postMessage({ type: 'debugComputed', target: '#textInput', report });
+    if (api) api.postMessage({ type: 'debugComputed', target: '#promptBox', report });
   } catch (e) { /* probe is best-effort */ }
 }
 /* Fire once on load, once after fonts settle (system fonts can change the
@@ -964,11 +1389,57 @@ if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
   document.fonts.ready.then(() => _cbeReportPromptFont('fonts-ready'));
 }
 window.__cbeProbeFont = (sel) => {
-  const el = sel ? document.querySelector(sel) : document.getElementById('textInput');
+  const el = sel ? document.querySelector(sel) : document.getElementById('promptBox');
   if (!el) return null;
   const cs = getComputedStyle(el);
-  return { selector: sel || '#textInput', fontFamily: cs.fontFamily, fontSize: cs.fontSize, font: cs.font };
+  return { selector: sel || '#promptBox', fontFamily: cs.fontFamily, fontSize: cs.fontSize, font: cs.font };
 };
+
+/* ── Nuclear monospace lock ──────────────────────────────────────────────
+   The CSS lock at maximum specificity STILL loses when a skin is loaded
+   (skin's `.prompt-input { font-family: ... !important }` ties on importance
+   and depending on source-order can win). Going inline-with-!important is
+   the only rule no CSS sheet can override — inline style with !important
+   beats every external rule regardless of specificity or origin. A
+   MutationObserver re-applies it if anything (panel.js itself, a skin, a
+   future agent) strips or mutates the style attribute. */
+(function lockPromptFont() {
+  const FAMILY = 'Consolas, "Cascadia Mono", "Courier New", monospace';
+  const FONT_SHORTHAND = '400 18px/1.34 ' + FAMILY;
+  function apply(el) {
+    if (!el) return;
+    el.style.setProperty('font',        FONT_SHORTHAND, 'important');
+    el.style.setProperty('font-family', FAMILY,         'important');
+  }
+  function attach() {
+    const el = document.getElementById('promptBox');
+    if (!el) return false;
+    apply(el);
+    /* If anything later overwrites the style attr — e.g. a skin re-flow or
+       a future feature setting an inline color — re-apply our font. We
+       gate to attribute mutations only, and only on `style`, so the
+       observer is cheap. */
+    const mo = new MutationObserver((muts) => {
+      for (const m of muts) {
+        if (m.type === 'attributes' && m.attributeName === 'style') {
+          const cur = el.style.getPropertyValue('font-family');
+          if (!cur || cur.indexOf('Consolas') === -1) apply(el);
+        }
+      }
+    });
+    mo.observe(el, { attributes: true, attributeFilter: ['style'] });
+    /* Also re-apply once after fonts settle — `document.fonts.ready` can
+       cause the UA to re-resolve fallback chains briefly. */
+    if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
+      document.fonts.ready.then(() => apply(el)).catch(() => {});
+    }
+    return true;
+  }
+  if (!attach()) {
+    /* Element not in DOM yet — retry once on DOMContentLoaded. */
+    document.addEventListener('DOMContentLoaded', attach, { once: true });
+  }
+})();
 
 /* Kick off Prism load in the background AFTER `ready` is posted, so it
    never blocks the boot path. Code blocks rendered before Prism arrives
@@ -1258,15 +1729,63 @@ function storedPromptsSave() {
 function storedPromptsDelete() {
   if (__cbePromptsModalSelIdx < 0 || __cbePromptsModalSelIdx >= __cbePrompts.length) return;
   const which = _cbePromptShort(__cbePrompts[__cbePromptsModalSelIdx]);
-  if (!confirm(`Delete this prompt?\n\n${which}`)) return;
-  const next = __cbePrompts.slice();
-  next.splice(__cbePromptsModalSelIdx, 1);
-  __cbePrompts = next;
-  promptsResetRecall();
-  __cbePromptsModalSelIdx = next.length ? Math.min(__cbePromptsModalSelIdx, next.length - 1) : -1;
-  if (api) api.postMessage({ type: 'saveStoredPrompts', items: next });
-  setStoredPromptsStatus('Deleted.');
-  renderStoredPromptsModal();
+  /* Native confirm() is blocked in VSCode webviews — it returns undefined
+     and the dialog never paints, so the user's click looked like a no-op.
+     cbeConfirm() renders an in-panel overlay that works in the webview
+     sandbox and themes via --cbe-modal-*. */
+  cbeConfirm(`Delete this prompt?\n\n${which}`).then(ok => {
+    if (!ok) { setStoredPromptsStatus('Cancelled.'); return; }
+    if (__cbePromptsModalSelIdx < 0 || __cbePromptsModalSelIdx >= __cbePrompts.length) return;
+    const next = __cbePrompts.slice();
+    next.splice(__cbePromptsModalSelIdx, 1);
+    __cbePrompts = next;
+    promptsResetRecall();
+    __cbePromptsModalSelIdx = next.length ? Math.min(__cbePromptsModalSelIdx, next.length - 1) : -1;
+    if (api) api.postMessage({ type: 'saveStoredPrompts', items: next });
+    setStoredPromptsStatus('Deleted.');
+    renderStoredPromptsModal();
+  });
+}
+
+function cbeConfirm(message) {
+  /* Tiny replacement for window.confirm() that works inside a VSCode
+     webview. Themed via the same --cbe-modal-* vars the rest of the
+     modals use, so it matches the active skin. Returns a Promise<bool>. */
+  return new Promise(resolve => {
+    const old = document.getElementById('cbe-confirm');
+    if (old) old.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'cbe-confirm';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;';
+    overlay.innerHTML =
+      '<div style="background:var(--cbe-modal-bg);color:var(--cbe-modal-fg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:420px;max-width:92vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
+        '<div style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;">Confirm</div>' +
+        '<div style="padding:16px 18px;white-space:pre-wrap;line-height:1.45;">' + escapeHtml(message) + '</div>' +
+        '<div style="padding:10px 16px;background:var(--cbe-modal-foot-bg);border-top:1px solid rgba(0,0,0,.25);display:flex;justify-content:flex-end;gap:8px;">' +
+          '<button type="button" data-act="cancel" style="background:transparent;color:var(--cbe-modal-fg);border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:6px 14px;cursor:pointer;">Cancel</button>' +
+          '<button type="button" data-act="ok" style="background:var(--cbe-modal-accent);color:var(--cbe-modal-title-fg);border:0;border-radius:6px;padding:6px 14px;cursor:pointer;font-weight:600;">Delete</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    function done(result) {
+      try { overlay.remove(); } catch (_) {}
+      document.removeEventListener('keydown', onKey, true);
+      resolve(result);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') done(false);
+      else if (e.key === 'Enter') done(true);
+    }
+    overlay.addEventListener('click', (e) => {
+      const act = e.target && e.target.getAttribute && e.target.getAttribute('data-act');
+      if (act === 'ok') done(true);
+      else if (act === 'cancel' || e.target === overlay) done(false);
+    });
+    document.addEventListener('keydown', onKey, true);
+    /* Focus the cancel button by default so Enter doesn't auto-delete. */
+    const cancelBtn = overlay.querySelector('button[data-act="cancel"]');
+    if (cancelBtn) cancelBtn.focus();
+  });
 }
 
 function storedPromptsUse() {
@@ -1435,7 +1954,8 @@ const CBE_COMMANDS = [
   { name: '/folder',   desc: 'Pick project folder',      run: () => document.getElementById('projectFolderBtn').click() },
   { name: '/compact',  desc: 'Compact conversation',     run: () => { if (api) api.postMessage({ type: 'compactConversation' }); } },
   { name: '/git',      desc: 'Source control',           run: () => { if (api) api.postMessage({ type: 'openGit' }); } },
-  { name: '/github',   desc: 'Open GitHub',              run: () => { if (api) api.postMessage({ type: 'openGitHub' }); } },
+  { name: '/github',   desc: 'List GitHub repos',        run: () => { const b = document.getElementById('githubBtn'); if (b) b.click(); } },
+  { name: '/license',  desc: 'Show the MIT license',     run: () => { if (api) api.postMessage({ type: 'showLicense' }); } },
 ];
 
 let __cbeCmdMenuEl    = null;
@@ -1633,22 +2153,44 @@ window.addEventListener('message', e => {
        the dropdown selection when settings opens. */
     if (typeof m.skin === 'string') __cbeActiveSkin = m.skin;
     if (m.skinUri) applySkinUri(m.skinUri);
+    applySkinColors(m.skinColors || null);
     if (!__cbeOpenAppPlayed) {
       __cbeOpenAppPlayed = true;
       playSfx('open_and_close_application');
     }
   } else if (m.type === 'applySkin') {
     /* Host-driven skin swap. m.skin = bare filename ('' to clear),
-       m.skinUri = full webview URI ('' to clear). */
+       m.skinUri = full webview URI ('' to clear),
+       m.skinColors = modal palette from manifest (null to fall back to defaults). */
     __cbeActiveSkin = m.skin || '';
     applySkinUri(m.skinUri || '');
+    applySkinColors(m.skinColors || null);
   } else if (m.type === 'skinsList') {
     /* Lazy-discovered skin list — populates the dropdown if settings is open. */
     __cbeSkinsList = Array.isArray(m.skins) ? m.skins.slice() : [];
     renderSkinDropdown();
   } else if (m.type === 'domainsList') {
-    /* NameSilo domain listing — render a modal table. */
-    showDomainsModal(m);
+    /* NameSilo domain listing — cache for instant re-open, and render
+       a modal table now. The host fires this once at startup
+       (prefetched=true) and again on every click; in both cases we
+       refresh the cache so subsequent clicks are instant. The modal
+       is rendered for explicit clicks (no prefetched flag) AND when
+       a refresh comes in while a modal is already on screen. */
+    window.__cbeDomainsCache = m;
+    const modalOpen = !!document.getElementById('cbe-domains-modal');
+    if (!m.prefetched || modalOpen) showDomainsModal(m);
+  } else if (m.type === 'githubReposList') {
+    /* GitHub repos from the host — show or refresh the modal. */
+    showGitHubReposModal(m);
+  } else if (m.type === 'monitorState') {
+    /* Supervisor service running/stopped — set the blue glow accordingly. */
+    const btn = document.getElementById('monitorBtn');
+    if (btn) {
+      btn.classList.toggle('is-monitoring', !!m.running);
+      btn.setAttribute('data-tooltip',
+        m.running ? 'VSCode supervisor: RUNNING (left-click to stop · right-click for trace)'
+                  : 'VSCode supervisor: stopped (left-click to start · right-click for trace)');
+    }
   } else if (m.type === 'openSettings') {
     __cbeActiveProvider = m.active || __cbeActiveProvider;
     openSettings(m);
@@ -2131,8 +2673,22 @@ window.addEventListener('resize', fitProjectPath);
   }
 
   /* Single global contextmenu listener — capture phase so we override
-     VS Code's default webview menu. */
+     VS Code's default webview menu. Skips the menu entirely when the
+     click lands on a toolbar control (tool/label/send/stop button) or
+     the input textarea, where a context menu is more confusing than
+     useful. Right-click on chat text / code blocks still shows it so
+     Copy / View Source / DevTools / Refresh remain reachable. */
   document.addEventListener('contextmenu', function(e) {
+    if (e.target && e.target.closest) {
+      const skip = e.target.closest(
+        '.tool-button, .label-button, .send-button, .stop-button, ' +
+        '#promptBox, .prompt-input-wrap, .prompt-toolbar, .toolbar-meta'
+      );
+      if (skip) {
+        e.preventDefault();
+        return;
+      }
+    }
     e.preventDefault();
     var codeEl = findCodeEl(e.target);
     showCtxMenu(e.clientX, e.clientY, codeEl);

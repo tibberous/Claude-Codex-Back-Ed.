@@ -7,4 +7,18 @@
   <accent>#3f72a8</accent>
   <stylesheet>styles.css</stylesheet>
   <description>Square classic GTK bevels — flat grey, no rounded corners.</description>
+  <!-- Modal chrome. Pushed onto :root as --cbe-modal-* CSS variables at
+       apply time so the panel's modals (Settings, Domains, Setup wizard,
+       Handbook, Stored prompts, Help, Source viewer, right-click menu)
+       paint in the theme's accent without duplicating modal markup. -->
+  <colors>
+    <modal-bg>#d8d8d8</modal-bg>
+    <modal-fg>#202020</modal-fg>
+    <modal-border>#686868</modal-border>
+    <modal-title-bg-1>#3f72a8</modal-title-bg-1>
+    <modal-title-bg-2>#5b8dc4</modal-title-bg-2>
+    <modal-title-fg>#ffffff</modal-title-fg>
+    <modal-foot-bg>#c5c5c5</modal-foot-bg>
+    <modal-accent>#3f72a8</modal-accent>
+  </colors>
 </skin>

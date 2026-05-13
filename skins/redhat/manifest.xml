@@ -7,4 +7,18 @@
   <accent>#ee0000</accent>
   <stylesheet>styles.css</stylesheet>
   <description>Crisp enterprise grey + red accent, sharp 3px corners.</description>
+  <!-- Modal chrome. Pushed onto :root as --cbe-modal-* CSS variables at
+       apply time so the panel's modals (Settings, Domains, Setup wizard,
+       Handbook, Stored prompts, Help, Source viewer, right-click menu)
+       paint in the theme's accent without duplicating modal markup. -->
+  <colors>
+    <modal-bg>#f2f4f5</modal-bg>
+    <modal-fg>#252b31</modal-fg>
+    <modal-border>#ee0000</modal-border>
+    <modal-title-bg-1>#b30000</modal-title-bg-1>
+    <modal-title-bg-2>#ee0000</modal-title-bg-2>
+    <modal-title-fg>#ffffff</modal-title-fg>
+    <modal-foot-bg>#d5dadd</modal-foot-bg>
+    <modal-accent>#ee0000</modal-accent>
+  </colors>
 </skin>

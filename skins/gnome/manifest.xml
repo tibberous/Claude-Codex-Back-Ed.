@@ -7,4 +7,18 @@
   <accent>#3584e4</accent>
   <stylesheet>styles.css</stylesheet>
   <description>Clean Adwaita-style light shell with blue accent, soft shadow.</description>
+  <!-- Modal chrome. Pushed onto :root as --cbe-modal-* CSS variables at
+       apply time so the panel's modals (Settings, Domains, Setup wizard,
+       Handbook, Stored prompts, Help, Source viewer, right-click menu)
+       paint in the theme's accent without duplicating modal markup. -->
+  <colors>
+    <modal-bg>#2e3436</modal-bg>
+    <modal-fg>#eaeef3</modal-fg>
+    <modal-border>#3584e4</modal-border>
+    <modal-title-bg-1>#2a6dbf</modal-title-bg-1>
+    <modal-title-bg-2>#3584e4</modal-title-bg-2>
+    <modal-title-fg>#ffffff</modal-title-fg>
+    <modal-foot-bg>#232729</modal-foot-bg>
+    <modal-accent>#3584e4</modal-accent>
+  </colors>
 </skin>

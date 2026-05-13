@@ -74,12 +74,15 @@ body {
    With 21 buttons (Help + Domains added), the default layout wraps. Shrinking
    to 38x38 + 4px gap keeps every button on a single row at common widths
    (~840px) and gives the skinned look a denser, app-bar feel.
-   nowrap is explicit — if the panel does shrink below the threshold the row
-   will scroll horizontally instead of stacking. */
+   `justify-content: flex-start` is critical — the default is `center`, which
+   combined with overflow makes the leftmost buttons inaccessible (centered
+   overflow extends past x=0 and gets clipped). Keep overflow visible so the
+   row never scroll-clips; prompt-shell padding absorbs minor spill. */
 .toolbar-tools {
   gap: 4px !important;
   flex-wrap: nowrap !important;
-  overflow-x: auto;
+  justify-content: flex-start !important;
+  overflow-x: visible !important;
 }
 .tool-button {
   width: 38px !important;

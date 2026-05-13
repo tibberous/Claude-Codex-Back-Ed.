@@ -7,4 +7,18 @@
   <accent>#4d8b18</accent>
   <stylesheet>styles.css</stylesheet>
   <description>Pixel-pet LCD lime-green look with retro chunky shadows.</description>
+  <!-- Modal chrome. Pushed onto :root as --cbe-modal-* CSS variables at
+       apply time so the panel's modals (Settings, Domains, Setup wizard,
+       Handbook, Stored prompts, Help, Source viewer, right-click menu)
+       paint in the theme's accent without duplicating modal markup. -->
+  <colors>
+    <modal-bg>#c9ee75</modal-bg>
+    <modal-fg>#315912</modal-fg>
+    <modal-border>#426d1d</modal-border>
+    <modal-title-bg-1>#5f8d29</modal-title-bg-1>
+    <modal-title-bg-2>#79a936</modal-title-bg-2>
+    <modal-title-fg>#315912</modal-title-fg>
+    <modal-foot-bg>#acd85b</modal-foot-bg>
+    <modal-accent>#4d8b18</modal-accent>
+  </colors>
 </skin>
