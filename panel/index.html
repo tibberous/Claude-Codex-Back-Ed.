@@ -130,13 +130,12 @@ body {
 .prompt-toolbar {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
-  justify-content: center;
-  gap: 8px;
-  min-height: 56px;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-height: 60px;
 }
 
-.toolbar-spacer { display: none; }
+.toolbar-spacer { flex: 1 1 auto; min-width: 12px; }
 
 .tool-button,
 .label-button,
@@ -149,8 +148,8 @@ body {
 }
 
 .tool-button {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border-radius: var(--button-radius);
   border: 2px solid rgba(255, 160, 30, 0.96);
   background:
@@ -192,15 +191,15 @@ body {
 }
 
 .tool-button img {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   display: block;
   filter: brightness(0) invert(1);
 }
 
 .label-button {
   display: block;
-  width: 220px;
+  width: 280px;
   border-radius: 20px;
   overflow: hidden;
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.33);
@@ -225,9 +224,9 @@ body {
 .project-path {
   flex: 0 1 auto;
   min-width: 60px;
-  max-width: 220px;
-  height: 32px;
-  padding: 0 12px;
+  max-width: 360px;
+  height: 36px;
+  padding: 0 14px;
   display: inline-flex;
   align-items: center;
   border-radius: 10px;
@@ -254,14 +253,14 @@ body {
 }
 
 .stop-button {
-  height: 44px;
-  padding: 0 14px;
-  border-radius: 12px;
+  height: 52px;
+  padding: 0 20px;
+  border-radius: 14px;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   color: #f3f3f3;
-  font-size: 15px;
+  font-size: 19px;
   font-weight: 600;
   letter-spacing: .01em;
   border: 1px solid rgba(255,255,255,0.12);
@@ -287,9 +286,9 @@ body {
 .stop-button:active { transform: translateY(1px); filter: brightness(.86); }
 
 .stop-button__icon {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
   background: #f3f3f3;
   box-shadow: 0 0 0 1px rgba(255,255,255,0.35), 0 0 8px rgba(255,255,255,0.1);
 }
@@ -344,44 +343,36 @@ body {
   :root { --cb-font-scale: 1; }
   body.cb-big { --cb-font-scale: 1.8; }
   .prompt-input { font-size: calc(20px * var(--cb-font-scale)); }
-  .stop-button { font-size: calc(15px * var(--cb-font-scale)); }
+  .stop-button { font-size: calc(19px * var(--cb-font-scale)); }
 
-  /* Chat thread — default dark mode: assistant text floats on body,
-     user messages get a subtle bubble. Bright text for readability. */
+  /* Chat thread — dark CBE palette, sits directly on body */
   #thread {
     flex: 1 1 0; min-height: 0; overflow-y: auto;
     width: 100%;
-    padding: 16px 8px;
-    display: flex; flex-direction: column; gap: 12px;
-    color: #f0f0f0;
+    padding: 12px 4px;
+    display: flex; flex-direction: column; gap: 10px;
+    color: #e0e0e0;
     background: transparent;
-    font-size: calc(15px * var(--cb-font-scale));
-    line-height: 1.6;
   }
   #thread::-webkit-scrollbar { width: 6px; }
   #thread::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
   .msg {
-    padding: 6px 12px;
-    font-size: calc(15px * var(--cb-font-scale));
-    line-height: 1.6; max-width: 92%;
+    padding: 8px 14px; border-radius: 10px;
+    font-size: calc(14px * var(--cb-font-scale));
+    line-height: 1.55; max-width: 92%;
     word-break: break-word; white-space: pre-wrap;
     font-family: Inter, "Segoe UI", system-ui, sans-serif;
   }
-  .msg.sent      { background: #1f1f1f; border: 1px solid #2c2c2c;
-                   border-radius: 12px;
-                   align-self: flex-end;   color: #ffffff;
-                   max-width: 78%; padding: 8px 14px; }
-  .msg.assistant { background: transparent; border: 0;
-                   align-self: flex-start; color: #f0f0f0;
-                   padding: 4px 4px; }
+  .msg.sent      { background: #262626; border: 1px solid #3a3a3a;
+                   align-self: flex-end;   color: #f0f0f0; }
+  .msg.assistant { background: #1c1c1c; border: 1px solid #2c2c2c;
+                   align-self: flex-start; color: #e0e0e0; }
   .msg.info      { background: transparent; border: 0;
-                   align-self: flex-start; color: #9a9a9a;
-                   font-size: calc(13px * var(--cb-font-scale));
-                   font-style: italic; padding: 4px 4px; }
-  .msg.error     { background: #2a1010; border: 1px solid #4a1a1a;
-                   border-radius: 8px;
-                   align-self: flex-start; color: #ff9090;
-                   padding: 8px 14px; }
+                   align-self: flex-start; color: #888;
+                   font-size: calc(12px * var(--cb-font-scale));
+                   font-style: italic; padding: 4px 8px; }
+  .msg.error     { background: #3a1a1a; border: 1px solid #5a2a2a;
+                   align-self: flex-start; color: #ff9b9b; }
   .msg.assistant.streaming::after { content: '▍'; opacity: .6; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 0%,50% { opacity: .6 } 51%,100% { opacity: 0 } }
 
@@ -475,40 +466,9 @@ body {
     border-radius: 4px; font-size: 16px; line-height: 1;
   }
   #cbe-help-modal .cbe-x:hover { background: rgba(0,0,0,.25); }
-  #cbe-help-modal .cbe-help-body {
-    flex: 1 1 auto; width: 100%; overflow-y: auto;
-    background: #161616; color: #e6e6e6;
-    padding: 24px 32px;
-    font-family: Inter, "Segoe UI", system-ui, sans-serif;
-    line-height: 1.55;
+  #cbe-help-modal iframe {
+    flex: 1 1 auto; width: 100%; border: 0; background: #161616;
   }
-  #cbe-help-modal .cbe-help-body h1 { margin: 0 0 6px; font-size: 22px;
-    color: #ffb84d; }
-  #cbe-help-modal .cbe-help-body h2 { margin: 22px 0 8px; font-size: 14px;
-    color: #ffb84d; text-transform: uppercase; letter-spacing: .06em; }
-  #cbe-help-modal .cbe-help-body p { margin: 0 0 10px; color: #cfcfcf; }
-  #cbe-help-modal .cbe-help-body ul { margin: 0 0 12px; padding-left: 22px; }
-  #cbe-help-modal .cbe-help-body li { margin: 4px 0; }
-  #cbe-help-modal .cbe-help-body table { width: 100%; border-collapse: collapse;
-    margin: 6px 0 14px; }
-  #cbe-help-modal .cbe-help-body th, #cbe-help-modal .cbe-help-body td {
-    padding: 7px 10px; text-align: left;
-    border-bottom: 1px solid #2a2a2a; vertical-align: top; }
-  #cbe-help-modal .cbe-help-body th { color: #999; font-weight: 600;
-    font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
-  #cbe-help-modal .cbe-help-body td:first-child { width: 38%; color: #ffb84d; }
-  #cbe-help-modal .cbe-help-body kbd { display: inline-block; min-width: 22px;
-    padding: 2px 7px; background: #2a2a2a; border: 1px solid #3a3a3a;
-    border-radius: 4px; color: #f0f0f0;
-    font-family: Consolas, "Courier New", monospace;
-    font-size: 12px; line-height: 1.4; }
-  #cbe-help-modal .cbe-help-body a { color: #ff8a3c; }
-  #cbe-help-modal .cbe-help-body hr { border: 0;
-    border-top: 1px solid #2a2a2a; margin: 18px 0; }
-  #cbe-help-modal .cbe-help-body .subtitle { color: #888; font-size: 13px;
-    margin: 0 0 14px; }
-  #cbe-help-modal .cbe-help-body.loading { color: #888;
-    font-style: italic; text-align: center; padding-top: 80px; }
 
   /* ── View Source modal ─────────────────────────────────────── */
   #cbe-source-modal {
@@ -1371,13 +1331,8 @@ ti.addEventListener('input', function() {
   this.style.height = Math.min(this.scrollHeight, 140) + 'px';
 });
 
-/* ── Help modal — fetches help.html and injects its <body> innerHTML
-   (iframes were rendering as a black box inside the webview's CSP;
-   inline injection bypasses the iframe sandbox entirely). Modal styles
-   for the help content live in <style> as #cbe-help-modal .cbe-help-body
-   *. Esc / backdrop / × all close. */
-const HELP_URI = '{{HELP_URI}}';
-let __cbeHelpHtmlCache = '';
+/* ── Help modal — iframes help.html so its content can evolve without
+   touching the panel's JS/CSS. Esc closes; clicking the backdrop closes. */
 function openHelp() {
   let modal = document.getElementById('cbe-help-modal');
   if (modal) { modal.style.display = 'flex'; return; }
@@ -1389,29 +1344,11 @@ function openHelp() {
         <span>Claude Codex — Black Edition · Help</span>
         <button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)">×</button>
       </div>
-      <div class="cbe-help-body loading">Loading help…</div>
+      <iframe src="{{HELP_URI}}" title="Help"></iframe>
     </div>`;
   modal.addEventListener('click', e => { if (e.target === modal) closeHelp(); });
   modal.querySelector('.cbe-x').addEventListener('click', closeHelp);
   document.body.appendChild(modal);
-
-  const body = modal.querySelector('.cbe-help-body');
-  const apply = (html) => {
-    /* Pull just the inner <body> if present so we don't duplicate <html>/<head>. */
-    const m = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
-    body.classList.remove('loading');
-    body.innerHTML = m ? m[1] : html;
-  };
-  if (__cbeHelpHtmlCache) { apply(__cbeHelpHtmlCache); return; }
-  fetch(HELP_URI)
-    .then(r => { if (!r.ok) throw new Error('help.html ' + r.status); return r.text(); })
-    .then(t => { __cbeHelpHtmlCache = t; apply(t); })
-    .catch(e => {
-      body.classList.remove('loading');
-      body.innerHTML = '<p style="color:#ff9090">Failed to load help: ' +
-        (e && e.message ? e.message : String(e)) + '</p>';
-      console.debug('[cbe.help] fetch failed', e && e.message);
-    });
 }
 function closeHelp() {
   const m = document.getElementById('cbe-help-modal');
