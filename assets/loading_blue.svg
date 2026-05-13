@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" aria-label="Working">
+  <defs>
+    <linearGradient id="lb" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#4ea8ff" stop-opacity="0"/>
+      <stop offset="60%"  stop-color="#4ea8ff" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#7fc8ff" stop-opacity="1"/>
+    </linearGradient>
+  </defs>
+  <!-- Faint base ring so the arc always reads -->
+  <circle cx="25" cy="25" r="20" fill="none" stroke="rgba(78,168,255,0.18)" stroke-width="4"/>
+  <!-- Spinning arc — three-quarter circle, gradient stroke -->
+  <g style="transform-origin: 25px 25px;">
+    <path d="M25 5
+             A 20 20 0 0 1 45 25"
+          fill="none"
+          stroke="url(#lb)"
+          stroke-width="4"
+          stroke-linecap="round"/>
+    <animateTransform attributeName="transform"
+                      type="rotate"
+                      from="0 25 25"
+                      to="360 25 25"
+                      dur="0.85s"
+                      repeatCount="indefinite"/>
+  </g>
+</svg>

@@ -237,6 +237,25 @@ body {
   filter: brightness(0) invert(1);
 }
 
+/* Monitor "working" overlay — when the panel is busy (in-flight request),
+   a blue spinning ring is drawn over the VSCode-monitor icon so the user
+   has visual confirmation that the extension is processing. */
+#monitorBtn { position: relative; }
+#monitorBtn .cbe-spinner {
+  position: absolute;
+  inset: 2px;
+  width: auto; height: auto;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s ease;
+  filter: none !important;          /* don't get re-tinted by .tool-button img */
+}
+#monitorBtn.is-monitoring .cbe-spinner { opacity: 1; }
+#monitorBtn.is-monitoring > img:first-of-type {
+  opacity: 0.45;
+  filter: brightness(0) invert(1) drop-shadow(0 0 6px rgba(78,168,255,0.6));
+}
+
 .label-button {
   display: block;
   width: 280px;
@@ -764,6 +783,7 @@ body {
           </button>
           <button id="monitorBtn" class="tool-button" type="button" data-tooltip="VSCode monitor" aria-label="VSCode monitor">
             <img src="{{ASSETS_BASE}}/vscode_monitor.svg" alt="" />
+            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_blue.svg" alt="" />
           </button>
           <button id="gitBtn" class="tool-button" type="button" data-tooltip="Git" aria-label="Git">
             <img src="{{ASSETS_BASE}}/git.svg" alt="" />
@@ -1019,6 +1039,10 @@ function setBusy(b) {
   ti.disabled = b;
   sendBtn.disabled = b;
   inBox.classList.toggle('busy', b);
+  /* Toggle the blue loading spinner overlay on the VSCode monitor button
+     so the user has a persistent "extension is actively talking" cue. */
+  const monitorBtn = document.getElementById('monitorBtn');
+  if (monitorBtn) monitorBtn.classList.toggle('is-monitoring', !!b);
 }
 
 function send() {
