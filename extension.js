@@ -464,6 +464,29 @@ function bindPanel(context, panel) {
                        something while the editor is open. */
                     panel.webview.postMessage({ type: 'prompts', items: loadPrompts(context) });
                     break;
+                case 'openChatHistory':
+                    await openChatHistory(context);
+                    break;
+                case 'logChatTurn':
+                    logChatTurn(context, msg.role || 'USER', msg.text || '');
+                    break;
+                case 'loadHandbook': {
+                    const hp = path.join(context.extensionPath, 'handbook.txt');
+                    let text = '';
+                    try { text = fs.readFileSync(hp, 'utf8'); }
+                    catch (e) { traceErr('loadHandbook', e); }
+                    panel.webview.postMessage({ type: 'handbook', text });
+                    break;
+                }
+                case 'saveHandbook': {
+                    const hp = path.join(context.extensionPath, 'handbook.txt');
+                    try { fs.writeFileSync(hp, String(msg.text || ''), 'utf8'); }
+                    catch (e) {
+                        traceErr('saveHandbook', e);
+                        panel.webview.postMessage({ type: 'error', message: 'handbook save: ' + (e.message || e) });
+                    }
+                    break;
+                }
                 case 'pickProjectFolder': {
                     const picked = await vscode.window.showOpenDialog({
                         canSelectFiles: false,
@@ -595,6 +618,7 @@ const PROMPT_HISTORY_FILE = 'prompt_history.txt';
 const PROMPT_HISTORY_MAX  = 500;
 const PROMPTS_FILE        = 'prompts.txt';      /* user-curated, separator: ^---$ */
 const PROMPTS_SEPARATOR   = '---';
+const CHATS_DIR           = 'chats';            /* one log per UTC date */
 
 function promptHistoryPath(context) {
     return path.join(context.extensionPath, PROMPT_HISTORY_FILE);
@@ -658,6 +682,79 @@ function loadPrompts(context) {
     } catch (e) {
         traceErr('loadPrompts', e);
         return [];
+    }
+}
+
+/* Chat history — one log file per day at <extensionPath>/chats/chat-M-D-YYYY.log
+   Format is plain text with role headers + timestamps so the file reads
+   cleanly when opened in a normal editor. */
+function chatsDir(context) {
+    const d = path.join(context.extensionPath, CHATS_DIR);
+    try { fs.mkdirSync(d, { recursive: true }); } catch (e) { traceErr('mkdir chats', e); }
+    return d;
+}
+
+function todaysChatLogPath(context) {
+    const now = new Date();
+    const name = `chat-${now.getMonth() + 1}-${now.getDate()}-${now.getFullYear()}.log`;
+    return path.join(chatsDir(context), name);
+}
+
+function fmtStamp() {
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+           `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function logChatTurn(context, role, text) {
+    if (!text) return;
+    try {
+        const p = todaysChatLogPath(context);
+        const r = (role || '').toUpperCase() === 'ASSISTANT' ? 'ASSISTANT' : 'USER';
+        const block = `\n## ${r} · ${fmtStamp()}\n${text}\n`;
+        fs.appendFileSync(p, block, 'utf8');
+    } catch (e) {
+        traceErr('logChatTurn', e);
+    }
+}
+
+async function openChatHistory(context) {
+    const dir = chatsDir(context);
+    let files = [];
+    try {
+        files = fs.readdirSync(dir)
+            .filter(n => /^chat-\d+-\d+-\d+\.log$/.test(n))
+            .map(n => ({
+                name: n,
+                full: path.join(dir, n),
+                mtime: fs.statSync(path.join(dir, n)).mtimeMs,
+            }))
+            .sort((a, b) => b.mtime - a.mtime);
+    } catch (e) {
+        traceErr('readdir chats', e);
+    }
+    if (!files.length) {
+        vscode.window.showInformationMessage('CBE: no chat logs yet — they appear in chats/ as you send messages.');
+        return;
+    }
+    const items = files.map(f => ({
+        label: f.name,
+        description: new Date(f.mtime).toLocaleString(),
+        full: f.full,
+    }));
+    const pick = await vscode.window.showQuickPick(items, {
+        title: 'Open chat log',
+        placeHolder: 'Pick a daily chat log from /chats',
+        ignoreFocusOut: true,
+    });
+    if (!pick) return;
+    try {
+        const doc = await vscode.workspace.openTextDocument(pick.full);
+        await vscode.window.showTextDocument(doc, { preview: false });
+    } catch (e) {
+        traceErr('open chat log', e);
+        vscode.window.showErrorMessage('CBE: failed to open log: ' + (e.message || e));
     }
 }
 

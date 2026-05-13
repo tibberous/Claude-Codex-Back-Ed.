@@ -482,6 +482,80 @@ body {
     background: #2a2a2a; color: #fff;
   }
 
+  /* ── Handbook modal (editable; reads/writes handbook.txt) ──── */
+  #cbe-handbook-modal {
+    position: fixed; inset: 0; z-index: 2147483646;
+    background: rgba(0,0,0,.72);
+    display: flex; align-items: center; justify-content: center;
+  }
+  #cbe-handbook-modal .cbe-box {
+    background: #161616; border: 2px solid #e8621a;
+    border-radius: 12px; width: 86vw; max-width: 1100px;
+    height: 84vh; max-height: 800px;
+    display: flex; flex-direction: column;
+    box-shadow: 0 14px 36px rgba(0,0,0,.6), 0 0 30px rgba(255,120,30,.18);
+    overflow: hidden;
+  }
+  #cbe-handbook-modal .cbe-hdr {
+    padding: 10px 16px;
+    background: linear-gradient(90deg, #b83c00, #e8621a);
+    color: #fff; font-family: system-ui, sans-serif; font-weight: 700;
+    font-size: 13px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  #cbe-handbook-modal .cbe-x {
+    all: unset; cursor: pointer; color: #fff; padding: 2px 8px;
+    border-radius: 4px; font-size: 16px; line-height: 1;
+  }
+  #cbe-handbook-modal .cbe-x:hover { background: rgba(0,0,0,.25); }
+  #cbe-handbook-modal textarea {
+    flex: 1 1 auto; width: 100%; border: 0; outline: none;
+    resize: none;
+    background: #0e0e0e; color: #e8e8e8;
+    padding: 18px 22px;
+    font-family: Consolas, "Fira Mono", "Liberation Mono", "Courier New", monospace;
+    font-size: 13px; line-height: 1.55;
+  }
+  #cbe-handbook-modal .cbe-foot {
+    padding: 10px 16px; background: #111;
+    border-top: 1px solid #222;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  }
+  #cbe-handbook-modal .cbe-foot .status { color: #888; font-size: 12px;
+    font-family: system-ui, sans-serif; }
+  #cbe-handbook-modal .cbe-foot .status.saved { color: #6fcf6f; }
+  #cbe-handbook-modal .cbe-foot .status.dirty { color: #ffb84d; }
+  #cbe-handbook-modal .cbe-btn {
+    font-family: system-ui, sans-serif;
+    font-weight: 700; font-size: 12px;
+    cursor: pointer; padding: 7px 14px;
+    border-radius: 5px; border: none;
+  }
+  #cbe-handbook-modal .cbe-btn--close { background: #2a2a2a; color: #ddd; }
+  #cbe-handbook-modal .cbe-btn--save { background: #e8621a; color: #fff; }
+  #cbe-handbook-modal .cbe-btn--save:hover { background: #ff7a1a; }
+
+  /* ── Slash-command menu (typing "/" or click of showCommandsBtn) ─ */
+  #cbe-cmd-menu {
+    position: absolute; z-index: 9000;
+    min-width: 280px; max-width: 420px;
+    background: #161616; border: 1px solid #2c2c2c;
+    border-radius: 10px;
+    box-shadow: 0 14px 36px rgba(0,0,0,.6);
+    padding: 4px 0;
+    font-family: Inter, system-ui, sans-serif;
+  }
+  #cbe-cmd-menu .cbe-cmd {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; cursor: pointer; color: #e0e0e0;
+    font-size: 13px;
+  }
+  #cbe-cmd-menu .cbe-cmd:hover,
+  #cbe-cmd-menu .cbe-cmd.is-focus { background: #2a1a10; color: #fff; }
+  #cbe-cmd-menu .cbe-cmd .name { color: #ffb84d; font-family: Consolas, monospace; }
+  #cbe-cmd-menu .cbe-cmd .desc { color: #999; font-size: 12px; }
+  #cbe-cmd-menu .cbe-empty { color: #888; font-style: italic; padding: 10px 12px; font-size: 12px; }
+
   /* ── Help modal (iframes help.html) ────────────────────────── */
   #cbe-help-modal {
     position: fixed; inset: 0; z-index: 2147483646;
@@ -953,6 +1027,7 @@ function send() {
   if (!txt) return;
   addMsg(txt, 'sent');
   if (api) api.postMessage({ type: 'sendText', text: txt });
+  if (api) api.postMessage({ type: 'logChatTurn', role: 'USER', text: txt });
   historyPush(txt);
   historyReset();
   promptsResetRecall();
@@ -1112,13 +1187,13 @@ const tts = (function() {
   }
   bind('stopBtn',           'cancelInFlight');
   bind('storedPromptsBtn',  'openPromptsFile');
-  bind('chatHistoryBtn',    'openChatHistory');
+  bind('chatHistoryBtn',    'openChatHistory'); /* host opens QuickPick of chats/*.log */
   bind('attachFileBtn',     'attachFile');
   bind('autoReplyBtn',      'toggleAutoReply');
   bind('wakeUpBtn',         'toggleWakeUp');
-  bind('showCommandsBtn',   'showCommandMenu');
+  /* showCommandsBtn handled inline — opens the in-panel slash menu */
   bind('compactBtn',        'compactConversation');
-  bind('handbookBtn',       'openHandbook');
+  /* handbookBtn handled inline below — opens an editable modal */
   /* helpBtn handled inline — opens an iframe modal pointing at help.html */
   bind('extensionsBtn',     'openExtensions');
   bind('projectFolderBtn',  'pickProjectFolder');
@@ -1458,6 +1533,231 @@ document.addEventListener('keydown', e => {
 });
 document.getElementById('helpBtn').addEventListener('click', openHelp);
 
+/* ── Handbook modal — editable; round-trips handbook.txt via the host.
+   Click handbook tool button → loads handbook.txt → shows in a big
+   monospace textarea → Save writes it back. Dirty/saved status shown
+   in the footer. */
+let __cbeHandbookText = '';
+let __cbeHandbookDirty = false;
+function openHandbook() {
+  if (document.getElementById('cbe-handbook-modal')) return;
+  const modal = document.createElement('div');
+  modal.id = 'cbe-handbook-modal';
+  modal.innerHTML = `
+    <div class="cbe-box" role="dialog" aria-modal="true" aria-label="Handbook">
+      <div class="cbe-hdr">
+        <span>Handbook (handbook.txt) — editable</span>
+        <button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)">×</button>
+      </div>
+      <textarea spellcheck="false" placeholder="Loading handbook…"></textarea>
+      <div class="cbe-foot">
+        <span class="status">Loading…</span>
+        <div>
+          <button class="cbe-btn cbe-btn--close" type="button">Close</button>
+          <button class="cbe-btn cbe-btn--save"  type="button">Save</button>
+        </div>
+      </div>
+    </div>`;
+  modal.addEventListener('click', e => { if (e.target === modal) closeHandbook(); });
+  document.body.appendChild(modal);
+
+  const ta     = modal.querySelector('textarea');
+  const status = modal.querySelector('.status');
+  const btnX   = modal.querySelector('.cbe-x');
+  const btnClose = modal.querySelector('.cbe-btn--close');
+  const btnSave  = modal.querySelector('.cbe-btn--save');
+
+  function markClean() {
+    __cbeHandbookDirty = false;
+    status.textContent = 'Saved';
+    status.classList.remove('dirty'); status.classList.add('saved');
+  }
+  function markDirty() {
+    __cbeHandbookDirty = true;
+    status.textContent = 'Unsaved changes';
+    status.classList.remove('saved'); status.classList.add('dirty');
+  }
+
+  ta.addEventListener('input', () => { __cbeHandbookText = ta.value; markDirty(); });
+  btnX.addEventListener('click', closeHandbook);
+  btnClose.addEventListener('click', closeHandbook);
+  btnSave.addEventListener('click', () => {
+    __cbeHandbookText = ta.value;
+    if (api) api.postMessage({ type: 'saveHandbook', text: __cbeHandbookText });
+    markClean();
+  });
+
+  /* Ask host for the current handbook.txt content. */
+  if (api) api.postMessage({ type: 'loadHandbook' });
+  /* If we already have a cached copy, render it immediately. */
+  if (__cbeHandbookText) {
+    ta.value = __cbeHandbookText;
+    markClean();
+  } else {
+    status.textContent = 'Loading…';
+  }
+}
+function closeHandbook() {
+  /* If unsaved, give a chance to keep editing. */
+  if (__cbeHandbookDirty) {
+    if (!confirm('Discard unsaved handbook changes?')) return;
+  }
+  const m = document.getElementById('cbe-handbook-modal');
+  if (m) m.remove();
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('cbe-handbook-modal')) closeHandbook();
+});
+document.getElementById('handbookBtn').addEventListener('click', openHandbook);
+
+/* ── Slash-command menu ───────────────────────────────────────────────────
+   - Typing "/" at the start of the input opens the menu and filters as the
+     user keeps typing.
+   - Clicking the Show Commands toolbar button also opens it.
+   - Up/Down navigate, Enter runs, Esc closes. */
+const CBE_COMMANDS = [
+  { name: '/help',     desc: 'Open help',                run: () => openHelp() },
+  { name: '/handbook', desc: 'Open handbook',            run: () => openHandbook() },
+  { name: '/clear',    desc: 'New conversation',         run: () => addBtn.click() },
+  { name: '/settings', desc: 'Open settings',            run: () => { if (api) api.postMessage({ type: 'openSettings' }); } },
+  { name: '/prompts',  desc: 'Edit saved prompts',       run: () => { if (api) api.postMessage({ type: 'openPromptsFile' }); } },
+  { name: '/history',  desc: 'Browse chat history',      run: () => { if (api) api.postMessage({ type: 'openChatHistory' }); } },
+  { name: '/font',     desc: 'Toggle big font',          run: () => document.getElementById('fontSizeBtn').click() },
+  { name: '/attach',   desc: 'Attach a file',            run: () => document.getElementById('attachFileBtn').click() },
+  { name: '/folder',   desc: 'Pick project folder',      run: () => document.getElementById('projectFolderBtn').click() },
+  { name: '/compact',  desc: 'Compact conversation',     run: () => { if (api) api.postMessage({ type: 'compactConversation' }); } },
+  { name: '/git',      desc: 'Source control',           run: () => { if (api) api.postMessage({ type: 'openGit' }); } },
+  { name: '/github',   desc: 'Open GitHub',              run: () => { if (api) api.postMessage({ type: 'openGitHub' }); } },
+];
+
+let __cbeCmdMenuEl    = null;
+let __cbeCmdMenuFocus = 0;
+let __cbeCmdMenuFromSlash = false;  // true when triggered by typing "/"
+
+function cbeCmdFilter() {
+  const v = ti.value || '';
+  if (!__cbeCmdMenuFromSlash) return CBE_COMMANDS;
+  const q = v.replace(/^\//, '').toLowerCase().trim();
+  if (!q) return CBE_COMMANDS;
+  return CBE_COMMANDS.filter(c => c.name.slice(1).toLowerCase().includes(q) ||
+                                  c.desc.toLowerCase().includes(q));
+}
+function cbeRenderCmdMenu() {
+  if (!__cbeCmdMenuEl) return;
+  const items = cbeCmdFilter();
+  if (__cbeCmdMenuFocus >= items.length) __cbeCmdMenuFocus = Math.max(0, items.length - 1);
+  __cbeCmdMenuEl.innerHTML = '';
+  if (!items.length) {
+    const e = document.createElement('div');
+    e.className = 'cbe-empty';
+    e.textContent = 'no matching commands';
+    __cbeCmdMenuEl.appendChild(e);
+    return;
+  }
+  items.forEach((c, idx) => {
+    const row = document.createElement('div');
+    row.className = 'cbe-cmd' + (idx === __cbeCmdMenuFocus ? ' is-focus' : '');
+    row.innerHTML = `<span class="name">${c.name}</span><span class="desc">${c.desc}</span>`;
+    row.addEventListener('mouseenter', () => { __cbeCmdMenuFocus = idx; cbeRenderCmdMenu(); });
+    row.addEventListener('click', () => cbeRunCmdAt(idx));
+    __cbeCmdMenuEl.appendChild(row);
+  });
+}
+function cbePositionCmdMenu() {
+  if (!__cbeCmdMenuEl) return;
+  const rect = ti.getBoundingClientRect();
+  __cbeCmdMenuEl.style.left = rect.left + 'px';
+  __cbeCmdMenuEl.style.minWidth = Math.min(rect.width, 420) + 'px';
+  /* Position ABOVE the input — anchor the bottom to input's top. */
+  __cbeCmdMenuEl.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+  __cbeCmdMenuEl.style.top = 'auto';
+}
+function cbeOpenCmdMenu(fromSlash) {
+  if (__cbeCmdMenuEl) { cbeRenderCmdMenu(); cbePositionCmdMenu(); return; }
+  __cbeCmdMenuFromSlash = !!fromSlash;
+  __cbeCmdMenuFocus = 0;
+  __cbeCmdMenuEl = document.createElement('div');
+  __cbeCmdMenuEl.id = 'cbe-cmd-menu';
+  document.body.appendChild(__cbeCmdMenuEl);
+  cbeRenderCmdMenu();
+  cbePositionCmdMenu();
+}
+function cbeCloseCmdMenu() {
+  if (__cbeCmdMenuEl) { __cbeCmdMenuEl.remove(); __cbeCmdMenuEl = null; }
+  __cbeCmdMenuFromSlash = false;
+}
+function cbeRunCmdAt(idx) {
+  const items = cbeCmdFilter();
+  const c = items[idx];
+  if (!c) return;
+  /* Clear the slash trigger from the input. */
+  if (__cbeCmdMenuFromSlash) {
+    ti.value = '';
+    ti.dispatchEvent(new Event('input'));
+  }
+  cbeCloseCmdMenu();
+  try { c.run(); } catch (e) { console.debug('[cbe.cmd] run', c.name, e && e.message); }
+}
+
+/* Slash trigger — only when the input is empty or contains only the slash
+   prefix (i.e. the user is typing a command, not regular text). */
+ti.addEventListener('input', () => {
+  const v = ti.value || '';
+  const isCommandTyping = v.startsWith('/') && !v.includes('\n');
+  if (isCommandTyping && !__cbeCmdMenuEl) cbeOpenCmdMenu(true);
+  if (__cbeCmdMenuEl) {
+    if (!isCommandTyping && __cbeCmdMenuFromSlash) cbeCloseCmdMenu();
+    else { cbeRenderCmdMenu(); cbePositionCmdMenu(); }
+  }
+});
+window.addEventListener('resize', cbePositionCmdMenu);
+window.addEventListener('scroll', cbePositionCmdMenu, true);
+
+/* Toolbar button trigger. Also re-bind in place of the bind() stub. */
+document.getElementById('showCommandsBtn').addEventListener('click', () => {
+  if (__cbeCmdMenuEl) cbeCloseCmdMenu();
+  else { ti.focus(); cbeOpenCmdMenu(false); }
+});
+
+/* Capture-phase keydown so we can intercept Up/Down/Enter/Esc BEFORE the
+   send / history / prompts handlers run when the menu is open. */
+ti.addEventListener('keydown', e => {
+  if (!__cbeCmdMenuEl) return;
+  const items = cbeCmdFilter();
+  if (e.key === 'ArrowDown') {
+    e.preventDefault(); e.stopPropagation();
+    __cbeCmdMenuFocus = (__cbeCmdMenuFocus + 1) % Math.max(1, items.length);
+    cbeRenderCmdMenu();
+    return;
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault(); e.stopPropagation();
+    __cbeCmdMenuFocus = (__cbeCmdMenuFocus - 1 + items.length) % Math.max(1, items.length);
+    cbeRenderCmdMenu();
+    return;
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault(); e.stopPropagation();
+    cbeRunCmdAt(__cbeCmdMenuFocus);
+    return;
+  }
+  if (e.key === 'Escape') {
+    e.preventDefault(); e.stopPropagation();
+    cbeCloseCmdMenu();
+    return;
+  }
+}, true);
+
+/* Click outside closes the menu. */
+document.addEventListener('mousedown', e => {
+  if (!__cbeCmdMenuEl) return;
+  if (__cbeCmdMenuEl.contains(e.target) || ti.contains(e.target)) return;
+  if (document.getElementById('showCommandsBtn').contains(e.target)) return;
+  cbeCloseCmdMenu();
+});
+
+/* Replace the now-unused bind() stub for showCommandsBtn. */
+
 /* Map provider id → SFX cue. anthropic→claude, openai→gtp, google/gemini→gemini,
    anything else → 'popup' fallback so the user still gets an audible "the
    model is replying" signal. */
@@ -1496,6 +1796,7 @@ window.addEventListener('message', e => {
       }
       streamingEl = null;
       try { tts.onAssistantDone(fullText); } catch (e) { console.debug('[cbe.tts] onAssistantDone', e && e.message); }
+      if (api && fullText) api.postMessage({ type: 'logChatTurn', role: 'ASSISTANT', text: fullText });
     }
     setBusy(false);
     ti.focus();
@@ -1529,6 +1830,16 @@ window.addEventListener('message', e => {
   } else if (m.type === 'prompts') {
     __cbePrompts = Array.isArray(m.items) ? m.items.slice() : [];
     promptsResetRecall();
+  } else if (m.type === 'handbook') {
+    __cbeHandbookText = String(m.text || '');
+    const modal = document.getElementById('cbe-handbook-modal');
+    if (modal) {
+      const ta = modal.querySelector('textarea');
+      const status = modal.querySelector('.status');
+      if (ta) ta.value = __cbeHandbookText;
+      if (status) { status.textContent = 'Saved'; status.classList.remove('dirty'); status.classList.add('saved'); }
+      __cbeHandbookDirty = false;
+    }
   }
 });
 
