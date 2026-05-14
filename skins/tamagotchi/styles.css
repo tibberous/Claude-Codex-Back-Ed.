@@ -87,7 +87,10 @@ body {
 .toolbar-tools {
   gap: 4px !important;
   flex-wrap: nowrap !important;
-  justify-content: flex-start !important;
+  /* Center the button row in the tamagotchi toolbar instead of flushing it
+     left — the cartridge image on the left makes a centered button row
+     visually balanced. */
+  justify-content: center !important;
   overflow-x: visible !important;
 }
 .tool-button {

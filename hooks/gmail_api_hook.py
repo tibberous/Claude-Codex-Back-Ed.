@@ -17,6 +17,59 @@ Notes:
 This comment block documents the current code in this file. Review credentials, paths, and local dependencies before production use.
 """
 
+
+
+
+# === LLM-USAGE: BEGIN ===
+#
+# Hook        : gmail_api_hook.py
+# Audience    : language-model agent (Claude, GPT, Gemini, etc.)
+# Surface     : flat top-level functions; no classes to subclass,
+#               no hidden state across process boundaries.
+#
+# WHAT IT DOES
+#   Gmail API helper that can send email, list messages, fetch a message, trash or delete mail, and toggle read state.
+#
+# HOW TO INVOKE
+#   Set up Google API credentials and token flow first, then import and call the exported Gmail actions.
+#
+# PRIMARY ENTRY POINTS
+#   - _get_service
+#   - _mime_message
+#   - send_email
+#   - list_messages
+#   - get_message
+#   - trash_message
+#   - delete_message
+#   - mark_read
+#   - mark_unread
+#
+# CREDENTIALS
+#   API keys, tokens, and remote endpoints live in config.ini at
+#   the repo root. Hooks read them via hooks/_config.py. Do NOT
+#   hardcode keys in source. Do NOT push config.ini to the server
+#   (it is on the auto-update exclude list in extension.js).
+#
+# SIDE EFFECTS
+#   May make outbound network calls, may write to disk under the
+#   repo root (logs/, chats/, reports/), may spawn subprocesses,
+#   may touch the journaling DB through trio_hook_orm. Inspect
+#   the function before running it on production data.
+#
+# THINGS THIS HOOK WILL NOT DO
+#   - It will not reload the VSCode window. Nothing in this repo
+#     reloads the window. See handbook.txt Section 8.
+#   - It will not push files to the server. Pushing is gated on
+#     config.ini [updates] is_admin=true and is handled by the
+#     extension, not by individual hooks. See handbook.txt §17.
+#   - It will not silently swallow errors. If it fails it raises
+#     or returns a structured error; check the trace channel.
+#
+# RELATED HANDBOOK SECTIONS
+#   §5 Tools   §17 Auto-update / is_admin   §21 Hooks library
+#   §22 Trace channel   §24 Troubleshooting
+#
+# === LLM-USAGE: END ===
 import os
 import json
 import base64

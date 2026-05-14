@@ -14,6 +14,62 @@ Notes:
 This comment block documents the current code in this file. Review credentials, paths, and local dependencies before production use.
 """
 
+
+
+
+# === LLM-USAGE: BEGIN ===
+#
+# Hook        : long_process_hook.py
+# Audience    : language-model agent (Claude, GPT, Gemini, etc.)
+# Surface     : flat top-level functions; no classes to subclass,
+#               no hidden state across process boundaries.
+#
+# WHAT IT DOES
+#   Job runner for starting, tracking, tailing, waiting on, and stopping long-running PowerShell-based background tasks.
+#
+# HOW TO INVOKE
+#   Use the create, status, tail, wait, and stop style actions in this file to manage long process job records under long_process_jobs.
+#
+# PRIMARY ENTRY POINTS
+#   - now
+#   - job_path
+#   - load_job
+#   - save_job
+#   - proc_status
+#   - get_exit_code_if_finished
+#   - start_job
+#   - refresh_job
+#   - status_job
+#   - tail_job
+#   - wait_job
+#   - stop_job
+#
+# CREDENTIALS
+#   API keys, tokens, and remote endpoints live in config.ini at
+#   the repo root. Hooks read them via hooks/_config.py. Do NOT
+#   hardcode keys in source. Do NOT push config.ini to the server
+#   (it is on the auto-update exclude list in extension.js).
+#
+# SIDE EFFECTS
+#   May make outbound network calls, may write to disk under the
+#   repo root (logs/, chats/, reports/), may spawn subprocesses,
+#   may touch the journaling DB through trio_hook_orm. Inspect
+#   the function before running it on production data.
+#
+# THINGS THIS HOOK WILL NOT DO
+#   - It will not reload the VSCode window. Nothing in this repo
+#     reloads the window. See handbook.txt Section 8.
+#   - It will not push files to the server. Pushing is gated on
+#     config.ini [updates] is_admin=true and is handled by the
+#     extension, not by individual hooks. See handbook.txt §17.
+#   - It will not silently swallow errors. If it fails it raises
+#     or returns a structured error; check the trace channel.
+#
+# RELATED HANDBOOK SECTIONS
+#   §5 Tools   §17 Auto-update / is_admin   §21 Hooks library
+#   §22 Trace channel   §24 Troubleshooting
+#
+# === LLM-USAGE: END ===
 import os
 import sys
 import json
