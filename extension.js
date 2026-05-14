@@ -63,10 +63,18 @@ const PROVIDERS = {
         models: [],
     },
     grokWeb: {
-        label: 'Grok (web session)',
-        webBridge: true,
+        /* Grok via SuperGrok's resident TCP bridge service. The previous
+           BrowserBridge implementation (spawn Chrome with --remote-debugging-
+           port from CBE) was unreliable on Windows — profile-lock single-
+           instance handoffs, stale Chrome processes, and policy quirks kept
+           breaking the spawn. SuperGrok's start.py --serve-bridge already
+           solves all of that (it owns the QWebEngine session, has a stable
+           TCP API, and auto-respawns), so route through it instead. Requires
+           C:\SuperGrok\ + a one-time `python start.py --chat` login. */
+        label: 'Grok (SuperGrok)',
+        superGrok: true,
         target: 'grok',
-        url: 'https://grok.com/',
+        superGrokRoot: 'C:\\SuperGrok',
         defaultModel: '(web)',
         models: ['(web)'],
     },

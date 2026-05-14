@@ -107,17 +107,19 @@ body {
   border-radius: 16px;
   /* DARK frosted-glass tile — translucent deep-blue body so the white glyph
      always reads. A white-ish tile + white glyph rendered invisible. The
-     bright inset top edge keeps the glassy aqua bevel. */
+     bright inset top edge keeps the glassy aqua bevel. !important because
+     the panel's base .tool-button rule (orange gradient) has equal specificity
+     and the glyph filter (brightness(0) invert(1) = white) is baked in. */
   background:
     linear-gradient(160deg,
-      rgba(30, 58, 92, 0.80),
-      rgba(16, 36, 60, 0.90) 55%,
-      rgba(10, 24, 42, 0.93));
-  border: 1px solid var(--aq-stroke);
+      rgba(30, 58, 92, 0.92),
+      rgba(16, 36, 60, 0.96) 55%,
+      rgba(10, 24, 42, 0.98)) !important;
+  border: 1px solid var(--aq-stroke) !important;
   box-shadow:
     0 7px 15px var(--aq-shadow),
     inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    inset 0 -9px 15px rgba(0, 0, 0, 0.28);
+    inset 0 -9px 15px rgba(0, 0, 0, 0.28) !important;
   backdrop-filter: blur(9px);
   -webkit-backdrop-filter: blur(9px);
   transition: transform 0.15s cubic-bezier(.2,.8,.2,1), box-shadow 0.15s ease, background 0.15s ease;
