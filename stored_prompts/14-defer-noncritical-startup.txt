@@ -1,0 +1,4 @@
+GUI must paint in under 2 seconds. List startup work, classify each into:
+  Immediate (phase 1): DB connection, settings load, theme load, splash, mainWindow.
+  Deferred (phase 2): handbook preload, snapshots/backups, to-do list, non-critical model init, log rotation.
+Move all phase-2 work to QTimer.singleShot(0, ...) or a background thread.

@@ -13,3 +13,6 @@ panel/index.png
 prompt_history.txt
 prompts.txt
 chats/
+logs/
+extensions/
+domains.txt

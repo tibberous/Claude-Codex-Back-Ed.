@@ -1,0 +1,1 @@
+Grep the whole codebase for this bug pattern first, count every occurrence, then fix all of them. End with a final grep that shows zero hits. "I fixed the one you mentioned" is not done — "I found N and fixed N" is done.

@@ -1,0 +1,1 @@
+Run AST on [FILE]. List every function with its line count. Flag any over 40 lines. Identify copy-paste blocks. For each refactor candidate, ask: can this become a registered array + key-walk instead of if/elif? Don't write code yet — just the proposal: class name, methods, one-liner responsibility per class.

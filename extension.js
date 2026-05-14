@@ -104,6 +104,18 @@ const PROVIDERS = {
 
 const DEFAULT_PROVIDER = 'anthropic';
 
+/* Fixed CDP ports for the NSSM-managed Chrome services. When a service is
+   installed for a provider, Chrome runs at boot as a Windows service with
+   --remote-debugging-port=<port>. BrowserBridge.ensureRunning() first tries
+   to attach to this port; if alive, it skips spawning its own Chrome. The
+   ports are chosen above the ephemeral-port range to avoid collision and
+   are stable across reboots so CBE always knows where to connect. */
+const BRIDGE_SERVICE_PORTS = {
+    grokWeb:    9277,
+    chatgptWeb: 9278,
+};
+const BRIDGE_SERVICE_PREFIX = 'CBE-Bridge-';   /* nssm service name = prefix + providerId */
+
 /* ── Config singleton ─────────────────────────────────────────────────────
    `config.ini` is parsed ONCE per activation and stored in `Config`. Every
    caller that previously did `readConfigIni(extensionPath)` now reads
@@ -1170,6 +1182,24 @@ async function activate(context) {
         vscode.commands.registerCommand('codexBlackEd.showTrace', () => outChan.show(true)),
         vscode.commands.registerCommand('codexBlackEd.openWebLogin', () => openWebLogin(context)),
         vscode.commands.registerCommand('codexBlackEd.disposeWebBridge', () => disposeAllBridges()),
+        /* NSSM-managed Chrome service per web-bridge provider — see
+           tools/install_bridge_service.ps1 and BRIDGE_SERVICE_PORTS. */
+        vscode.commands.registerCommand('codexBlackEd.installBridgeService', async () => {
+            const ids = Object.keys(BRIDGE_SERVICE_PORTS);
+            const pick = await vscode.window.showQuickPick(
+                ids.map(id => ({ label: PROVIDERS[id].label, description: `port ${BRIDGE_SERVICE_PORTS[id]}`, id })),
+                { placeHolder: 'Install Chrome-as-service for which web-bridge provider?' }
+            );
+            if (pick) installBridgeServiceFor(pick.id);
+        }),
+        vscode.commands.registerCommand('codexBlackEd.uninstallBridgeService', async () => {
+            const ids = Object.keys(BRIDGE_SERVICE_PORTS);
+            const pick = await vscode.window.showQuickPick(
+                ids.map(id => ({ label: PROVIDERS[id].label, description: `port ${BRIDGE_SERVICE_PORTS[id]}`, id })),
+                { placeHolder: 'Remove the Chrome service for which web-bridge provider?' }
+            );
+            if (pick) uninstallBridgeServiceFor(pick.id);
+        }),
         /* Manual auto-update trigger — fires the same WinSCP push the
            background activate hook would, but on demand so you don't have
            to close+reopen the panel just to retry a push. Also reachable
@@ -2276,12 +2306,23 @@ function bindPanel(context, panel) {
                     const savedSkinName = context.workspaceState.get(STATE_SKIN, '') || '';
                     const resolved = resolveSkin(context, savedSkinName);
                     const skinUri = resolved.uri ? panel.webview.asWebviewUri(resolved.uri).toString() : '';
+                    /* Inline help.html — iframes loaded via asWebviewUri in
+                       newer VSCode versions silently render empty/black on
+                       some installs (the resource URL is reachable to img/css
+                       but not always to nested-document loads). Shipping the
+                       HTML body in the init payload sidesteps that entirely:
+                       openHelp() in panel.js innerHTML's it into a div. */
+                    let helpHtml = '';
+                    try {
+                        helpHtml = fs.readFileSync(path.join(context.extensionPath, 'panel', 'help.html'), 'utf8');
+                    } catch (e) { traceErr('read help.html', e); }
                     panel.webview.postMessage({
                         type: 'init',
                         ...buildSettingsPayload(context),
                         skin: resolved.name,
                         skinUri,
                         skinColors: resolved.colors || null,
+                        helpHtml,
                     });
                     endInit();
                     const endHist = timeStep('  loadPromptHistory');
@@ -2527,6 +2568,13 @@ function bindPanel(context, panel) {
                         const i18n = _i18nCache || loadLanguageFiles(context);
                         const safeLang = (i18n && i18n.locales[msg.language]) ? msg.language : 'en';
                         await context.workspaceState.update('codexBlackEd.language', safeLang);
+                        /* Push the fresh strings map down so the panel can
+                           re-translate tooltips/labels live — without this the
+                           dropdown changes but the UI stays in the old language. */
+                        try {
+                            panel.webview.postMessage({ type: 'strings', language: safeLang, strings: _languageStringsFor(context, safeLang) });
+                            trace(`language changed -> ${safeLang}; pushed ${Object.keys(_languageStringsFor(context, safeLang)).length} strings to panel`);
+                        } catch (e) { traceErr('push strings after language change', e); }
                     }
                     conversation = [];
                     trace(`active provider set: ${msg.provider} / ${msg.model || '(default)'} sfx=${msg.sfxEnabled}/${msg.sfxVolume} skin=${msg.skin || '(none)'} lang=${msg.language || '(unchanged)'}`);
@@ -2602,6 +2650,69 @@ function bindPanel(context, panel) {
                         traceErr('pushUpdate(webview)', e);
                         panel.webview.postMessage({ type: 'error', message: 'pushUpdate failed: ' + (e.message || e) });
                     }
+                    break;
+                }
+                case 'fetchExtensionsCatalog': {
+                    /* Host-side fetch of the marketplace catalog XML. The panel
+                       renders the cards NATIVELY instead of iframing the PHP
+                       page — VSCode webviews render external-https iframes as
+                       a black rectangle on many builds, so we pull the data
+                       here and hand the panel a plain JS array. */
+                    const catalogUrl = 'https://trentontompkins.com/cbe/extension/extensions.xml.php';
+                    (async () => {
+                        try {
+                            const buf = await _httpsGetBuffer(catalogUrl, 15000);
+                            const xml = buf.toString('utf8');
+                            /* Flat schema — one <extension> block per entry with
+                               attributes + a few child elements. Regex-parse it;
+                               no XML lib needed for a structure this simple. */
+                            const items = [];
+                            const blockRe = /<extension\b([^>]*)>([\s\S]*?)<\/extension>/gi;
+                            const attrRe = /(\w[\w-]*)\s*=\s*"([^"]*)"/g;
+                            const childText = (body, tag) => {
+                                const m = body.match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+                                return m ? m[1].trim() : '';
+                            };
+                            const childAll = (body, tag) => {
+                                const out = [];
+                                const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');
+                                let mm;
+                                while ((mm = re.exec(body)) !== null) out.push(mm[1].trim());
+                                return out;
+                            };
+                            const unescapeXml = (s) => String(s)
+                                .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+                                .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+                                .replace(/&amp;/g, '&');
+                            let block;
+                            while ((block = blockRe.exec(xml)) !== null) {
+                                const attrs = {};
+                                let am;
+                                attrRe.lastIndex = 0;
+                                while ((am = attrRe.exec(block[1])) !== null) attrs[am[1]] = unescapeXml(am[2]);
+                                const body = block[2];
+                                items.push({
+                                    id: attrs.id || '',
+                                    name: attrs.name || attrs.id || '',
+                                    version: attrs.version || '',
+                                    author: attrs.author || '',
+                                    created: attrs.created || '',
+                                    md5: attrs.md5 || '',
+                                    bytes: Number(attrs.bytes || 0) || 0,
+                                    minCore: attrs.min_core || '',
+                                    description: unescapeXml(childText(body, 'description')),
+                                    fileUrl: unescapeXml(childText(body, 'url')),
+                                    entry: unescapeXml(childText(body, 'entry')),
+                                    tags: childAll(body, 'tag').map(unescapeXml),
+                                });
+                            }
+                            trace(`EXT:CATALOG:OK url=${catalogUrl} count=${items.length}`);
+                            panel.webview.postMessage({ type: 'extensionsCatalog', items });
+                        } catch (e) {
+                            traceErr('EXT:CATALOG:FAIL', e);
+                            panel.webview.postMessage({ type: 'extensionsCatalog', items: [], error: (e && e.message) || String(e) });
+                        }
+                    })();
                     break;
                 }
                 case 'installExtension': {
@@ -3034,8 +3145,9 @@ function getPanelHtml(context, webview) {
    workspace switches. */
 const PROMPT_HISTORY_FILE = 'prompt_history.txt';
 const PROMPT_HISTORY_MAX  = 500;
-const PROMPTS_FILE        = 'prompts.txt';      /* user-curated, separator: ^---$ */
+const PROMPTS_FILE        = 'prompts.txt';      /* legacy single-file format — migrated to stored_prompts/ on first read */
 const PROMPTS_SEPARATOR   = '---';
+const STORED_PROMPTS_DIR  = 'stored_prompts';   /* one .txt file per prompt; sorted by filename (NN-slug.txt) */
 const CHATS_DIR           = 'chats';            /* one log per UTC date */
 
 function promptHistoryPath(context) {
@@ -3068,34 +3180,81 @@ function pushPromptHistory(context, text) {
     }
 }
 
-/* Curated prompts (prompts.txt). Multi-line entries separated by a "---"
-   line. The user edits this file directly (storedPromptsBtn opens it
-   in a normal VSCode editor tab). Empty file or no file → []. */
+/* Curated prompts — directory layout (stored_prompts/NN-slug.txt, one prompt
+   per file). Files are sorted by filename so "01-…", "02-…" controls order.
+   Legacy prompts.txt (multi-block, "---" separator) is migrated into the
+   directory on first read and then ignored. */
 function promptsFilePath(context) {
     return path.join(context.extensionPath, PROMPTS_FILE);
 }
 
-function loadPrompts(context) {
+function storedPromptsDir(context) {
+    return path.join(context.extensionPath, STORED_PROMPTS_DIR);
+}
+
+function slugify(s) {
+    return String(s || '')
+        .replace(/^\s+|\s+$/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40) || 'prompt';
+}
+
+function _migrateLegacyPromptsTxt(context, dir) {
+    /* Called only when stored_prompts/ doesn't exist yet. Read the old single
+       file, split on "---", write one file per block, then leave prompts.txt
+       in place as a backup the user can delete by hand. */
     try {
         const p = promptsFilePath(context);
-        if (!fs.existsSync(p)) return [];
+        if (!fs.existsSync(p)) return;
         const raw = fs.readFileSync(p, 'utf8');
-        /* Split on lines that are EXACTLY "---" (no leading/trailing whitespace,
-           a simple format that's easy to type by hand). */
         const lines = raw.split(/\r?\n/);
-        const out = [];
+        const blocks = [];
         let cur = [];
         for (const line of lines) {
             if (line.trim() === PROMPTS_SEPARATOR) {
                 const piece = cur.join('\n').replace(/^\s+|\s+$/g, '');
-                if (piece) out.push(piece);
+                if (piece) blocks.push(piece);
                 cur = [];
             } else {
                 cur.push(line);
             }
         }
         const tail = cur.join('\n').replace(/^\s+|\s+$/g, '');
-        if (tail) out.push(tail);
+        if (tail) blocks.push(tail);
+        if (!blocks.length) return;
+        fs.mkdirSync(dir, { recursive: true });
+        blocks.forEach((body, i) => {
+            const num = String(i + 1).padStart(2, '0');
+            const firstLine = (body.split(/\r?\n/).find(l => l.trim()) || '').trim();
+            const name = `${num}-${slugify(firstLine)}.txt`;
+            const full = path.join(dir, name);
+            if (!fs.existsSync(full)) fs.writeFileSync(full, body + '\n', 'utf8');
+        });
+        trace(`PROMPTS:MIGRATED count=${blocks.length} from=${p} into=${dir}`);
+    } catch (e) {
+        traceErr('_migrateLegacyPromptsTxt', e);
+    }
+}
+
+function loadPrompts(context) {
+    try {
+        const dir = storedPromptsDir(context);
+        if (!fs.existsSync(dir)) _migrateLegacyPromptsTxt(context, dir);
+        if (!fs.existsSync(dir)) return [];
+        const names = fs.readdirSync(dir)
+            .filter(n => n.toLowerCase().endsWith('.txt'))
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+        const out = [];
+        for (const name of names) {
+            try {
+                const body = fs.readFileSync(path.join(dir, name), 'utf8').replace(/^\s+|\s+$/g, '');
+                if (body) out.push(body);
+            } catch (e) {
+                traceErr(`loadPrompts read ${name}`, e);
+            }
+        }
         return out;
     } catch (e) {
         traceErr('loadPrompts', e);
@@ -3110,24 +3269,30 @@ function loadPrompts(context) {
    so partial writes can't corrupt the canonical file. Returns the array
    that was actually written (i.e. after the empty-entry filter). */
 function savePrompts(context, items) {
-    const p = promptsFilePath(context);
+    /* Wipes stored_prompts/ and rewrites each item as NN-slug.txt with a
+       sequential numeric prefix that preserves the panel's display order.
+       Slug comes from the first non-blank line. We only remove .txt files
+       so unrelated user files in the dir (notes, etc.) survive. */
+    const dir = storedPromptsDir(context);
     const cleaned = (Array.isArray(items) ? items : [])
         .map(s => String(s == null ? '' : s).replace(/^\s+|\s+$/g, ''))
         .filter(s => s.length > 0);
-    /* Body = entries joined by "\n---\n", trailing newline so the file is
-       POSIX-friendly and `cat` doesn't dirty the next shell prompt. */
-    const body = cleaned.length
-        ? cleaned.join('\n' + PROMPTS_SEPARATOR + '\n') + '\n'
-        : '';
-    const tmp = p + '.tmp';
     try {
-        fs.writeFileSync(tmp, body, 'utf8');
-        /* fs.renameSync is atomic on the same filesystem (Win32 + POSIX). */
-        fs.renameSync(tmp, p);
+        fs.mkdirSync(dir, { recursive: true });
+        for (const name of fs.readdirSync(dir)) {
+            if (name.toLowerCase().endsWith('.txt')) {
+                try { fs.unlinkSync(path.join(dir, name)); } catch (e) { traceErr(`savePrompts unlink ${name}`, e); }
+            }
+        }
+        const pad = Math.max(2, String(cleaned.length).length);
+        cleaned.forEach((body, i) => {
+            const num = String(i + 1).padStart(pad, '0');
+            const firstLine = (body.split(/\r?\n/).find(l => l.trim()) || '').trim();
+            const name = `${num}-${slugify(firstLine)}.txt`;
+            fs.writeFileSync(path.join(dir, name), body + '\n', 'utf8');
+        });
         return cleaned;
     } catch (e) {
-        /* Best-effort cleanup of the orphaned tmp file. */
-        try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (e2) { traceErr('savePrompts cleanup', e2); }
         traceErr('savePrompts', e);
         throw e;
     }
@@ -3430,9 +3595,96 @@ function getBrowserBridge(providerId) {
         startUrl: provider.url,
         target: provider.target,
         log: (m) => trace(`bridge[${providerId}] ${m}`),
+        /* If the user has run "Install Bridge Service" for this provider,
+           Chrome is already running at boot on this port. BrowserBridge will
+           CDP-attach to it instead of spawning a new Chrome each session. */
+        servicePort: BRIDGE_SERVICE_PORTS[providerId] || 0,
     });
     browserBridges[providerId] = bridge;
     return bridge;
+}
+
+/* ── Bridge service install/uninstall ────────────────────────────────────
+   Wraps tools/install_bridge_service.ps1 + tools/uninstall_bridge_service.ps1.
+   Both scripts need elevation (NSSM service registration), so we invoke them
+   via Start-Process -Verb RunAs which raises a UAC prompt. The user accepts
+   once and the service persists across reboots. */
+function installBridgeServiceFor(providerId) {
+    const provider = PROVIDERS[providerId];
+    if (!provider || !provider.webBridge) {
+        vscode.window.showErrorMessage(`CBE: ${providerId} is not a web-bridge provider; service install only applies to grokWeb / chatgptWeb.`);
+        return;
+    }
+    const port = BRIDGE_SERVICE_PORTS[providerId];
+    if (!port) {
+        vscode.window.showErrorMessage(`CBE: no bridge service port assigned for ${providerId}; add it to BRIDGE_SERVICE_PORTS.`);
+        return;
+    }
+    const nssm = path.join(extensionContext.extensionPath, 'tools', 'nssm.exe');
+    const script = path.join(extensionContext.extensionPath, 'tools', 'install_bridge_service.ps1');
+    if (!fs.existsSync(nssm))   { vscode.window.showErrorMessage(`CBE: missing tools/nssm.exe — reinstall the extension.`); return; }
+    if (!fs.existsSync(script)) { vscode.window.showErrorMessage(`CBE: missing tools/install_bridge_service.ps1 — reinstall the extension.`); return; }
+    let chromeExe;
+    try { chromeExe = findBrowserPath(); }
+    catch (e) { vscode.window.showErrorMessage(`CBE: no Chrome/Edge found — ${e.message}`); return; }
+    const profileDir = browserProfileDir(providerId);
+    fs.mkdirSync(profileDir, { recursive: true });
+
+    /* The PS1 needs the args quoted because some paths contain spaces. We
+       launch elevated via Start-Process -Verb RunAs so the UAC prompt fires
+       once and the service install proceeds with admin rights. */
+    const psBody =
+        `Start-Process -Verb RunAs -Wait powershell.exe -ArgumentList ` +
+        `'-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',` +
+        `'${script.replace(/'/g, "''")}',` +
+        `'-Provider','${providerId}',` +
+        `'-Port','${port}',` +
+        `'-ProfileDir','${profileDir.replace(/'/g, "''")}',` +
+        `'-ChromeExe','${chromeExe.replace(/'/g, "''")}',` +
+        `'-NssmExe','${nssm.replace(/'/g, "''")}'`;
+
+    trace(`bridge service install: provider=${providerId} port=${port} chrome=${chromeExe} profile=${profileDir}`);
+    cp.spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psBody], {
+        windowsHide: true, stdio: 'ignore', detached: false,
+    }).on('exit', (code) => {
+        trace(`bridge service install exit code=${code} provider=${providerId}`);
+        if (code === 0) {
+            vscode.window.showInformationMessage(`CBE: bridge service installed for ${providerId} (port ${port}). Chrome runs at boot; CBE will CDP-attach.`);
+        } else {
+            vscode.window.showWarningMessage(`CBE: bridge service install for ${providerId} returned code ${code}. Check the trace.`);
+        }
+    });
+}
+
+function uninstallBridgeServiceFor(providerId) {
+    const nssm = path.join(extensionContext.extensionPath, 'tools', 'nssm.exe');
+    const script = path.join(extensionContext.extensionPath, 'tools', 'uninstall_bridge_service.ps1');
+    if (!fs.existsSync(nssm))   { vscode.window.showErrorMessage(`CBE: missing tools/nssm.exe`); return; }
+    if (!fs.existsSync(script)) { vscode.window.showErrorMessage(`CBE: missing tools/uninstall_bridge_service.ps1`); return; }
+    const psBody =
+        `Start-Process -Verb RunAs -Wait powershell.exe -ArgumentList ` +
+        `'-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',` +
+        `'${script.replace(/'/g, "''")}',` +
+        `'-Provider','${providerId}',` +
+        `'-NssmExe','${nssm.replace(/'/g, "''")}'`;
+    trace(`bridge service uninstall: provider=${providerId}`);
+    cp.spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psBody], {
+        windowsHide: true, stdio: 'ignore', detached: false,
+    }).on('exit', (code) => {
+        trace(`bridge service uninstall exit code=${code} provider=${providerId}`);
+        if (code === 0) {
+            vscode.window.showInformationMessage(`CBE: bridge service for ${providerId} removed.`);
+        } else {
+            vscode.window.showWarningMessage(`CBE: bridge service uninstall for ${providerId} returned code ${code}.`);
+        }
+    });
+}
+
+/** Resolve the Chrome/Edge exe path the SAME way BrowserBridge does, so the
+    installer registers the binary the bridge will later attach to. */
+function findBrowserPath() {
+    const { findBrowser } = require('./bridge/browser-bridge');
+    return findBrowser();
 }
 
 /* Web-bridge "streaming": send the latest user turn into the page, then poll
@@ -3579,24 +3831,167 @@ async function handleSendText(context, panel, text) {
     panel.webview.postMessage({ type: 'assistantStart' });
     trace(`stream start provider=${providerId} model=${model} maxTokens=${maxTokens} historyLen=${conversation.length}`);
 
-    let assembled = '';
     const t0 = Date.now();
+    let toolIterations = 0;
+    const MAX_TOOL_ITERATIONS = 8;
     try {
-        for await (const delta of chatStream(context, providerId, model, conversation, maxTokens)) {
-            assembled += delta;
-            panel.webview.postMessage({ type: 'chunk', text: delta });
+        /* Outer loop: stream the model, then look for tool calls in its reply.
+           If found, execute them, append the tool result as a NEW user turn,
+           and stream again. The loop exits when the model emits a turn with
+           no executable blocks, or we hit MAX_TOOL_ITERATIONS as a safety. */
+        for (;;) {
+            let assembled = '';
+            for await (const delta of chatStream(context, providerId, model, conversation, maxTokens)) {
+                assembled += delta;
+                panel.webview.postMessage({ type: 'chunk', text: delta });
+            }
+            trace(`stream done provider=${providerId} chars=${assembled.length} ms=${Date.now() - t0} toolIter=${toolIterations}`);
+            conversation.push({ role: 'assistant', content: assembled });
+
+            const calls = parseToolCalls(assembled);
+            if (!calls.length || toolIterations >= MAX_TOOL_ITERATIONS) {
+                if (calls.length) {
+                    panel.webview.postMessage({ type: 'info', text: `Tool-call iteration cap (${MAX_TOOL_ITERATIONS}) reached — not executing further.` });
+                }
+                panel.webview.postMessage({ type: 'assistantDone', text: assembled });
+                _postContextUsage(panel, context);
+                setStatus('idle', false, providerId);
+                break;
+            }
+            toolIterations++;
+            const projectFolder = context.workspaceState.get('codexBlackEd.projectFolder', '') || os.homedir();
+            const resultParts = [];
+            for (const call of calls) {
+                panel.webview.postMessage({ type: 'info', text: `▶ exec [${call.lang}] ${call.command.split(/\r?\n/)[0].slice(0, 100)}${call.command.length > 100 ? '…' : ''}` });
+                const r = await executeToolCall(call, { cwd: projectFolder });
+                resultParts.push(formatToolResult(call, r));
+                panel.webview.postMessage({ type: 'info', text: `◀ rc=${r.rc} stdout=${r.stdout.length}B stderr=${r.stderr.length}B in ${r.durationMs}ms` });
+            }
+            /* Tool result goes back as a synthetic user turn — same shape the
+               model emitted, so it can read its own output. */
+            const toolReply = resultParts.join('\n\n');
+            conversation.push({ role: 'user', content: toolReply });
+            /* For web-bridge / SuperGrok providers, the bridge page already
+               saw the assistant reply; we need to type the tool result so
+               the bridge picks it up as a fresh user turn on its next stream. */
+            panel.webview.postMessage({ type: 'assistantDone', text: assembled });
+            panel.webview.postMessage({ type: 'assistantStart' });
         }
-        trace(`stream done provider=${providerId} chars=${assembled.length} ms=${Date.now() - t0}`);
-        conversation.push({ role: 'assistant', content: assembled });
-        panel.webview.postMessage({ type: 'assistantDone', text: assembled });
-        _postContextUsage(panel, context);   /* keep the Compact-ring fresh */
-        setStatus('idle', false, providerId);
     } catch (e) {
         traceErr(`stream failed (provider=${providerId})`, e);
         panel.webview.postMessage({ type: 'error', message: `${providerId}: ${e.message || e}` });
         setStatus('error', false, providerId);
         if (conversation[conversation.length - 1] && conversation[conversation.length - 1].role === 'user') conversation.pop();
     }
+}
+
+/* ── Tool-call parsing + execution ────────────────────────────────────────
+   Opt-in convention: the model wraps an executable command in a fenced
+   code block whose FIRST line is the marker `# !exec` (case-insensitive).
+   Recognized languages: bash, sh, pwsh, powershell, cmd, batch. Examples:
+
+       ```bash
+       # !exec
+       git status
+       ```
+
+       ```pwsh
+       # !exec
+       Get-ChildItem -Recurse -File | Measure-Object
+       ```
+
+   Without the marker, fenced blocks are display-only (zero behavior change
+   for chats that aren't aware of the convention). */
+const TOOL_FENCE_RE = /```(bash|sh|pwsh|powershell|cmd|batch)\r?\n([\s\S]*?)```/gi;
+const TOOL_EXEC_MARKER_RE = /^\s*#\s*!exec\b/i;
+
+function parseToolCalls(text) {
+    const out = [];
+    if (!text) return out;
+    TOOL_FENCE_RE.lastIndex = 0;
+    let m;
+    while ((m = TOOL_FENCE_RE.exec(text)) !== null) {
+        const lang = m[1].toLowerCase();
+        const body = m[2] || '';
+        const firstNL = body.indexOf('\n');
+        const firstLine = firstNL >= 0 ? body.slice(0, firstNL) : body;
+        if (!TOOL_EXEC_MARKER_RE.test(firstLine)) continue;
+        const command = (firstNL >= 0 ? body.slice(firstNL + 1) : '').replace(/\r?\n$/, '');
+        if (!command.trim()) continue;
+        out.push({ lang, command, raw: m[0] });
+    }
+    return out;
+}
+
+function executeToolCall(call, opts = {}) {
+    const cwd = opts.cwd || os.homedir();
+    const timeoutMs = Number(opts.timeoutMs) || 60000;
+    const maxBuffer = Number(opts.maxBuffer) || (4 * 1024 * 1024);
+    const startedAt = Date.now();
+    return new Promise((resolve) => {
+        let shell, shellArgs;
+        if (call.lang === 'pwsh' || call.lang === 'powershell') {
+            shell = 'powershell.exe';
+            shellArgs = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', call.command];
+        } else if (call.lang === 'cmd' || call.lang === 'batch') {
+            shell = 'cmd.exe';
+            shellArgs = ['/d', '/c', call.command];
+        } else {
+            /* bash / sh — use the bash that ships with Git for Windows if
+               present, otherwise fall back to cmd. Picked via PATH lookup. */
+            shell = process.env.COMSPEC && fs.existsSync('C:\\Program Files\\Git\\bin\\bash.exe')
+                ? 'C:\\Program Files\\Git\\bin\\bash.exe'
+                : 'bash';
+            shellArgs = ['-lc', call.command];
+        }
+        const proc = cp.spawn(shell, shellArgs, { cwd, windowsHide: true, env: process.env });
+        let stdout = '', stderr = '', truncated = false;
+        const cap = (which, chunk) => {
+            const buf = which === 'out' ? stdout : stderr;
+            const room = maxBuffer - buf.length;
+            if (room <= 0) { truncated = true; return; }
+            const s = chunk.toString('utf8');
+            if (which === 'out') stdout += s.slice(0, room);
+            else                 stderr += s.slice(0, room);
+            if (s.length > room) truncated = true;
+        };
+        proc.stdout.on('data', d => cap('out', d));
+        proc.stderr.on('data', d => cap('err', d));
+        const killer = setTimeout(() => { try { proc.kill(); } catch (e) {} }, timeoutMs);
+        proc.on('close', (code, signal) => {
+            clearTimeout(killer);
+            resolve({
+                rc: typeof code === 'number' ? code : -1,
+                signal: signal || null,
+                stdout, stderr,
+                truncated,
+                durationMs: Date.now() - startedAt,
+                command: call.command,
+                lang: call.lang,
+            });
+        });
+        proc.on('error', err => {
+            clearTimeout(killer);
+            resolve({
+                rc: -1, signal: null,
+                stdout, stderr: stderr + `\n[spawn-error] ${err.message}`,
+                truncated, durationMs: Date.now() - startedAt,
+                command: call.command, lang: call.lang,
+            });
+        });
+    });
+}
+
+function formatToolResult(call, r) {
+    /* Mirror the fenced shape the model emits so re-feeding the conversation
+       is symmetric. The wrapper block is `tool-output` (NOT one of the
+       executable langs) so the next pass won't try to re-execute the result. */
+    const head = `[tool-result lang=${call.lang} rc=${r.rc}${r.signal ? ` signal=${r.signal}` : ''} ms=${r.durationMs}${r.truncated ? ' truncated=true' : ''}]`;
+    const sections = [];
+    if (r.stdout.length) sections.push(`stdout:\n\`\`\`text\n${r.stdout.replace(/\r?\n$/, '')}\n\`\`\``);
+    if (r.stderr.length) sections.push(`stderr:\n\`\`\`text\n${r.stderr.replace(/\r?\n$/, '')}\n\`\`\``);
+    if (!sections.length) sections.push('(no output)');
+    return `${head}\n${sections.join('\n')}`;
 }
 
 module.exports = { activate, deactivate };

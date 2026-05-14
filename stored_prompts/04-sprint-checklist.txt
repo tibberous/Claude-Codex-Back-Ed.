@@ -1,0 +1,5 @@
+End-of-session sprint checklist. Use ✅ / ❌ only — never "in progress" or "partially done". Grep the code if you're unsure. Format:
+
+✅ DatabaseBase class — complete, tested
+❌ MariaDB adapter — not started
+→ Next session: wire initMigrations() into applicationLifeCycle phase 2

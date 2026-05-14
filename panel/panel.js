@@ -1020,7 +1020,7 @@ function openGitModal() {
         '</div>' +
         '<div style="padding:14px 18px;display:flex;flex-direction:column;gap:10px;">' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap;font-size:12px;">' +
-            ['status', 'log --oneline -10', 'diff', 'branch', 'fetch', 'pull', 'push'].map(c =>
+            ['init', 'add -A', 'commit', 'status', 'log --oneline -10', 'diff', 'branch', 'fetch', 'pull', 'push'].map(c =>
               `<button type="button" data-quick="${escapeHtml(c)}" style="background:rgba(255,255,255,.08);color:var(--cbe-modal-fg);border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:4px 10px;cursor:pointer;font-family:Consolas,monospace;font-size:11px;">git ${escapeHtml(c)}</button>`).join('') +
           '</div>' +
           '<div style="display:flex;gap:6px;align-items:center;">' +
@@ -1465,7 +1465,7 @@ function openSettings(payload) {
     +     '<div><label>Model</label><select id="cbe-set-model"></select></div>'
     +     '<div class="cbe-warn" id="cbe-set-warn">No API key configured for this provider in config.ini.</div>'
     +     '<div><label>Skin</label><select id="cbe-set-skin"><option value="">Loading skins…</option></select></div>'
-    +     '<div><label>Language</label><select id="cbe-set-language"></select></div>'
+    +     '<div><label>Language</label><div id="cbe-set-language-wrap" style="position:relative;"></div></div>'
     +     '<div style="display:flex;align-items:center;gap:10px;margin-top:4px;">'
     +       '<label for="cbe-set-sfx-enabled" style="margin:0;flex:1;">Sound Effects</label>'
     +       '<input type="checkbox" id="cbe-set-sfx-enabled" style="width:auto;accent-color:var(--cbe-modal-accent);cursor:pointer;">'
@@ -1537,28 +1537,130 @@ function openSettings(payload) {
   sel.addEventListener('change', renderModels);
   renderModels();
 
-  /* Language dropdown — populated from payload.languages (built by the host
-     from languages/*.xml). Each option is prefixed with the country's flag
-     emoji; a real <select> can't hold <img> tags, and the regional-indicator
-     emoji renders a flag everywhere without a custom dropdown widget. */
+  /* Language dropdown — custom widget (a native <select> can't render <img>,
+     and on Windows the regional-indicator emoji shows as plain letters, so
+     real SVG flags require this). The host substitutes {{ASSETS_BASE}} into
+     window.__cbeAssetsBase; we build flag URIs from it and write the chosen
+     code to wrap.dataset.value, which the Save handler reads. */
   (function populateLanguages() {
-    const langSel = overlay.querySelector('#cbe-set-language');
-    if (!langSel) return;
+    const wrap = overlay.querySelector('#cbe-set-language-wrap');
+    if (!wrap) return;
+    const assetsBase = String(window.__cbeAssetsBase || '').replace(/\/$/, '');
+    const flagUri = (code) => `${assetsBase}/flags/${encodeURIComponent(code)}.svg`;
     const langs = Array.isArray(payload.languages) ? payload.languages : [];
-    if (!langs.length) {
-      langSel.innerHTML = '<option value="en">🇬🇧 English</option>';
-      langSel.value = 'en';
-      return;
+    const entries = langs.length ? langs : [{ code: 'en', name: 'English', flag: '' }];
+    const findEntry = (code) =>
+      entries.find((e) => e.code === code) || entries[0];
+    const initial = findEntry(payload.language || 'en');
+    wrap.dataset.value = initial.code;
+
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.id = 'cbe-set-language-trigger';
+    trigger.style.cssText =
+      'width:100%;display:flex;align-items:center;gap:8px;'
+      + 'padding:6px 28px 6px 8px;background:var(--cbe-modal-bg,#1c1c1c);'
+      + 'color:var(--cbe-modal-fg,#eee);border:1px solid var(--cbe-modal-border,#444);'
+      + 'border-radius:4px;cursor:pointer;font:inherit;text-align:left;'
+      + 'position:relative;';
+    const triggerImg = document.createElement('img');
+    triggerImg.alt = '';
+    triggerImg.src = flagUri(initial.code);
+    triggerImg.style.cssText =
+      'width:22px;height:16px;object-fit:cover;border-radius:2px;flex-shrink:0;';
+    /* Build the dual-label string: "Native · English" so a user reading either
+       script can recognize the entry. Fall back gracefully when one side is
+       missing. */
+    const dualLabel = (e) => {
+      const native = (e.nativeName || e.name || '').trim();
+      const english = (e.englishName || '').trim();
+      if (native && english && native !== english) return `${native} · ${english}`;
+      return native || english || e.code;
+    };
+    const triggerLabel = document.createElement('span');
+    triggerLabel.textContent = dualLabel(initial);
+    triggerLabel.style.flex = '1';
+    const triggerCaret = document.createElement('span');
+    triggerCaret.textContent = '▾';
+    triggerCaret.style.cssText =
+      'position:absolute;right:10px;top:50%;transform:translateY(-50%);'
+      + 'pointer-events:none;opacity:.7;';
+    trigger.appendChild(triggerImg);
+    trigger.appendChild(triggerLabel);
+    trigger.appendChild(triggerCaret);
+
+    const menu = document.createElement('div');
+    menu.id = 'cbe-set-language-menu';
+    menu.setAttribute('role', 'listbox');
+    menu.style.cssText =
+      'display:none;position:absolute;left:0;right:0;top:100%;'
+      + 'margin-top:2px;max-height:260px;overflow-y:auto;'
+      + 'background:var(--cbe-modal-bg,#1c1c1c);color:var(--cbe-modal-fg,#eee);'
+      + 'border:1px solid var(--cbe-modal-border,#444);border-radius:4px;'
+      + 'z-index:10;box-shadow:0 6px 14px rgba(0,0,0,.4);';
+
+    wrap.innerHTML = '';
+    wrap.appendChild(trigger);
+    wrap.appendChild(menu);
+
+    function selectLanguage(code) {
+      const entry = findEntry(code);
+      wrap.dataset.value = entry.code;
+      triggerImg.src = flagUri(entry.code);
+      triggerLabel.textContent = dualLabel(entry);
     }
-    langSel.innerHTML = '';
-    langs.forEach((l) => {
-      const o = document.createElement('option');
-      o.value = l.code;
-      o.textContent = (l.flag ? l.flag + '  ' : '') + (l.name || l.code);
-      langSel.appendChild(o);
+
+    entries.forEach((l) => {
+      const row = document.createElement('div');
+      row.setAttribute('data-code', l.code);
+      row.setAttribute('role', 'option');
+      row.style.cssText =
+        'display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;';
+      const img = document.createElement('img');
+      img.alt = '';
+      img.src = flagUri(l.code);
+      img.style.cssText =
+        'width:22px;height:16px;object-fit:cover;border-radius:2px;flex-shrink:0;';
+      const label = document.createElement('span');
+      label.textContent = dualLabel(l);
+      label.style.flex = '1';
+      const codeTag = document.createElement('span');
+      codeTag.textContent = l.code;
+      codeTag.style.cssText = 'opacity:.55;font-size:.85em;';
+      row.appendChild(img);
+      row.appendChild(label);
+      row.appendChild(codeTag);
+      row.addEventListener('mouseenter', () => {
+        row.style.background = 'var(--cbe-modal-accent,#2a5d8f)';
+      });
+      row.addEventListener('mouseleave', () => {
+        row.style.background = '';
+      });
+      row.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        selectLanguage(l.code);
+        closeMenu();
+        playSfx('click');
+      });
+      menu.appendChild(row);
     });
-    langSel.value = payload.language || 'en';
-    if (!langSel.value) langSel.value = 'en';
+
+    function onDocClick(ev) {
+      if (!wrap.contains(ev.target)) closeMenu();
+    }
+    function openMenu() {
+      menu.style.display = 'block';
+      /* defer so the same click that opened the menu doesn't close it. */
+      setTimeout(() => document.addEventListener('click', onDocClick), 0);
+    }
+    function closeMenu() {
+      menu.style.display = 'none';
+      document.removeEventListener('click', onDocClick);
+    }
+    trigger.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      menu.style.display === 'block' ? closeMenu() : openMenu();
+    });
   })();
 
   /* Skin discovery: ask the host to scan /skins NOW (not at startup) so
@@ -1644,8 +1746,8 @@ function openSettings(payload) {
       const skinSel = overlay.querySelector('#cbe-set-skin');
       const skin    = (skinSel && skinSel.value) || '';
       __cbeActiveSkin = skin;
-      const langSel = overlay.querySelector('#cbe-set-language');
-      const language = (langSel && langSel.value) || 'en';
+      const langWrap = overlay.querySelector('#cbe-set-language-wrap');
+      const language = (langWrap && langWrap.dataset && langWrap.dataset.value) || 'en';
       if (api) api.postMessage({
         type: 'setProvider', provider, model,
         sfxEnabled: sfxEnabledVal, sfxVolume: sfxVolumeVal,
@@ -2173,17 +2275,39 @@ function openHelp() {
   if (modal) { modal.style.display = 'flex'; return; }
   modal = document.createElement('div');
   modal.id = 'cbe-help-modal';
+  /* The help doc is rendered in an <iframe srcdoc>. srcdoc takes the full
+     HTML document as inline content (NOT a fetched URL) so:
+       - there's no CSP frame-src / asWebviewUri resource-load problem,
+       - the doc is a real isolated document, so its <style>, <script>,
+         :root vars and <body> background all apply natively (the previous
+         innerHTML approach rendered the <style> block as visible text),
+       - help.html's own smooth-scroll script runs as-is.
+     Falls back to a message if the host hasn't shipped the HTML. */
+  const html = window.__cbeHelpHtml || '';
   modal.innerHTML = `
     <div class="cbe-box" role="dialog" aria-modal="true" aria-label="Help">
       <div class="cbe-hdr">
         <span>Claude Codex — Black Edition · Help</span>
         <button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)"></button>
       </div>
-      <iframe src="${window.__cbeUris.HELP_URI}" title="Help"></iframe>
+      <div id="cbe-help-body" style="flex:1 1 auto;display:flex;background:var(--cbe-modal-bg);"></div>
     </div>`;
   modal.addEventListener('click', e => { if (e.target === modal) closeHelp(); });
   modal.querySelector('.cbe-x').addEventListener('click', closeHelp);
   document.body.appendChild(modal);
+  const bodyHost = modal.querySelector('#cbe-help-body');
+  if (html) {
+    const iframe = document.createElement('iframe');
+    iframe.title = 'Help';
+    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
+    iframe.style.cssText = 'flex:1 1 auto;width:100%;border:0;background:var(--cbe-modal-bg);';
+    /* Set via the .srcdoc property (not an attribute string) so quotes in the
+       help HTML don't need escaping. */
+    iframe.srcdoc = html;
+    bodyHost.appendChild(iframe);
+  } else {
+    bodyHost.innerHTML = '<div style="padding:24px;color:var(--cbe-modal-fg);">Help content not loaded. Reload the panel to retry.</div>';
+  }
 }
 function closeHelp() {
   const m = document.getElementById('cbe-help-modal');
@@ -2194,45 +2318,128 @@ document.addEventListener('keydown', e => {
 });
 document.getElementById('helpBtn').addEventListener('click', openHelp);
 
-/* ── Extensions marketplace modal — iframes the server-hosted marketplace
-   PHP. The page lists every available .ext bundle with an Install button;
-   clicking Install postMessages `cbe.installExtension` up to this window,
-   which we forward to the host (extension.js downloads the .ext + extracts
-   it). The host echoes back `cbe.installResult` which we relay into the
-   iframe so its button flips to "Installed". */
-const CBE_MARKETPLACE_URL = 'https://trentontompkins.com/cbe/extension/extension_marketplace.php';
+/* ── Extensions marketplace modal — NATIVE render (no iframe).
+   VSCode webviews render external-https iframes as a black rectangle on many
+   builds, so instead of embedding the marketplace PHP we ask the host to
+   fetch the catalog XML (`fetchExtensionsCatalog`) and render the cards here
+   with plain DOM. Install → `installExtension` host message → the host
+   downloads + MD5-verifies + extracts the .ext, then echoes back
+   `cbe.installResultFromHost` which flips the matching card's button. */
 function openExtensionsMarketplace() {
   let modal = document.getElementById('cbe-ext-modal');
   if (modal) { modal.style.display = 'flex'; return; }
   modal = document.createElement('div');
   modal.id = 'cbe-ext-modal';
-  /* Reuse the help modal's chrome classes so skins style it consistently. */
-  modal.className = 'cbe-help-modal-shell';
-  modal.innerHTML = `
-    <div class="cbe-box" role="dialog" aria-modal="true" aria-label="Extensions Marketplace">
-      <div class="cbe-hdr">
-        <span>Extensions Marketplace</span>
-        <button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)"></button>
-      </div>
-      <iframe src="${CBE_MARKETPLACE_URL}" title="Extensions Marketplace"
-              sandbox="allow-scripts allow-same-origin allow-popups"></iframe>
-    </div>`;
-  /* Match the help modal's fixed-overlay layout (in case the className
-     above isn't styled by the active skin, set the essentials inline). */
   modal.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;' +
     'align-items:center;justify-content:center;background:rgba(0,0,0,0.55);';
-  const box = modal.querySelector('.cbe-box');
-  if (box) box.style.cssText = 'width:80vw;height:80vh;max-width:1100px;display:flex;' +
-    'flex-direction:column;background:#1c1f24;border:1px solid #353a45;border-radius:8px;overflow:hidden;';
-  const ifr = modal.querySelector('iframe');
-  if (ifr) ifr.style.cssText = 'flex:1;width:100%;border:0;background:#16181d;';
+  modal.innerHTML =
+    '<div class="cbe-box" role="dialog" aria-modal="true" aria-label="Extensions Marketplace" ' +
+      'style="width:80vw;height:80vh;max-width:1040px;display:flex;flex-direction:column;' +
+      'background:var(--cbe-modal-bg,#1c1f24);border:2px solid var(--cbe-modal-border,#353a45);' +
+      'border-radius:10px;overflow:hidden;box-shadow:0 12px 50px rgba(0,0,0,.7);">' +
+      '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,' +
+        'var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);' +
+        'font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
+        '<span>Extensions Marketplace</span>' +
+        '<button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)" ' +
+          'style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:18px;cursor:pointer;">×</button>' +
+      '</div>' +
+      '<div id="cbe-ext-body" style="flex:1 1 auto;overflow:auto;padding:16px 18px;' +
+        'color:var(--cbe-modal-fg,#e7eaef);font:13px/1.5 system-ui,sans-serif;">' +
+        '<div style="opacity:.7;padding:20px 0;">Loading marketplace…</div>' +
+      '</div>' +
+    '</div>';
   modal.addEventListener('click', e => { if (e.target === modal) closeExtensionsMarketplace(); });
   modal.querySelector('.cbe-x').addEventListener('click', closeExtensionsMarketplace);
   document.body.appendChild(modal);
+  /* Ask the host for the catalog; renderExtensionsCatalog() fills the body
+     when the `extensionsCatalog` message comes back. */
+  if (api) api.postMessage({ type: 'fetchExtensionsCatalog' });
 }
 function closeExtensionsMarketplace() {
   const m = document.getElementById('cbe-ext-modal');
   if (m) m.remove();
+}
+function escapeHtmlExt(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+function renderExtensionsCatalog(items, error) {
+  const body = document.getElementById('cbe-ext-body');
+  if (!body) return;
+  if (error) {
+    body.innerHTML =
+      '<h3 style="margin:0 0 10px;color:#ff8a8a;">Couldn’t load the marketplace</h3>' +
+      '<p style="opacity:.85;">' + escapeHtmlExt(error) + '</p>' +
+      '<p style="opacity:.7;">The host fetch of <code>extensions.xml.php</code> failed — ' +
+      'check the network, or that trentontompkins.com is reachable.</p>';
+    return;
+  }
+  if (!items || !items.length) {
+    body.innerHTML = '<div style="opacity:.7;padding:20px 0;">No extensions published yet.</div>';
+    return;
+  }
+  const fmtBytes = (n) => {
+    n = Number(n) || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1024 / 1024).toFixed(1) + ' MB';
+  };
+  const cards = items.map((ext) => {
+    const tags = (ext.tags || []).map(t =>
+      '<span style="background:rgba(255,255,255,.08);border:1px solid var(--cbe-modal-border,#3a414c);' +
+      'border-radius:4px;padding:2px 6px;font-size:11px;opacity:.85;">' + escapeHtmlExt(t) + '</span>'
+    ).join(' ');
+    return (
+      '<div class="cbe-ext-card" data-ext-id="' + escapeHtmlExt(ext.id) + '" ' +
+        'style="background:rgba(255,255,255,.05);border:1px solid var(--cbe-modal-border,#3a414c);' +
+        'border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">' +
+          '<strong style="font-size:15px;">' + escapeHtmlExt(ext.name) + '</strong>' +
+          '<span style="opacity:.6;font-size:11px;font-family:ui-monospace,monospace;">v' + escapeHtmlExt(ext.version) + '</span>' +
+        '</div>' +
+        '<div style="opacity:.65;font-size:12px;">by ' + escapeHtmlExt(ext.author || 'unknown') +
+          (ext.created ? ' · ' + escapeHtmlExt(ext.created) : '') + '</div>' +
+        '<div style="flex-grow:1;min-height:34px;">' + escapeHtmlExt(ext.description) + '</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:4px;">' + tags + '</div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+          '<span style="opacity:.6;font-size:11px;font-family:ui-monospace,monospace;">' + fmtBytes(ext.bytes) + '</span>' +
+          '<button type="button" class="cbe-ext-install" ' +
+            'data-ext-id="' + escapeHtmlExt(ext.id) + '" ' +
+            'data-ext-name="' + escapeHtmlExt(ext.name) + '" ' +
+            'data-ext-url="' + escapeHtmlExt(ext.fileUrl) + '" ' +
+            'data-ext-md5="' + escapeHtmlExt(ext.md5) + '" ' +
+            'style="background:var(--cbe-modal-accent,#173050);color:var(--cbe-modal-title-fg,#4ea8ff);' +
+            'border:1px solid var(--cbe-modal-border,#4ea8ff);border-radius:6px;padding:6px 12px;' +
+            'font:13px ui-monospace,monospace;cursor:pointer;">Install</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
+  body.innerHTML =
+    '<div style="opacity:.75;margin-bottom:14px;">Browse and install third-party ' +
+    'extensions for the Claude Codex Black panel. Each is a single <code>.ext</code> ' +
+    'bundle, downloaded + MD5-verified + extracted by the host.</div>' +
+    '<div style="display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));">' +
+    cards + '</div>';
+  body.querySelectorAll('.cbe-ext-install').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = 'Installing…';
+      btn.style.opacity = '0.6';
+      if (api) api.postMessage({
+        type: 'installExtension',
+        ext: {
+          id: btn.getAttribute('data-ext-id'),
+          name: btn.getAttribute('data-ext-name'),
+          fileUrl: btn.getAttribute('data-ext-url'),
+          md5: btn.getAttribute('data-ext-md5'),
+        },
+      });
+    });
+  });
 }
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && document.getElementById('cbe-ext-modal')) closeExtensionsMarketplace();
@@ -2241,22 +2448,6 @@ document.addEventListener('keydown', e => {
   const el = document.getElementById('extensionsBtn');
   if (el) el.addEventListener('click', openExtensionsMarketplace);
 })();
-/* Bridge: the marketplace iframe → this panel → the host. */
-window.addEventListener('message', (event) => {
-  const m = event.data || {};
-  if (m && m.type === 'cbe.installExtension') {
-    /* Forward the install request to the host. extension.js downloads the
-       .ext file (HTTPS GET), MD5-verifies, extracts under extensions/. */
-    if (api) api.postMessage({ type: 'installExtension', ext: m });
-  } else if (m && m.type === 'cbe.installResultFromHost') {
-    /* Host finished — relay the result into the iframe so its Install
-       button flips to "✓ Installed" (or back to "Install" on failure). */
-    const ifr = document.querySelector('#cbe-ext-modal iframe');
-    if (ifr && ifr.contentWindow) {
-      try { ifr.contentWindow.postMessage({ type: 'cbe.installResult', id: m.id, ok: m.ok, name: m.name }, '*'); } catch (_) {}
-    }
-  }
-});
 
 /* ── Handbook modal — editable; round-trips handbook.txt via the host.
    Click handbook tool button → loads handbook.txt → shows in a big
@@ -2520,6 +2711,41 @@ document.addEventListener('mousedown', e => {
 
 /* Replace the now-unused bind() stub for showCommandsBtn. */
 
+/* ── i18n ────────────────────────────────────────────────────────────────
+   The host ships a merged English-fallback strings map (payload.strings,
+   keyed by the ids in languages/<code>.xml). applyStrings() walks the DOM
+   for translation markers and swaps the visible text:
+     data-i18n      → element.textContent
+     data-i18n-tip  → data-tooltip + aria-label (toolbar buttons)
+     data-i18n-ph   → input/textarea placeholder
+   __cbeStrings is kept around so code that builds DOM dynamically can call
+   cbeT('some.key') with the same table. Re-running applyStrings after a
+   language change re-translates everything already on the page. */
+let __cbeStrings = {};
+function cbeT(key, fallback) {
+  if (key && Object.prototype.hasOwnProperty.call(__cbeStrings, key)) return __cbeStrings[key];
+  return fallback != null ? fallback : key;
+}
+function applyStrings(strings) {
+  if (strings && typeof strings === 'object') __cbeStrings = strings;
+  const tbl = __cbeStrings || {};
+  document.querySelectorAll('[data-i18n]').forEach((el) => {
+    const k = el.getAttribute('data-i18n');
+    if (k && tbl[k] != null) el.textContent = tbl[k];
+  });
+  document.querySelectorAll('[data-i18n-tip]').forEach((el) => {
+    const k = el.getAttribute('data-i18n-tip');
+    if (k && tbl[k] != null) {
+      el.setAttribute('data-tooltip', tbl[k]);
+      el.setAttribute('aria-label', tbl[k]);
+    }
+  });
+  document.querySelectorAll('[data-i18n-ph]').forEach((el) => {
+    const k = el.getAttribute('data-i18n-ph');
+    if (k && tbl[k] != null) el.setAttribute('placeholder', tbl[k]);
+  });
+}
+
 /* Map provider id → SFX cue. anthropic→claude, openai→gtp, google/gemini→gemini,
    anything else → 'popup' fallback so the user still gets an audible "the
    model is replying" signal. */
@@ -2588,9 +2814,39 @@ window.addEventListener('message', e => {
     if (typeof m.skin === 'string') __cbeActiveSkin = m.skin;
     if (m.skinUri) applySkinUri(m.skinUri);
     applySkinColors(m.skinColors || null);
+    /* Cache help.html body shipped from the host. openHelp() innerHTMLs this
+       into a div instead of iframing the file — iframes via asWebviewUri were
+       rendering empty on some VSCode builds. */
+    if (typeof m.helpHtml === 'string' && m.helpHtml) window.__cbeHelpHtml = m.helpHtml;
+    /* Apply the active locale's strings to tooltips/labels on first paint. */
+    if (m.strings && typeof m.strings === 'object') applyStrings(m.strings);
     if (!__cbeOpenAppPlayed) {
       __cbeOpenAppPlayed = true;
       playSfx('open_and_close_application');
+    }
+  } else if (m.type === 'strings') {
+    /* Host pushes a fresh strings map after the language is changed in
+       Settings. Re-translate everything currently on the page. */
+    applyStrings(m.strings || {});
+  } else if (m.type === 'extensionsCatalog') {
+    /* Host fetched + parsed extensions.xml.php — render the cards natively. */
+    renderExtensionsCatalog(m.items || [], m.error);
+  } else if (m.type === 'cbe.installResultFromHost') {
+    /* Host finished an install — flip the matching card's button. */
+    const btn = document.querySelector('.cbe-ext-install[data-ext-id="' +
+      (window.CSS && CSS.escape ? CSS.escape(String(m.id || '')) : String(m.id || '')) + '"]');
+    if (btn) {
+      if (m.ok) {
+        btn.textContent = '✓ Installed';
+        btn.disabled = true;
+        btn.style.opacity = '1';
+        btn.style.color = 'var(--cbe-highlight-color,#6fd58a)';
+        btn.style.borderColor = 'var(--cbe-highlight-color,#6fd58a)';
+      } else {
+        btn.textContent = 'Install';
+        btn.disabled = false;
+        btn.style.opacity = '1';
+      }
     }
   } else if (m.type === 'applySkin') {
     /* Host-driven skin swap. m.skin = bare filename ('' to clear),

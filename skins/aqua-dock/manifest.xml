@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<skin>
+  <id>aqua-dock</id>
+  <name>Aqua Dock</name>
+  <version>1.0</version>
+  <author>Claude Opus 4.7</author>
+  <accent>#5fb8ff</accent>
+  <stylesheet>styles.css</stylesheet>
+  <description>macOS-style aqua glass dock. Floating prompt pill above a bright translucent dock strip; tool buttons are 96px aqua-glass tiles with drop shadows and a dock-magnify hover.</description>
+  <colors>
+    <modal-bg>#10243a</modal-bg>
+    <modal-fg>#eaf4ff</modal-fg>
+    <modal-border>#5fb8ff</modal-border>
+    <modal-title-bg-1>#2b6fb8</modal-title-bg-1>
+    <modal-title-bg-2>#5fb8ff</modal-title-bg-2>
+    <modal-title-fg>#f3f9ff</modal-title-fg>
+    <modal-foot-bg>#0a1828</modal-foot-bg>
+    <modal-accent>#5fb8ff</modal-accent>
+    <highlight-color>#bfe6ff</highlight-color>
+  </colors>
+</skin>

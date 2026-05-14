@@ -32,18 +32,27 @@ function httpGet(url) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-/** Poll the debug endpoint until it answers or timeout. */
-async function waitForDebugger(port, timeoutMs = 20000) {
+/** Poll the debug endpoint until it answers or timeout.
+ *  isAlive (optional): a () => boolean checked each poll — if it returns false
+ *  the wait aborts immediately instead of burning the full timeout. Pass the
+ *  browser-process liveness check so a Chrome that exited on launch fails fast
+ *  with a clear "process exited" message rather than a vague ECONNREFUSED. */
+async function waitForDebugger(port, timeoutMs = 20000, isAlive = null) {
     const start = Date.now();
     let lastErr;
+    let polls = 0;
     while (Date.now() - start < timeoutMs) {
+        if (typeof isAlive === 'function' && !isAlive()) {
+            throw new Error(`debugger wait aborted on port ${port}: browser process exited after ${polls} polls (${Date.now() - start}ms)`);
+        }
         try {
             const v = await httpGet(`http://127.0.0.1:${port}/json/version`);
             return v;
         } catch (e) { lastErr = e; }
+        polls++;
         await sleep(200);
     }
-    throw new Error(`debugger never came up on port ${port}: ${lastErr && lastErr.message}`);
+    throw new Error(`debugger never came up on port ${port} after ${polls} polls / ${timeoutMs}ms: ${lastErr && lastErr.message}`);
 }
 
 async function listTargets(port) {
@@ -150,6 +159,22 @@ class Page {
 
     async navigate(url) {
         return this.send('Page.navigate', { url });
+    }
+
+    /** Ask Chrome to close itself cleanly via CDP. This is preferred over
+        proc.kill on the parent: Chrome flushes session cookies, marks
+        profile.exit_type='Normal' (not 'Crashed'), and writes the persistent
+        cookie file. Without this, the next bridge launch sees a fresh
+        login screen even though we have a persistent user-data-dir. */
+    async browserClose() {
+        if (this._closed) return;
+        try { await this.send('Browser.close'); }
+        catch (e) {
+            /* On some Chrome builds Browser.close is unsupported on a Page
+               target; fall back to Page.close which is universal. */
+            try { await this.send('Page.close'); }
+            catch (e2) { console.error('[cbe.cdp] browserClose fallback', e2 && e2.message); }
+        }
     }
 
     close() {

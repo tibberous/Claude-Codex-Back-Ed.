@@ -1,0 +1,1 @@
+Grep for hardcoded user-facing strings (button labels, menu titles, error messages, modal headers). Replace each with SF.get(Buttons.X) / localizationTokenText(app, Enum.KEY). Add a "// localized" marker on the line. Confirm every key exists in BOTH the English XML and the Spanish XML — diff the two and report missing keys.

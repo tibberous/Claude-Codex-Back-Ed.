@@ -1,0 +1,6 @@
+Build --test-chat / --chat / --testchat CLI. Print the first 3 lines of context, then a numbered list of every provider + model (ChatGPT 1) 5.4 Thinking  2) 5.4 Lite  ...). Prompt for model choice, then for a message. Spawn a chatTest Phase process with fault + exception handlers. Print:
+
+    Sending "Hello" to URL: ...  headers: ...  body: ...
+    SUCCESS!   (green)   or   FAILED!  (red)
+
+Add debugger.printStatus(s) that takes STATUS_FAILED=0 (red FAILED!), STATUS_SUCCESS=1 (green SUCCESS!), STATUS_SUCCESS_200=200, or a literal string. Grep for the literal strings "FAILED!" / "SUCCESS!" and replace them with printStatus calls.

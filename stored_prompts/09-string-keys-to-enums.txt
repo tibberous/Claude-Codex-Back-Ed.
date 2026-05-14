@@ -1,0 +1,1 @@
+Grep for string dict-key access like state["status"] or row["name"]. Promote each key to an ENUM (State.STATUS, Row.NAME). Update every call site. One commit per enum group so each change stays reviewable.

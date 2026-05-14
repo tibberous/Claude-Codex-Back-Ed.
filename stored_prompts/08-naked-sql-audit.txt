@@ -1,0 +1,1 @@
+Grep for raw SELECT / INSERT / UPDATE / DELETE strings outside DatabaseBase.execute(). Replace each with the parameterized DatabaseBase call. Every INSERT/UPDATE/DELETE must check affected_rows and log a WARNING on 0 rows (exception: intentional idempotent mutations — comment why). Confirm with a final grep showing zero naked SQL.

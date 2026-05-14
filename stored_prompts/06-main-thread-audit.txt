@@ -1,0 +1,1 @@
+Walk startup + every UI event handler. List every DB call, file I/O, and network call that runs on the main thread. For each one say: defer to QThread, defer with QTimer.singleShot, or stay on main and why. GUI must paint in under 2 seconds.

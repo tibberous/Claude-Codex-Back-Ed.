@@ -12,7 +12,7 @@
 <!-- CSP: allow scripts/styles/images/media from the webview origin + the
      inline <script> block. {{CSP_SOURCE}} is replaced by extension.js with
      webview.cspSource. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{CSP_SOURCE}} data:; script-src {{CSP_SOURCE}} 'unsafe-inline'; style-src {{CSP_SOURCE}} 'unsafe-inline'; font-src {{CSP_SOURCE}} data:; media-src {{CSP_SOURCE}} blob: data:; frame-src {{CSP_SOURCE}} https://trentontompkins.com;" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{CSP_SOURCE}} https://*.vscode-cdn.net data:; script-src {{CSP_SOURCE}} https://*.vscode-cdn.net 'unsafe-inline'; style-src {{CSP_SOURCE}} https://*.vscode-cdn.net 'unsafe-inline'; font-src {{CSP_SOURCE}} https://*.vscode-cdn.net data:; media-src {{CSP_SOURCE}} https://*.vscode-cdn.net blob: data:; frame-src {{CSP_SOURCE}} https://*.vscode-cdn.net https://trentontompkins.com;" />
 <title>Claude Codex Black</title>
 <!-- Prism CSS deferred: load with media="print" (non-blocking), then JS swaps
      to media="all" once loaded. The chat thread is rendered without code-block
@@ -1098,6 +1098,35 @@ html body textarea#promptBox.prompt-input {
     flex: 1 1 auto; width: 100%; border: 0; background: var(--cbe-modal-bg);
   }
 
+  /* Skin-agnostic legibility: any modal palette can produce low-contrast text
+     (the user hit pink fg on green bg). A *crisp* 1px offset drop-shadow adds
+     a definition edge without the fuzzy halo a blur-radius glow produces —
+     0 1px 1.5px reads sharp, 0 0 3px looked blurry. Form controls excluded. */
+  #cbe-settings .cbe-body, #cbe-settings .cbe-body label, #cbe-settings .cbe-body span,
+  #cbe-help-modal .cbe-hdr, #cbe-help-modal .cbe-hdr span,
+  #cbe-ext-modal .cbe-hdr, #cbe-ext-modal .cbe-hdr span,
+  #cbe-handbook-modal .cbe-body, #cbe-handbook-modal .cbe-body *,
+  #cbe-domains-modal .cbe-body, #cbe-domains-modal .cbe-body *,
+  #cbe-git-modal .cbe-body, #cbe-git-modal .cbe-body *,
+  #cbe-prompts-modal .cbe-body, #cbe-prompts-modal .cbe-body *,
+  #cbe-skin-modal .cbe-body, #cbe-skin-modal .cbe-body *,
+  #cbe-wake-modal .cbe-body, #cbe-wake-modal .cbe-body *,
+  #cbe-github-modal .cbe-body, #cbe-github-modal .cbe-body *,
+  #cbe-source-modal .cbe-body, #cbe-source-modal .cbe-body * {
+    text-shadow: 0 1px 1.5px rgba(0,0,0,0.55);
+  }
+  /* Clear text-shadow on form controls so native widgets render crisply. */
+  #cbe-settings input, #cbe-settings select, #cbe-settings textarea, #cbe-settings button,
+  #cbe-handbook-modal input, #cbe-handbook-modal select, #cbe-handbook-modal textarea, #cbe-handbook-modal button,
+  #cbe-domains-modal input, #cbe-domains-modal select, #cbe-domains-modal textarea, #cbe-domains-modal button,
+  #cbe-git-modal input, #cbe-git-modal select, #cbe-git-modal textarea, #cbe-git-modal button,
+  #cbe-prompts-modal input, #cbe-prompts-modal select, #cbe-prompts-modal textarea, #cbe-prompts-modal button,
+  #cbe-skin-modal input, #cbe-skin-modal select, #cbe-skin-modal textarea, #cbe-skin-modal button,
+  #cbe-wake-modal input, #cbe-wake-modal select, #cbe-wake-modal textarea, #cbe-wake-modal button,
+  #cbe-github-modal input, #cbe-github-modal select, #cbe-github-modal textarea, #cbe-github-modal button {
+    text-shadow: none;
+  }
+
   /* ── View Source modal ─────────────────────────────────────── */
   #cbe-source-modal {
     position: fixed; inset: 0; z-index: 2147483646;
@@ -1211,7 +1240,7 @@ html body textarea#promptBox.prompt-input {
             placeholder="Queue another message..."
             style="font: 400 18px/1.34 var(--vscode-editor-font-family, Consolas, 'Cascadia Mono', 'Courier New', monospace) !important; font-family: var(--vscode-editor-font-family, Consolas, 'Cascadia Mono', 'Courier New', monospace) !important;"
           ></textarea>
-          <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" aria-label="Send message"></button>
+          <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" data-i18n-tip="tooltip.send" aria-label="Send message"></button>
         </div>
 
         <div id="attachments" class="attachments" aria-label="Queued file attachments"></div>
@@ -1227,7 +1256,7 @@ html body textarea#promptBox.prompt-input {
           <button id="chatHistoryBtn" class="tool-button" type="button" data-tooltip="Chat history" aria-label="Chat history">
             <img src="{{ASSETS_BASE}}/chat_history.svg" alt="" />
           </button>
-          <button id="attachFileBtn" class="tool-button" type="button" data-tooltip="Attach file" aria-label="Attach file">
+          <button id="attachFileBtn" class="tool-button" type="button" data-tooltip="Attach file" data-i18n-tip="tooltip.attach" aria-label="Attach file">
             <img src="{{ASSETS_BASE}}/attach_file.svg" alt="" />
           </button>
           <button id="ttsBtn" class="tool-button" type="button" data-tooltip="Read aloud · right-click = auto-read every reply" aria-label="Text to speech">
@@ -1237,14 +1266,14 @@ html body textarea#promptBox.prompt-input {
                  that every incoming assistant message is being read. -->
             <img class="cbe-autoread-ring" src="{{ASSETS_BASE}}/auto_read_spinner.svg" alt="" aria-hidden="true" />
           </button>
-          <button id="sttBtn" class="tool-button" type="button" data-tooltip="Speech to text" aria-label="Speech to text">
+          <button id="sttBtn" class="tool-button" type="button" data-tooltip="Speech to text" data-i18n-tip="tooltip.stt" aria-label="Speech to text">
             <img src="{{ASSETS_BASE}}/stt.svg" alt="" />
             <!-- Blue spinner overlay shown while #sttBtn.is-recording. Same
                  pattern as #monitorBtn so the user gets clear feedback that
                  the host-side SAPI mic is actively listening. -->
             <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_blue.svg" alt="" />
           </button>
-          <button id="autoReplyBtn" class="tool-button" type="button" data-tooltip="Auto Prompt" aria-label="Auto Prompt">
+          <button id="autoReplyBtn" class="tool-button" type="button" data-tooltip="Auto Prompt" data-i18n-tip="tooltip.autoprompt" aria-label="Auto Prompt">
             <img src="{{ASSETS_BASE}}/auto_reply.svg" alt="" />
             <!-- Reuse the same SVG + halo treatment the TTS auto-read uses
                  so a running Auto Prompt visually matches Auto Read instead
@@ -1253,20 +1282,20 @@ html body textarea#promptBox.prompt-input {
             <img class="cbe-spinner" src="{{ASSETS_BASE}}/auto_read_spinner.svg" alt="" aria-hidden="true" />
             <span class="cbe-countdown" aria-hidden="true">0</span>
           </button>
-          <button id="wakeUpBtn" class="tool-button" type="button" data-tooltip="Wake-up response" aria-label="Wake-up response">
+          <button id="wakeUpBtn" class="tool-button" type="button" data-tooltip="Wake-up response" data-i18n-tip="tooltip.wake" aria-label="Wake-up response">
             <img src="{{ASSETS_BASE}}/wake_up.svg" alt="" />
           </button>
           <button id="showCommandsBtn" class="tool-button" type="button" data-tooltip="Show command menu" aria-label="Show command menu">
             <img src="{{ASSETS_BASE}}/show_command_menu.svg" alt="" />
           </button>
-          <button id="compactBtn" class="tool-button" type="button" data-tooltip="Compact conversation" aria-label="Compact">
+          <button id="compactBtn" class="tool-button" type="button" data-tooltip="Compact conversation" data-i18n-tip="tooltip.compact" aria-label="Compact">
             <img src="{{ASSETS_BASE}}/compact.svg" alt="" />
             <span class="cbe-ctx-ring" aria-hidden="true"></span>
           </button>
           <button id="handbookBtn" class="tool-button" type="button" data-tooltip="Handbook" aria-label="Handbook">
             <img src="{{ASSETS_BASE}}/handbook.svg" alt="" />
           </button>
-          <button id="settingsBtn" class="tool-button" type="button" data-tooltip="Settings" aria-label="Settings">
+          <button id="settingsBtn" class="tool-button" type="button" data-tooltip="Settings" data-i18n-tip="tooltip.settings" aria-label="Settings">
             <img src="{{ASSETS_BASE}}/settings.svg" alt="" />
           </button>
           <button id="extensionsBtn" class="tool-button" type="button" data-tooltip="Extensions" aria-label="Extensions">
@@ -1275,7 +1304,7 @@ html body textarea#promptBox.prompt-input {
           <button id="projectFolderBtn" class="tool-button" type="button" data-tooltip="Project folder" aria-label="Project folder">
             <img src="{{ASSETS_BASE}}/project_folder.svg" alt="" />
           </button>
-          <button id="monitorBtn" class="tool-button" type="button" data-tooltip="VSCode monitor" aria-label="VSCode monitor">
+          <button id="monitorBtn" class="tool-button" type="button" data-tooltip="VSCode monitor" data-i18n-tip="tooltip.monitor" aria-label="VSCode monitor">
             <img src="{{ASSETS_BASE}}/vscode_monitor.svg" alt="" />
             <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_blue.svg" alt="" />
           </button>
@@ -1285,19 +1314,19 @@ html body textarea#promptBox.prompt-input {
           <button id="setupBtn" class="tool-button" type="button" data-tooltip="Setup wizard — configure API keys" aria-label="Setup">
             <img src="{{ASSETS_BASE}}/setup.svg" alt="" />
           </button>
-          <button id="gitBtn" class="tool-button" type="button" data-tooltip="Git" aria-label="Git">
+          <button id="gitBtn" class="tool-button" type="button" data-tooltip="Git" data-i18n-tip="tooltip.git" aria-label="Git">
             <img src="{{ASSETS_BASE}}/git.svg" alt="" />
           </button>
-          <button id="githubBtn" class="tool-button" type="button" data-tooltip="GitHub" aria-label="GitHub">
+          <button id="githubBtn" class="tool-button" type="button" data-tooltip="GitHub" data-i18n-tip="tooltip.github" aria-label="GitHub">
             <img src="{{ASSETS_BASE}}/github.svg" alt="" />
           </button>
-          <button id="domainsBtn" class="tool-button" type="button" data-tooltip="NameSilo domains" aria-label="Domains">
+          <button id="domainsBtn" class="tool-button" type="button" data-tooltip="NameSilo domains" data-i18n-tip="tooltip.domains" aria-label="Domains">
             <img src="{{ASSETS_BASE}}/domain.svg" alt="" />
           </button>
           <button id="fontSizeBtn" class="tool-button" type="button" data-tooltip="Font size (toggle big)" aria-label="Font size">
             <img src="{{ASSETS_BASE}}/font_size.svg" alt="" />
           </button>
-          <button id="helpBtn" class="tool-button" type="button" data-tooltip="Help" aria-label="Help">
+          <button id="helpBtn" class="tool-button" type="button" data-tooltip="Help" data-i18n-tip="tooltip.help" aria-label="Help">
             <img src="{{ASSETS_BASE}}/help.svg" alt="" />
           </button>
         </div>
@@ -1309,7 +1338,7 @@ html body textarea#promptBox.prompt-input {
 
           <div id="project-path" class="project-path" data-tooltip="No project folder — click the folder button to pick one" aria-label="Active project folder" title=""></div>
 
-          <button id="stopBtn" class="stop-button" type="button" data-tooltip="Stop generation" aria-label="Stop generation">
+          <button id="stopBtn" class="stop-button" type="button" data-tooltip="Stop generation" data-i18n-tip="tooltip.stop" aria-label="Stop generation">
             <span class="stop-button__icon" aria-hidden="true"></span>
             <span class="stop-button__label">Stop</span>
           </button>
@@ -1333,6 +1362,11 @@ html body textarea#promptBox.prompt-input {
     HELP_URI:    '{{HELP_URI}}'
   };
 </script>
+<!-- Expose the webview-safe assets base URI to panel.js so JS-built UI
+     (e.g. the language dropdown's flag <img>s) can build asset paths.
+     ASSETS_BASE is substituted server-side by extension.js with a
+     vscode-webview:// URI; the trailing slash is already absent. -->
+<script>window.__cbeAssetsBase = "{{ASSETS_BASE}}";</script>
 <!-- panel.js (deferred) — ~1500 lines of behavior, loaded after the
      document is parsed so HTML/CSS render first. -->
 <script src="{{PANEL_JS_URI}}" defer></script>

@@ -1,0 +1,7 @@
+Implement --headless. Skip Qt imports, Qt build, PyAv, audio. Run the remaining ~90% of the code paths. Tag testable regions inline:
+
+    # [DEBUG BLOCK "filter:startup:dbInit"]
+    result = db.initialize()
+    # [/DEBUG BLOCK]
+
+debug.testPath.codeBlocks[] + loadCodeBlock() should eval each tagged block and report success / failure / output. Real run depth should be 1000+ lines; if you see 50, something is short-circuiting.

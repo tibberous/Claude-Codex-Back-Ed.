@@ -1,0 +1,1 @@
+Every QWebEngineView in the codebase must extend a shared DebugWebPage base that logs JS / CSS / HTML / XML / SVG console messages to stderr. Right-click "View Source" should be available only when the app is run with --debug. The View Source modal syntax-highlights with prism.js.

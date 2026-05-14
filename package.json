@@ -60,6 +60,14 @@
       {
         "command": "codexBlackEd.disposeWebBridge",
         "title": "Claude Codex Black: Close Web Bridge Browsers"
+      },
+      {
+        "command": "codexBlackEd.installBridgeService",
+        "title": "Claude Codex Black: Install Bridge Chrome as Windows Service"
+      },
+      {
+        "command": "codexBlackEd.uninstallBridgeService",
+        "title": "Claude Codex Black: Uninstall Bridge Chrome Windows Service"
       }
     ],
     "menus": {
@@ -119,6 +127,7 @@
     "panel/**",
     "lib/**",
     "assets/label-alpha.png",
+    "assets/flags/*.svg",
     "resources/icon.png",
     "resources/icon-dark.png",
     "assets/icon-light.png",
@@ -129,6 +138,8 @@
     "bridge/dom-scripts.js",
     "bridge/supergrok-bridge.js",
     "tools/vscode_supervisor.ps1",
+    "tools/install_bridge_service.ps1",
+    "tools/uninstall_bridge_service.ps1",
     "tools/nssm.exe"
   ],
   "devDependencies": {

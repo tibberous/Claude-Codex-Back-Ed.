@@ -1,0 +1,4 @@
+Every modal remembers its last (x, y) and fullscreen state across sessions (persist in workspaceState or settings). Pull palette from --cbe-modal-bg / --cbe-modal-fg / --cbe-modal-accent so skins control it. Centralize ARGB compositing flags:
+
+    self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    self.setWindowFlag(Qt.WindowType.FramelessWindowHint)

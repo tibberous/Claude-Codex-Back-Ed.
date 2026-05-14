@@ -1,0 +1,5 @@
+Actually run the code before reporting it done. Use --headless / --offscreen if a display is needed. If runtime is unavailable (Qt, audio, display), say so explicitly:
+
+> "I can't run this — it needs Qt. Syntax is clean but untested at runtime."
+
+Never write "this should work" without verifying.

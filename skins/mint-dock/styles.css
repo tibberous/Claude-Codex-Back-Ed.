@@ -1,0 +1,184 @@
+/* CBE skin — Mint Dock.
+   A Linux Mint-flavoured glass dock: the prompt input floats on its own as a
+   rounded glass pill, and the tool buttons sit BELOW it in a detached
+   translucent dock strip. Each .tool-button is a self-contained 96px glass
+   tile — translucent gradient body, inset top highlight, real drop shadow,
+   white-tinted glyph — so the "glass icons" are pure CSS and stay crisp at
+   any DPI. Hover does a macOS-style dock magnify (lift + scale). */
+
+:root {
+  --md-bg-1: #2f5a33;
+  --md-bg-2: #1d3a20;
+  --md-glass-hi: rgba(255, 255, 255, 0.55);
+  --md-glass-lo: rgba(255, 255, 255, 0.04);
+  --md-stroke:   rgba(255, 255, 255, 0.34);
+  --md-accent:   #8fd694;
+  --md-accent-deep: #5fa766;
+  --md-text:     #eef6ee;
+  --md-text-dim: #c4d8c6;
+  --md-shadow:   rgba(6, 16, 8, 0.55);
+}
+
+/* Backdrop — soft green light pools + a faint vignette, echoing the Mint
+   "drops" wallpaper without shipping an image. */
+body {
+  background:
+    radial-gradient(circle at 18% 16%, rgba(143, 214, 148, 0.22), transparent 30%),
+    radial-gradient(circle at 84% 12%, rgba(120, 200, 130, 0.16), transparent 26%),
+    radial-gradient(circle at 50% 120%, rgba(10, 24, 12, 0.55), transparent 60%),
+    linear-gradient(165deg, var(--md-bg-1), var(--md-bg-2));
+  color: var(--md-text);
+}
+
+/* Conversation thread — keep it readable on the green field. */
+#thread .msg            { color: var(--md-text); }
+#thread .msg.info       { color: var(--md-text-dim); }
+#thread .msg.user       { background: rgba(255, 255, 255, 0.07); border: 1px solid var(--md-stroke); }
+#thread .msg.assistant  { background: rgba(0, 0, 0, 0.22); border: 1px solid rgba(255, 255, 255, 0.12); }
+
+/* The prompt area stacks: floating pill on top, dock strip below. */
+.prompt-area  { background: transparent; }
+.prompt-shell { background: transparent; border: 0; box-shadow: none; padding: 0; }
+
+/* ── Floating prompt pill ─────────────────────────────────────────────── */
+.prompt-input-wrap {
+  max-width: 720px;
+  margin: 6px auto 14px auto;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--md-stroke);
+  border-radius: 30px;
+  box-shadow:
+    0 14px 30px var(--md-shadow),
+    inset 0 1px 0 var(--md-glass-hi),
+    inset 0 -10px 18px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  padding: 4px 6px 4px 4px;
+}
+#promptBox {
+  background: transparent !important;
+  color: var(--md-text) !important;
+  border: 0 !important;
+}
+#promptBox::placeholder { color: var(--md-text-dim) !important; opacity: 0.8; }
+
+/* Send button — glass accent circle. */
+.send-button {
+  background: radial-gradient(circle at 35% 30%, var(--md-accent), var(--md-accent-deep)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  border-radius: 50% !important;
+  box-shadow: 0 6px 14px var(--md-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+.send-button:hover { transform: scale(1.08); box-shadow: 0 9px 18px var(--md-shadow); }
+.send-button:active { transform: scale(0.96); }
+
+#attachments { margin: 0 auto 8px auto; max-width: 720px; }
+
+/* ── The dock strip ───────────────────────────────────────────────────── */
+.prompt-toolbar {
+  margin: 0 auto 16px auto;
+  max-width: max-content;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px 14px 18px;
+  background: linear-gradient(180deg, rgba(28, 46, 30, 0.74), rgba(14, 24, 15, 0.86));
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 24px;
+  box-shadow:
+    0 18px 38px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+}
+.toolbar-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 10px;
+  /* leave headroom so a magnified button doesn't clip the dock edge */
+  padding-top: 14px;
+}
+
+/* ── Glass tile icons ─────────────────────────────────────────────────── */
+.tool-button {
+  width: 60px;
+  height: 60px;
+  padding: 0;
+  border-radius: 16px;
+  /* DARK frosted-glass tile. The body of the tile is a translucent dark
+     green gradient (not white) so the white glyph always reads — earlier a
+     white-ish tile + white glyph = invisible. The bright inset top edge still
+     gives the glassy bevel. */
+  background:
+    linear-gradient(160deg,
+      rgba(38, 62, 40, 0.78),
+      rgba(20, 34, 21, 0.88) 55%,
+      rgba(12, 22, 13, 0.92));
+  border: 1px solid var(--md-stroke);
+  box-shadow:
+    0 7px 15px var(--md-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    inset 0 -9px 15px rgba(0, 0, 0, 0.30);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform 0.15s cubic-bezier(.2,.8,.2,1), box-shadow 0.15s ease, background 0.15s ease;
+  transform-origin: bottom center;
+}
+.tool-button:hover {
+  /* dock magnify — also brighten with a green-tinted glass wash */
+  transform: translateY(-10px) scale(1.16);
+  box-shadow:
+    0 18px 28px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  background:
+    linear-gradient(160deg,
+      rgba(74, 116, 78, 0.86),
+      rgba(44, 74, 47, 0.92) 55%,
+      rgba(28, 48, 30, 0.94));
+}
+.tool-button:active,
+.tool-button.is-active {
+  transform: translateY(-3px) scale(1.04);
+  border-color: var(--md-accent);
+  box-shadow:
+    0 6px 14px var(--md-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 0 0 2px rgba(143, 214, 148, 0.55);
+}
+/* The glyph: force it pure white + give it its own drop shadow so each icon
+   reads as a frosted-glass symbol regardless of the source SVG's colour. */
+.tool-button img {
+  width: 30px;
+  height: 30px;
+  filter:
+    brightness(0) invert(1)
+    drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+}
+
+/* Stop button — red glass, stands apart from the tool tiles. */
+.stop-button {
+  border-radius: 14px !important;
+  background: radial-gradient(circle at 35% 30%, #ff7d7d, #c0392b) !important;
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  box-shadow: 0 7px 15px var(--md-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.6) !important;
+}
+
+/* Label pill (current assistant profile) + project path — slim glass chips
+   so they sit comfortably inside the dock strip. */
+#label-pill {
+  background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05)) !important;
+  border: 1px solid var(--md-stroke) !important;
+  border-radius: 14px !important;
+  color: var(--md-text) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
+}
+.project-path {
+  color: var(--md-text-dim) !important;
+  background: rgba(0, 0, 0, 0.22) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 12px !important;
+}
