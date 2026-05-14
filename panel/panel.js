@@ -382,11 +382,19 @@ addBtn.onclick = () => {
   try { tts.stop(); } catch (e) { console.debug('[cbe.tts] addBtn reset stop', e && e.message); }
 };
 /* Monitor button: left-click toggles the VSCode supervisor Windows service
-   (CBEVSCodeSupervisor — keeps Code.exe alive if it crashes). The blue
-   glow on the button is driven by the actual service state, not by a click
-   optimism — host posts back `monitorState` and we sync the class then.
+   (CBEVSCodeSupervisor — keeps Code.exe alive if it crashes). On click we
+   IMMEDIATELY show the blue loading ring as optimistic UI feedback, so the
+   user gets instant "I'm doing the thing" — even before the service has
+   reported its real state. The next poll (3s cadence) either keeps the
+   circle on (service is healthy) or removes it (start failed / probe down).
    Right-click still shows the trace channel for diagnostics. */
 document.getElementById('monitorBtn').onclick = () => {
+  /* Optimistic on-click flip: turn the blue ring on instantly. */
+  const btn = document.getElementById('monitorBtn');
+  if (btn) {
+    btn.classList.add('is-monitoring');
+    btn.setAttribute('data-tooltip', 'VSCode supervisor: starting…');
+  }
   if (api) api.postMessage({ type: 'toggleMonitor' });
 };
 document.getElementById('monitorBtn').addEventListener('contextmenu', (e) => {
@@ -650,23 +658,46 @@ const tts = (function() {
   })();
   bind('chatHistoryBtn',    'openChatHistory'); /* host opens QuickPick of chats/*.log */
   bind('attachFileBtn',     'attachFile'); /* host opens file picker, returns content */
-  /* autoReplyBtn → opens the Auto Prompt config modal. Sending interval is
-     0 by default (off); set interval > 0 + a prompt and the panel will
-     auto-fire the prompt every N seconds, with a blue spinner overlay on
-     the button as the running indicator (same UX as monitor/STT). */
+  /* autoReplyBtn → left-click opens the Auto Prompt config modal; right-
+     click stops a running loop (escape hatch — no need to open the modal
+     and zero the interval). Sending interval is 0 by default (off); set
+     interval > 0 + a prompt and the panel auto-fires every N seconds,
+     with a blue spinner overlay + countdown badge as the running cue. */
   (function() {
     const el = document.getElementById('autoReplyBtn');
     if (!el) return;
     el.addEventListener('click', () => openAutoPromptModal());
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (__cbeAutoPromptTimer) {
+        stopAutoPrompt();
+        addMsg('Auto Prompt: stopped.', 'info');
+      }
+    });
   })();
-  bind('wakeUpBtn',         'toggleWakeUp');
+  /* wakeUpBtn opens a small editor modal for wake.txt — the prompt the
+     panel injects to nudge the model when it stalls. File is read/written
+     by the host so the text survives panel reloads + lives on disk. */
+  (function() {
+    const el = document.getElementById('wakeUpBtn');
+    if (!el) return;
+    el.addEventListener('click', () => { if (api) api.postMessage({ type: 'loadWake' }); });
+  })();
   /* showCommandsBtn handled inline — opens the in-panel slash menu */
   bind('compactBtn',        'compactConversation');
   /* handbookBtn handled inline below — opens an editable modal */
   /* helpBtn handled inline — opens an iframe modal pointing at help.html */
-  bind('extensionsBtn',     'openExtensions');
+  /* extensionsBtn handled inline — opens an iframe modal to the marketplace */
   bind('projectFolderBtn',  'pickProjectFolder');
-  bind('gitBtn',            'openGit');
+  /* gitBtn — opens a Git modal that runs commands in the active project
+     folder. If no project folder is set we pop a "please pick one" prompt
+     instead of silently doing nothing. */
+  (function() {
+    const el = document.getElementById('gitBtn');
+    if (!el) return;
+    el.addEventListener('click', () => openGitModal());
+  })();
   /* githubBtn — fetches the user's GitHub repos via the host (PAT from
      config.ini) and shows a themed modal. The old `openGitHub` post had no
      host handler and was a silent no-op. */
@@ -730,6 +761,7 @@ function applySkinColors(colors) {
     'modal-title-fg':   '--cbe-modal-title-fg',
     'modal-foot-bg':    '--cbe-modal-foot-bg',
     'modal-accent':     '--cbe-modal-accent',
+    'highlight-color':  '--cbe-highlight-color',
   };
   for (const [k, cssVar] of Object.entries(map)) {
     const v = colors && colors[k];
@@ -745,9 +777,11 @@ function applySkinColors(colors) {
    button gets `is-autoprompting` while the interval is running so the
    blue spinner overlay shows. Interval and prompt persist in localStorage
    so reloading the panel keeps the same loop running. */
-let __cbeAutoPromptTimer = null;
-let __cbeAutoPromptText  = '';
-let __cbeAutoPromptSecs  = 0;
+let __cbeAutoPromptTimer    = null;
+let __cbeAutoPromptCountdown = null;
+let __cbeAutoPromptText     = '';
+let __cbeAutoPromptSecs     = 0;
+let __cbeAutoPromptNextAt   = 0;  /* ms timestamp of the next scheduled fire */
 
 function _cbeAutoPromptApplyUI(running) {
   const btn = document.getElementById('autoReplyBtn');
@@ -760,20 +794,42 @@ function _cbeAutoPromptApplyUI(running) {
   }
 }
 
+function _cbeAutoPromptUpdateCountdown() {
+  const btn = document.getElementById('autoReplyBtn');
+  if (!btn) return;
+  const badge = btn.querySelector('.cbe-countdown');
+  if (!badge) return;
+  if (!__cbeAutoPromptTimer || !__cbeAutoPromptNextAt) {
+    badge.textContent = '';
+    return;
+  }
+  const remaining = Math.max(0, Math.ceil((__cbeAutoPromptNextAt - Date.now()) / 1000));
+  badge.textContent = String(remaining);
+}
+
 function startAutoPrompt(text, secs) {
   stopAutoPrompt();
   if (!text || !text.trim() || !secs || secs <= 0) return;
-  __cbeAutoPromptText = text;
-  __cbeAutoPromptSecs = secs;
+  __cbeAutoPromptText  = text;
+  __cbeAutoPromptSecs  = secs;
+  __cbeAutoPromptNextAt = Date.now() + secs * 1000;
   __cbeAutoPromptTimer = setInterval(() => {
     /* Skip a tick if the panel is currently waiting for a reply — don't
        stack up requests if a previous one is still streaming. */
-    if (typeof busy !== 'undefined' && busy) return;
+    if (typeof busy !== 'undefined' && busy) {
+      /* still arm the next-at clock so the countdown stays honest. */
+      __cbeAutoPromptNextAt = Date.now() + __cbeAutoPromptSecs * 1000;
+      return;
+    }
     try {
       ti.value = __cbeAutoPromptText;
       send();
     } catch (e) { /* swallow — the next tick will try again */ }
+    __cbeAutoPromptNextAt = Date.now() + __cbeAutoPromptSecs * 1000;
   }, secs * 1000);
+  /* 1s tick paints the countdown badge in --cbe-highlight-color. */
+  __cbeAutoPromptCountdown = setInterval(_cbeAutoPromptUpdateCountdown, 1000);
+  _cbeAutoPromptUpdateCountdown();
   _cbeAutoPromptApplyUI(true);
   try {
     localStorage.setItem('cbe.autoPrompt', JSON.stringify({ text, secs }));
@@ -785,8 +841,14 @@ function stopAutoPrompt() {
     clearInterval(__cbeAutoPromptTimer);
     __cbeAutoPromptTimer = null;
   }
-  __cbeAutoPromptText = '';
-  __cbeAutoPromptSecs = 0;
+  if (__cbeAutoPromptCountdown) {
+    clearInterval(__cbeAutoPromptCountdown);
+    __cbeAutoPromptCountdown = null;
+  }
+  __cbeAutoPromptText  = '';
+  __cbeAutoPromptSecs  = 0;
+  __cbeAutoPromptNextAt = 0;
+  _cbeAutoPromptUpdateCountdown();
   _cbeAutoPromptApplyUI(false);
   try { localStorage.removeItem('cbe.autoPrompt'); } catch (_) {}
 }
@@ -865,6 +927,165 @@ function openAutoPromptModal() {
   } catch (_) {}
 })();
 
+/* ── Git modal ───────────────────────────────────────────────────────────
+   Two states:
+     1. No project folder set → "Please select a project folder to use Git"
+        with a Pick Folder button that posts pickProjectFolder.
+     2. Project folder set → an input for a git command, a Run button,
+        an output panel, and quick-action buttons for common commands. */
+let __cbeGitProjectFolder = '';
+
+function openGitModal() {
+  const old = document.getElementById('cbe-git-modal');
+  if (old) old.remove();
+  playSfx('open_modal');
+  const overlay = document.createElement('div');
+  overlay.id = 'cbe-git-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;';
+  if (!__cbeGitProjectFolder) {
+    /* Empty-state modal — block until the user picks a folder. */
+    overlay.innerHTML =
+      '<div class="cbe-box" style="background:var(--cbe-modal-bg);color:var(--cbe-modal-fg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:480px;max-width:92vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
+        '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
+          '<span>Git</span>' +
+          '<button type="button" data-act="cancel" aria-label="Close" style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:18px;cursor:pointer;">×</button>' +
+        '</div>' +
+        '<div style="padding:24px 22px;text-align:center;line-height:1.5;">' +
+          '<div style="font-size:15px;margin-bottom:8px;">Please select a Project Folder to use Git.</div>' +
+          '<div style="font-size:12px;opacity:.65;margin-bottom:20px;">Git commands run in the project folder you pick.</div>' +
+          '<button type="button" data-act="pick" style="background:var(--cbe-modal-accent);color:var(--cbe-modal-title-fg);border:0;border-radius:6px;padding:10px 24px;cursor:pointer;font-weight:600;font-size:13px;">Pick Project Folder…</button>' +
+        '</div>' +
+      '</div>';
+  } else {
+    overlay.innerHTML =
+      '<div class="cbe-box" style="background:var(--cbe-modal-bg);color:var(--cbe-modal-fg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:760px;max-width:94vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
+        '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
+          `<span>Git <span style="font-weight:400;opacity:.75;font-size:12px;">· ${escapeHtml(__cbeGitProjectFolder)}</span></span>` +
+          '<button type="button" data-act="cancel" aria-label="Close" style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:18px;cursor:pointer;">×</button>' +
+        '</div>' +
+        '<div style="padding:14px 18px;display:flex;flex-direction:column;gap:10px;">' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;font-size:12px;">' +
+            ['status', 'log --oneline -10', 'diff', 'branch', 'fetch', 'pull', 'push'].map(c =>
+              `<button type="button" data-quick="${escapeHtml(c)}" style="background:rgba(255,255,255,.08);color:var(--cbe-modal-fg);border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:4px 10px;cursor:pointer;font-family:Consolas,monospace;font-size:11px;">git ${escapeHtml(c)}</button>`).join('') +
+          '</div>' +
+          '<div style="display:flex;gap:6px;align-items:center;">' +
+            '<span style="font-family:Consolas,monospace;opacity:.6;">git</span>' +
+            '<input id="cbe-git-input" type="text" placeholder="status" autocomplete="off" spellcheck="false" style="flex:1;font:13px/1 Consolas,monospace;background:rgba(0,0,0,.25);color:var(--cbe-modal-fg);border:1px solid var(--cbe-modal-border);border-radius:6px;padding:8px 10px;outline:none;" />' +
+            '<button type="button" data-act="run" style="background:var(--cbe-modal-accent);color:var(--cbe-modal-title-fg);border:0;border-radius:6px;padding:8px 18px;cursor:pointer;font-weight:600;">Run</button>' +
+          '</div>' +
+          '<pre id="cbe-git-output" style="margin:0;padding:12px;background:rgba(0,0,0,.35);color:var(--cbe-modal-fg);font:12px/1.4 Consolas,monospace;border-radius:6px;min-height:220px;max-height:50vh;overflow:auto;white-space:pre-wrap;word-break:break-word;">Type a git subcommand and press Enter, or click a quick-action above.</pre>' +
+        '</div>' +
+        '<div class="cbe-foot" style="padding:10px 16px;background:var(--cbe-modal-foot-bg);border-top:1px solid rgba(0,0,0,.25);display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+          '<button type="button" data-act="pick" style="background:transparent;color:var(--cbe-modal-fg);border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:12px;">Change Folder…</button>' +
+          '<button type="button" data-act="cancel" style="background:transparent;color:var(--cbe-modal-fg);border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:6px 14px;cursor:pointer;">Close</button>' +
+        '</div>' +
+      '</div>';
+  }
+  document.body.appendChild(overlay);
+  function done() {
+    try { overlay.remove(); } catch (_) {}
+    document.removeEventListener('keydown', onKey, true);
+    playSfx('close_modal');
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') done();
+  }
+  function runArgs(argv) {
+    const out = overlay.querySelector('#cbe-git-output');
+    if (out) {
+      out.textContent = '$ git ' + argv.join(' ') + '\n\n…running…';
+      out.scrollTop = 0;
+    }
+    if (api) api.postMessage({ type: 'runGit', args: argv });
+  }
+  overlay.addEventListener('click', (e) => {
+    const t = e.target;
+    if (!t) return;
+    const act = t.getAttribute && t.getAttribute('data-act');
+    const quick = t.getAttribute && t.getAttribute('data-quick');
+    if (act === 'cancel' || t === overlay) return done();
+    if (act === 'pick') {
+      if (api) api.postMessage({ type: 'pickProjectFolder' });
+      /* Don't close — when the user picks a folder, the projectFolder
+         message comes back and we re-render the modal with the new state. */
+      return;
+    }
+    if (act === 'run') {
+      const input = overlay.querySelector('#cbe-git-input');
+      const raw = (input && input.value || '').trim();
+      if (!raw) return;
+      runArgs(raw.split(/\s+/));
+      return;
+    }
+    if (quick) {
+      runArgs(String(quick).split(/\s+/));
+    }
+  });
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target && e.target.id === 'cbe-git-input') {
+      e.preventDefault();
+      const raw = (e.target.value || '').trim();
+      if (raw) runArgs(raw.split(/\s+/));
+    }
+  });
+  document.addEventListener('keydown', onKey, true);
+  setTimeout(() => { try { overlay.querySelector('#cbe-git-input').focus(); } catch (_) {} }, 30);
+}
+
+function showWakeModal(initialText) {
+  /* Editor for wake.txt — the prompt fired when the model stalls. Themed
+     via --cbe-modal-* so it matches whatever skin is active. Save writes
+     back to disk via the `saveWake` host handler. */
+  const old = document.getElementById('cbe-wake-modal');
+  if (old) old.remove();
+  playSfx('open_modal');
+  const overlay = document.createElement('div');
+  overlay.id = 'cbe-wake-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;';
+  overlay.innerHTML =
+    '<div class="cbe-box" style="background:var(--cbe-modal-bg);color:var(--cbe-modal-fg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:600px;max-width:92vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
+      '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
+        '<span>Wake-up Prompt <span style="opacity:.6;font-weight:400;font-size:12px;">· wake.txt</span></span>' +
+        '<button type="button" data-act="cancel" aria-label="Close" style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:18px;cursor:pointer;">×</button>' +
+      '</div>' +
+      '<div style="padding:16px 18px;display:flex;flex-direction:column;gap:8px;">' +
+        '<div style="font-size:12px;opacity:.7;">Sent to the model when a stream stalls. Leave blank to disable.</div>' +
+        `<textarea id="cbe-wake-ta" rows="8" spellcheck="false" style="resize:vertical;font:13px/1.4 Consolas,monospace;background:rgba(0,0,0,.25);color:var(--cbe-modal-fg);border:1px solid var(--cbe-modal-border);border-radius:6px;padding:10px 12px;">${escapeHtml(initialText)}</textarea>` +
+      '</div>' +
+      '<div class="cbe-foot" style="padding:10px 16px;background:var(--cbe-modal-foot-bg);border-top:1px solid rgba(0,0,0,.25);display:flex;justify-content:flex-end;gap:8px;">' +
+        '<button type="button" data-act="cancel" style="background:transparent;color:var(--cbe-modal-fg);border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:6px 14px;cursor:pointer;">Cancel</button>' +
+        '<button type="button" data-act="save" style="background:var(--cbe-modal-accent);color:var(--cbe-modal-title-fg);border:0;border-radius:6px;padding:6px 14px;cursor:pointer;font-weight:600;">Save</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  function done() {
+    try { overlay.remove(); } catch (_) {}
+    document.removeEventListener('keydown', onKey, true);
+    playSfx('close_modal');
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') done();
+    else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      const text = overlay.querySelector('#cbe-wake-ta').value || '';
+      if (api) api.postMessage({ type: 'saveWake', text });
+      done();
+    }
+  }
+  overlay.addEventListener('click', (e) => {
+    const act = e.target && e.target.getAttribute && e.target.getAttribute('data-act');
+    if (act === 'cancel' || e.target === overlay) return done();
+    if (act === 'save') {
+      const text = overlay.querySelector('#cbe-wake-ta').value || '';
+      if (api) api.postMessage({ type: 'saveWake', text });
+      done();
+    }
+  });
+  document.addEventListener('keydown', onKey, true);
+  /* Focus the textarea so the user can start typing immediately. */
+  setTimeout(() => { try { overlay.querySelector('#cbe-wake-ta').focus(); } catch (_) {} }, 30);
+}
+
 function showDomainsModal(payload) {
   /* Render a quick modal listing NameSilo domains + their nameservers. Uses
      the same overlay conventions as the settings modal so it picks up the
@@ -900,22 +1121,46 @@ function showDomainsModal(payload) {
       </div>`;
   }
 
+  /* Title bar shows count + cache freshness when the payload came from
+     domains.txt; Reload button refreshes from the NameSilo API + rewrites
+     the cache, then re-renders. */
+  const countStr = payload.domains ? ` (${payload.domains.length})` : '';
+  const cacheStr = payload.fromCache && payload.savedAt
+    ? ` <span style="opacity:.6;font-weight:400;font-size:12px;">· cached ${escapeHtml(payload.savedAt.replace('T', ' ').slice(0, 16))}</span>`
+    : '';
   overlay.innerHTML =
     '<div class="cbe-box" style="background:var(--cbe-modal-bg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:700px;max-width:92vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
       '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
-        `<span>NameSilo Domains${payload.domains ? ` (${payload.domains.length})` : ''}</span>` +
-        '<button type="button" data-act="close" aria-label="Close" style="background:transparent;border:0;color:#fff;font-size:18px;cursor:pointer;">×</button>' +
+        `<span>NameSilo Domains${countStr}${cacheStr}</span>` +
+        '<button type="button" data-act="close" aria-label="Close" style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:18px;cursor:pointer;">×</button>' +
       '</div>' +
       bodyHtml +
-      '<div class="cbe-foot" style="padding:10px 16px;border-top:1px solid #2a2a2a;display:flex;justify-content:flex-end;gap:8px;">' +
-        '<button type="button" data-act="close" style="background:#3a3a3a;color:#e8e8e8;border:1px solid #555;border-radius:6px;padding:6px 14px;cursor:pointer;">Close</button>' +
+      '<div class="cbe-foot" style="padding:10px 16px;background:var(--cbe-modal-foot-bg);border-top:1px solid rgba(0,0,0,.25);display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+        '<span id="cbe-domains-status" style="font-size:12px;opacity:.7;"></span>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<button type="button" data-act="reload" style="background:var(--cbe-modal-accent);color:var(--cbe-modal-title-fg);border:0;border-radius:6px;padding:6px 14px;cursor:pointer;font-weight:600;">Reload</button>' +
+          '<button type="button" data-act="close" style="background:transparent;color:var(--cbe-modal-fg);border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:6px 14px;cursor:pointer;">Close</button>' +
+        '</div>' +
       '</div>' +
     '</div>';
   document.body.appendChild(overlay);
   overlay.addEventListener('click', (e) => {
-    if (e.target === overlay || (e.target.getAttribute && e.target.getAttribute('data-act') === 'close')) {
+    const act = e.target && e.target.getAttribute && e.target.getAttribute('data-act');
+    if (act === 'close' || e.target === overlay) {
       overlay.remove();
       playSfx('close_modal');
+      return;
+    }
+    if (act === 'reload') {
+      const status = overlay.querySelector('#cbe-domains-status');
+      if (status) status.textContent = 'Reloading from NameSilo…';
+      const btn = e.target;
+      btn.disabled = true;
+      btn.style.opacity = '.6';
+      /* Posting force:true makes the host bypass domains.txt, hit the API,
+         rewrite the cache, and post a fresh `domainsList`. Our handler
+         then re-runs showDomainsModal which replaces this overlay. */
+      if (api) api.postMessage({ type: 'listDomains', force: true });
     }
   });
 }
@@ -1262,6 +1507,7 @@ function openSettings(payload) {
       'modal-title-fg':   r.getPropertyValue('--cbe-modal-title-fg'),
       'modal-foot-bg':    r.getPropertyValue('--cbe-modal-foot-bg'),
       'modal-accent':     r.getPropertyValue('--cbe-modal-accent'),
+      'highlight-color':  r.getPropertyValue('--cbe-highlight-color'),
     };
   })();
   overlay.querySelector('#cbe-set-skin').addEventListener('change', (e) => {
@@ -1349,15 +1595,17 @@ function closeSettings(suppressSfx) {
 /* Tell host we're ready to receive init payload. */
 if (api) api.postMessage({ type: 'ready' });
 
-/* Sync the monitor button's blue glow with the actual supervisor service state
-   on every panel load + every 10s after. Without the periodic re-check the
-   button would lie if the service was stopped externally (Task Manager,
-   sc.exe stop from a terminal, etc). 10s is cheap — sc.exe query takes <20ms. */
+/* Sync the monitor button's blue glow with the actual supervisor state on
+   every panel load + every 3 seconds after. Polls the supervisor's HTTP
+   /status endpoint on :3434 — a 200 OK means the supervisor is alive and
+   Code.exe is being watched. Without the periodic re-check the button
+   would lie if the service was stopped externally (Task Manager, sc.exe
+   stop, crash). 3s cadence matches the supervisor's own crash-watch loop. */
 function _cbeRequestMonitorState() {
   if (api) api.postMessage({ type: 'monitorStatus' });
 }
 _cbeRequestMonitorState();
-setInterval(_cbeRequestMonitorState, 10000);
+setInterval(_cbeRequestMonitorState, 3000);
 
 /* Diagnostic: log the resolved font stack on #promptBox right after first
    paint so we can confirm the monospace lock actually computes through.
@@ -1404,7 +1652,11 @@ window.__cbeProbeFont = (sel) => {
    MutationObserver re-applies it if anything (panel.js itself, a skin, a
    future agent) strips or mutates the style attribute. */
 (function lockPromptFont() {
-  const FAMILY = 'Consolas, "Cascadia Mono", "Courier New", monospace';
+  /* Prefer VSCode's editor font — guaranteed available and monospace.
+     Plain Consolas/Cascadia/Courier weren't actually loaded in the
+     webview sandbox on this user's box; the generic-monospace fallback
+     resolved to a proportional UA default. */
+  const FAMILY = 'var(--vscode-editor-font-family, Consolas, "Cascadia Mono", "Courier New", monospace)';
   const FONT_SHORTHAND = '400 18px/1.34 ' + FAMILY;
   function apply(el) {
     if (!el) return;
@@ -1860,6 +2112,70 @@ document.addEventListener('keydown', e => {
 });
 document.getElementById('helpBtn').addEventListener('click', openHelp);
 
+/* ── Extensions marketplace modal — iframes the server-hosted marketplace
+   PHP. The page lists every available .ext bundle with an Install button;
+   clicking Install postMessages `cbe.installExtension` up to this window,
+   which we forward to the host (extension.js downloads the .ext + extracts
+   it). The host echoes back `cbe.installResult` which we relay into the
+   iframe so its button flips to "Installed". */
+const CBE_MARKETPLACE_URL = 'https://trentontompkins.com/cbe/extension/extension_marketplace.php';
+function openExtensionsMarketplace() {
+  let modal = document.getElementById('cbe-ext-modal');
+  if (modal) { modal.style.display = 'flex'; return; }
+  modal = document.createElement('div');
+  modal.id = 'cbe-ext-modal';
+  /* Reuse the help modal's chrome classes so skins style it consistently. */
+  modal.className = 'cbe-help-modal-shell';
+  modal.innerHTML = `
+    <div class="cbe-box" role="dialog" aria-modal="true" aria-label="Extensions Marketplace">
+      <div class="cbe-hdr">
+        <span>Extensions Marketplace</span>
+        <button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)"></button>
+      </div>
+      <iframe src="${CBE_MARKETPLACE_URL}" title="Extensions Marketplace"
+              sandbox="allow-scripts allow-same-origin allow-popups"></iframe>
+    </div>`;
+  /* Match the help modal's fixed-overlay layout (in case the className
+     above isn't styled by the active skin, set the essentials inline). */
+  modal.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;' +
+    'align-items:center;justify-content:center;background:rgba(0,0,0,0.55);';
+  const box = modal.querySelector('.cbe-box');
+  if (box) box.style.cssText = 'width:80vw;height:80vh;max-width:1100px;display:flex;' +
+    'flex-direction:column;background:#1c1f24;border:1px solid #353a45;border-radius:8px;overflow:hidden;';
+  const ifr = modal.querySelector('iframe');
+  if (ifr) ifr.style.cssText = 'flex:1;width:100%;border:0;background:#16181d;';
+  modal.addEventListener('click', e => { if (e.target === modal) closeExtensionsMarketplace(); });
+  modal.querySelector('.cbe-x').addEventListener('click', closeExtensionsMarketplace);
+  document.body.appendChild(modal);
+}
+function closeExtensionsMarketplace() {
+  const m = document.getElementById('cbe-ext-modal');
+  if (m) m.remove();
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('cbe-ext-modal')) closeExtensionsMarketplace();
+});
+(function () {
+  const el = document.getElementById('extensionsBtn');
+  if (el) el.addEventListener('click', openExtensionsMarketplace);
+})();
+/* Bridge: the marketplace iframe → this panel → the host. */
+window.addEventListener('message', (event) => {
+  const m = event.data || {};
+  if (m && m.type === 'cbe.installExtension') {
+    /* Forward the install request to the host. extension.js downloads the
+       .ext file (HTTPS GET), MD5-verifies, extracts under extensions/. */
+    if (api) api.postMessage({ type: 'installExtension', ext: m });
+  } else if (m && m.type === 'cbe.installResultFromHost') {
+    /* Host finished — relay the result into the iframe so its Install
+       button flips to "✓ Installed" (or back to "Install" on failure). */
+    const ifr = document.querySelector('#cbe-ext-modal iframe');
+    if (ifr && ifr.contentWindow) {
+      try { ifr.contentWindow.postMessage({ type: 'cbe.installResult', id: m.id, ok: m.ok, name: m.name }, '*'); } catch (_) {}
+    }
+  }
+});
+
 /* ── Handbook modal — editable; round-trips handbook.txt via the host.
    Click handbook tool button → loads handbook.txt → shows in a big
    monospace textarea → Save writes it back. Dirty/saved status shown
@@ -1956,6 +2272,7 @@ const CBE_COMMANDS = [
   { name: '/git',      desc: 'Source control',           run: () => { if (api) api.postMessage({ type: 'openGit' }); } },
   { name: '/github',   desc: 'List GitHub repos',        run: () => { const b = document.getElementById('githubBtn'); if (b) b.click(); } },
   { name: '/license',  desc: 'Show the MIT license',     run: () => { if (api) api.postMessage({ type: 'showLicense' }); } },
+  { name: '/push',     desc: 'Push files to server (auto-update)', run: () => { if (api) api.postMessage({ type: 'pushUpdate' }); } },
 ];
 
 let __cbeCmdMenuEl    = null;
@@ -1987,7 +2304,17 @@ function cbeRenderCmdMenu() {
     row.className = 'cbe-cmd' + (idx === __cbeCmdMenuFocus ? ' is-focus' : '');
     row.innerHTML = `<span class="name">${c.name}</span><span class="desc">${c.desc}</span>`;
     row.addEventListener('mouseenter', () => { __cbeCmdMenuFocus = idx; cbeRenderCmdMenu(); });
-    row.addEventListener('click', () => cbeRunCmdAt(idx));
+    /* Use mousedown (not click) + preventDefault so the textarea keeps focus
+       — without preventDefault, clicking the menu shifts focus to the row,
+       the textarea blurs, and the subsequent `ti.value = ...` lands on an
+       unfocused element. mousedown also fires before the document-level
+       outside-click handler, eliminating any race where the menu DOM is
+       removed mid-click. */
+    row.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      cbeRunCmdAt(idx);
+    });
     __cbeCmdMenuEl.appendChild(row);
   });
 }
@@ -2018,18 +2345,43 @@ function cbeRunCmdAt(idx) {
   const items = cbeCmdFilter();
   const c = items[idx];
   if (!c) return;
-  /* Clear the slash trigger from the input. */
-  if (__cbeCmdMenuFromSlash) {
-    ti.value = '';
-    ti.dispatchEvent(new Event('input'));
+  /* When the menu was opened via the toolbar button (not by typing "/"),
+     a click PUTS the command name into the prompt box instead of running
+     it — that way the user can edit/append arguments before pressing
+     Enter. The slash-trigger path keeps the old "run immediately" UX so
+     typing "/help<Enter>" still fires help instantly. */
+  if (!__cbeCmdMenuFromSlash) {
+    cbeCloseCmdMenu();
+    try {
+      /* Suppress the slash auto-open. Setting ti.value to "/foo " and
+         dispatching input would normally re-trigger the menu (because the
+         text starts with `/`) — the input handler checks this flag and
+         bails when set. Reset on the next tick so subsequent real typing
+         still triggers normally. */
+      window.__cbeSuppressSlashTrigger = true;
+      ti.value = c.name + ' ';
+      ti.focus();
+      ti.dispatchEvent(new Event('input'));
+      const end = ti.value.length;
+      ti.setSelectionRange(end, end);
+      setTimeout(() => { window.__cbeSuppressSlashTrigger = false; }, 0);
+    } catch (e) { console.debug('[cbe.cmd] insert', c.name, e && e.message); }
+    return;
   }
+  /* Slash-triggered path — clear the slash trigger and run the command. */
+  ti.value = '';
+  ti.dispatchEvent(new Event('input'));
   cbeCloseCmdMenu();
   try { c.run(); } catch (e) { console.debug('[cbe.cmd] run', c.name, e && e.message); }
 }
 
 /* Slash trigger — only when the input is empty or contains only the slash
-   prefix (i.e. the user is typing a command, not regular text). */
+   prefix (i.e. the user is typing a command, not regular text). The
+   __cbeSuppressSlashTrigger flag short-circuits when cbeRunCmdAt INSERTED
+   a slash-command into the textarea programmatically (we don't want to
+   re-open the menu immediately after the user just picked an item). */
 ti.addEventListener('input', () => {
+  if (window.__cbeSuppressSlashTrigger) return;
   const v = ti.value || '';
   const isCommandTyping = v.startsWith('/') && !v.includes('\n');
   if (isCommandTyping && !__cbeCmdMenuEl) cbeOpenCmdMenu(true);
@@ -2169,6 +2521,24 @@ window.addEventListener('message', e => {
     /* Lazy-discovered skin list — populates the dropdown if settings is open. */
     __cbeSkinsList = Array.isArray(m.skins) ? m.skins.slice() : [];
     renderSkinDropdown();
+  } else if (m.type === 'contextUsage') {
+    /* Update the Compact button's conic-gradient fill ring. Host estimates
+       tokens-used / max-context and posts the ratio after every assistant
+       turn + after a compact. Above 75% the ring shifts red. */
+    const btn = document.getElementById('compactBtn');
+    if (btn) {
+      const r = Math.max(0, Math.min(1, Number(m.ratio) || 0));
+      btn.style.setProperty('--cbe-ctx-ratio', String(r));
+      btn.classList.toggle('has-ctx-ratio', r > 0.01);
+      btn.classList.toggle('ctx-warn', r > 0.75);
+      const pct = Math.round(r * 100);
+      const tok = (m.tokens || 0).toLocaleString();
+      const max = (m.max || 0).toLocaleString();
+      btn.setAttribute('data-tooltip', `Compact conversation · context ${pct}% (${tok} / ${max} tokens)`);
+    }
+  } else if (m.type === 'wakeText') {
+    /* Host returned the contents of wake.txt — open the editor modal. */
+    showWakeModal(m.text || '');
   } else if (m.type === 'domainsList') {
     /* NameSilo domain listing — cache for instant re-open, and render
        a modal table now. The host fires this once at startup
@@ -2199,6 +2569,24 @@ window.addEventListener('message', e => {
     historyReset();
   } else if (m.type === 'projectFolder') {
     setProjectFolder(m.path || '');
+    __cbeGitProjectFolder = m.path || '';
+    /* If the Git modal is open and the user just picked a folder via its
+       Pick button, re-render so the empty-state turns into the command UI. */
+    if (document.getElementById('cbe-git-modal') && __cbeGitProjectFolder) {
+      openGitModal();
+    }
+  } else if (m.type === 'gitResult') {
+    /* Result from `runGit` — paint into the output pane if the modal is open. */
+    const out = document.getElementById('cbe-git-output');
+    if (out) {
+      if (m.error) {
+        out.textContent = 'ERROR: ' + m.error;
+      } else {
+        const head = '$ git ' + (m.argv || []).join(' ') + (m.rc !== undefined ? `\n[exit ${m.rc}]` : '') + '\n\n';
+        out.textContent = head + (m.stdout || '') + (m.stderr ? '\n--- stderr ---\n' + m.stderr : '');
+      }
+      out.scrollTop = 0;
+    }
   } else if (m.type === 'prompts') {
     __cbePrompts = Array.isArray(m.items) ? m.items.slice() : [];
     promptsResetRecall();
@@ -2358,6 +2746,10 @@ function fitProjectPath() {
 }
 function setProjectFolder(p) {
   __cbeProjectFolder = p || '';
+  /* Mirror for the Git modal — it makes its empty-state vs run-state
+     decision from this variable. Keeping them in sync here means the
+     button works correctly on the very first click after panel boot. */
+  __cbeGitProjectFolder = p || '';
   if (!__cbeProjectEl) return;
   if (!__cbeProjectFolder) {
     __cbeProjectEl.textContent = '';

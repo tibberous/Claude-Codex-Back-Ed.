@@ -17,13 +17,45 @@
 #   -LogPath <file>                     default %TEMP%\cbe_supervisor.log
 # =============================================================================
 param(
-    [Parameter(Mandatory=$true)] [string] $CodePath,
-    [int] $PollSeconds = 5,
+    [string] $CodePath = '',
+    [int] $PollSeconds = 3,
     [string] $LogPath  = (Join-Path $env:TEMP 'cbe_supervisor.log')
 )
 
 $ErrorActionPreference = 'Continue'
 $script:stopRequested = $false
+
+# CodePath resolution. The service runs as LocalSystem, so $env:LOCALAPPDATA
+# points at the systemprofile (NOT the user) and cross-session Code.exe .Path
+# reads are Access-Denied. The reliable source is a plain text file written
+# at install time by the elevated installer, which DOES know the real path.
+# Fallback order: explicit -CodePath arg > C:\ProgramData\cbe\code_path.txt >
+# any running Code.exe we can read > common install locations.
+function Resolve-CodePath {
+    param([string] $explicit)
+    if ($explicit -and (Test-Path -LiteralPath $explicit)) { return $explicit }
+    $txt = 'C:\ProgramData\cbe\code_path.txt'
+    if (Test-Path -LiteralPath $txt) {
+        try {
+            $p = (Get-Content -LiteralPath $txt -Raw -ErrorAction Stop).Trim()
+            if ($p -and (Test-Path -LiteralPath $p)) { return $p }
+        } catch { }
+    }
+    try {
+        $running = Get-Process -Name Code -ErrorAction SilentlyContinue |
+                   Where-Object { $_.Path } | Select-Object -First 1
+        if ($running) { return $running.Path }
+    } catch { }
+    foreach ($c in @(
+        (Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code\Code.exe'),
+        (Join-Path ${env:ProgramFiles} 'Microsoft VS Code\Code.exe'),
+        (Join-Path ${env:ProgramFiles(x86)} 'Microsoft VS Code\Code.exe')
+    )) {
+        if ($c -and (Test-Path -LiteralPath $c)) { return $c }
+    }
+    return ''
+}
+$CodePath = Resolve-CodePath -explicit $CodePath
 
 function Write-Log {
     param([string] $Msg)
@@ -74,19 +106,35 @@ try {
 }
 $script:relaunchCount = 0
 $script:lastRelaunchTs = ''
+# ONE persistent pending GetContextAsync task held at script scope. The old
+# code called GetContextAsync() then abandoned the task on a 50ms timeout —
+# every poll tick leaked another pending receive, and when a real request
+# finally arrived an *abandoned* task grabbed it with nobody reading .Result,
+# so the client just hung. Now: keep exactly one pending task; when it
+# completes, answer it AND immediately queue the next one.
+$script:pendingCtx = $null
 function Serve-HttpRequests {
-    if (-not $listener) { return }
-    # BeginGetContext is async; just drain whatever's queued each poll tick.
-    while ($listener.IsListening) {
-        $task = $listener.GetContextAsync()
-        if (-not $task.Wait(50)) { break }
+    if (-not $listener -or -not $listener.IsListening) { return }
+    # Drain every request that has completed since the last tick. Loop so a
+    # burst of polls all get served within one tick instead of one-per-tick.
+    while ($true) {
+        if ($null -eq $script:pendingCtx) {
+            try { $script:pendingCtx = $listener.GetContextAsync() }
+            catch { Write-Log "supervisor:http:getcontext-failed $($_.Exception.Message)"; return }
+        }
+        # IsCompleted is non-blocking — if no request has arrived, stop draining
+        # and leave the task pending for the next tick.
+        if (-not $script:pendingCtx.IsCompleted) { return }
+        $task = $script:pendingCtx
+        $script:pendingCtx = $null    # consume; a fresh one is queued next loop
         try {
             $ctx = $task.Result
-            $body = '{"status":"OK","pid":' + $PID + ',"relaunches":' + $script:relaunchCount + ',"lastRelaunch":"' + $script:lastRelaunchTs + '","code":"' + ($CodePath -replace '\\','\\') + '"}'
+            $body = '{"status":"OK","pid":' + $PID + ',"relaunches":' + $script:relaunchCount + ',"lastRelaunch":"' + $script:lastRelaunchTs + '","codePathKnown":' + ($script:codePathKnown.ToString().ToLower()) + '}'
             $buf = [System.Text.Encoding]::UTF8.GetBytes($body)
             $ctx.Response.StatusCode = 200
             $ctx.Response.StatusDescription = 'OK'
             $ctx.Response.ContentType = 'application/json; charset=utf-8'
+            $ctx.Response.AddHeader('Cache-Control', 'no-store')
             $ctx.Response.ContentLength64 = $buf.Length
             $ctx.Response.OutputStream.Write($buf, 0, $buf.Length)
             $ctx.Response.OutputStream.Close()
@@ -96,11 +144,12 @@ function Serve-HttpRequests {
     }
 }
 
-# Sanity: if Code.exe doesn't exist where we were told, bail with a clear log
-# entry instead of silently spinning forever.
-if (-not (Test-Path -LiteralPath $CodePath)) {
-    Write-Log "supervisor:FATAL Code.exe not found at '$CodePath'"
-    exit 2
+# If Code.exe can't be resolved, DON'T exit — the panel's blue status ring
+# depends on /status answering 200, and that must stay up regardless. We
+# just skip the relaunch behavior and re-attempt path resolution each loop.
+$script:codePathKnown = ($CodePath -and (Test-Path -LiteralPath $CodePath))
+if (-not $script:codePathKnown) {
+    Write-Log "supervisor:WARN Code.exe path unresolved at start - /status stays up, relaunch disabled until path resolves"
 }
 
 # Helper: launch Code.exe in the active interactive user session. The service
@@ -156,16 +205,28 @@ function Start-CodeInUserSession {
 
 while (-not $script:stopRequested) {
     try {
+        # Re-attempt CodePath resolution each loop — Code.exe may have come up
+        # since start, or code_path.txt may have been written after install.
+        if (-not $script:codePathKnown) {
+            $CodePath = Resolve-CodePath -explicit $CodePath
+            $script:codePathKnown = ($CodePath -and (Test-Path -LiteralPath $CodePath))
+            if ($script:codePathKnown) { Write-Log "supervisor:codepath-resolved '$CodePath'" }
+        }
         # Get-Process matches any Code* process; filter to ones whose Path
         # actually resolves to our target Code.exe so we don't false-match
         # other Electron apps that happen to be named "Code".
         $alive = $false
-        Get-Process -Name Code -ErrorAction SilentlyContinue | ForEach-Object {
-            try {
-                if ($_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -ieq [System.IO.Path]::GetFullPath($CodePath))) {
-                    $alive = $true
-                }
-            } catch { }
+        if ($script:codePathKnown) {
+            Get-Process -Name Code -ErrorAction SilentlyContinue | ForEach-Object {
+                try {
+                    if ($_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -ieq [System.IO.Path]::GetFullPath($CodePath))) {
+                        $alive = $true
+                    }
+                } catch { }
+            }
+        } else {
+            # Path unknown — skip relaunch this tick but keep /status alive.
+            $alive = $true
         }
         if (-not $alive) {
             Write-Log "supervisor:relaunch Code.exe is not running - starting"

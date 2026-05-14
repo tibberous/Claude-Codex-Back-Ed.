@@ -12,7 +12,7 @@
 <!-- CSP: allow scripts/styles/images/media from the webview origin + the
      inline <script> block. {{CSP_SOURCE}} is replaced by extension.js with
      webview.cspSource. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{CSP_SOURCE}} data:; script-src {{CSP_SOURCE}} 'unsafe-inline'; style-src {{CSP_SOURCE}} 'unsafe-inline'; font-src {{CSP_SOURCE}} data:; media-src {{CSP_SOURCE}} blob: data:; frame-src {{CSP_SOURCE}};" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{CSP_SOURCE}} data:; script-src {{CSP_SOURCE}} 'unsafe-inline'; style-src {{CSP_SOURCE}} 'unsafe-inline'; font-src {{CSP_SOURCE}} data:; media-src {{CSP_SOURCE}} blob: data:; frame-src {{CSP_SOURCE}} https://trentontompkins.com;" />
 <title>Claude Codex Black</title>
 <!-- Prism CSS deferred: load with media="print" (non-blocking), then JS swaps
      to media="all" once loaded. The chat thread is rendered without code-block
@@ -47,6 +47,9 @@
   --cbe-modal-title-fg:   #ffffff;
   --cbe-modal-foot-bg:    #111111;
   --cbe-modal-accent:     #e8621a;
+  /* Universal high-contrast accent. Read from manifest.xml -> <highlight-color>
+     so each skin gets a pop-color that reads cleanly on its modal-bg. */
+  --cbe-highlight-color:  #ffd166;
 }
 
 * { box-sizing: border-box; }
@@ -156,8 +159,14 @@ body {
    can't strip it. */
 html body .prompt-input-wrap textarea.prompt-input#promptBox,
 html body textarea#promptBox.prompt-input {
-  font: 400 18px/1.34 Consolas, "Cascadia Mono", "Courier New", monospace !important;
-  font-family: Consolas, "Cascadia Mono", "Courier New", monospace !important;
+  /* Switched from `Consolas, "Cascadia Mono", "Courier New", monospace` —
+     none of those four were actually loaded in this user's webview sandbox,
+     so the generic-monospace fallback resolved to a PROPORTIONAL UA default.
+     `--vscode-editor-font-family` is the user's editor.fontFamily setting,
+     which is monospace by definition (VSCode requires it). Always present
+     in every webview as part of VSCode's injected variable set. */
+  font-family: var(--vscode-editor-font-family, Consolas, "Cascadia Mono", "Courier New", monospace) !important;
+  font: 400 18px/1.34 var(--vscode-editor-font-family, Consolas, "Cascadia Mono", "Courier New", monospace) !important;
 }
 .prompt-input::placeholder { color: #434343; opacity: 1;
   font-family: Consolas, "Cascadia Mono", "Courier New", ui-monospace, monospace !important; }
@@ -265,13 +274,19 @@ html body textarea#promptBox.prompt-input {
    tts icon. */
 #ttsBtn { position: relative; }
 #ttsBtn .cbe-autoread-ring {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  /* Center the autoread ring SVG over the button. Same fix as #monitorBtn
+     / #sttBtn / #autoReplyBtn — skins set `.tool-button img !important`
+     which overrides plain `inset/width/height` unless ours is also
+     `!important`. Switching from `inset:0 + 100%` to 50/50 + translate
+     guarantees centering at any button size. */
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  width: 100% !important;
+  height: 100% !important;
+  transform: translate(-50%, -50%) scale(0.85) !important;
   pointer-events: none;
   opacity: 0;
-  transform: scale(0.85);
   transition: opacity .18s ease, transform .18s ease, filter .18s ease;
   /* Outer glow + drop shadow stack — the SVG has its own internal glow
      filter but this extra CSS halo punches through the dark button. */
@@ -280,7 +295,9 @@ html body textarea#promptBox.prompt-input {
 }
 #ttsBtn.autoread .cbe-autoread-ring {
   opacity: 1;
-  transform: scale(1.06);
+  /* Stay centered while pulsing — translate(-50%,-50%) keeps the SVG
+     anchored at the button center regardless of the scale tween. */
+  transform: translate(-50%, -50%) scale(1.06) !important;
 }
 /* While auto-read is active also pulse the underlying tts icon subtly so
    the whole button reads as "listening for the next reply". */
@@ -395,17 +412,16 @@ html body textarea#promptBox.prompt-input {
    has visual confirmation that the extension is processing. */
 #monitorBtn { position: relative; }
 #monitorBtn .cbe-spinner {
-  /* Center an explicitly-sized SVG over the button instead of relying on
-     `inset: 2px` + `width: auto`. With the skinned toolbar shrinking
-     `.tool-button` to 38x38, the SVG was rendering at its intrinsic 50x50
-     viewBox and overflowing off-center. Pinning to 70% of the button via
-     50/50 + transform-translate centers cleanly regardless of button size. */
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 70%;
-  height: 70%;
-  transform: translate(-50%, -50%);
+  /* Center an explicitly-sized SVG over the button regardless of which
+     skin is active. Skins apply `.tool-button img { width:20px !important }`
+     which beats ID-scoped rules without !important — so every geometry
+     property here is `!important` too. */
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  width: 70% !important;
+  height: 70% !important;
+  transform: translate(-50%, -50%) !important;
   pointer-events: none;
   opacity: 0;
   transition: opacity .15s ease;
@@ -417,25 +433,102 @@ html body textarea#promptBox.prompt-input {
   filter: brightness(0) invert(1) drop-shadow(0 0 6px rgba(78,168,255,0.6));
 }
 
-/* Auto Prompt button — identical spinner overlay to the monitor button.
-   Class `is-autoprompting` is toggled by panel.js when the interval is
-   running so the user has a persistent "I am firing the prompt every
-   N seconds" indicator. */
+/* Auto Prompt button — visually identical to the TTS auto-read pulsing
+   ring while a loop is running. Same SVG (auto_read_spinner.svg), same
+   drop-shadow halo, same scale tween. Skins' `.tool-button img !important`
+   gets out-prioritized via !important on every geometry property + an
+   explicit `filter: drop-shadow…` (replacing skin filters entirely). */
 #autoReplyBtn { position: relative; }
 #autoReplyBtn .cbe-spinner {
-  position: absolute;
-  top: 50%; left: 50%;
-  width: 70%; height: 70%;
-  transform: translate(-50%, -50%);
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  width: 100% !important;
+  height: 100% !important;
+  transform: translate(-50%, -50%) scale(0.85) !important;
   pointer-events: none;
   opacity: 0;
-  transition: opacity .15s ease;
-  filter: none !important;
+  transition: opacity .18s ease, transform .18s ease, filter .18s ease;
+  /* Blue glow stack — punches through dark buttons regardless of skin. */
+  filter: drop-shadow(0 0 6px rgba(63, 165, 255, 0.85))
+          drop-shadow(0 0 14px rgba(20, 102, 255, 0.55)) !important;
 }
-#autoReplyBtn.is-autoprompting .cbe-spinner { opacity: 1; }
+#autoReplyBtn.is-autoprompting .cbe-spinner {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1.06) !important;
+}
+/* Pulse the underlying auto_reply icon subtly so the whole button reads
+   as "actively firing prompts" — mirrors the .autoread > img treatment. */
 #autoReplyBtn.is-autoprompting > img:first-of-type {
-  opacity: 0.45;
-  filter: brightness(0) invert(1) drop-shadow(0 0 6px rgba(78,168,255,0.6));
+  animation: cbe-autoprompt-pulse 1.6s ease-in-out infinite;
+}
+@keyframes cbe-autoprompt-pulse {
+  0%, 100% { filter: brightness(1) drop-shadow(0 0 0 rgba(63,165,255,0)); }
+  50%      { filter: brightness(1.25) drop-shadow(0 0 8px rgba(63,165,255,0.9)); }
+}
+/* Countdown badge — top-right corner of the Auto Prompt button when a
+   loop is running. The DIGITS are painted in the skin's
+   --cbe-highlight-color (per user request) so they pop hard regardless
+   of theme. Backed by a translucent dark disc so the highlight color
+   reads cleanly on light skins too (Adwaita / Office / Red Hat etc). */
+#autoReplyBtn .cbe-countdown {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.78);
+  color: var(--cbe-highlight-color, #ffd166);
+  font: 800 12px/20px Consolas, "Cascadia Mono", "Courier New", monospace;
+  text-align: center;
+  pointer-events: none;
+  border: 1px solid var(--cbe-highlight-color, #ffd166);
+  box-shadow: 0 0 6px rgba(0, 0, 0, .55),
+              0 0 4px var(--cbe-highlight-color, #ffd166);
+  display: none;
+}
+#autoReplyBtn.is-autoprompting .cbe-countdown { display: inline-block; }
+
+/* Compact button — context-usage ring. Conic gradient fills clockwise from
+   12 o'clock proportional to --cbe-ctx-ratio (0..1, set inline by panel.js
+   on every assistantDone). Sits behind the icon so the original SVG stays
+   visible; ring color is --cbe-modal-accent which matches the active skin. */
+#compactBtn { position: relative; }
+#compactBtn .cbe-ctx-ring {
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  width: 88% !important;
+  height: 88% !important;
+  transform: translate(-50%, -50%) !important;
+  border-radius: 50%;
+  pointer-events: none;
+  /* Default ratio = 0 → fully transparent ring. */
+  background: conic-gradient(
+      var(--cbe-modal-accent, #e8621a) 0deg,
+      var(--cbe-modal-accent, #e8621a) calc(var(--cbe-ctx-ratio, 0) * 360deg),
+      transparent calc(var(--cbe-ctx-ratio, 0) * 360deg),
+      transparent 360deg
+  );
+  /* Mask to draw only a 3px-thick ring at the rim, not a solid disc. */
+  -webkit-mask: radial-gradient(circle, transparent 58%, #000 60%, #000 78%, transparent 80%);
+          mask: radial-gradient(circle, transparent 58%, #000 60%, #000 78%, transparent 80%);
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+/* Only show the ring once we've received at least one usage update. The
+   class is added by panel.js when ratio > 0. */
+#compactBtn.has-ctx-ratio .cbe-ctx-ring { opacity: 1; }
+/* Warn color above 75% — turns red so the user sees they should compact. */
+#compactBtn.ctx-warn .cbe-ctx-ring {
+  background: conic-gradient(
+      #ff5050 0deg,
+      #ff5050 calc(var(--cbe-ctx-ratio, 0) * 360deg),
+      transparent calc(var(--cbe-ctx-ratio, 0) * 360deg),
+      transparent 360deg
+  );
 }
 
 /* STT "recording" overlay — when the mic button is actively listening
@@ -444,12 +537,14 @@ html body textarea#promptBox.prompt-input {
    the #monitorBtn rules above so the visual language is consistent. */
 #sttBtn { position: relative; }
 #sttBtn .cbe-spinner {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 70%;
-  height: 70%;
-  transform: translate(-50%, -50%);
+  /* See #monitorBtn .cbe-spinner — every geometry property is !important
+     to beat skin's `.tool-button img { ... !important }`. */
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  width: 70% !important;
+  height: 70% !important;
+  transform: translate(-50%, -50%) !important;
   pointer-events: none;
   opacity: 0;
   transition: opacity .15s ease;
@@ -1105,7 +1200,7 @@ html body textarea#promptBox.prompt-input {
             class="prompt-input"
             rows="1"
             placeholder="Queue another message..."
-            style="font: 400 18px/1.34 Consolas, 'Cascadia Mono', 'Courier New', monospace !important; font-family: Consolas, 'Cascadia Mono', 'Courier New', monospace !important;"
+            style="font: 400 18px/1.34 var(--vscode-editor-font-family, Consolas, 'Cascadia Mono', 'Courier New', monospace) !important; font-family: var(--vscode-editor-font-family, Consolas, 'Cascadia Mono', 'Courier New', monospace) !important;"
           ></textarea>
           <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" aria-label="Send message"></button>
         </div>
@@ -1142,7 +1237,12 @@ html body textarea#promptBox.prompt-input {
           </button>
           <button id="autoReplyBtn" class="tool-button" type="button" data-tooltip="Auto Prompt" aria-label="Auto Prompt">
             <img src="{{ASSETS_BASE}}/auto_reply.svg" alt="" />
-            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_blue.svg" alt="" aria-hidden="true" />
+            <!-- Reuse the same SVG + halo treatment the TTS auto-read uses
+                 so a running Auto Prompt visually matches Auto Read instead
+                 of the simple monitor-style blue arc. The countdown badge
+                 sits over the corner in the active skin's highlight color. -->
+            <img class="cbe-spinner" src="{{ASSETS_BASE}}/auto_read_spinner.svg" alt="" aria-hidden="true" />
+            <span class="cbe-countdown" aria-hidden="true">0</span>
           </button>
           <button id="wakeUpBtn" class="tool-button" type="button" data-tooltip="Wake-up response" aria-label="Wake-up response">
             <img src="{{ASSETS_BASE}}/wake_up.svg" alt="" />
@@ -1152,6 +1252,7 @@ html body textarea#promptBox.prompt-input {
           </button>
           <button id="compactBtn" class="tool-button" type="button" data-tooltip="Compact conversation" aria-label="Compact">
             <img src="{{ASSETS_BASE}}/compact.svg" alt="" />
+            <span class="cbe-ctx-ring" aria-hidden="true"></span>
           </button>
           <button id="handbookBtn" class="tool-button" type="button" data-tooltip="Handbook" aria-label="Handbook">
             <img src="{{ASSETS_BASE}}/handbook.svg" alt="" />

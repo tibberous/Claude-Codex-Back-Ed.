@@ -40,6 +40,10 @@ DEFAULT_MODAL_PALETTE = {
     "modal_bg": "#1a1a1a", "modal_fg": "#e8e8e8", "modal_border": "#e8621a",
     "modal_title_bg_1": "#b83c00", "modal_title_bg_2": "#e8621a",
     "modal_title_fg": "#ffffff", "modal_foot_bg": "#111111", "modal_accent": "#e8621a",
+    # High-contrast accent against modal_bg. Used by the panel via the
+    # --cbe-highlight-color variable for selection highlights, focus rings,
+    # active rows, etc. Picked to read clearly on each skin's body color.
+    "highlight_color": "#ffd166",
 }
 
 MODAL_PALETTES = {
@@ -47,41 +51,49 @@ MODAL_PALETTES = {
         "modal_bg": "#2e3436", "modal_fg": "#eaeef3", "modal_border": "#3584e4",
         "modal_title_bg_1": "#2a6dbf", "modal_title_bg_2": "#3584e4",
         "modal_title_fg": "#ffffff", "modal_foot_bg": "#232729", "modal_accent": "#3584e4",
+        "highlight_color": "#f6d32d",   # Adwaita yellow on dark slate
     },
     "kde": {    # frosted dark with Plasma cyan accent
         "modal_bg": "#0f1825", "modal_fg": "#eef7ff", "modal_border": "#3daee9",
         "modal_title_bg_1": "#2a8bbb", "modal_title_bg_2": "#3daee9",
         "modal_title_fg": "#eef7ff", "modal_foot_bg": "#0a1018", "modal_accent": "#3daee9",
+        "highlight_color": "#ff8c42",   # warm orange against deep navy
     },
     "ubuntu": { # aubergine body with Yaru orange chrome
         "modal_bg": "#2f2630", "modal_fg": "#f4ebe9", "modal_border": "#e95420",
         "modal_title_bg_1": "#b03c14", "modal_title_bg_2": "#e95420",
         "modal_title_fg": "#ffffff", "modal_foot_bg": "#1d171c", "modal_accent": "#e95420",
+        "highlight_color": "#aef359",   # Yaru green pops on aubergine
     },
     "terminal": {  # phosphor green on near-pitch black, CRT vibe
         "modal_bg": "#020704", "modal_fg": "#7cffaa", "modal_border": "#28c763",
         "modal_title_bg_1": "#0b2112", "modal_title_bg_2": "#28c763",
         "modal_title_fg": "#7cffaa", "modal_foot_bg": "#010503", "modal_accent": "#33ff82",
+        "highlight_color": "#ff007f",   # magenta cuts cleanly through green CRT
     },
     "xfce": {   # classic GTK greys, navy title bar
         "modal_bg": "#d8d8d8", "modal_fg": "#202020", "modal_border": "#686868",
         "modal_title_bg_1": "#3f72a8", "modal_title_bg_2": "#5b8dc4",
         "modal_title_fg": "#ffffff", "modal_foot_bg": "#c5c5c5", "modal_accent": "#3f72a8",
+        "highlight_color": "#a03030",   # brick red against the grey panels
     },
     "arch": {   # dark cyan rice
         "modal_bg": "#0b0e14", "modal_fg": "#d7efff", "modal_border": "#1793d1",
         "modal_title_bg_1": "#0d6ba0", "modal_title_bg_2": "#1793d1",
         "modal_title_fg": "#d7efff", "modal_foot_bg": "#05070b", "modal_accent": "#1793d1",
+        "highlight_color": "#fdb813",   # warm amber over near-black
     },
     "redhat": { # enterprise light grey, red accent
         "modal_bg": "#f2f4f5", "modal_fg": "#252b31", "modal_border": "#ee0000",
         "modal_title_bg_1": "#b30000", "modal_title_bg_2": "#ee0000",
         "modal_title_fg": "#ffffff", "modal_foot_bg": "#d5dadd", "modal_accent": "#ee0000",
+        "highlight_color": "#001f3f",   # deep navy on the near-white body
     },
     "tamagotchi": {  # lime LCD with mossy green chrome
         "modal_bg": "#c9ee75", "modal_fg": "#315912", "modal_border": "#426d1d",
         "modal_title_bg_1": "#5f8d29", "modal_title_bg_2": "#79a936",
         "modal_title_fg": "#315912", "modal_foot_bg": "#acd85b", "modal_accent": "#4d8b18",
+        "highlight_color": "#8e0e4e",   # bright magenta-purple on lime LCD
     },
 }
 
@@ -579,6 +591,12 @@ MANIFEST_XML = """\
     <modal-title-fg>{modal_title_fg}</modal-title-fg>
     <modal-foot-bg>{modal_foot_bg}</modal-foot-bg>
     <modal-accent>{modal_accent}</modal-accent>
+    <!-- Universal high-contrast accent. Read by the panel as
+         --cbe-highlight-color and used wherever a one-off attention
+         element needs to pop on this skin (Auto Prompt countdown,
+         focus rings, selection bars, etc). Picked per-skin to read
+         clearly on the skin's modal-bg. -->
+    <highlight-color>{highlight_color}</highlight-color>
   </colors>
 </skin>
 """
@@ -847,7 +865,8 @@ BESPOKE = {
         "accent": "#e8621a",
         "css": CODEX_BLACK_CSS,
         # Stays on the defaults — orange-on-black is the original look.
-        "palette": dict(DEFAULT_MODAL_PALETTE),
+        # Highlight = cyan so it cuts through the orange shell + black body.
+        "palette": {**DEFAULT_MODAL_PALETTE, "highlight_color": "#3ec6e0"},
     },
     "glassy": {
         "label": "Glassy Beveled",
@@ -864,6 +883,7 @@ BESPOKE = {
             "modal_title_fg": "#eef6ff",
             "modal_foot_bg": "#0e1a2e",
             "modal_accent": "#56b7ff",
+            "highlight_color": "#ffd470",  # warm gold over frosted navy
         },
     },
     "office": {
@@ -881,6 +901,7 @@ BESPOKE = {
             "modal_title_fg": "#ffffff",
             "modal_foot_bg": "#d4d0c8",  # toolbar / 3D face grey
             "modal_accent": "#244372",
+            "highlight_color": "#800000",  # classic maroon hyperlink hot
         },
     },
 }

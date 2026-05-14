@@ -1544,58 +1544,55 @@ async function installSupervisorService(context) {
     if (!codePath) {
         throw new Error('could not locate Code.exe to supervise');
     }
-    // Path quoting for PowerShell. Single-quoted PS strings are LITERAL —
-    // no $-expansion, no escape sequences — which makes them the safest
-    // form for paths with spaces. The previous double-quoted form lost the
-    // outer quotes when PowerShell handed argv to nssm, splitting the
-    // "Microsoft VS Code" path into three tokens and tripping the install.
     const sq = (s) => `'${String(s).replace(/'/g, "''")}'`;
     const psExe = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
-    // AppParameters is stored AS A SINGLE STRING in the registry. NSSM
-    // re-uses it verbatim when spawning, so paths with spaces inside the
-    // arg string need their OWN embedded double-quotes (which we double-up
-    // inside the PowerShell single-quoted outer string).
-    const appParams = `-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${scriptPath}" -CodePath "${codePath}"`;
-    const logDir    = os.tmpdir();
-    const stdoutLog = path.join(logDir, 'cbe_supervisor.stdout.log');
-    const stderrLog = path.join(logDir, 'cbe_supervisor.stderr.log');
-    // AppParameters via reg.exe ADD: bulletproof quoting. Every prior
-    // attempt at `nssm set AppParameters '<long string with quotes>'` had
-    // PowerShell strip the embedded `"` characters before NSSM saw them,
-    // leaving paths-with-spaces unquoted in the registry and the service
-    // unable to start. Writing the value directly to the registry skips
-    // all PowerShell + nssm.exe argv quoting entirely.
-    const regKey = `HKLM\\SYSTEM\\CurrentControlSet\\Services\\${SUPERVISOR_SERVICE_NAME}\\Parameters`;
+    // ── The space-free-path strategy ──────────────────────────────────────
+    // The extension lives under "...\Claude Codex Black\tools\" — a path WITH
+    // SPACES. Every prior attempt to pass `-File "<spaced path>" -CodePath
+    // "<spaced path>"` through NSSM's AppParameters had the embedded quotes
+    // mangled (PowerShell argv handling + nssm re-parse + reg.exe). The fix:
+    //   1. Copy the supervisor script to C:\ProgramData\cbe\ (NO spaces).
+    //   2. Write the Code.exe path to C:\ProgramData\cbe\code_path.txt — the
+    //      script reads it from there, so AppParameters needs NO -CodePath
+    //      arg and therefore NO embedded quotes at all.
+    //   3. AppParameters becomes a plain space-delimited string with one
+    //      space-free -File path. Nothing to mangle.
+    const deployDir    = 'C:\\ProgramData\\cbe';
+    const deployScript = deployDir + '\\vscode_supervisor.ps1';
+    const codePathFile = deployDir + '\\code_path.txt';
+    const stdoutLog    = deployDir + '\\supervisor.stdout.log';
+    const stderrLog    = deployDir + '\\supervisor.stderr.log';
+    // AppParameters: every token is space-free, so no quoting survives-or-dies
+    // games. The script self-resolves Code.exe from code_path.txt.
+    const appParams = `-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File ${deployScript}`;
     const ps = [
+        // 1. Stage the script + code path into the space-free deploy dir.
+        `New-Item -ItemType Directory -Force -Path ${sq(deployDir)} | Out-Null`,
+        `Copy-Item -Force ${sq(scriptPath)} ${sq(deployScript)}`,
+        `Set-Content -Path ${sq(codePathFile)} -Value ${sq(codePath)} -Encoding ascii -NoNewline`,
+        // 2. Reinstall the service from scratch.
         `& ${sq(nssm)} stop ${SUPERVISOR_SERVICE_NAME} 2>&1 | Out-Null`,
         `& ${sq(nssm)} remove ${SUPERVISOR_SERVICE_NAME} confirm 2>&1 | Out-Null`,
-        // Install creates the service + the Parameters subkey with the
-        // Application value populated. AppParameters is then overwritten
-        // by reg.exe so quotes survive.
+        `Start-Sleep -Seconds 1`,
         `& ${sq(nssm)} install ${SUPERVISOR_SERVICE_NAME} ${sq(psExe)}`,
-        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} Application       ${sq(psExe)}`,
-        // reg.exe ADD with /d ${appParams} where appParams contains literal
-        // double-quotes around each path. Single-quoted PS literal preserves
-        // them; reg.exe writes the value verbatim as REG_SZ. After this
-        // runs the registry has `-File "C:\..." -CodePath "C:\..."`.
-        `reg.exe ADD ${sq(regKey)} /v AppParameters /t REG_SZ /d ${sq(appParams)} /f | Out-Null`,
-        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppDirectory      ${sq(path.dirname(scriptPath))}`,
+        // AppParameters is space-free — a plain `nssm set` is safe now.
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppParameters     ${sq(appParams)}`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppDirectory      ${sq(deployDir)}`,
         `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} DisplayName       ${sq(SUPERVISOR_DISPLAY_NAME)}`,
-        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} Description       ${sq('Keeps VSCode (Code.exe) alive - relaunches on crash. Managed by Claude Codex Black.')}`,
-        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} Start             SERVICE_DEMAND_START`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} Description       ${sq('Keeps VSCode (Code.exe) alive - relaunches on crash. Serves /status on :3434. Managed by Claude Codex Black.')}`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} Start             SERVICE_AUTO_START`,
+        // AppNoConsole 1 — no console window flashes when the service starts.
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppNoConsole      1`,
         `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppStdout         ${sq(stdoutLog)}`,
         `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppStderr         ${sq(stderrLog)}`,
         `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppRotateFiles    1`,
         `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppRotateBytes    1048576`,
-        // NSSM sends CTRL+C on stop. supervisor.ps1's CancelKeyPress handler
-        // catches it and breaks the loop. 3s gives the loop time to drain.
         `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppStopMethodSkip    0`,
         `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppStopMethodConsole 3000`,
         `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} ObjectName        LocalSystem`,
         // SDDL: SY=LocalSystem (full), BA=BuiltinAdmins (full),
         // AU=AuthUsers (start/stop/query) — so post-install toggles need no UAC.
         `sc.exe sdset ${SUPERVISOR_SERVICE_NAME} 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPLORC;;;AU)' | Out-Null`,
-        // Start the service so the panel doesn't need a second toggle.
         `sc.exe start ${SUPERVISOR_SERVICE_NAME} 2>&1 | Out-Null`,
         `Write-Output "INSTALL_OK"`,
     ].join("\r\n");
@@ -2536,6 +2533,60 @@ function bindPanel(context, panel) {
                     }
                     break;
                 }
+                case 'installExtension': {
+                    /* The marketplace iframe asked us to install a .ext bundle.
+                       Download it over HTTPS, MD5-verify if a hash was given,
+                       then extract the zip into extensions/<id>/. Echo the
+                       result back so the iframe's button flips state. */
+                    const ext = msg.ext || {};
+                    const extId = String(ext.id || '').replace(/[^a-zA-Z0-9_.-]/g, '') || 'unknown';
+                    const fileUrl = String(ext.fileUrl || '');
+                    trace(`EXT:INSTALL:BEGIN id=${extId} url=${fileUrl} md5=${ext.md5 || '<none>'}`);
+                    (async () => {
+                        let ok = false;
+                        let errMsg = '';
+                        try {
+                            if (!/^https:\/\//i.test(fileUrl)) throw new Error('refusing non-https extension URL');
+                            const buf = await _httpsGetBuffer(fileUrl, 60000);
+                            if (ext.md5) {
+                                const got = require('crypto').createHash('md5').update(buf).digest('hex').toLowerCase();
+                                if (got !== String(ext.md5).toLowerCase()) {
+                                    throw new Error(`md5 mismatch: server=${ext.md5} downloaded=${got}`);
+                                }
+                            }
+                            const extsRoot = path.join(context.extensionPath, 'extensions');
+                            const destDir  = path.join(extsRoot, extId);
+                            fs.mkdirSync(destDir, { recursive: true });
+                            /* .ext is a plain zip. Node has no built-in unzip, so
+                               write it to a temp .zip and let PowerShell's
+                               Expand-Archive extract it — zero extra deps. */
+                            const tmpZip = path.join(os.tmpdir(), `cbe_ext_${extId}_${Date.now()}.zip`);
+                            fs.writeFileSync(tmpZip, buf);
+                            const r = require('child_process').spawnSync('powershell.exe',
+                                ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command',
+                                 `Expand-Archive -LiteralPath '${tmpZip.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`],
+                                { encoding: 'utf8', windowsHide: true, timeout: 30000 });
+                            try { fs.unlinkSync(tmpZip); } catch (_) {}
+                            if (r.status !== 0) {
+                                throw new Error('Expand-Archive failed: ' + ((r.stderr || '').trim() || 'rc=' + r.status));
+                            }
+                            ok = true;
+                            trace(`EXT:INSTALL:OK id=${extId} -> ${destDir}`);
+                        } catch (e) {
+                            errMsg = e.message || String(e);
+                            traceErr('EXT:INSTALL:FAIL id=' + extId, e);
+                        }
+                        try {
+                            panel.webview.postMessage({ type: 'cbe.installResultFromHost', id: extId, ok, name: ext.name || extId });
+                        } catch (_) {}
+                        if (ok) {
+                            panel.webview.postMessage({ type: 'info', text: `Extension installed: ${ext.name || extId}. It lives in extensions/${extId}/.` });
+                        } else {
+                            panel.webview.postMessage({ type: 'error', message: `Extension install failed (${ext.name || extId}): ${errMsg}` });
+                        }
+                    })();
+                    break;
+                }
                 case 'compactConversation': {
                     /* Compact the running conversation. Strategy:
                          - Keep the last 4 turns verbatim (system + recent
@@ -2885,7 +2936,7 @@ function getPanelHtml(context, webview) {
     const prismLangsUri = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-langs.min.js')));
     const prismCssUri   = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-dark.min.css')));
     const soundsBase    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'sounds')));
-    const helpUri       = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'help.html')));
+    const helpUri       = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'panel', 'help.html')));
     const panelJsUri    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'panel', 'panel.js')));
     endUris();
 

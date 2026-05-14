@@ -73,8 +73,8 @@
     "keybindings": [
       {
         "command": "codexBlackEd.openPanel",
-        "key": "ctrl+shift+b",
-        "mac": "cmd+shift+b"
+        "key": "ctrl+alt+b",
+        "mac": "cmd+alt+b"
       }
     ],
     "configuration": {

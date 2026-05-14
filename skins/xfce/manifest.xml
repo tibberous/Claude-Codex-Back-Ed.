@@ -20,5 +20,11 @@
     <modal-title-fg>#ffffff</modal-title-fg>
     <modal-foot-bg>#c5c5c5</modal-foot-bg>
     <modal-accent>#3f72a8</modal-accent>
+    <!-- Universal high-contrast accent. Read by the panel as
+         --cbe-highlight-color and used wherever a one-off attention
+         element needs to pop on this skin (Auto Prompt countdown,
+         focus rings, selection bars, etc). Picked per-skin to read
+         clearly on the skin's modal-bg. -->
+    <highlight-color>#a03030</highlight-color>
   </colors>
 </skin>
