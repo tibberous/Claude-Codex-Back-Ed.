@@ -410,18 +410,27 @@ html body textarea#promptBox.prompt-input {
 /* Monitor "working" overlay — when the panel is busy (in-flight request),
    a blue spinning ring is drawn over the VSCode-monitor icon so the user
    has visual confirmation that the extension is processing. */
-#monitorBtn { position: relative; }
+#monitorBtn { position: relative; display: inline-flex !important; align-items: center !important; justify-content: center !important; }
 #monitorBtn .cbe-spinner {
   /* Center an explicitly-sized SVG over the button regardless of which
      skin is active. Skins apply `.tool-button img { width:20px !important }`
      which beats ID-scoped rules without !important — so every geometry
-     property here is `!important` too. */
+     property here is `!important` too. A FIXED 22x22 box (not a %) keeps
+     the ring a perfect circle and dead-centered even if the button is not
+     square; margin:0 cancels any skin img margin that would shift it. */
   position: absolute !important;
   top: 50% !important;
   left: 50% !important;
-  width: 70% !important;
-  height: 70% !important;
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+  min-height: 22px !important;
+  max-width: 22px !important;
+  max-height: 22px !important;
+  margin: 0 !important;
+  padding: 0 !important;
   transform: translate(-50%, -50%) !important;
+  transform-origin: center center !important;
   pointer-events: none;
   opacity: 0;
   transition: opacity .15s ease;

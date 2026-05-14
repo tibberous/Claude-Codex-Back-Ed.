@@ -277,6 +277,22 @@ const PULL_EXCLUDES = new Set([
     'tools/nssm.exe',
     'tools/rcedit.exe',
     'manifest.xml.php',  // server-side script; never overwrite our local copy of source
+    // ── The extension's own source. The pull does MD5-only diffing (no
+    // timestamp/version compare), so the server's older copy will ALWAYS
+    // beat the dev tree and clobber in-progress fixes. Extension code
+    // ships via .vsix, not over the auto-update channel.
+    'extension.js',
+    'package.json',
+    'package-lock.json',
+    'panel/panel.js',
+    'panel/index.html',
+    'panel/help.html',
+    'tools/vscode_supervisor.ps1',
+    'tools/build_skins.py',
+    'tools/annotate_hooks.py',
+    'tools/build_language_files.py',
+    'tools/extract_prompts_from_log.py',
+    'tools/pull_flag_svgs.ps1',
 ]);
 const PULL_EXCLUDE_PREFIXES = ['.git/', 'node_modules/', 'logs/', 'chats/', 'dist/', '.claude/', 'reports/'];
 const PULL_EXCLUDE_SUFFIXES = ['.log', '.bak', '.tmp', '.swp'];
@@ -1413,6 +1429,10 @@ function resolveSkin(context, requestedName) {
    Subsequent toggles are zero-prompt. */
 const SUPERVISOR_SERVICE_NAME = 'CBEVSCodeSupervisor';
 const SUPERVISOR_DISPLAY_NAME = 'Claude Codex Black — VSCode Supervisor';
+/* The supervisor.ps1 script binds its liveness HTTP listener here. Single
+   source of truth so the probe, the announcements, and the script stay in
+   sync. Override with the CBE_SUPERVISOR_PORT env var if 3434 is taken. */
+const SUPERVISOR_PORT = parseInt(process.env.CBE_SUPERVISOR_PORT || '3434', 10) || 3434;
 
 let _supervisorLastRestartAt = 0;
 
@@ -1425,7 +1445,7 @@ function _supervisorHttpAlive() {
     return new Promise((resolve) => {
         try {
             const http = require('http');
-            const req = http.request({ host: '127.0.0.1', port: 3434, path: '/', method: 'GET', timeout: 700 }, (res) => {
+            const req = http.request({ host: '127.0.0.1', port: SUPERVISOR_PORT, path: '/', method: 'GET', timeout: 700 }, (res) => {
                 const ok = res.statusCode === 200;
                 res.resume(); /* drain so the socket can close */
                 resolve(ok);
@@ -1653,7 +1673,20 @@ async function toggleSupervisorService(context, panel) {
         traceErr('SUPERVISOR:toggle', e);
         panel.webview.postMessage({ type: 'error', message: 'Supervisor toggle failed: ' + (e.message || e) });
     }
-    panel.webview.postMessage({ type: 'monitorState', running: after === 'running', state: after });
+    /* Announce the bound port to the output channel so the user can see
+       exactly what the supervisor is listening on (and probe it by hand). */
+    try {
+        if (outChan) {
+            if (after === 'running') {
+                const alive = await _supervisorHttpAlive();
+                outChan.appendLine(`[supervisor] service ${SUPERVISOR_SERVICE_NAME} is RUNNING — bound to http://127.0.0.1:${SUPERVISOR_PORT}/ (liveness probe: ${alive ? '200 OK' : 'no response yet'})`);
+            } else {
+                outChan.appendLine(`[supervisor] service ${SUPERVISOR_SERVICE_NAME} is ${String(after).toUpperCase()} — port ${SUPERVISOR_PORT} not bound`);
+            }
+            outChan.show(true);
+        }
+    } catch (e) { traceErr('SUPERVISOR:port-announce', e); }
+    panel.webview.postMessage({ type: 'monitorState', running: after === 'running', state: after, port: SUPERVISOR_PORT });
     return after;
 }
 
@@ -2031,6 +2064,25 @@ async function listGitHubRepos(context) {
    the Settings dropdown can show "Español", "中文", etc next to codes. */
 let _i18nCache = null;
 
+/* Locale code → country (for the flag emoji). Keys match languages/*.xml. */
+const LANGUAGE_COUNTRY = {
+    ar: 'SA', bn: 'BD', cs: 'CZ', da: 'DK', de: 'DE', el: 'GR', en: 'GB',
+    es: 'ES', fa: 'IR', fi: 'FI', fr: 'FR', ha: 'NG', he: 'IL', hi: 'IN',
+    hu: 'HU', id: 'ID', it: 'IT', ja: 'JP', ko: 'KR', mr: 'IN', nb: 'NO',
+    nl: 'NL', pa: 'IN', pl: 'PL', pt: 'PT', ro: 'RO', ru: 'RU', sv: 'SE',
+    sw: 'KE', ta: 'IN', te: 'IN', th: 'TH', tl: 'PH', tr: 'TR', uk: 'UA',
+    ur: 'PK', vi: 'VN', yue: 'HK', zh: 'CN',
+};
+
+function _flagEmoji(countryCode) {
+    /* Two ASCII letters → two Unicode regional-indicator symbols, which the
+       OS renders as a flag. 'GB' → 🇬🇧. A real <select> can't hold <img>, so
+       the emoji is how the flag shows up next to each language. */
+    const cc = String(countryCode || '').toUpperCase();
+    if (!/^[A-Z]{2}$/.test(cc)) return '';
+    return cc.replace(/./g, (c) => String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65));
+}
+
 function loadLanguageFiles(context) {
     const dir = path.join(context.extensionPath, 'languages');
     if (!fs.existsSync(dir)) {
@@ -2060,10 +2112,14 @@ function loadLanguageFiles(context) {
         const nativeMatch = xml.match(/<strings[^>]*\bnative\s*=\s*"([^"]+)"/);
         out.locales[code] = strings;
         out.order.push(code);
+        const englishName = nameMatch ? nameMatch[1] : code;
+        const nativeName = nativeMatch ? nativeMatch[1] : code;
         out.meta.push({
             code,
-            englishName: nameMatch ? nameMatch[1] : code,
-            nativeName: nativeMatch ? nativeMatch[1] : code,
+            englishName,
+            nativeName,
+            name: nativeName || englishName || code,
+            flag: _flagEmoji(LANGUAGE_COUNTRY[code]),
             keyCount: Object.keys(strings).length,
         });
     }
@@ -2075,6 +2131,11 @@ function loadLanguageFiles(context) {
 }
 
 function _currentLanguageCode(context) {
+    /* workspaceState (set by the Settings dropdown) wins over config.ini —
+       config.ini is reserved for API keys and shouldn't be rewritten by a
+       UI preference. */
+    const fromState = String(context.workspaceState.get('codexBlackEd.language') || '').trim().toLowerCase();
+    if (fromState && (!_i18nCache || _i18nCache.locales[fromState])) return fromState;
     const cfg = readConfigIni(context.extensionPath) || {};
     const fromIni = (cfg.settings && cfg.settings.language) || (cfg.general && cfg.general.language) || '';
     const code = String(fromIni || '').trim().toLowerCase();
@@ -2458,8 +2519,17 @@ function bindPanel(context, panel) {
                             skinColors: safe.colors || null,
                         });
                     }
+                    if (typeof msg.language === 'string' && msg.language) {
+                        /* Validate against the locales we actually ship before
+                           persisting, so a malformed webview message can't
+                           write a junk locale. Stored in workspaceState — NOT
+                           config.ini, which is reserved for API keys. */
+                        const i18n = _i18nCache || loadLanguageFiles(context);
+                        const safeLang = (i18n && i18n.locales[msg.language]) ? msg.language : 'en';
+                        await context.workspaceState.update('codexBlackEd.language', safeLang);
+                    }
                     conversation = [];
-                    trace(`active provider set: ${msg.provider} / ${msg.model || '(default)'} sfx=${msg.sfxEnabled}/${msg.sfxVolume} skin=${msg.skin || '(none)'}`);
+                    trace(`active provider set: ${msg.provider} / ${msg.model || '(default)'} sfx=${msg.sfxEnabled}/${msg.sfxVolume} skin=${msg.skin || '(none)'} lang=${msg.language || '(unchanged)'}`);
                     setStatus('idle', false, msg.provider);
                     panel.webview.postMessage({ type: 'info', text: `Provider → ${PROVIDERS[msg.provider].label} · ${msg.model || getActiveModel(context, msg.provider)}` });
                     break;
@@ -2500,6 +2570,7 @@ function bindPanel(context, panel) {
                             running: alive,                  /* drives the blue glow */
                             state,                           /* sc state for tooltips */
                             httpAlive: alive,
+                            port: SUPERVISOR_PORT,
                         });
                         if (!alive && state !== 'not-installed') {
                             const now = Date.now();

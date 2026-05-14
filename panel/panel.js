@@ -388,18 +388,73 @@ addBtn.onclick = () => {
    reported its real state. The next poll (3s cadence) either keeps the
    circle on (service is healthy) or removes it (start failed / probe down).
    Right-click still shows the trace channel for diagnostics. */
-document.getElementById('monitorBtn').onclick = () => {
-  /* Optimistic on-click flip: turn the blue ring on instantly. */
+/* Bulletproof blue spinner — built from pure inline CSS, NO svg asset, NO
+   external stylesheet, NO class that a skin could override. As long as the
+   webview can run JS, this circle renders. The @keyframes is injected once. */
+(function ensureMonitorSpinnerKeyframes() {
+  if (document.getElementById('cbe-monitor-spin-kf')) return;
+  const st = document.createElement('style');
+  st.id = 'cbe-monitor-spin-kf';
+  st.textContent = '@keyframes cbeMonitorSpin{to{transform:translate(-50%,-50%) rotate(360deg)}}';
+  document.head.appendChild(st);
+})();
+function cbeShowMonitorSpinner(on) {
   const btn = document.getElementById('monitorBtn');
-  if (btn) {
-    btn.classList.add('is-monitoring');
-    btn.setAttribute('data-tooltip', 'VSCode supervisor: starting…');
+  if (!btn) return;
+  if (getComputedStyle(btn).position === 'static') btn.style.position = 'relative';
+  let ring = btn.querySelector('.cbe-monitor-ring');
+  if (on) {
+    if (!ring) {
+      ring = document.createElement('span');
+      ring.className = 'cbe-monitor-ring';
+      ring.style.cssText = [
+        'position:absolute', 'top:50%', 'left:50%', 'width:18px', 'height:18px',
+        'margin:0', 'padding:0', 'box-sizing:border-box', 'border-radius:50%',
+        'border:3px solid rgba(78,168,255,0.25)', 'border-top-color:#4ea8ff',
+        'transform:translate(-50%,-50%)', 'pointer-events:none', 'z-index:5',
+        'animation:cbeMonitorSpin .7s linear infinite',
+      ].join(';');
+      btn.appendChild(ring);
+    }
+    ring.style.display = 'block';
+  } else if (ring) {
+    ring.remove();
   }
+}
+document.getElementById('monitorBtn').onclick = () => {
+  /* Sticky visual toggle: clicking turns the blue ring on and it STAYS on
+     until the user clicks again. `__cbeMonitorForcedOn` tells the periodic
+     monitorState poll not to wipe the ring just because the supervisor
+     service hasn't reported healthy yet — the ring is user-controlled UI
+     feedback, decoupled from the real service state. */
+  const btn = document.getElementById('monitorBtn');
+  const turningOn = !(window.__cbeMonitorForcedOn);
+  window.__cbeMonitorForcedOn = turningOn;
+  if (btn) {
+    btn.classList.toggle('is-monitoring', turningOn);
+    btn.setAttribute('data-tooltip', turningOn
+      ? 'VSCode supervisor: starting… (left-click to stop · right-click for trace)'
+      : 'VSCode supervisor: stopped (left-click to start · right-click for trace)');
+  }
+  cbeShowMonitorSpinner(turningOn);
   if (api) api.postMessage({ type: 'toggleMonitor' });
 };
 document.getElementById('monitorBtn').addEventListener('contextmenu', (e) => {
+  /* Right-click = shut it off. Forces the blue ring off and tells the host
+     to stop the supervisor if it was running. Unconditionally clears the
+     forced-on flag so the next 3s poll can't bring the ring back. */
   e.preventDefault();
-  if (api) api.postMessage({ type: 'showTrace' });
+  const wasOn = !!window.__cbeMonitorForcedOn;
+  window.__cbeMonitorForcedOn = false;
+  const btn = document.getElementById('monitorBtn');
+  if (btn) {
+    btn.classList.remove('is-monitoring');
+    btn.setAttribute('data-tooltip', 'VSCode supervisor: stopped (left-click to start)');
+  }
+  cbeShowMonitorSpinner(false);
+  /* Only toggle the host if it was on — toggleMonitor flips state, so
+     posting it while already off would start the service instead. */
+  if (wasOn && api) api.postMessage({ type: 'toggleMonitor' });
 });
 document.getElementById('terminalBtn').onclick = () => { if (api) api.postMessage({ type: 'openTerminal' }); };
 document.getElementById('setupBtn').onclick    = () => { if (api) api.postMessage({ type: 'loadSetup' }); };
@@ -1410,6 +1465,7 @@ function openSettings(payload) {
     +     '<div><label>Model</label><select id="cbe-set-model"></select></div>'
     +     '<div class="cbe-warn" id="cbe-set-warn">No API key configured for this provider in config.ini.</div>'
     +     '<div><label>Skin</label><select id="cbe-set-skin"><option value="">Loading skins…</option></select></div>'
+    +     '<div><label>Language</label><select id="cbe-set-language"></select></div>'
     +     '<div style="display:flex;align-items:center;gap:10px;margin-top:4px;">'
     +       '<label for="cbe-set-sfx-enabled" style="margin:0;flex:1;">Sound Effects</label>'
     +       '<input type="checkbox" id="cbe-set-sfx-enabled" style="width:auto;accent-color:var(--cbe-modal-accent);cursor:pointer;">'
@@ -1480,6 +1536,30 @@ function openSettings(payload) {
   };
   sel.addEventListener('change', renderModels);
   renderModels();
+
+  /* Language dropdown — populated from payload.languages (built by the host
+     from languages/*.xml). Each option is prefixed with the country's flag
+     emoji; a real <select> can't hold <img> tags, and the regional-indicator
+     emoji renders a flag everywhere without a custom dropdown widget. */
+  (function populateLanguages() {
+    const langSel = overlay.querySelector('#cbe-set-language');
+    if (!langSel) return;
+    const langs = Array.isArray(payload.languages) ? payload.languages : [];
+    if (!langs.length) {
+      langSel.innerHTML = '<option value="en">🇬🇧 English</option>';
+      langSel.value = 'en';
+      return;
+    }
+    langSel.innerHTML = '';
+    langs.forEach((l) => {
+      const o = document.createElement('option');
+      o.value = l.code;
+      o.textContent = (l.flag ? l.flag + '  ' : '') + (l.name || l.code);
+      langSel.appendChild(o);
+    });
+    langSel.value = payload.language || 'en';
+    if (!langSel.value) langSel.value = 'en';
+  })();
 
   /* Skin discovery: ask the host to scan /skins NOW (not at startup) so
      freshly-dropped-in skin files show up without restarting the panel.
@@ -1564,10 +1644,12 @@ function openSettings(payload) {
       const skinSel = overlay.querySelector('#cbe-set-skin');
       const skin    = (skinSel && skinSel.value) || '';
       __cbeActiveSkin = skin;
+      const langSel = overlay.querySelector('#cbe-set-language');
+      const language = (langSel && langSel.value) || 'en';
       if (api) api.postMessage({
         type: 'setProvider', provider, model,
         sfxEnabled: sfxEnabledVal, sfxVolume: sfxVolumeVal,
-        skin,
+        skin, language,
       });
       closeSettings();
     }
@@ -2553,10 +2635,19 @@ window.addEventListener('message', e => {
     /* GitHub repos from the host — show or refresh the modal. */
     showGitHubReposModal(m);
   } else if (m.type === 'monitorState') {
-    /* Supervisor service running/stopped — set the blue glow accordingly. */
+    /* Supervisor service running/stopped. The poll may turn the ring ON when
+       the service is genuinely healthy, but it must NEVER turn it OFF while
+       the user has clicked it on (`__cbeMonitorForcedOn`) — otherwise the
+       optimistic blue circle gets wiped within one 3s poll cycle. */
     const btn = document.getElementById('monitorBtn');
     if (btn) {
-      btn.classList.toggle('is-monitoring', !!m.running);
+      if (m.running) {
+        btn.classList.add('is-monitoring');
+        cbeShowMonitorSpinner(true);
+      } else if (!window.__cbeMonitorForcedOn) {
+        btn.classList.remove('is-monitoring');
+        cbeShowMonitorSpinner(false);
+      }
       btn.setAttribute('data-tooltip',
         m.running ? 'VSCode supervisor: RUNNING (left-click to stop · right-click for trace)'
                   : 'VSCode supervisor: stopped (left-click to start · right-click for trace)');

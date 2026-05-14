@@ -19,6 +19,7 @@
 param(
     [string] $CodePath = '',
     [int] $PollSeconds = 3,
+    [int] $Port = 3434,
     [string] $LogPath  = (Join-Path $env:TEMP 'cbe_supervisor.log')
 )
 
@@ -86,22 +87,22 @@ try {
     Write-Log "supervisor:cancel-handler-failed $($_.Exception.Message)"
 }
 
-Write-Log "supervisor:start code='$CodePath' poll=$PollSeconds pid=$PID"
+Write-Log "supervisor:start code='$CodePath' poll=$PollSeconds port=$Port pid=$PID"
 
-# ── HTTP status endpoint on :3434 ────────────────────────────────────────
+# ── HTTP status endpoint ─────────────────────────────────────────────────
 #   GET /         → 200 OK with a tiny JSON status blob
 #   GET /health   → same
 # Lets the CBE panel poll service liveness via HTTP instead of `sc query`,
 # which (1) doesn't require admin and (2) confirms the script is ACTUALLY
 # running, not just that SCM thinks it is. Bound on 127.0.0.1 only so this
-# never goes over the network.
+# never goes over the network. Port is passed in by the installer (-Port).
 $listener = New-Object System.Net.HttpListener
 try {
-    $listener.Prefixes.Add('http://127.0.0.1:3434/')
+    $listener.Prefixes.Add("http://127.0.0.1:$Port/")
     $listener.Start()
-    Write-Log 'supervisor:http:listening 127.0.0.1:3434'
+    Write-Log "supervisor:http:listening BOUND TO http://127.0.0.1:$Port/"
 } catch {
-    Write-Log "supervisor:http:bind-failed $($_.Exception.Message)"
+    Write-Log "supervisor:http:bind-failed port=$Port $($_.Exception.Message)"
     $listener = $null
 }
 $script:relaunchCount = 0
