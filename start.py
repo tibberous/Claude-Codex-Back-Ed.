@@ -259,7 +259,8 @@ GROK_TARGET_ALIASES = {"grok", "supergrok", "xai"}
 GEMINI_TARGET_ALIASES = {"gemini", "gem", "gem-bridge", "gembridge", "google", "googleai", "bard"}
 CLAUDE_TARGET_ALIASES = {"claude", "anthropic", "claudeai", "claude-bridge", "claudebridge", "cl"}
 COPILOT_TARGET_ALIASES = {"copilot", "ms-copilot", "mscopilot", "microsoft-copilot", "msftcopilot", "msft-copilot", "bing", "cp"}
-ALL_CHAT_TARGET_ALIASES = CHATGPT_TARGET_ALIASES | GROK_TARGET_ALIASES | GEMINI_TARGET_ALIASES | CLAUDE_TARGET_ALIASES | COPILOT_TARGET_ALIASES
+OLLAMA_TARGET_ALIASES = {"ollama", "ol", "local", "llama", "llama3", "llama32", "local-llm"}
+ALL_CHAT_TARGET_ALIASES = CHATGPT_TARGET_ALIASES | GROK_TARGET_ALIASES | GEMINI_TARGET_ALIASES | CLAUDE_TARGET_ALIASES | COPILOT_TARGET_ALIASES | OLLAMA_TARGET_ALIASES
 CHATGPT_CLI_FLAG_ALIASES = {
     "--chatgpt", "--chatgtp", "--gpt", "--gtp",
     "-chatgpt", "-chatgtp", "-gpt", "-gtp",
@@ -328,6 +329,8 @@ def normalizeChatTarget(value: object = "") -> str:
         return "claude"
     if target in COPILOT_TARGET_ALIASES:
         return "copilot"
+    if target in OLLAMA_TARGET_ALIASES:
+        return "ollama"
     # Fall back to the ported bridge_services alias map so aliases the
     # *_TARGET_ALIASES sets miss (e.g. grok4, grok-4) still resolve.
     if target in bridge_services:
@@ -1033,7 +1036,7 @@ def buildParser() -> argparse.ArgumentParser:
     parser.add_argument("--swallowed", "--swallowed-exceptions", action="store_true", help="Run only the swallowed exceptions detector and exit.")
     parser.add_argument("--manual", "--man", action="store_true", help="Print usage/manual with detector commands and exit.")
     parser.add_argument("--url", default=DEFAULT_URL, help="URL to load in the browser pane. Defaults to Grok, or ChatGPT when --chatgpt/--chatgtp is used.")
-    parser.add_argument("--target", choices=["grok", "chatgpt", "gemini", "claude", "copilot"], default="", help="Browser target for --serve-bridge. Usually inferred from --chat/--chatgpt/--gemini/--claude/--copilot or --url.")
+    parser.add_argument("--target", choices=["grok", "chatgpt", "gemini", "claude", "copilot", "ollama"], default="", help="Browser/local target for --serve-bridge. Usually inferred from --chat/--chatgpt/--gemini/--claude/--copilot/--ollama or --url. Ollama is a local-API target (no browser bridge); the others drive a logged-in web page.")
     parser.add_argument("--chat", nargs="*", default=None, help="Send a command-line chat request. Examples: --chat \"hello\", --chat --debug \"hello\", --chat grok \"hello\", --chat chatgpt \"hello\", or --chat grok deployment \"hello\".")
     parser.add_argument("--chatgpt", "--chatgtp", "--gpt", "--gtp", dest="chatgpt", nargs="*", default=None, help="Send a command-line chat request through ChatGPT at chatgpt.com. With no message, opens the visible ChatGPT bridge so you can log in and persist cookies. Aliases keep --chatgtp, --gpt, and --gtp working.")
     parser.add_argument("--gemini", "--gem", "--bard", dest="gemini", nargs="*", default=None, help="Send a command-line chat request through Gemini (gemini.google.com). With no message, opens the visible Gemini bridge so you can log in.")
@@ -2981,17 +2984,33 @@ def _nssmInstall(target: str, debug: bool = False) -> tuple[bool, str]:
     if not canon:
         return False, f"unknown target: {target!r}"
     name = bridgeServiceName(canon)
-    pyExe = _pythonExeForService()
-    startPy = str((ROOT / "start.py").resolve())
     port = bridgePortForTarget(canon)
     logPath = str(_bridgeServiceLogPath(canon).resolve())
     LOGS.mkdir(parents=True, exist_ok=True)
+    # Prefer the compiled C++ bridge exe at bin/CBE-Bridge-<Target>.exe over
+    # the legacy python.exe + start.py --serve-bridge path. The exe is what
+    # `bridges_cpp/build_bridges.ps1` produces — same per-target port table,
+    # tray icon w/ Settings menu, dual HTTP+JSON protocol, model discovery,
+    # config.ini persistence. If the exe is missing (operator never built it),
+    # fall back to the old python service so the install still works.
+    target_titlecase = canon[:1].upper() + canon[1:].lower()
+    cppExe = ROOT / "bin" / f"CBE-Bridge-{target_titlecase}.exe"
+    if cppExe.is_file():
+        installCmd = [nssm, "install", name, str(cppExe), str(port)]
+        if debug:
+            print(f"[bridge-install] using compiled exe: {cppExe}", file=sys.stderr, flush=True)
+    else:
+        pyExe = _pythonExeForService()
+        startPy = str((ROOT / "start.py").resolve())
+        installCmd = [nssm, "install", name, pyExe, startPy, "--serve-bridge", "--target", canon, "--bridge-port", str(port), "--offscreen"]
+        if debug:
+            print(f"[bridge-install] {cppExe} missing — falling back to python --serve-bridge", file=sys.stderr, flush=True)
     # idempotent install
     if _scServiceExists(name):
         return False, f"service already exists: {name}"
     # NSSM build arg list — each `nssm set` is its own subprocess.
     steps = [
-        [nssm, "install", name, pyExe, startPy, "--serve-bridge", "--target", canon, "--bridge-port", str(port), "--offscreen"],
+        installCmd,
         [nssm, "set", name, "AppDirectory", str(ROOT)],
         [nssm, "set", name, "Start", "SERVICE_AUTO_START"],
         [nssm, "set", name, "Description", f"Claude Codex Black - SuperGrok bridge for {canon}"],
@@ -3018,11 +3037,18 @@ def _scInstall(target: str, debug: bool = False) -> tuple[bool, str]:
     name = bridgeServiceName(canon)
     if _scServiceExists(name):
         return False, f"service already exists: {name}"
-    pyExe = _pythonExeForService()
-    startPy = str((ROOT / "start.py").resolve())
     port = bridgePortForTarget(canon)
-    # binPath needs the whole command line as ONE quoted string.
-    binPath = f'"{pyExe}" "{startPy}" --serve-bridge --target {canon} --bridge-port {port} --offscreen'
+    # Same compiled-exe-first policy as _nssmInstall.
+    target_titlecase = canon[:1].upper() + canon[1:].lower()
+    cppExe = ROOT / "bin" / f"CBE-Bridge-{target_titlecase}.exe"
+    if cppExe.is_file():
+        binPath = f'"{cppExe}" {port}'
+        if debug:
+            print(f"[bridge-install:sc] using compiled exe: {cppExe}", file=sys.stderr, flush=True)
+    else:
+        pyExe = _pythonExeForService()
+        startPy = str((ROOT / "start.py").resolve())
+        binPath = f'"{pyExe}" "{startPy}" --serve-bridge --target {canon} --bridge-port {port} --offscreen'
     steps = [
         ["sc.exe", "create", name, "binPath=", binPath, "start=", "auto", "DisplayName=", f"Claude Codex Black bridge ({canon})"],
         ["sc.exe", "description", name, f"Claude Codex Black - SuperGrok bridge for {canon}"],
@@ -3446,6 +3472,45 @@ def main(argv: list[str] | None = None) -> int:
                     return 1
 
             elif action in ('list', 'delete-remote', 'inject'):
+                # Short-circuit: prefer the running CBE-Bridge-ChatGPT.exe's
+                # python QtWebEngine child if it's listening on port 9788
+                # (port = 8788 + 1000 sidecar). That child is already logged
+                # into ChatGPT via the chat-bridge profile, so navigating to
+                # /library + scraping the DOM via QtWebEngine JS injection
+                # bypasses Playwright + Cloudflare + the manual-console-paste
+                # dance entirely. Falls through to the legacy Playwright
+                # path if the bridge isn't up or doesn't speak library-list.
+                if action == 'list':
+                    try:
+                        import socket as _sock, json as _lj
+                        _s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+                        _s.settimeout(3)
+                        _s.connect(('127.0.0.1', 9788))
+                        _req = _lj.dumps({'action': 'library-list'}) + '\n'
+                        _s.sendall(_req.encode('utf-8'))
+                        _s.shutdown(_sock.SHUT_WR)
+                        _buf = b''
+                        while True:
+                            _chunk = _s.recv(65536)
+                            if not _chunk:
+                                break
+                            _buf += _chunk
+                            if len(_buf) > 4_000_000:
+                                break
+                        _s.close()
+                        _line = _buf.decode('utf-8', errors='replace').split('\n', 1)[0].strip()
+                        if _line:
+                            _resp = _lj.loads(_line)
+                            if isinstance(_resp, dict) and _resp.get('ok'):
+                                print(_lj.dumps(_resp, ensure_ascii=False, indent=2))
+                                return 0
+                            # bridge replied but said it doesn't know this action -> fall through
+                            if isinstance(_resp, dict) and 'library-list' in str(_resp.get('error', '')).lower():
+                                print('[library] chatgpt bridge does not yet implement library-list; using legacy Playwright path', file=sys.stderr, flush=True)
+                            else:
+                                print(f'[library] chatgpt bridge replied non-ok: {_line[:200]} -- falling back to Playwright', file=sys.stderr, flush=True)
+                    except Exception as _bridge_err:
+                        print(f'[library] no chatgpt bridge on 127.0.0.1:9788 ({type(_bridge_err).__name__}: {_bridge_err}); using legacy Playwright', file=sys.stderr, flush=True)
                 if action == 'inject':
                     import subprocess
                     import threading

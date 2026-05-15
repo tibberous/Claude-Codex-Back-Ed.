@@ -4196,6 +4196,117 @@ class BridgeCommandServer(QObject):
         if action == "status":
             self.respond(socket, self.statusPayload())
             return
+        if action == "library-list":
+            # Drive the existing QtWebEngine view to chatgpt.com/library and
+            # scrape the DOM via JS injection. Reuses the logged-in session
+            # the chat bridge already owns — no Playwright, no Cloudflare
+            # fight, no manual-paste workflow. Only valid for the chatgpt
+            # bridge; other targets return a clean "not supported" error.
+            try:
+                _target = normalizeChatTarget(getattr(getattr(self.window, "config", None), "target", "") or "")
+                if _target != "chatgpt":
+                    self.respond(socket, {"ok": False, "error": f"library-list only supported on chatgpt bridge; this is {_target!r}"})
+                    return
+                _view = getattr(self.window, "grokView", None) or getattr(self.window, "view", None)
+                if _view is None or not hasattr(_view, "page"):
+                    self.respond(socket, {"ok": False, "error": "library-list: no QtWebEngine view available"})
+                    return
+                _page = _view.page()
+                # Capture stash for the async JS callback to write back into.
+                self.__library_buf = {"done": False, "items": None}
+                # Library scrape — pure DOM, no DOM-injected credentials.
+                # If the page is showing a login wall, we return a base64 PNG
+                # screenshot of the view + a "needs-login" marker, so the
+                # CALLER (start.py / a future GPT-vision driver) can decide
+                # what to do:
+                #   - feed the screenshot to GPT-4o vision + an action
+                #     schema (click_xy, type_text, screenshot, scroll, done)
+                #   - OR show the user the screenshot and ask them to log
+                #     in via --show-bridge once (cookies persist after)
+                #   - OR import the cookies from system Chrome
+                #     (start.py:--library auth-save already dumps them)
+                # We deliberately do NOT inject credentials via JS — OpenAI
+                # redesigns auth quarterly, captcha breaks selector-based
+                # autofill, plaintext password in a JS body is a leak vector.
+                _scrape_js = (
+                    "(() => {"
+                    "  try {"
+                    "    const url = location.href;"
+                    "    const onAuth = /auth\\.openai\\.com|\\/login|signin/i.test(url);"
+                    "    if (onAuth) return JSON.stringify({phase:'needs-login', url:url});"
+                    "    const main = document.querySelector('[role=\"main\"], main, #main');"
+                    "    if (!main) return JSON.stringify({phase:'no-main', url:url, files:[], chats:[]});"
+                    "    const rows = main.querySelectorAll('[role=\"listitem\"], li, article, [data-testid*=\"library\"], [data-testid*=\"item\"]');"
+                    "    const out = { files: [], chats: [] };"
+                    "    rows.forEach((row, idx) => {"
+                    "      try {"
+                    "        const title = (row.textContent || '').trim().slice(0, 300);"
+                    "        if (!title || title.length < 2) return;"
+                    "        const looksLikeFile = !!(row.querySelector('[aria-label*=\"download\" i], [aria-label*=\"file\" i], svg[aria-label*=\"file\" i]') || /\\.(pdf|png|jpe?g|mp4|csv|txt|json|md|webp|gif|webm|mov|docx?|xlsx?)\\b/i.test(title));"
+                    "        const entry = { name: title.split('\\n')[0].slice(0, 200), index: idx };"
+                    "        if (looksLikeFile) out.files.push(entry); else if (title.length > 4) out.chats.push(entry);"
+                    "      } catch (e) {}"
+                    "    });"
+                    "    return JSON.stringify({phase:'scrape-ok', files:out.files, chats:out.chats, url:url});"
+                    "  } catch (e) { return JSON.stringify({phase:'error', error: String(e && e.message || e)}); }"
+                    "})()"
+                )
+
+                def _on_loaded(_ok: bool, _socket=socket, _page_ref=_page, _view_ref=_view, _scrape=_scrape_js, _self=self) -> None:
+                    if not _ok:
+                        _self.respond(_socket, {"ok": False, "error": "library-list: page failed to load"})
+                        return
+                    def _on_scrape(value, _sock=_socket, _v=_view_ref, _slf=_self) -> None:
+                        import json as _jsm, base64 as _b64
+                        try:
+                            payload = _jsm.loads(str(value or "{}"))
+                        except Exception:
+                            payload = {"phase": "error", "raw": str(value)[:200]}
+                        phase = str(payload.get("phase", ""))
+                        if phase == "scrape-ok":
+                            _slf.respond(_sock, {
+                                "ok": True, "phase": phase,
+                                "files": payload.get("files") or [],
+                                "chats": payload.get("chats") or [],
+                                "total": len(payload.get("files") or []) + len(payload.get("chats") or []),
+                                "url": payload.get("url", ""),
+                            })
+                            return
+                        # Either needs-login, no-main, or error. Grab a
+                        # screenshot of the view so the caller can drive the
+                        # next step (vision-pilot, user, or cookie-import).
+                        shot_b64 = ""
+                        try:
+                            from PySide6.QtCore import QBuffer as _QBuf, QIODevice as _QIO
+                            pix = _v.grab()
+                            buf = _QBuf()
+                            buf.open(_QIO.OpenModeFlag.WriteOnly)
+                            pix.save(buf, "PNG")
+                            shot_b64 = _b64.b64encode(bytes(buf.data())).decode("ascii")
+                        except Exception as _shot_err:
+                            shot_b64 = f"<screenshot failed: {type(_shot_err).__name__}: {_shot_err}>"
+                        _slf.respond(_sock, {
+                            "ok": False, "phase": phase,
+                            "url": payload.get("url", ""),
+                            "hint": ("login wall — one-time fix: run `python start.py --serve-bridge --show-bridge --target chatgpt` once, "
+                                     "log in, close the window. Cookies persist in the QtWebEngine profile for ~3 months. "
+                                     "Alternative: import cookies from system Chrome via `python start.py --library auth-save` "
+                                     "(already implemented at start.py:3425). Screenshot of current view in `screenshot_png_b64`."),
+                            "screenshot_png_b64": shot_b64,
+                            "screenshot_bytes": len(shot_b64) // 4 * 3,
+                        })
+                    QTimer.singleShot(2500, lambda: _page_ref.runJavaScript(_scrape, _on_scrape))
+                try:
+                    _page.loadFinished.disconnect()
+                except Exception:
+                    pass
+                _page.loadFinished.connect(_on_loaded)
+                from PySide6.QtCore import QUrl as _QUrl
+                _view.setUrl(_QUrl("https://chatgpt.com/library"))
+                return  # async — _on_loaded -> _on_scrape -> respond
+            except Exception as _lib_err:
+                self.respond(socket, {"ok": False, "error": f"library-list dispatch: {type(_lib_err).__name__}: {_lib_err}"})
+                return
         if action == "shutdown":
             reason = str(request.get("reason") or "requested")
             self.log("bridge-service", f"shutdown requested: {reason}")

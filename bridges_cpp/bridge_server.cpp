@@ -67,8 +67,11 @@
 #define IDM_MODEL_BASE     2000   // 2000..2999 reserved for model picks
 
 static int                     g_port        = DEFAULT_PORT;
+static int                     g_childPort   = 0;          // python --serve-bridge child port (g_port + 1000)
+static HANDLE                  g_childProc   = NULL;       // python child handle (CloseHandle on exit)
 static std::atomic<int>        g_connCount   { 0 };
 static SOCKET                  g_listenSock  = INVALID_SOCKET;
+static SOCKET                  g_udpSock     = INVALID_SOCKET;
 static HWND                    g_hwnd        = NULL;
 static NOTIFYICONDATAW         g_nid         = {0};
 static std::vector<std::string> g_models;     // populated by refreshModels()
@@ -254,6 +257,453 @@ static void refreshModels() {
 
 // ----------------------------------------------------------- HTTP server ---
 
+// ---------------------------------------------------- real chat driver ---
+
+// Pull "<key>":"<value>" out of a JSON blob. Returns empty string when the
+// key isn't found or the value isn't a string. Handles the common escape
+// sequences (\", \\, \n, \r, \t) that start.py emits — anything more exotic
+// (\u escapes) is returned literally; that's fine for our purposes since
+// start.py uses ensure_ascii=False so non-ASCII rides through unchanged.
+static std::string extractJsonString(const std::string& blob, const char* key) {
+    std::string needle = std::string("\"") + key + "\"";
+    size_t pos = blob.find(needle);
+    if (pos == std::string::npos) return "";
+    pos = blob.find(':', pos + needle.size());
+    if (pos == std::string::npos) return "";
+    ++pos;
+    while (pos < blob.size() && (blob[pos] == ' ' || blob[pos] == '\t')) ++pos;
+    if (pos >= blob.size() || blob[pos] != '"') return "";
+    ++pos;
+    std::string out;
+    while (pos < blob.size() && blob[pos] != '"') {
+        char c = blob[pos++];
+        if (c == '\\' && pos < blob.size()) {
+            char esc = blob[pos++];
+            switch (esc) {
+                case 'n': out.push_back('\n'); break;
+                case 'r': out.push_back('\r'); break;
+                case 't': out.push_back('\t'); break;
+                case '"': out.push_back('"'); break;
+                case '\\': out.push_back('\\'); break;
+                case '/': out.push_back('/'); break;
+                default: out.push_back('\\'); out.push_back(esc); break;
+            }
+        } else {
+            out.push_back(c);
+        }
+    }
+    return out;
+}
+
+// Escape a string for use as a JSON string value (no surrounding quotes).
+static std::string jsonEscape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 16);
+    for (char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            default:
+                if ((unsigned char)c < 0x20) {
+                    char buf[8];
+                    _snprintf_s(buf, sizeof(buf), _TRUNCATE, "\\u%04x", (unsigned char)c);
+                    out += buf;
+                } else {
+                    out.push_back(c);
+                }
+        }
+    }
+    return out;
+}
+
+// Find python.exe to invoke bridge_chat.py. We deliberately AVOID the
+// WindowsApps App Execution Alias (a reparse-point shim under
+// %LOCALAPPDATA%\Microsoft\WindowsApps\) — that shim does not play well
+// with CreateProcess + redirected stdio: stdout silently drops when the
+// real interpreter runs under it. Prefer in this order:
+//   1) %LOCALAPPDATA%\Python\pythoncore-*\python.exe  (user's real install)
+//   2) %PROGRAMFILES%\Python*\python.exe
+//   3) `py.exe -3` (Python launcher, always real)
+//   4) Whatever SearchPath finds, last resort.
+static std::wstring findPythonExe() {
+    wchar_t buf[MAX_PATH];
+    DWORD wrote = 0;
+
+    // 1) User's vendored CPython.
+    wrote = GetEnvironmentVariableW(L"LOCALAPPDATA", buf, MAX_PATH);
+    if (wrote > 0 && wrote < MAX_PATH) {
+        std::wstring base = std::wstring(buf) + L"\\Python";
+        WIN32_FIND_DATAW fd;
+        std::wstring pattern = base + L"\\pythoncore-*";
+        HANDLE h = FindFirstFileW(pattern.c_str(), &fd);
+        if (h != INVALID_HANDLE_VALUE) {
+            do {
+                if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                    std::wstring cand = base + L"\\" + fd.cFileName + L"\\python.exe";
+                    if (GetFileAttributesW(cand.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                        FindClose(h);
+                        return cand;
+                    }
+                }
+            } while (FindNextFileW(h, &fd));
+            FindClose(h);
+        }
+    }
+
+    // 2) Program Files Python3x.
+    wrote = GetEnvironmentVariableW(L"ProgramFiles", buf, MAX_PATH);
+    if (wrote > 0 && wrote < MAX_PATH) {
+        std::wstring pfBase(buf);
+        WIN32_FIND_DATAW fd;
+        std::wstring pattern = pfBase + L"\\Python*";
+        HANDLE h = FindFirstFileW(pattern.c_str(), &fd);
+        if (h != INVALID_HANDLE_VALUE) {
+            do {
+                if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                    std::wstring cand = pfBase + L"\\" + fd.cFileName + L"\\python.exe";
+                    if (GetFileAttributesW(cand.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                        FindClose(h);
+                        return cand;
+                    }
+                }
+            } while (FindNextFileW(h, &fd));
+            FindClose(h);
+        }
+    }
+
+    // 3) py.exe launcher (defaults to the newest Python 3 on the machine).
+    DWORD n = SearchPathW(NULL, L"py.exe", NULL, MAX_PATH, buf, NULL);
+    if (n > 0 && n < MAX_PATH) return buf;
+
+    // 4) PATH-resolved python.exe (likely the WindowsApps shim — last resort).
+    n = SearchPathW(NULL, L"python.exe", NULL, MAX_PATH, buf, NULL);
+    if (n > 0 && n < MAX_PATH) return buf;
+
+    return L"python.exe";
+}
+
+// Locate bridge_chat.py — sibling of this exe's directory (../bridges_cpp/).
+static std::wstring locateBridgeChatPy() {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    wchar_t* slash = wcsrchr(exePath, L'\\');
+    if (slash) *slash = 0;     // strip exe name -> bin\
+    slash = wcsrchr(exePath, L'\\');
+    if (slash) *slash = 0;     // strip bin     -> repo root
+    std::wstring p(exePath);
+    p += L"\\bridges_cpp\\bridge_chat.py";
+    return p;
+}
+
+// Locate start.py at the CBE repo root — same trick as locateBridgeChatPy
+// but pointing at the launcher script instead of bridge_chat.py.
+// Try stripping bin/ off the exe directory first (the production layout);
+// if that file isn't there, fall back to the exe's own directory (handy
+// when running an exe placed directly at the repo root for testing).
+static std::wstring locateStartPy() {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    wchar_t* slash = wcsrchr(exePath, L'\\');
+    if (slash) *slash = 0;     // strip exe name -> ...\bin (or wherever)
+    std::wstring exeDir(exePath);
+
+    // First guess: parent of exeDir + \start.py  (exe at <repo>\bin\X.exe)
+    std::wstring parent = exeDir;
+    size_t lastSlash = parent.find_last_of(L'\\');
+    if (lastSlash != std::wstring::npos) parent.resize(lastSlash);
+    std::wstring cand = parent + L"\\start.py";
+    if (GetFileAttributesW(cand.c_str()) != INVALID_FILE_ATTRIBUTES) return cand;
+
+    // Second guess: exeDir + \start.py  (exe at <repo>\X.exe — dev layout)
+    std::wstring cand2 = exeDir + L"\\start.py";
+    return cand2;
+}
+
+// Spawn `python start.py --serve-bridge --target <t> --bridge-port <p> --offscreen`
+// as a background child process. The child is the QtWebEngine bridge that
+// actually drives the logged-in web page (grok.com / gemini.google.com /
+// chatgpt.com / claude.ai / copilot.microsoft.com). Its tray icon is
+// suppressed via CREATE_NO_WINDOW; our exe's tray icon is the user-visible
+// surface. The child binds to g_port + 1000 (e.g. Grok 8789 -> child 9789).
+// Called once from wWinMain for non-Ollama targets — Ollama goes through
+// bridge_chat.py instead and has no QtWebEngine child.
+// Append a single UTF-8 line to logs\spawn_bridge.log next to the repo root.
+// Used to diagnose CreateProcess failures from inside the windowless tray
+// exe — OutputDebugStringW isn't easily captured without DebugView.
+static void spawnLog(const std::wstring& line) {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    wchar_t* slash = wcsrchr(exePath, L'\\'); if (slash) *slash = 0;
+    slash = wcsrchr(exePath, L'\\'); if (slash) *slash = 0;
+    std::wstring logDir = std::wstring(exePath) + L"\\logs";
+    CreateDirectoryW(logDir.c_str(), NULL);     // ok if it already exists
+    std::wstring logPath = logDir + L"\\spawn_bridge.log";
+
+    HANDLE h = CreateFileW(logPath.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return;
+    SetFilePointer(h, 0, NULL, FILE_END);
+    std::string utf8;
+    int n = WideCharToMultiByte(CP_UTF8, 0, line.c_str(), (int)line.size(), NULL, 0, NULL, NULL);
+    utf8.resize(n);
+    WideCharToMultiByte(CP_UTF8, 0, line.c_str(), (int)line.size(), &utf8[0], n, NULL, NULL);
+    utf8 += "\r\n";
+    DWORD wrote = 0;
+    WriteFile(h, utf8.data(), (DWORD)utf8.size(), &wrote, NULL);
+    CloseHandle(h);
+}
+
+static void spawnPythonBridge() {
+    if (std::string(TARGET_NAME) == "Ollama") { spawnLog(L"skip: Ollama target"); return; }
+    if (g_childProc != NULL) { spawnLog(L"skip: g_childProc already set"); return; }
+
+    g_childPort = g_port + 1000;
+
+    std::wstring py     = findPythonExe();
+    std::wstring script = locateStartPy();
+    {
+        wchar_t hdr[1024];
+        swprintf_s(hdr, _countof(hdr), L"spawn target=%hs port=%d childPort=%d py=%ls script=%ls",
+                   TARGET_NAME, g_port, g_childPort, py.c_str(), script.c_str());
+        spawnLog(hdr);
+    }
+    if (GetFileAttributesW(script.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        wchar_t err[512];
+        swprintf_s(err, _countof(err),
+            L"[CBE-Bridge-%hs] spawnPythonBridge: start.py not found at %ls — child not started",
+            TARGET_NAME, script.c_str());
+        OutputDebugStringW(err);
+        spawnLog(err);
+        return;
+    }
+
+    // Target name on the python side is always lowercase (matches start.py's
+    // --target choices).
+    std::string tLower = lower(std::string(TARGET_NAME));
+
+    wchar_t wTarget[64];
+    MultiByteToWideChar(CP_UTF8, 0, tLower.c_str(), -1, wTarget, _countof(wTarget));
+
+    // Build command line for CreateProcessW. The argv0 (python) needs to be
+    // quoted because the path likely contains spaces. Same for script path.
+    // The flags are all simple ASCII so no escape gymnastics required.
+    wchar_t cmd[2048];
+    swprintf_s(cmd, _countof(cmd),
+        L"\"%ls\" \"%ls\" --serve-bridge --target %ls --bridge-port %d --offscreen",
+        py.c_str(), script.c_str(), wTarget, g_childPort);
+
+    STARTUPINFOW si; memset(&si, 0, sizeof(si));
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi; memset(&pi, 0, sizeof(pi));
+
+    // CREATE_NO_WINDOW: child runs invisibly; its own tray icon (if any)
+    // would collide with ours, so we want Qt to start in headless/offscreen
+    // mode (--offscreen on the cmdline) AND no console window.
+    BOOL ok = CreateProcessW(NULL, cmd, NULL, NULL, FALSE,
+                             CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+    if (!ok) {
+        DWORD lastErr = GetLastError();
+        wchar_t err[2048];
+        swprintf_s(err, _countof(err),
+            L"[CBE-Bridge-%hs] spawnPythonBridge: CreateProcessW failed (err %lu) cmd=%ls",
+            TARGET_NAME, lastErr, cmd);
+        OutputDebugStringW(err);
+        spawnLog(err);
+        return;
+    }
+    CloseHandle(pi.hThread);
+    g_childProc = pi.hProcess;     // kept open so WM_DESTROY can terminate it
+
+    wchar_t info[2048];
+    swprintf_s(info, _countof(info),
+        L"[CBE-Bridge-%hs] spawnPythonBridge: child pid=%lu port=%d cmd=%ls",
+        TARGET_NAME, pi.dwProcessId, g_childPort, cmd);
+    OutputDebugStringW(info);
+    spawnLog(info);
+}
+
+// Forward a JSON chat request to the python QtWebEngine bridge child running
+// on 127.0.0.1:g_childPort. The wire format matches start.py's bridgeRequest:
+// one newline-terminated JSON object out, one newline-terminated JSON object
+// back. We pass the original blob verbatim (so target/message/etc. all
+// survive) and extract the child's `answer` field.
+//
+// Timeout 90s — browser bridges can be slow (Cloudflare, login redirects).
+// On any error, returns a human-readable explanation string that the chat
+// handler embeds in its existing reply schema.
+// Build a synthetic error JSON object that mimics start.py's normal reply
+// shape so the caller's JSON parser still succeeds when something goes wrong
+// between us and the python child.
+static std::string browserBridgeErrorJson(const char* errText) {
+    std::string esc = jsonEscape(errText);
+    char buf[1024];
+    _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+        "{\"ok\":false,\"accepted\":false,\"target\":\"%s\",\"port\":%d,\"error\":\"%s\","
+        "\"server\":\"CBE-Bridge-%s/1.0\"}",
+        TARGET_NAME, g_port, esc.c_str(), TARGET_NAME);
+    return std::string(buf);
+}
+
+static std::string forwardChatToBrowserBridge(const std::string& jsonRequestBlob) {
+    if (g_childPort <= 0) {
+        return browserBridgeErrorJson("browser-bridge child not configured (g_childPort=0)");
+    }
+
+    SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s == INVALID_SOCKET) {
+        return browserBridgeErrorJson("socket() failed forwarding to child");
+    }
+
+    // Connect timeout 5s (child should be local), recv/send 90s for the
+    // long-running QtWebEngine round trip.
+    DWORD connectTv = 5000;
+    DWORD ioTv      = 90000;
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char*)&connectTv, sizeof(connectTv));
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&ioTv, sizeof(ioTv));
+
+    sockaddr_in addr; memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port   = htons((u_short)g_childPort);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+
+    if (connect(s, (sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) {
+        int err = WSAGetLastError();
+        closesocket(s);
+        char ebuf[256];
+        _snprintf_s(ebuf, sizeof(ebuf), _TRUNCATE,
+            "connect 127.0.0.1:%d failed (err %d) — is the python child running?",
+            g_childPort, err);
+        return browserBridgeErrorJson(ebuf);
+    }
+
+    // Now use the 90s timeout for both directions.
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char*)&ioTv, sizeof(ioTv));
+
+    // Ensure the request ends with \n — start.py's bridge reads up to the
+    // first newline. The blob arriving from our TCP handler typically does
+    // not have one (we recv() raw bytes); UDP datagram likewise. Append.
+    std::string toSend = jsonRequestBlob;
+    if (toSend.empty() || toSend.back() != '\n') toSend.push_back('\n');
+
+    int sent = 0;
+    int total = (int)toSend.size();
+    while (sent < total) {
+        int n = send(s, toSend.c_str() + sent, total - sent, 0);
+        if (n == SOCKET_ERROR || n == 0) {
+            closesocket(s);
+            return browserBridgeErrorJson("send to python child failed");
+        }
+        sent += n;
+    }
+    shutdown(s, SD_SEND);
+
+    // Read up to 64KB or until first '\n' delimits a full JSON object.
+    std::string raw;
+    char buf[4096];
+    while (raw.size() < 65536) {
+        int n = recv(s, buf, sizeof(buf), 0);
+        if (n <= 0) break;
+        raw.append(buf, buf + n);
+        if (raw.find('\n') != std::string::npos) break;
+    }
+    closesocket(s);
+
+    if (raw.empty()) {
+        // Return a synthetic error JSON object so the caller (start.py) still
+        // gets a parseable reply. Marked accepted:false so the CLI surfaces it.
+        char err[256];
+        _snprintf_s(err, sizeof(err), _TRUNCATE,
+            "{\"ok\":false,\"accepted\":false,\"target\":\"%s\",\"error\":\"python child returned no data (timeout or crash)\"}",
+            TARGET_NAME);
+        return std::string(err);
+    }
+
+    // Isolate the first complete JSON object. start.py emits one object
+    // followed by '\n'; if there's no newline we still try to parse what we got.
+    size_t nl = raw.find('\n');
+    return (nl == std::string::npos) ? raw : raw.substr(0, nl);
+}
+
+// Run `python bridge_chat.py --target X --message Y` and capture stdout.
+// Timeout is enforced in milliseconds — provider calls can take 30-60s.
+static std::string runChatScript(const std::string& target, const std::string& message,
+                                 const std::string& model, DWORD timeoutMs = 90000) {
+    std::wstring py     = findPythonExe();
+    std::wstring script = locateBridgeChatPy();
+
+    // Build a single command line. Python's argparse handles the quoting of
+    // the --message value as long as we wrap it in double quotes and escape
+    // any embedded " with \".
+    std::string escMsg;
+    for (char c : message) {
+        if (c == '"')  { escMsg += "\\\""; }
+        else if (c == '\\') { escMsg += "\\\\"; }
+        else if (c == '\n' || c == '\r') { escMsg += ' '; }
+        else escMsg.push_back(c);
+    }
+    char narrowCmd[8192];
+    _snprintf_s(narrowCmd, sizeof(narrowCmd), _TRUNCATE,
+        "\"%ls\" \"%ls\" --target %s --message \"%s\"%s%s",
+        py.c_str(), script.c_str(),
+        target.c_str(),
+        escMsg.c_str(),
+        model.empty() ? "" : " --model ",
+        model.empty() ? "" : model.c_str());
+
+    // Convert to wide string for CreateProcessW.
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, narrowCmd, -1, NULL, 0);
+    std::wstring wideCmd(wlen, 0);
+    MultiByteToWideChar(CP_UTF8, 0, narrowCmd, -1, &wideCmd[0], wlen);
+
+    // Pipe for stdout capture.
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+    HANDLE readEnd = NULL, writeEnd = NULL;
+    if (!CreatePipe(&readEnd, &writeEnd, &sa, 0)) return "";
+    SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOW si; memset(&si, 0, sizeof(si));
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = writeEnd;
+    si.hStdError  = writeEnd;
+    si.hStdInput  = NULL;
+
+    PROCESS_INFORMATION pi; memset(&pi, 0, sizeof(pi));
+    BOOL ok = CreateProcessW(NULL, &wideCmd[0], NULL, NULL, TRUE,
+                             CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+    CloseHandle(writeEnd);
+    if (!ok) { CloseHandle(readEnd); return ""; }
+
+    std::string out;
+    char buf[4096];
+    DWORD bytesRead = 0;
+    DWORD waitStart = GetTickCount();
+    while (true) {
+        DWORD elapsed = GetTickCount() - waitStart;
+        if (elapsed > timeoutMs) {
+            TerminateProcess(pi.hProcess, 1);
+            break;
+        }
+        DWORD avail = 0;
+        if (!PeekNamedPipe(readEnd, NULL, 0, NULL, &avail, NULL)) break;
+        if (avail == 0) {
+            if (WaitForSingleObject(pi.hProcess, 100) == WAIT_OBJECT_0 && !PeekNamedPipe(readEnd, NULL, 0, NULL, &avail, NULL)) break;
+            if (avail == 0) continue;
+        }
+        if (!ReadFile(readEnd, buf, sizeof(buf), &bytesRead, NULL) || bytesRead == 0) break;
+        out.append(buf, buf + bytesRead);
+        if (out.size() > 1024 * 1024) break;     // sanity cap
+    }
+    WaitForSingleObject(pi.hProcess, 1000);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    CloseHandle(readEnd);
+    return out;
+}
+
 // Two protocols speak to this server on the same port:
 //   - HTTP/1.1 (curl, browser tests): first byte is M/G/P/O/H (GET, POST,
 //     PUT, OPTIONS, HEAD). Respond with HTTP/1.1 200 + JSON body.
@@ -292,36 +742,72 @@ static void serverWorker() {
             bool isChat   = (action && strstr(action, "\"chat\""));
             bool isChatResult = (action && strstr(action, "chat-result"));
 
-            char body[1024];
-            if (isChat) {
-                // MVP chat response: accept the job synchronously and reply
-                // with a canned "answer". Real chat driver (QtWebEngine /
-                // Ollama /api/chat passthrough) plugs in here later.
+            // Browser-bridge passthrough: for chat / chat-result requests on
+            // non-Ollama targets, the python QtWebEngine child speaks the
+            // exact same protocol our caller expects (including async
+            // accepted:true/jobId/pending:true ack + chat-result polling).
+            // Forward the request verbatim and write the child's reply
+            // verbatim — no re-wrapping. This preserves the full async
+            // protocol semantics with zero translation loss.
+            bool isBrowserTarget = (std::string(TARGET_NAME) != "Ollama");
+            bool passthrough = isBrowserTarget && (isChat || isChatResult);
+
+            std::string passthroughReply;
+            if (passthrough) {
+                std::string blob(req, req + (reqLen > 0 ? reqLen : 0));
+                passthroughReply = forwardChatToBrowserBridge(blob);
+                if (passthroughReply.empty() || passthroughReply.back() != '\n')
+                    passthroughReply.push_back('\n');
+            }
+
+            char body[8192];
+            const char* outPtr = body;
+            int bodyLen = 0;
+
+            if (passthrough) {
+                // Send the child's reply directly. May exceed our 8KB body
+                // buffer for large LLM replies — use the string itself.
+                outPtr  = passthroughReply.c_str();
+                bodyLen = (int)passthroughReply.size();
+            } else if (isChat) {
+                // Ollama path — bridge_chat.py one-shot.
+                std::string userMsg = extractJsonString(req, "message");
+                std::string answer;
+                std::string scriptOut = runChatScript("ollama", userMsg, model);
+                std::string extracted = extractJsonString(scriptOut, "answer");
+                if (extracted.empty()) {
+                    std::string err = extractJsonString(scriptOut, "error");
+                    answer = err.empty()
+                        ? "[bridge_chat.py: no output — check that python + bridge_chat.py + ollama daemon are all reachable]"
+                        : (std::string("[bridge_chat.py error] ") + err);
+                } else {
+                    answer = extracted;
+                }
+                std::string esc = jsonEscape(answer);
                 _snprintf_s(body, sizeof(body), _TRUNCATE,
                     "{\"ok\":true,\"accepted\":false,\"target\":\"%s\",\"port\":%d,"
-                    "\"model\":\"%s\",\"answer\":\"[CBE-Bridge-%s MVP] received your prompt. "
-                    "Real chat driver not yet wired — this is a placeholder reply so the round-trip can "
-                    "complete and chat.log can capture both directions.\",\"server\":\"CBE-Bridge-%s/1.0\"}\n",
-                    TARGET_NAME, g_port, model.c_str(), TARGET_NAME, TARGET_NAME);
+                    "\"model\":\"%s\",\"answer\":\"%s\",\"server\":\"CBE-Bridge-%s/1.0\"}\n",
+                    TARGET_NAME, g_port, model.c_str(), esc.c_str(), TARGET_NAME);
+                bodyLen = (int)strlen(body);
             } else if (isChatResult) {
-                // Polled after an async chat ack; we're synchronous so there
-                // is no pending job. Surface a clean "done" signal.
+                // Ollama is synchronous — there is no pending job to poll.
                 _snprintf_s(body, sizeof(body), _TRUNCATE,
                     "{\"ok\":true,\"accepted\":false,\"target\":\"%s\",\"port\":%d,"
                     "\"model\":\"%s\",\"answer\":\"\",\"server\":\"CBE-Bridge-%s/1.0\"}\n",
                     TARGET_NAME, g_port, model.c_str(), TARGET_NAME);
+                bodyLen = (int)strlen(body);
             } else {
                 // status, ping, anything else.
                 _snprintf_s(body, sizeof(body), _TRUNCATE,
                     "{\"ok\":true,\"target\":\"%s\",\"port\":%d,\"model\":\"%s\","
                     "\"service\":\"SuperGrok Bridge\",\"server\":\"CBE-Bridge-%s/1.0\"}\n",
                     TARGET_NAME, g_port, model.c_str(), TARGET_NAME);
+                bodyLen = (int)strlen(body);
                 (void)isStatus;
             }
-            int bodyLen = (int)strlen(body);
             int sent = 0;
             while (sent < bodyLen) {
-                int n = send(client, body + sent, bodyLen - sent, 0);
+                int n = send(client, outPtr + sent, bodyLen - sent, 0);
                 if (n == SOCKET_ERROR || n == 0) break;
                 sent += n;
             }
@@ -348,9 +834,94 @@ static void serverWorker() {
     }
 }
 
+// UDP worker — listens on the same numeric port as TCP. Each datagram is
+// treated as a complete request (typically a JSON object); the reply is
+// sent back to the sender's address. Datagrams cap at 64KB but a chat
+// request fits in <2KB; the response (full LLM answer) usually does too.
+// Larger responses get truncated with a "trunc" marker — clients that
+// need long answers should use TCP instead.
+static void udpWorker() {
+    char buf[65000];
+    sockaddr_in src; int srcLen;
+    while (g_udpSock != INVALID_SOCKET) {
+        srcLen = sizeof(src);
+        int n = recvfrom(g_udpSock, buf, sizeof(buf) - 1, 0,
+                         (sockaddr*)&src, &srcLen);
+        if (n <= 0) {
+            if (g_udpSock == INVALID_SOCKET) return;
+            continue;
+        }
+        buf[n] = 0;
+        g_connCount.fetch_add(1);
+
+        // Reuse the same JSON dispatch that TCP uses. For UDP the response
+        // is the JSON object (no HTTP framing, no newline strictly required
+        // but we add one for consistency with TCP newline-delimited mode).
+        std::string req(buf, buf + n);
+        std::string model;
+        { std::lock_guard<std::mutex> lock(g_modelsMtx); model = g_currentModel; }
+
+        const char* action = strstr(req.c_str(), "\"action\"");
+        bool isChat       = (action && strstr(action, "\"chat\""));
+        bool isChatResult = (action && strstr(action, "chat-result"));
+
+        // Same browser-bridge passthrough as TCP. UDP can't carry replies
+        // larger than ~64KB so very long browser answers get truncated —
+        // clients that need long answers should use TCP.
+        bool isBrowserTarget = (std::string(TARGET_NAME) != "Ollama");
+        bool passthrough = isBrowserTarget && (isChat || isChatResult);
+
+        std::string passthroughReply;
+        if (passthrough) {
+            passthroughReply = forwardChatToBrowserBridge(req);
+            if (passthroughReply.empty() || passthroughReply.back() != '\n')
+                passthroughReply.push_back('\n');
+        }
+
+        char body[8192];
+        const char* outPtr = body;
+        int bodyLen = 0;
+
+        if (passthrough) {
+            outPtr  = passthroughReply.c_str();
+            bodyLen = (int)passthroughReply.size();
+        } else if (isChat) {
+            // Ollama (synchronous) only — see TCP handler for rationale.
+            std::string userMsg = extractJsonString(req, "message");
+            std::string scriptOut = runChatScript("ollama", userMsg, model);
+            std::string extracted = extractJsonString(scriptOut, "answer");
+            std::string answer = extracted.empty()
+                ? "[bridge_chat.py: empty answer — is `ollama serve` running?]"
+                : extracted;
+            std::string esc = jsonEscape(answer);
+            _snprintf_s(body, sizeof(body), _TRUNCATE,
+                "{\"ok\":true,\"accepted\":false,\"target\":\"%s\",\"port\":%d,"
+                "\"model\":\"%s\",\"transport\":\"udp\",\"answer\":\"%s\",\"server\":\"CBE-Bridge-%s/1.0\"}\n",
+                TARGET_NAME, g_port, model.c_str(), esc.c_str(), TARGET_NAME);
+            bodyLen = (int)strlen(body);
+        } else if (isChatResult) {
+            _snprintf_s(body, sizeof(body), _TRUNCATE,
+                "{\"ok\":true,\"accepted\":false,\"target\":\"%s\",\"port\":%d,"
+                "\"model\":\"%s\",\"transport\":\"udp\",\"answer\":\"\",\"server\":\"CBE-Bridge-%s/1.0\"}\n",
+                TARGET_NAME, g_port, model.c_str(), TARGET_NAME);
+            bodyLen = (int)strlen(body);
+        } else {
+            _snprintf_s(body, sizeof(body), _TRUNCATE,
+                "{\"ok\":true,\"target\":\"%s\",\"port\":%d,\"model\":\"%s\","
+                "\"transport\":\"udp\",\"service\":\"SuperGrok Bridge\",\"server\":\"CBE-Bridge-%s/1.0\"}\n",
+                TARGET_NAME, g_port, model.c_str(), TARGET_NAME);
+            bodyLen = (int)strlen(body);
+        }
+        if (bodyLen > 65000) bodyLen = 65000;     // UDP datagram cap
+        sendto(g_udpSock, outPtr, bodyLen, 0, (sockaddr*)&src, srcLen);
+    }
+}
+
 static bool startServer(int port) {
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return false;
+
+    // TCP listener
     g_listenSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (g_listenSock == INVALID_SOCKET) return false;
     int yes = 1;
@@ -362,6 +933,22 @@ static bool startServer(int port) {
     if (bind(g_listenSock, (sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) return false;
     if (listen(g_listenSock, 16) == SOCKET_ERROR) return false;
     std::thread(serverWorker).detach();
+
+    // UDP listener on the SAME numeric port (TCP/UDP are separate namespaces).
+    g_udpSock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (g_udpSock != INVALID_SOCKET) {
+        setsockopt(g_udpSock, SOL_SOCKET, SO_REUSEADDR, (const char*)&yes, sizeof(yes));
+        sockaddr_in uaddr; memset(&uaddr, 0, sizeof(uaddr));
+        uaddr.sin_family = AF_INET;
+        uaddr.sin_port = htons((u_short)port);
+        inet_pton(AF_INET, "127.0.0.1", &uaddr.sin_addr);
+        if (bind(g_udpSock, (sockaddr*)&uaddr, sizeof(uaddr)) == 0) {
+            std::thread(udpWorker).detach();
+        } else {
+            closesocket(g_udpSock);
+            g_udpSock = INVALID_SOCKET;
+        }
+    }
     return true;
 }
 
@@ -597,6 +1184,14 @@ static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (g_listenSock != INVALID_SOCKET) {
             SOCKET s = g_listenSock; g_listenSock = INVALID_SOCKET; closesocket(s);
         }
+        // Tear down the python QtWebEngine bridge child we spawned in
+        // wWinMain. Without this the child keeps running headless and
+        // holds g_childPort, which would block the next exe launch.
+        if (g_childProc != NULL) {
+            TerminateProcess(g_childProc, 0);
+            CloseHandle(g_childProc);
+            g_childProc = NULL;
+        }
         PostQuitMessage(0);
         return 0;
     }
@@ -619,6 +1214,13 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmdLine, int) {
         MessageBoxW(NULL, err, L"Bridge start failed", MB_OK | MB_ICONERROR);
         return 3;
     }
+
+    // For non-Ollama targets, auto-spawn the python --serve-bridge child
+    // that drives the logged-in web page via QtWebEngine. Ollama is a local
+    // HTTP API and goes through bridge_chat.py instead. If the child fails
+    // to start, the tray exe keeps running — chat replies will surface the
+    // bridge error to the user via forwardChatToBrowserBridge().
+    spawnPythonBridge();
 
     // Pre-fill the model list and the current pick from config.ini before
     // the first menu paints. discoverModels() can be slow for Ollama if the
