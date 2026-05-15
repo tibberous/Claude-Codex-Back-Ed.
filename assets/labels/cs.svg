@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 932 148" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Claude Codex — Černá edice">
+  <defs>
+    <linearGradient id="pill-grad-cs" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#3a3a3c"/>
+      <stop offset="100%" stop-color="#1a1a1c"/>
+    </linearGradient>
+    <linearGradient id="spark-grad-cs" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#ff9a3d"/>
+      <stop offset="100%" stop-color="#e3631a"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="928" height="144" rx="28" ry="28"
+        fill="url(#pill-grad-cs)" stroke="#4a4a4c" stroke-width="2"/>
+  <polygon points="70.00,48.00 74.18,63.91 88.38,55.62 80.09,69.82 96.00,74.00 80.09,78.18 88.38,92.38 74.18,84.09 70.00,100.00 65.82,84.09 51.62,92.38 59.91,78.18 44.00,74.00 59.91,69.82 51.62,55.62 65.82,63.91" fill="url(#spark-grad-cs)"/>
+  <text x="478.0" y="92.0" text-anchor="middle"
+        direction="ltr" unicode-bidi="plaintext"
+        fill="#ffffff" font-family='"Segoe UI", "Noto Sans", "Noto Sans Arabic", "Noto Sans CJK SC", "Noto Sans Devanagari", "Noto Sans Hebrew", "Helvetica Neue", Arial, sans-serif'
+        font-size="52" font-weight="600" letter-spacing="-0.2">Claude Codex — Černá edice</text>
+  <path d="M860.0,67.0 L874.0,84.0 L888.0,67.0" fill="none" stroke="#ffffff" stroke-width="4"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,10 +1,19 @@
 /* CBE skin — Mint Dock.
-   A Linux Mint-flavoured glass dock: the prompt input floats on its own as a
-   rounded glass pill, and the tool buttons sit BELOW it in a detached
-   translucent dock strip. Each .tool-button is a self-contained 96px glass
-   tile — translucent gradient body, inset top highlight, real drop shadow,
-   white-tinted glyph — so the "glass icons" are pure CSS and stay crisp at
-   any DPI. Hover does a macOS-style dock magnify (lift + scale). */
+   Linux Mint flavoured glass dock: green-tinted dark dock strip at the
+   bottom, glass prompt pill above. Each .tool-button is a colored "app
+   tile" (a unique hue per icon, white glyph on top) so the dock looks
+   like a real desktop launcher (Terminal=black, Calc=blue, Firefox=orange,
+   etc.) — NOT all-green-on-green-invisible like the previous version.
+   Hover does a macOS-style dock magnify (lift + scale).
+
+   Wet-glass shimmer is faked with a top-half white-to-transparent
+   gradient overlay on .tool-button::after (mix-blend-mode: screen) — the
+   same trick the macos-color-dock skin uses, kept consistent so both
+   skins share the same skeleton.
+
+   Specificity note: panel/index.html line 384+ defines an orange-default
+   .tool-button at class-only specificity — every override here uses
+   !important so the skin wins. */
 
 :root {
   --md-bg-1: #2f5a33;
@@ -17,9 +26,10 @@
   --md-text:     #eef6ee;
   --md-text-dim: #c4d8c6;
   --md-shadow:   rgba(6, 16, 8, 0.55);
+  --md-shadow-deep: rgba(0, 0, 0, 0.55);
 }
 
-/* Backdrop — soft green light pools + a faint vignette, echoing the Mint
+/* Backdrop — soft green light pools + faint vignette, echoes the Mint
    "drops" wallpaper without shipping an image. */
 body {
   background:
@@ -30,53 +40,84 @@ body {
   color: var(--md-text);
 }
 
-/* Conversation thread — keep it readable on the green field. */
+/* Conversation thread — readable on the green field. */
 #thread .msg            { color: var(--md-text); }
 #thread .msg.info       { color: var(--md-text-dim); }
 #thread .msg.user       { background: rgba(255, 255, 255, 0.07); border: 1px solid var(--md-stroke); }
 #thread .msg.assistant  { background: rgba(0, 0, 0, 0.22); border: 1px solid rgba(255, 255, 255, 0.12); }
 
-/* The prompt area stacks: floating pill on top, dock strip below. */
+/* Stack: floating pill on top, dock strip below. */
 .prompt-area  { background: transparent; }
 .prompt-shell { background: transparent; border: 0; box-shadow: none; padding: 0; }
 
-/* ── Floating prompt pill ─────────────────────────────────────────────── */
+/* ── Floating green-glass prompt pill ─────────────────────────────────── */
 .prompt-input-wrap {
+  position: relative;
   max-width: 720px;
   margin: 6px auto 14px auto;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.05));
-  border: 1px solid var(--md-stroke);
-  border-radius: 30px;
+  /* Green-tinted layered glass — top highlight, mid wash, bottom shadow. */
+  background:
+    linear-gradient(180deg,
+      rgba(143, 214, 148, 0.32) 0%,
+      rgba(95, 167, 102, 0.18) 35%,
+      rgba(40, 80, 45, 0.18) 70%,
+      rgba(20, 40, 22, 0.30) 100%) !important;
+  border: 1px solid var(--md-stroke) !important;
+  border-radius: 30px !important;
   box-shadow:
-    0 14px 30px var(--md-shadow),
+    0 12px 24px var(--md-shadow-deep),
+    0 4px 8px rgba(0, 0, 0, 0.35),
     inset 0 1px 0 var(--md-glass-hi),
-    inset 0 -10px 18px rgba(0, 0, 0, 0.16);
-  backdrop-filter: blur(16px) saturate(1.3);
-  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+    inset 0 -2px 6px rgba(0, 0, 0, 0.30) !important;
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
   padding: 4px 6px 4px 4px;
+  overflow: hidden;
+}
+/* Wet-glass shimmer overlay (matches the tile shimmer). */
+.prompt-input-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.18) 30%,
+    transparent 55%);
+  mix-blend-mode: screen;
+  opacity: 0.85;
 }
 #promptBox {
   background: transparent !important;
   color: var(--md-text) !important;
   border: 0 !important;
+  position: relative;
+  z-index: 1;
 }
 #promptBox::placeholder { color: var(--md-text-dim) !important; opacity: 0.8; }
 
-/* Send button — glass accent circle. */
+/* Send button — Mint accent green circle with depth. */
 .send-button {
-  background: radial-gradient(circle at 35% 30%, var(--md-accent), var(--md-accent-deep)) !important;
-  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  background: radial-gradient(circle at 35% 30%, var(--md-accent), var(--md-accent-deep) 65%, #2e6e35) !important;
+  border: 1px solid rgba(255, 255, 255, 0.6) !important;
   border-radius: 50% !important;
-  box-shadow: 0 6px 14px var(--md-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow:
+    0 8px 18px var(--md-shadow-deep),
+    0 2px 4px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75) !important;
   transition: transform 0.14s ease, box-shadow 0.14s ease;
+  position: relative;
+  z-index: 2;
 }
-.send-button:hover { transform: scale(1.08); box-shadow: 0 9px 18px var(--md-shadow); }
+.send-button:hover { transform: scale(1.08); }
 .send-button:active { transform: scale(0.96); }
 
 #attachments { margin: 0 auto 8px auto; max-width: 720px; }
 
 /* ── The dock strip ───────────────────────────────────────────────────── */
 .prompt-toolbar {
+  position: relative;
   margin: 0 auto 16px auto;
   max-width: max-content;
   display: flex;
@@ -84,98 +125,155 @@ body {
   align-items: center;
   gap: 8px;
   padding: 12px 18px 14px 18px;
-  background: linear-gradient(180deg, rgba(28, 46, 30, 0.74), rgba(14, 24, 15, 0.86));
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(28, 46, 30, 0.78), rgba(14, 24, 15, 0.90)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  border-radius: 24px !important;
   box-shadow:
     0 18px 38px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    0 4px 10px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -2px 8px rgba(0, 0, 0, 0.30) !important;
   backdrop-filter: blur(20px) saturate(1.2);
   -webkit-backdrop-filter: blur(20px) saturate(1.2);
 }
 .toolbar-tools {
-  display: flex;
-  flex-wrap: wrap;
+  display: flex !important;
+  /* Linux Mint dock is a single row of flat icons, like the reference image.
+     NO WRAP — scroll horizontally when viewport is narrow. */
+  flex-wrap: nowrap !important;
   justify-content: center;
   align-items: flex-end;
-  gap: 10px;
-  /* leave headroom so a magnified button doesn't clip the dock edge */
+  gap: 6px;
+  /* Headroom so a magnified button doesn't clip the dock edge. */
   padding-top: 14px;
+  overflow-x: auto;
+  overflow-y: visible;
+  scrollbar-width: none;
 }
+.toolbar-tools::-webkit-scrollbar { display: none; }
 
-/* ── Glass tile icons ─────────────────────────────────────────────────── */
+/* ── Per-icon colored tiles ───────────────────────────────────────────── */
+/* Base — geometry, border, strong stacked shadows, shimmer overlay.
+   The PER-ICON background COLOR is set by id-specific rules below. */
 .tool-button {
-  width: 60px;
-  height: 60px;
-  padding: 0;
-  border-radius: 16px;
-  /* DARK frosted-glass tile. The body of the tile is a translucent dark
-     green gradient (not white) so the white glyph always reads — earlier a
-     white-ish tile + white glyph = invisible. !important because the panel's
-     base .tool-button rule (orange gradient) has equal specificity and the
-     glyph filter (brightness(0) invert(1) = white) is baked into the base. */
-  background:
-    linear-gradient(160deg,
-      rgba(38, 62, 40, 0.92),
-      rgba(20, 34, 21, 0.96) 55%,
-      rgba(12, 22, 13, 0.98)) !important;
-  border: 1px solid var(--md-stroke) !important;
+  width: 60px !important;
+  height: 60px !important;
+  padding: 0 !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(255, 255, 255, 0.30) !important;
   box-shadow:
-    0 7px 15px var(--md-shadow),
-    inset 0 1px 0 rgba(255, 255, 255, 0.42),
-    inset 0 -9px 15px rgba(0, 0, 0, 0.30) !important;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  transition: transform 0.15s cubic-bezier(.2,.8,.2,1), box-shadow 0.15s ease, background 0.15s ease;
+    0 12px 24px rgba(0, 0, 0, 0.45),
+    0 4px 8px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -8px 14px rgba(0, 0, 0, 0.30) !important;
+  transition: transform 0.15s cubic-bezier(.2,.8,.2,1), box-shadow 0.15s ease, filter 0.15s ease;
   transform-origin: bottom center;
+  position: relative;
+  overflow: hidden;
+}
+/* Wet-glass shimmer — top half white-to-transparent, screen-blended. */
+.tool-button::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.18) 30%,
+    transparent 55%);
+  mix-blend-mode: screen;
+  opacity: 0.85;
 }
 .tool-button:hover {
-  /* dock magnify — also brighten with a green-tinted glass wash */
+  /* dock magnify */
   transform: translateY(-10px) scale(1.16);
+  filter: brightness(1.10);
   box-shadow:
-    0 18px 28px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.6);
-  background:
-    linear-gradient(160deg,
-      rgba(74, 116, 78, 0.86),
-      rgba(44, 74, 47, 0.92) 55%,
-      rgba(28, 48, 30, 0.94));
+    0 22px 32px rgba(0, 0, 0, 0.55),
+    0 6px 12px rgba(0, 0, 0, 0.40),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -8px 14px rgba(0, 0, 0, 0.28) !important;
 }
 .tool-button:active,
 .tool-button.is-active {
   transform: translateY(-3px) scale(1.04);
-  border-color: var(--md-accent);
+  border-color: var(--md-accent) !important;
   box-shadow:
     0 6px 14px var(--md-shadow),
     inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    0 0 0 2px rgba(143, 214, 148, 0.55);
+    0 0 0 2px rgba(143, 214, 148, 0.55) !important;
 }
-/* The glyph: force it pure white + give it its own drop shadow so each icon
-   reads as a frosted-glass symbol regardless of the source SVG's colour. */
+/* Glyph stays pure white with its own drop shadow. z-index above shimmer. */
 .tool-button img {
-  width: 30px;
-  height: 30px;
+  width: 30px !important;
+  height: 30px !important;
+  position: relative;
+  z-index: 1;
   filter:
     brightness(0) invert(1)
     drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
 }
 
-/* Stop button — red glass, stands apart from the tool tiles. */
+/* ── Per-icon vivid hues — Mint launcher palette ──────────────────────── */
+/* Mix: greens for system/native, blues/oranges/reds for the rest, all
+   reading clearly on the dark green dock. 22 unique colors. */
+#addBtn            { background: linear-gradient(180deg, #8fd694, #3a8c45 100%) !important; } /* mint green */
+#storedPromptsBtn  { background: linear-gradient(180deg, #ffd86b, #c48a00 100%) !important; } /* sticky-note yellow */
+#chatHistoryBtn    { background: linear-gradient(180deg, #b893ff, #5e2db8 100%) !important; } /* history violet */
+#attachFileBtn     { background: linear-gradient(180deg, #6fb8ff, #1f5fbf 100%) !important; } /* paperclip blue */
+#ttsBtn            { background: linear-gradient(180deg, #ff8db5, #d62972 100%) !important; } /* tts pink */
+#sttBtn            { background: linear-gradient(180deg, #5fd6c2, #008f7a 100%) !important; } /* mic teal */
+#autoReplyBtn      { background: linear-gradient(180deg, #ffb56b, #d4631a 100%) !important; } /* auto orange */
+#wakeUpBtn         { background: linear-gradient(180deg, #ffe680, #d4a300 100%) !important; } /* alarm gold */
+#showCommandsBtn   { background: linear-gradient(180deg, #b8b8c0, #4f4f57 100%) !important; } /* menu grey */
+#compactBtn        { background: linear-gradient(180deg, #5fd6b8, #008f70 100%) !important; } /* compact teal */
+#handbookBtn       { background: linear-gradient(180deg, #ff9b7a, #b8341a 100%) !important; } /* book red */
+#settingsBtn       { background: linear-gradient(180deg, #b8b8c0, #4a4a52 100%) !important; } /* gear graphite */
+#extensionsBtn     { background: linear-gradient(180deg, #b894ff, #6a2ad6 100%) !important; } /* puzzle violet */
+#projectFolderBtn  { background: linear-gradient(180deg, #ffd169, #d49500 100%) !important; } /* nemo folder */
+#monitorBtn        { background: linear-gradient(180deg, #6faaff, #1f4ec2 100%) !important; } /* monitor blue */
+#terminalBtn       { background: linear-gradient(180deg, #3a3a42, #050508 100%) !important; } /* terminal black */
+#setupBtn          { background: linear-gradient(180deg, #9be37e, #2f8c1f 100%) !important; } /* setup green */
+#gitBtn            { background: linear-gradient(180deg, #ff8a5c, #f05033 100%) !important; } /* git orange */
+#githubBtn         { background: linear-gradient(180deg, #5e5e75, #14141f 100%) !important; } /* github dark */
+#domainsBtn        { background: linear-gradient(180deg, #7eddff, #007fbf 100%) !important; } /* domains cyan */
+#fontSizeBtn       { background: linear-gradient(180deg, #ff9bd4, #b82897 100%) !important; } /* font magenta */
+#helpBtn           { background: linear-gradient(180deg, #ffe680, #e0b400 100%) !important; } /* help yellow */
+
+/* Stop button — Mint red glass with the same wet-glass shimmer. */
 .stop-button {
   border-radius: 14px !important;
-  background: radial-gradient(circle at 35% 30%, #ff7d7d, #c0392b) !important;
+  background: radial-gradient(circle at 35% 30%, #ff7d7d, #c0392b 60%, #8a2018) !important;
   border: 1px solid rgba(255, 255, 255, 0.5) !important;
-  box-shadow: 0 7px 15px var(--md-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.6) !important;
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.45),
+    0 4px 8px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -8px 14px rgba(0, 0, 0, 0.30) !important;
+  position: relative;
+  overflow: hidden;
+}
+.stop-button::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.18) 30%, transparent 55%);
+  mix-blend-mode: screen;
+  opacity: 0.85;
 }
 
-/* Label pill (current assistant profile) + project path — slim glass chips
-   so they sit comfortably inside the dock strip. */
+/* Label pill + project path — slim glass chips inside the dock strip. */
 #label-pill {
   background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05)) !important;
   border: 1px solid var(--md-stroke) !important;
   border-radius: 14px !important;
   color: var(--md-text) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
+  box-shadow:
+    0 4px 8px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255,255,255,0.5) !important;
 }
 .project-path {
   color: var(--md-text-dim) !important;

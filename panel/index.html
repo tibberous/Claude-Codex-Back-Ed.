@@ -50,6 +50,12 @@
   /* Universal high-contrast accent. Read from manifest.xml -> <highlight-color>
      so each skin gets a pop-color that reads cleanly on its modal-bg. */
   --cbe-highlight-color:  #ffd166;
+
+  /* Code-block chrome (title bar above + footer below fenced code). Skins
+     override via manifest.xml <code-bar-bg>/<code-bar-fg>. Defaults chain
+     off the modal title palette so an un-themed skin still looks cohesive. */
+  --cbe-code-bar-bg:      var(--cbe-modal-title-bg-2);
+  --cbe-code-bar-fg:      var(--cbe-modal-title-fg);
 }
 
 * { box-sizing: border-box; }
@@ -1259,24 +1265,39 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     white-space: pre-wrap; word-break: break-word;
   }
 
-  /* ── Code block rendering (Prism default theme — neutral wrapper) ───── */
-  .msg.assistant .cv-code-wrap { border-radius: 6px; overflow: hidden;
-    margin: .6em 0; border: 1px solid #d8d4cf;
-    box-shadow: 0 1px 3px rgba(0,0,0,.18); background: #f5f2f0; }
-  .msg.assistant .cv-code-bar { display: flex; align-items: center;
+  /* ── Code block rendering — fully theme-driven, no hex literals ──────────
+     Container + title bar + footer pull from --cbe-code-bar-bg/-fg (which
+     default to the modal title palette and are overridden per-skin via
+     manifest.xml). The Copy button uses --cbe-modal-accent on
+     --cbe-modal-title-fg. Hairline separators reuse the bar fg via
+     color-mix so they stay tinted to the active theme with zero literals. */
+  .msg.assistant .cbe-codeblock { border-radius: 6px; overflow: hidden;
+    margin: .6em 0;
+    border: 1px solid color-mix(in srgb, var(--cbe-code-bar-bg) 70%, transparent);
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--cbe-code-bar-fg) 22%, transparent);
+    background: var(--cbe-modal-bg); }
+  .msg.assistant .cbe-cb-titlebar { display: flex; align-items: center;
     justify-content: space-between; padding: 4px 10px;
-    background: #eae6e1; border-bottom: 1px solid #d8d4cf; }
-  .msg.assistant .cv-code-lang { font-family: 'Consolas','Fira Code',monospace;
-    font-size: 11px; color: #555; letter-spacing: .06em;
-    text-transform: uppercase; font-weight: 600; }
-  .msg.assistant .cv-copy-btn { display: inline-flex; align-items: center;
-    gap: 4px; background: #fff;
-    border: 1px solid #c8c4bf; border-radius: 4px;
-    color: #333; font-size: 11px; font-weight: 600; cursor: pointer;
+    background: var(--cbe-code-bar-bg); color: var(--cbe-code-bar-fg);
+    border-bottom: 1px solid color-mix(in srgb, var(--cbe-code-bar-fg) 28%, transparent); }
+  .msg.assistant .cbe-cb-footer { display: flex; align-items: center;
+    justify-content: flex-end; padding: 4px 10px;
+    background: var(--cbe-code-bar-bg); color: var(--cbe-code-bar-fg);
+    border-top: 1px solid color-mix(in srgb, var(--cbe-code-bar-fg) 28%, transparent); }
+  .msg.assistant .cbe-cb-lang { font-family: 'Consolas','Fira Code',monospace;
+    font-size: 11px; color: var(--cbe-code-bar-fg); letter-spacing: .06em;
+    text-transform: uppercase; font-weight: 600; opacity: .85; }
+  .msg.assistant .cbe-cb-copy { display: inline-flex; align-items: center;
+    gap: 4px; background: var(--cbe-modal-accent);
+    border: 1px solid color-mix(in srgb, var(--cbe-modal-title-fg) 40%, transparent);
+    border-radius: 4px; color: var(--cbe-modal-title-fg);
+    font-size: 11px; font-weight: 600; cursor: pointer;
     padding: 2px 8px; letter-spacing: .02em;
-    transition: background .15s, color .15s, border-color .15s; }
-  .msg.assistant .cv-copy-btn:hover { background: #f0ece6; }
-  .msg.assistant .cv-copy-btn.copied { color: #166534; border-color: #166534; }
+    transition: background .15s, color .15s, border-color .15s, filter .15s; }
+  .msg.assistant .cbe-cb-copy:hover { filter: brightness(1.12); }
+  .msg.assistant .cbe-cb-copy.copied {
+    background: var(--cbe-highlight-color); color: var(--cbe-modal-bg);
+    border-color: var(--cbe-highlight-color); }
   /* Inline `code` (single-backtick, non-fenced) — match default light theme. */
   .msg.assistant code.cv-inline {
     background: #f5f2f0; color: #905;
@@ -1377,6 +1398,9 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
           </button>
           <button id="projectFolderBtn" class="tool-button" type="button" data-tooltip="Project folder" data-i18n-tip="tooltip.project_folder" aria-label="Project folder">
             <img src="{{ASSETS_BASE}}/project_folder.svg" alt="" />
+          </button>
+          <button id="browserBtn" class="tool-button" type="button" data-tooltip="Browser" aria-label="Browser">
+            <img src="{{ASSETS_BASE}}/browser.svg" alt="" />
           </button>
           <button id="monitorBtn" class="tool-button" type="button" data-tooltip="VSCode monitor" data-i18n-tip="tooltip.monitor" aria-label="VSCode monitor">
             <img src="{{ASSETS_BASE}}/vscode_monitor.svg" alt="" />

@@ -1,0 +1,296 @@
+/* CBE skin — macOS Color Dock.
+   Big Sur look: light translucent dock strip at the bottom holds the tool
+   buttons as colored squircle "app tiles" (one vivid hue per icon, white
+   glyph centered on top). A floating glass prompt-pill sits above the dock,
+   with a real wet-glass shimmer rendered by an ::after gradient overlay
+   (no SVG file needed — the gradient itself fakes the highlight). All
+   background COLORS live on the .tool-button base; the SVG glyph is forced
+   pure white via brightness(0) invert(1) so any source icon reads on its
+   colored tile.
+
+   Specificity note: the panel's base .tool-button (panel/index.html line
+   384+) is an orange gradient with equal class-only specificity. Every
+   override here uses !important so the skin actually wins, matching the
+   pattern the existing mint-dock/styles.css established. */
+
+:root {
+  --mc-dock-glass-1: rgba(255, 255, 255, 0.40);
+  --mc-dock-glass-2: rgba(255, 255, 255, 0.18);
+  --mc-dock-stroke:  rgba(255, 255, 255, 0.55);
+  --mc-text:         #1d1d1f;
+  --mc-text-dim:     #4a4a52;
+  --mc-shadow-deep:  rgba(0, 0, 0, 0.45);
+  --mc-shadow-mid:   rgba(0, 0, 0, 0.35);
+  --mc-bg-1:         #c2d8f0;
+  --mc-bg-2:         #8aa9d0;
+  --mc-bg-3:         #4d6a96;
+}
+
+/* Backdrop — a soft Big Sur "morning" sky wash so the translucent dock
+   actually has something interesting to be translucent OVER. Pure CSS,
+   no image dependency. */
+body {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255, 220, 200, 0.55), transparent 28%),
+    radial-gradient(circle at 82% 18%, rgba(190, 220, 255, 0.55), transparent 32%),
+    radial-gradient(circle at 50% 110%, rgba(20, 30, 60, 0.55), transparent 60%),
+    linear-gradient(170deg, var(--mc-bg-1) 0%, var(--mc-bg-2) 55%, var(--mc-bg-3) 100%);
+  color: var(--mc-text);
+}
+
+/* Conversation thread legibility on the lighter sky backdrop. */
+#thread .msg            { color: #f4f6fb; }
+#thread .msg.info       { color: rgba(244, 246, 251, 0.78); }
+#thread .msg.user       { background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255,255,255,0.30); }
+#thread .msg.assistant  { background: rgba(0, 0, 0, 0.32); border: 1px solid rgba(255,255,255,0.16); }
+
+/* Stack: glass prompt pill on top, dock strip below. */
+.prompt-area  { background: transparent; }
+.prompt-shell { background: transparent; border: 0; box-shadow: none; padding: 0; }
+
+/* ── Floating glass prompt pill ───────────────────────────────────────── */
+.prompt-input-wrap {
+  position: relative;
+  max-width: 720px;
+  margin: 6px auto 14px auto;
+  /* Layered translucent gradients fake real glass — a top highlight band
+     fading into a slightly darker mid then a faint bottom shadow. */
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.55) 0%,
+      rgba(255, 255, 255, 0.22) 35%,
+      rgba(255, 255, 255, 0.10) 70%,
+      rgba(255, 255, 255, 0.18) 100%) !important;
+  border: 1px solid var(--mc-dock-stroke) !important;
+  border-radius: 30px !important;
+  box-shadow:
+    0 12px 24px var(--mc-shadow-deep),
+    0 4px 8px var(--mc-shadow-mid),
+    inset 0 1px 0 rgba(255, 255, 255, 0.70),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.30) !important;
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  padding: 4px 6px 4px 4px;
+  overflow: hidden;
+}
+/* Wet-glass shimmer overlay — the same gradient trick used on the tiles
+   (top half white-to-transparent, screen-blended) so the pill catches
+   "light" on its upper edge. pointer-events:none so input still works. */
+.prompt-input-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.18) 30%,
+    transparent 55%);
+  mix-blend-mode: screen;
+  opacity: 0.85;
+}
+#promptBox {
+  background: transparent !important;
+  color: var(--mc-text) !important;
+  border: 0 !important;
+  position: relative;
+  z-index: 1;
+}
+#promptBox::placeholder { color: var(--mc-text-dim) !important; opacity: 0.7; }
+
+/* Send button — Big Sur blue circle with depth. */
+.send-button {
+  background: radial-gradient(circle at 35% 30%, #5fb8ff, #0a84ff 65%, #0050b8) !important;
+  border: 1px solid rgba(255, 255, 255, 0.6) !important;
+  border-radius: 50% !important;
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.40),
+    0 2px 4px rgba(0, 0, 0, 0.30),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75) !important;
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+  position: relative;
+  z-index: 2;
+}
+.send-button:hover { transform: scale(1.08); }
+.send-button:active { transform: scale(0.96); }
+
+#attachments { margin: 0 auto 8px auto; max-width: 720px; }
+
+/* ── The dock strip — single row like the real macOS dock ────────────── */
+.prompt-toolbar {
+  position: relative;
+  margin: 0 auto 16px auto;
+  /* Centered pill that hugs its icons, not a full-width bar. */
+  max-width: max-content;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 12px 16px;
+  /* Light translucent dock surface — like the macOS Big Sur dock. */
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.45) 0%,
+      rgba(255, 255, 255, 0.20) 50%,
+      rgba(255, 255, 255, 0.30) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.55) !important;
+  border-radius: 26px !important;
+  box-shadow:
+    0 18px 38px rgba(0, 0, 0, 0.45),
+    0 4px 10px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -2px 8px rgba(0, 0, 0, 0.18) !important;
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+}
+.toolbar-tools {
+  display: flex !important;
+  /* NO WRAP — the real macOS dock is a single row. If the viewport is too
+     narrow, the dock scrolls horizontally rather than stacking into rows. */
+  flex-wrap: nowrap !important;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 6px;
+  /* Headroom so a magnified button doesn't clip the dock edge. */
+  padding-top: 14px;
+  overflow-x: auto;
+  overflow-y: visible;
+  /* Hide the scrollbar but keep horizontal scroll behavior. */
+  scrollbar-width: none;
+}
+.toolbar-tools::-webkit-scrollbar { display: none; }
+
+/* ── Squircle app-tile base ───────────────────────────────────────────── */
+.tool-button {
+  width: 60px !important;
+  height: 60px !important;
+  padding: 0 !important;
+  /* Apple-style squircle radius. */
+  border-radius: 16px !important;
+  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+  /* STRONG stacked shadows so each tile reads against ANY VSCode chat
+     background — light or dark. Inset top highlight + inset bottom shadow
+     give the squircle convincing depth. Per-icon background is set below
+     by id-specific rules. */
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.45),
+    0 4px 8px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.60),
+    inset 0 -8px 14px rgba(0, 0, 0, 0.30) !important;
+  transition: transform 0.15s cubic-bezier(.2,.8,.2,1), box-shadow 0.15s ease, filter 0.15s ease;
+  transform-origin: bottom center;
+  position: relative;
+  overflow: hidden;
+}
+/* Wet-glass shimmer — top half white-to-transparent, screen-blended. */
+.tool-button::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.18) 30%,
+    transparent 55%);
+  mix-blend-mode: screen;
+  opacity: 0.85;
+}
+.tool-button:hover {
+  /* macOS dock magnify — lift + scale, brighten via filter. */
+  transform: translateY(-10px) scale(1.18);
+  filter: brightness(1.08);
+  box-shadow:
+    0 22px 32px rgba(0, 0, 0, 0.55),
+    0 6px 12px rgba(0, 0, 0, 0.40),
+    inset 0 1px 0 rgba(255, 255, 255, 0.80),
+    inset 0 -8px 14px rgba(0, 0, 0, 0.28) !important;
+}
+.tool-button:active,
+.tool-button.is-active {
+  transform: translateY(-3px) scale(1.04);
+  border-color: rgba(255, 255, 255, 0.85) !important;
+  box-shadow:
+    0 6px 14px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 0 0 2px rgba(10, 132, 255, 0.55) !important;
+}
+/* The glyph stays pure white with its own drop shadow so the icon reads
+   clearly against any tile color. z-index:1 keeps it above the ::after
+   shimmer (which is screen-blended so it brightens but doesn't hide it). */
+.tool-button img {
+  width: 30px !important;
+  height: 30px !important;
+  position: relative;
+  z-index: 1;
+  filter:
+    brightness(0) invert(1)
+    drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55));
+}
+
+/* ── Per-icon vivid hues ──────────────────────────────────────────────── */
+/* Each gradient is a top-light → bottom-dark of one Apple-style hue.
+   22 unique colors below, no repeats. */
+#addBtn            { background: linear-gradient(180deg, #6ee7a3, #1fa86a 100%) !important; } /* fresh green */
+#storedPromptsBtn  { background: linear-gradient(180deg, #ffd166, #f7a000 100%) !important; } /* notes yellow */
+#chatHistoryBtn    { background: linear-gradient(180deg, #b691ff, #5e35d6 100%) !important; } /* podcasts purple */
+#attachFileBtn     { background: linear-gradient(180deg, #5fb8ff, #0a84ff 100%) !important; } /* mail blue */
+#ttsBtn            { background: linear-gradient(180deg, #ff8fb8, #ff2d70 100%) !important; } /* music pink */
+#sttBtn            { background: linear-gradient(180deg, #6fe0d6, #00a896 100%) !important; } /* facetime teal */
+#autoReplyBtn      { background: linear-gradient(180deg, #ffb072, #ff6a1a 100%) !important; } /* siri orange */
+#wakeUpBtn         { background: linear-gradient(180deg, #ffe26b, #f4b400 100%) !important; } /* alarm gold */
+#showCommandsBtn   { background: linear-gradient(180deg, #d8d8d8, #6e6e75 100%) !important; } /* launchpad grey */
+#compactBtn        { background: linear-gradient(180deg, #66e0c8, #009e8a 100%) !important; } /* compact teal */
+#handbookBtn       { background: linear-gradient(180deg, #ff9f80, #d23f1f 100%) !important; } /* books red-orange */
+#settingsBtn       { background: linear-gradient(180deg, #c9c9d2, #5b5b65 100%) !important; } /* settings gear grey */
+#extensionsBtn     { background: linear-gradient(180deg, #c0a4ff, #7a3fff 100%) !important; } /* extensions violet */
+#projectFolderBtn  { background: linear-gradient(180deg, #ffd789, #e8a52a 100%) !important; } /* finder folder gold */
+#monitorBtn        { background: linear-gradient(180deg, #6fb6ff, #1c5fd9 100%) !important; } /* display blue */
+#terminalBtn       { background: linear-gradient(180deg, #4a4a52, #0f0f12 100%) !important; } /* terminal black */
+#setupBtn          { background: linear-gradient(180deg, #9be37e, #3f9e2a 100%) !important; } /* setup green */
+#gitBtn            { background: linear-gradient(180deg, #ff8a5c, #f05033 100%) !important; } /* git orange */
+#githubBtn         { background: linear-gradient(180deg, #6e6e85, #1a1a26 100%) !important; } /* github dark */
+#domainsBtn        { background: linear-gradient(180deg, #7eddff, #0093d4 100%) !important; } /* maps cyan */
+#fontSizeBtn       { background: linear-gradient(180deg, #ff9bd4, #c528a3 100%) !important; } /* magenta */
+#helpBtn           { background: linear-gradient(180deg, #ffe680, #f0c000 100%) !important; } /* help yellow */
+
+/* Stop button — Apple red with the same wet-glass shimmer. */
+.stop-button {
+  border-radius: 14px !important;
+  background: radial-gradient(circle at 35% 30%, #ff7d7d, #ff3b30 60%, #b8231a) !important;
+  border: 1px solid rgba(255, 255, 255, 0.55) !important;
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.45),
+    0 4px 8px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
+    inset 0 -8px 14px rgba(0, 0, 0, 0.30) !important;
+  position: relative;
+  overflow: hidden;
+}
+.stop-button::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.18) 30%, transparent 55%);
+  mix-blend-mode: screen;
+  opacity: 0.85;
+}
+
+/* Label pill + project path — slim glass chips for the dock meta row. */
+#label-pill {
+  background: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0.20)) !important;
+  border: 1px solid rgba(255,255,255,0.55) !important;
+  border-radius: 14px !important;
+  color: var(--mc-text) !important;
+  box-shadow:
+    0 4px 8px rgba(0, 0, 0, 0.30),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+}
+.project-path {
+  color: #f4f6fb !important;
+  background: rgba(0, 0, 0, 0.32) !important;
+  border: 1px solid rgba(255, 255, 255, 0.20) !important;
+  border-radius: 12px !important;
+}

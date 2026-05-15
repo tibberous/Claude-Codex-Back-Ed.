@@ -31,7 +31,9 @@ function ensurePrismLoaded() {
       const s2 = document.createElement('script');
       s2.src = window.__cbeUris.PRISM_LANGS;
       s2.onload = () => {
-        /* Re-highlight any code blocks rendered before Prism arrived. */
+        /* Re-highlight any code blocks rendered before Prism arrived, and
+           ensure each one has the title bar + footer (cbeWrapCodeBlock is
+           idempotent — already-wrapped blocks are skipped). */
         try {
           document.querySelectorAll('pre[class*="language-"] code').forEach((el) => {
             try {
@@ -40,6 +42,8 @@ function ensurePrismLoaded() {
               if (lang && window.Prism && Prism.languages && Prism.languages[lang]) {
                 Prism.highlightElement(el);
               }
+              const preEl = el.closest('pre');
+              if (preEl && typeof cbeWrapCodeBlock === 'function') cbeWrapCodeBlock(preEl);
             } catch (e) { /* skip broken blocks */ }
           });
         } catch (e) {}
@@ -189,65 +193,111 @@ const LANG_LABEL = {
   'php':'PHP','json':'JSON','yaml':'YAML'
 };
 
-function makeCopyBtn(rawCode) {
-  const btn = document.createElement('button');
-  btn.className = 'cv-copy-btn';
-  btn.type = 'button';
-  btn.textContent = 'Copy';
+/* Shared clipboard helper. `getText()` returns the raw string to copy at
+   click time (read lazily so a re-highlighted block still copies its real
+   textContent, never the Prism-tokenised HTML). `btn` gets its label swapped
+   to the localized "Copied!" for 1400ms then reverted. Labels resolve via
+   the same cbeT() i18n table the rest of the dynamic DOM uses; English
+   fallbacks keep it working before strings arrive. */
+function cbeBindCopy(btn, getText) {
+  let __revertTimer = null;
+  const setLabel = () => {
+    if (__revertTimer) return;            /* mid-"Copied!" — leave it */
+    btn.textContent = cbeT('code.copy', 'Copy');
+  };
+  btn._cbeRelabel = setLabel;             /* re-applied on language change */
+  setLabel();
+  const done = () => {
+    btn.classList.add('copied');
+    btn.textContent = cbeT('code.copied', 'Copied!');
+    if (__revertTimer) clearTimeout(__revertTimer);
+    __revertTimer = setTimeout(() => {
+      __revertTimer = null;
+      btn.classList.remove('copied');
+      btn.textContent = cbeT('code.copy', 'Copy');
+    }, 1400);
+  };
+  const legacyCopy = (text) => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); }
+    catch (e) { console.debug('[cbe.copy] execCommand fallback failed', e && e.message); }
+    document.body.removeChild(ta);
+    done();
+  };
   btn.onclick = () => {
-    const done = () => {
-      btn.classList.add('copied');
-      btn.textContent = 'Copied!';
-      setTimeout(() => {
-        btn.classList.remove('copied');
-        btn.textContent = 'Copy';
-      }, 1500);
-    };
+    const text = (typeof getText === 'function') ? getText() : String(getText || '');
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(rawCode).then(done, () => {
-        /* Fallback: textarea + execCommand */
-        const ta = document.createElement('textarea');
-        ta.value = rawCode;
-        ta.style.position = 'fixed';
-        ta.style.left = '-9999px';
-        document.body.appendChild(ta);
-        ta.select();
-        try { document.execCommand('copy'); } catch (e) { console.debug('[cbe.copy] execCommand fallback failed', e && e.message); }
-        document.body.removeChild(ta);
-        done();
-      });
+      navigator.clipboard.writeText(text).then(done, () => legacyCopy(text));
     } else {
-      const ta = document.createElement('textarea');
-      ta.value = rawCode;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); } catch (e) { console.debug('[cbe.copy] execCommand fallback failed', e && e.message); }
-      document.body.removeChild(ta);
-      done();
+      legacyCopy(text);
     }
   };
+}
+
+function makeCopyBtn(getText) {
+  const btn = document.createElement('button');
+  btn.className = 'cv-copy-btn cbe-cb-copy';
+  btn.type = 'button';
+  cbeBindCopy(btn, getText);
   return btn;
+}
+
+/* Wrap a freshly-built or re-highlighted <pre> in a .cbe-codeblock container
+   with a title bar (language name + Copy) above it and a footer (second Copy)
+   below it. Idempotent: a <pre> already inside a .cbe-codeblock is left alone
+   so the panel.js:36 re-highlight pass can call this on the same element
+   without double-wrapping. Only the wrapper/bars are touched — the <code>
+   innerHTML (Prism tokens) is never read or modified, so highlighting and
+   line-numbers stay intact. The Copy buttons read codeEl.textContent lazily
+   at click time, which yields the raw source even after Prism tokenises it. */
+function cbeWrapCodeBlock(preEl) {
+  if (!preEl || preEl.nodeName !== 'PRE') return preEl;
+  if (preEl.closest('.cbe-codeblock')) return preEl.closest('.cbe-codeblock');
+  const codeEl = preEl.querySelector('code') || preEl;
+  const getText = () => codeEl.textContent || '';
+
+  /* Derive a display label from the language-X class on <pre> or <code>. */
+  const cls = (preEl.className || '') + ' ' + ((preEl.querySelector('code') || {}).className || '');
+  const m = cls.match(/language-([a-z0-9+#-]+)/i);
+  const lang = m && m[1] ? m[1].toLowerCase() : '';
+  const label = LANG_LABEL[lang] || (lang ? lang.toUpperCase() : 'TEXT');
+
+  const wrap = document.createElement('div');
+  wrap.className = 'cbe-codeblock cv-code-wrap';
+
+  const titlebar = document.createElement('div');
+  titlebar.className = 'cbe-cb-titlebar cv-code-bar';
+  const langSpan = document.createElement('span');
+  langSpan.className = 'cbe-cb-lang cv-code-lang';
+  langSpan.textContent = label;
+  titlebar.appendChild(langSpan);
+  titlebar.appendChild(makeCopyBtn(getText));
+
+  const footer = document.createElement('div');
+  footer.className = 'cbe-cb-footer';
+  footer.appendChild(makeCopyBtn(getText));
+
+  /* Splice the wrapper in where the <pre> currently lives (re-highlight
+     path: <pre> is already in the DOM). If the <pre> is detached
+     (fresh makeCodeBlock build) there is nothing to replace — the caller
+     inserts the returned wrapper. */
+  const parent = preEl.parentNode;
+  if (parent) parent.replaceChild(wrap, preEl);
+  wrap.appendChild(titlebar);
+  wrap.appendChild(preEl);
+  wrap.appendChild(footer);
+  return wrap;
 }
 
 function makeCodeBlock(rawLang, rawCode) {
   /* Normalize lang. Unknown lang -> plain (no highlighting, but still wrap). */
   const key = (rawLang || '').trim().toLowerCase();
   const lang = LANG_MAP[key] || (key && /^[a-z0-9+#-]+$/i.test(key) ? key : '');
-  const label = LANG_LABEL[lang] || (rawLang || 'TEXT').toUpperCase();
-
-  const wrap = document.createElement('div');
-  wrap.className = 'cv-code-wrap';
-
-  const bar = document.createElement('div');
-  bar.className = 'cv-code-bar';
-
-  const langSpan = document.createElement('span');
-  langSpan.className = 'cv-code-lang';
-  langSpan.textContent = label;
-  bar.appendChild(langSpan);
-  bar.appendChild(makeCopyBtn(rawCode));
 
   const pre = document.createElement('pre');
   pre.className = 'line-numbers' + (lang ? ' language-' + lang : '');
@@ -255,9 +305,6 @@ function makeCodeBlock(rawLang, rawCode) {
   codeEl.className = lang ? 'language-' + lang : '';
   codeEl.textContent = rawCode;  /* textContent escapes safely */
   pre.appendChild(codeEl);
-
-  wrap.appendChild(bar);
-  wrap.appendChild(pre);
 
   /* Run Prism if it loaded and lang is known. */
   if (lang && window.Prism && Prism.languages && Prism.languages[lang]) {
@@ -275,7 +322,9 @@ function makeCodeBlock(rawLang, rawCode) {
   for (let i = 0; i < lineCount; i++) lnRows.appendChild(document.createElement('span'));
   pre.appendChild(lnRows);
 
-  return wrap;
+  /* <pre> is detached here — cbeWrapCodeBlock builds + returns the wrapper
+     with the <pre> spliced in; the caller inserts the returned node. */
+  return cbeWrapCodeBlock(pre);
 }
 
 /* Inline `code` (single-backtick) — only on prose chunks, not inside fences. */
@@ -752,6 +801,9 @@ const tts = (function() {
   /* helpBtn handled inline — opens an iframe modal pointing at help.html */
   /* extensionsBtn handled inline — opens an iframe modal to the marketplace */
   bind('projectFolderBtn',  'pickProjectFolder');
+  /* browserBtn — opens a NN4-skinned WebviewPanel via the host. The panel
+     is created/revealed by extension.js on receipt of 'openNN4Browser'. */
+  bind('browserBtn',        'openNN4Browser');
   /* gitBtn — opens a Git modal that runs commands in the active project
      folder. If no project folder is set we pop a "please pick one" prompt
      instead of silently doing nothing. */
@@ -824,6 +876,8 @@ function applySkinColors(colors) {
     'modal-foot-bg':    '--cbe-modal-foot-bg',
     'modal-accent':     '--cbe-modal-accent',
     'highlight-color':  '--cbe-highlight-color',
+    'code-bar-bg':      '--cbe-code-bar-bg',
+    'code-bar-fg':      '--cbe-code-bar-fg',
   };
   for (const [k, cssVar] of Object.entries(map)) {
     const v = colors && colors[k];
@@ -3093,6 +3147,13 @@ function applyStrings(strings, language) {
   document.querySelectorAll('[data-i18n-ph]').forEach((el) => {
     const k = el.getAttribute('data-i18n-ph');
     if (k && tbl[k] != null) el.setAttribute('placeholder', tbl[k]);
+  });
+  /* Code-block Copy buttons aren't static markup (their label toggles
+     Copy ⇄ Copied!), so they carry a _cbeRelabel closure instead of a
+     data-i18n attribute. Re-apply it so a language change re-localizes
+     every already-rendered button without disturbing one mid-"Copied!". */
+  document.querySelectorAll('.cbe-cb-copy').forEach((el) => {
+    if (typeof el._cbeRelabel === 'function') el._cbeRelabel();
   });
   /* Brand label is shipped as a per-language SVG under assets/labels/<code>.svg.
      The English fallback is wired in index.html; here we just swap the src

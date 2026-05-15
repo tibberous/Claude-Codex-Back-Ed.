@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Claude Codex Black — Change Log</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #16181d;
+    --surface: #1f2229;
+    --surface-2: #262a33;
+    --border: #353a45;
+    --text: #e7eaef;
+    --muted: #aab1bd;
+    --accent: #4ea8ff;
+    --accent-soft: rgba(78,168,255,0.12);
+  }
+  * { box-sizing: border-box; }
+  html, body, .app { margin: 0; padding: 0; height: 100%;
+                     background: var(--bg); color: var(--text);
+                     font: 14.5px/1.55 ui-sans-serif, system-ui, -apple-system,
+                     "Segoe UI", sans-serif; }
+  .app { display: flex; flex-direction: column; }
+  header.page {
+    padding: 18px 26px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  }
+  header.page h1 { margin: 0; font-size: 18px; }
+  header.page .meta { color: var(--muted); font-size: 12px; font-family: ui-monospace, Consolas, monospace; }
+  main { flex: 1 1 auto; overflow-y: auto; padding: 16px 26px 32px 26px; }
+  section.commit {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 18px; margin: 0 0 14px 0;
+  }
+  section.commit header { display: flex; align-items: baseline;
+    justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  section.commit h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.35; }
+  section.commit .num { color: var(--muted); margin-right: 6px; font-weight: 400; }
+  section.commit .meta { display: flex; gap: 12px; align-items: center;
+    color: var(--muted); font-size: 12px; }
+  section.commit code.sha {
+    background: #0f1116; padding: 2px 7px; border-radius: 4px;
+    border: 1px solid #2b313b; font-family: ui-monospace, Consolas, monospace;
+    color: var(--accent); cursor: help;
+  }
+  section.commit ul { margin: 10px 0 0 0; padding-left: 22px; color: var(--text); }
+  section.commit ul li { margin: 3px 0; line-height: 1.5; }
+  p.empty { padding: 32px; text-align: center; color: var(--muted); }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: var(--bg); }
+  *::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="page">
+    <h1>Change Log</h1>
+    <div class="meta">50 commits · generated 2026-05-14 18:34:08Z</div>
+  </header>
+  <main>
+    
+<section class="commit" id="c-9d113e3">
+  <header>
+    <h2><span class="num">1.</span> fix(grok): route grokWeb through SuperGrok TCP bridge; dark-tile fix for dock skins</h2>
+    <div class="meta">
+      <code class="sha" title="9d113e37e937e2901302d29f8a77d91098a19084">9d113e3</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-14T11:03:00-04:00" title="2026-05-14T11:03:00-04:00">3h ago</time>
+    </div>
+  </header>
+  <ul><li>grokWeb provider</li><li>- Flipped from webBridge (CBE-spawned Chrome via CDP) to superGrok</li><li>  (start.py --serve-bridge --target grok), matching the path that</li><li>  `start.py --chat grok` already uses successfully on the user&#x27;s box.</li><li>- CBE&#x27;s BrowserBridge was unreliable on Windows: profile-lock single-</li><li>  instance handoffs, stale Chrome processes, CDP port mismatch — even</li><li>  after killing-stale + lock cleanup. SuperGrok owns the QWebEngine</li><li>  session, has a stable TCP API + auto-respawn, so none of those</li><li>  failure modes are in the path anymore.</li><li>- Provider id unchanged (grokWeb) so existing workspaceState selections</li><li>  keep working. One-time login: `python C:\SuperGrok\start.py --chat`.</li><li>Dock skins</li><li>- mint-dock + aqua-dock: glass tile background now !important. The</li><li>  panel&#x27;s base .tool-button rule (orange gradient) has equal specificity</li><li>  to the skin&#x27;s .tool-button rule, and the glyph filter</li><li>  `brightness(0) invert(1)` (white) is baked into the base — without</li><li>  !important the skin lost on some load orders and produced white-on-</li><li>  white invisible icons.</li><li>- Tiles are dark frosted green / dark frosted blue so the white glyph</li><li>  always reads.</li></ul>
+</section>
+
+<section class="commit" id="c-a0b7f84">
+  <header>
+    <h2><span class="num">2.</span> feat: dock skins + glass icons, native extensions marketplace, bridge Windows-service path, help/i18n fixes</h2>
+    <div class="meta">
+      <code class="sha" title="a0b7f8434c48b1dfc035c9dbd700ef58b09bf750">a0b7f84</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-14T09:43:57-04:00" title="2026-05-14T09:43:57-04:00">4h ago</time>
+    </div>
+  </header>
+  <ul><li>Skins</li><li>- Add Mint Dock + Aqua Dock skins: floating prompt pill above a detached</li><li>  translucent glass dock strip; each tool button is a dark frosted-glass</li><li>  tile with a real drop shadow, white glyph, and dock-magnify hover.</li><li>Extensions marketplace</li><li>- Replace the black-rendering external-https iframe with a native card</li><li>  render: host fetches extensions.xml.php, panel builds the cards in DOM,</li><li>  Install wires to the existing installExtension flow.</li><li>Help</li><li>- Render help.html via &lt;iframe srcdoc&gt; instead of innerHTML extraction</li><li>  (the &lt;style&gt; block was showing as raw text); fix .app dark background</li><li>  + height so it fills the modal; TOC smooth-scroll + click feedback.</li><li>Web bridge (grokWeb / chatgptWeb)</li><li>- _killStaleProfileChromes(): kill any Chrome still squatting the bridge</li><li>  profile dir before spawn — the root cause of &quot;started on port A, polled</li><li>  port B&quot; single-instance handoffs.</li><li>- Capture Chrome stdout/stderr to logs/chrome-&lt;target&gt;.log; waitForDebugger</li><li>  aborts fast when the process dies; graceful CDP Browser.close on dispose</li><li>  so session cookies persist.</li><li>- Optional NSSM Windows-service path: install/uninstall_bridge_service.ps1</li><li>  + BRIDGE_SERVICE_PORTS; BrowserBridge attaches to the service port first,</li><li>  spawns only as fallback.</li><li>i18n</li><li>- applyStrings() walks data-i18n / data-i18n-tip / data-i18n-ph and swaps</li><li>  text/tooltip/placeholder; applied on init and on a live `strings` push</li><li>  after a language change. data-i18n-tip wired on 13 toolbar buttons.</li><li>- Expand the English key set in build_language_files.py (prompt placeholder,</li><li>  modal title bars, settings field labels, remaining toolbar tooltips).</li><li>- Language dropdown shows dual labels (native + English).</li><li>Misc</li><li>- CSP frame-src includes *.vscode-cdn.net; modal text-shadow switched from</li><li>  a fuzzy 0-offset glow to a crisp 1px drop shadow.</li><li>- stored_prompts/ directory layout (one .txt per prompt) replaces the</li><li>  single prompts.txt; loadPrompts migrates the legacy file on first read.</li><li>- git modal: add init / add -A / commit quick actions.</li></ul>
+</section>
+
+<section class="commit" id="c-5db8f98">
+  <header>
+    <h2><span class="num">3.</span> fix: stop auto-pull from clobbering extension source; bulletproof monitor spinner; right-click off; language flags</h2>
+    <div class="meta">
+      <code class="sha" title="5db8f98d76cef4d1c44362154febce79163b0be7">5db8f98</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-14T04:27:41-04:00" title="2026-05-14T04:27:41-04:00">10h ago</time>
+    </div>
+  </header>
+  <ul><li>Root cause of help/extensions/monitor breaking repeatedly: pullUpdateFromServer</li><li>MD5-compares without a timestamp check, so the server&#x27;s older extension.js</li><li>ALWAYS beat the dev tree and reverted in-progress fixes on every activate.</li><li>Added the running source files to PULL_EXCLUDES — extension code ships via</li><li>.vsix, not the auto-update channel.</li><li>- extension.js: PULL_EXCLUDES now covers extension.js, package.json, panel/*,</li><li>  tools/vscode_supervisor.ps1, tool scripts. SUPERVISOR_PORT const, port</li><li>  announced to outChan + monitorState message + supervisor.ps1 -Port.</li><li>  loadLanguageFiles meta now carries name + flag emoji (LANGUAGE_COUNTRY map).</li><li>  _currentLanguageCode prefers workspaceState over config.ini; setProvider</li><li>  persists language to workspaceState (config.ini stays reserved for API keys).</li><li>- panel.js: bulletproof CSS-only monitor spinner (no SVG asset, no skin-</li><li>  overridable class). Left-click = sticky toggle; right-click = shut off.</li><li>  Language dropdown in Settings shows flag emoji per locale.</li><li>- index.html: fixed-size 22px monitor spinner, dead-centered.</li><li>- vscode_supervisor.ps1: -Port param, logs the bound URL prominently.</li></ul>
+</section>
+
+<section class="commit" id="c-89de85f">
+  <header>
+    <h2><span class="num">4.</span> fix: help panel path, extensions marketplace iframe, supervisor reinstall</h2>
+    <div class="meta">
+      <code class="sha" title="89de85f2636a77069c0b007f863bd6f7b6a144e8">89de85f</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-14T03:53:53-04:00" title="2026-05-14T03:53:53-04:00">10h ago</time>
+    </div>
+  </header>
+  <ul><li>- extension.js: helpUri now resolves panel/help.html; add installExtension</li><li>  handler (download .ext, MD5-verify, Expand-Archive); rewrite</li><li>  installSupervisorService to deploy to space-free C:\ProgramData\cbe\</li><li>- panel.js: wire openExtensionsMarketplace iframe modal + install bridge</li><li>- index.html: CSP frame-src allows trentontompkins.com</li><li>- help.html: new help doc, native scrollIntoView (CSP-safe, no jQuery)</li><li>- vscode_supervisor.ps1: persistent HttpListener context, optional CodePath</li><li>- add flag SVGs, logo.png, demo extensions + marketplace PHP</li></ul>
+</section>
+
+<section class="commit" id="c-a970d9d">
+  <header>
+    <h2><span class="num">5.</span> feat: i18n (39 locales), auto-pull manifest, supervisor watchdog, NameSilo fix</h2>
+    <div class="meta">
+      <code class="sha" title="a970d9d761c7c647e2c9c3d746a743eb0c300f36">a970d9d</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-14T02:45:41-04:00" title="2026-05-14T02:45:41-04:00">11h ago</time>
+    </div>
+  </header>
+  <ul><li>- Add languages/*.xml with strings for 39 most-spoken locales; loader at</li><li>  extension activate, falls back to en for missing keys, exposed to panel</li><li>  via buildSettingsPayload as { language, languages, strings }.</li><li>- Add pullUpdateFromServer(): fetches manifest.xml.php, MD5-compares each</li><li>  remote file against local, downloads only changes. Excludes user-local</li><li>  state (config.ini, debug.log, domains.txt, etc).</li><li>- Add supervisor watchdog: monitorStatus probes :3434/status; if HTTP</li><li>  is down but service is installed, kicks a restart (30s cool-down so</li><li>  it doesn&#x27;t restart-storm).</li><li>- Fix NameSilo: accept reply.domains as either array (current JSON shape)</li><li>  or { domain: [...] } (legacy XML-wrapped). Empty cache no longer poisons</li><li>  future panel boots; empty fetch results no longer persisted.</li><li>- Fix STT: pre-warm a SAPI PowerShell at activate so the first mic click</li><li>  skips the 2-4s cold start (was getting killed before binding the mic).</li><li>- Tamagotchi skin: center the toolbar button row.</li><li>- Suppress WinError 87 spam: _pidIsAlive() guard in TTL supervision.</li><li>- Hook annotations: every hooks/*.py gets an LLM-USAGE block.</li><li>- Misc: handbook 25-section expansion, desktp -&gt; desktop typo fix.</li></ul>
+</section>
+
+<section class="commit" id="c-22d4579">
+  <header>
+    <h2><span class="num">6.</span> fix(supervisor): NSSM install quoting + :3434 liveness probe</h2>
+    <div class="meta">
+      <code class="sha" title="22d457952d01992470e465409af7b63b27a2f10b">22d4579</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-13T15:47:03-04:00" title="2026-05-13T15:47:03-04:00">22h ago</time>
+    </div>
+  </header>
+  <ul><li>The first install attempt failed because `nssm install &lt;name&gt; &lt;app&gt; &lt;args&gt;`</li><li>fed PowerShell a giant arg-line; PS stripped the outer quotes around</li><li>`&quot;C:\Users\moren\AppData\Local\Programs\Microsoft VS Code\Code.exe&quot;`, the</li><li>spaces in `Microsoft VS Code` tokenized into separate commands, and the</li><li>install transcript shows `ERROR: The term &#x27;Code.exe&#x27; is not recognized`.</li><li>Service registered with EMPTY AppParameters in registry, so `sc start`</li><li>silently did nothing.</li><li>Fix:</li><li>- Stub-then-set install pattern: `nssm install &lt;name&gt; &lt;psExe&gt;` then</li><li>  `nssm set &lt;name&gt; Application/AppParameters/AppDirectory/...` one</li><li>  property at a time. Each value is wrapped in PowerShell single-quotes</li><li>  (literal strings — no $-expansion, no escape parsing) so spaces can&#x27;t</li><li>  re-tokenize. AppParameters embeds its own double-quotes around the</li><li>  -File and -CodePath paths so NSSM&#x27;s stored value remains a valid</li><li>  command-line for CreateProcess.</li><li>- SDDL widening switched to single-quoted form too.</li><li>Supervisor :3434 HTTP listener:</li><li>- `vscode_supervisor.ps1` now binds `http://127.0.0.1:3434/` via</li><li>  `System.Net.HttpListener` and replies 200 OK with a JSON status blob</li><li>  (pid, relaunch count, last relaunch ts, target Code path). Drained</li><li>  every tick of the main loop and after every relaunch so polls stay</li><li>  responsive while VSCode boots back up.</li><li>- Listener closes cleanly on stop signal alongside the existing</li><li>  `Console.CancelKeyPress` handler.</li><li>Panel button glow now tracks HTTP liveness:</li><li>- New `_supervisorHttpAlive()` in extension.js does a 700ms GET to</li><li>  :3434 and resolves true on 200. The `monitorStatus` handler reports</li><li>  `{running: alive, state: sc-state, httpAlive: alive}`. Glow is on</li><li>  iff the script is actually responding — protects against &quot;SCM thinks</li><li>  the service is running but the script crashed silently&quot; false</li><li>  positives the old `sc query`-only check produced.</li></ul>
+</section>
+
+<section class="commit" id="c-ed906ea">
+  <header>
+    <h2><span class="num">7.</span> feat(panel): MIT LICENSE, Auto Prompt, themed modal palette, supervisor (NSSM), STT spinner</h2>
+    <div class="meta">
+      <code class="sha" title="ed906ea5e6c2a797aae91ee7759003210b0e0a19">ed906ea</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-13T15:35:12-04:00" title="2026-05-13T15:35:12-04:00">22h ago</time>
+    </div>
+  </header>
+  <ul><li>LICENSE.TXT (MIT) committed at the repo root. /license slash command + a</li><li>new `showLicense` host handler stream the full text into the chat thread</li><li>as an info message — no new modal needed.</li><li>Auto Prompt (renamed from &quot;Auto reply&quot;):</li><li>- Click `#autoReplyBtn` opens a themed modal with Prompt + Send Interval</li><li>  inputs. Interval 0 = off.</li><li>- &gt; 0 fires `send()` on the configured interval. Skips ticks while a</li><li>  reply is in-flight so requests don&#x27;t stack.</li><li>- Button gains `is-autoprompting` class while running → same blue spinner</li><li>  overlay convention as `#monitorBtn` and `#sttBtn`. localStorage persists</li><li>  text + interval so panel reloads resume the loop automatically.</li><li>Skin manifest palette:</li><li>- `&lt;colors&gt;` block in manifest.xml carries 8 modal-chrome fields</li><li>  (modal-bg/fg/border, title-bg-1/2, title-fg, foot-bg, accent). Pushed to</li><li>  :root at apply time as `--cbe-modal-*` custom properties.</li><li>- Every hardcoded `#1a1a1a` / `#e8621a` / `#b83c00` / etc. in index.html +</li><li>  inline modal markup in panel.js now reads from those vars. Per-theme</li><li>  palettes baked into every skin&#x27;s manifest (GNOME blue, KDE cyan, Ubuntu</li><li>  Yaru, Terminal phosphor, Win9x Office, etc).</li><li>- Themed `cbeConfirm()` overlay replaces native `window.confirm()` (which</li><li>  is blocked in VSCode webviews) — fixes Stored Prompts Delete.</li><li>Toolbar (skinned themes):</li><li>- Buttons no longer cut off — `justify-content: flex-start` +</li><li>  `overflow-x: visible` instead of center+auto (centered overflow was</li><li>  scroll-clipped and unreachable).</li><li>- Right-click on toolbar/label/send/stop/input skips the global context</li><li>  menu (was showing magic boxes from .notdef-font emoji glyphs).</li><li>- Emoji-prefixed context-menu items dropped to plain text.</li><li>Monospace lock (#textInput → #promptBox):</li><li>- Renamed the textarea ID and baked `font: ... Consolas, ... monospace</li><li>  !important` inline in the HTML. Inline + !important beats every external</li><li>  rule. MutationObserver re-applies if anything strips it.</li><li>Blocky skins:</li><li>- Square label PNG (`assets/label-square.png`) replaces the rounded</li><li>  label-alpha.png on Tamagotchi/XFCE/Terminal/Office via per-skin CSS.</li><li>Skin folder structure unchanged; all 11 manifests + styles.css regenerated.</li><li>VSCode supervisor (`#monitorBtn`):</li><li>- Service wrapped via NSSM (`tools/nssm.exe`, 331 KB) instead of raw</li><li>  `sc.exe create` with a malformed binPath. NSSM handles SCM signaling so</li><li>  service start/stop don&#x27;t error 1053 anymore.</li><li>- Spinner overlay centered (was off-center; CSS uses 50/50 + translate).</li><li>- Click toggles install/start/stop; periodic 10s status probe syncs the</li><li>  blue glow to actual service state. Right-click on the button falls</li><li>  back to the old showTrace path so trace channel is still reachable.</li><li>STT (`#sttBtn`):</li><li>- SAPI fallback rewritten to use `-Sta -File` instead of `-Command` so</li><li>  recognizer COM doesn&#x27;t crash on the wrong threading model.</li><li>- COM `SAPI.SpInprocRecognizer` fallback if `Add-Type -AssemblyName</li><li>  System.Speech` fails (PowerShell 7+ doesn&#x27;t auto-resolve the GAC).</li><li>- Sentinel-marker output (`__CBE_STT_OK__` / `__CBE_STT_ERR__`) instead of</li><li>  trusting exit codes — fixes &quot;Voice (SAPI): exit null&quot;.</li><li>- Blue spinner overlay on the mic button while listening (same UX as</li><li>  monitor + auto-prompt).</li><li>GitHub (`#githubBtn`):</li><li>- New `listGitHubRepos` host handler reads PAT from `[github].token`</li><li>  (then `[api_keys].github_token`), pages `/user/repos`, returns</li><li>  `{repos: [...]}`. Explicit error strings for missing PAT, 401, 403</li><li>  rate-limit, network failures.</li><li>- Modal with sortable columns (Repository / Visibility / Stars /</li><li>  Language / Updated), filter search, Refresh button, themed via</li><li>  `--cbe-modal-*`. Row links route through new `openExternal` handler.</li><li>Domains:</li><li>- NameSilo `/listDomains` returns objects `{domain, created, expires}`,</li><li>  not bare strings — parser was producing 16 rows with `(error)` for</li><li>  nameservers. Now extracts `.domain` field properly.</li><li>- Pre-fetched on panel boot so clicking the Domains button is instant.</li><li>Right-click menu Refresh option: triggers `refreshPanel` host handler</li><li>that re-reads index.html + panel.js without a VSCode reload.</li><li>start.py: same NameSilo object-shape fix in `--domains`.</li></ul>
+</section>
+
+<section class="commit" id="c-b66a404">
+  <header>
+    <h2><span class="num">8.</span> feat(panel): tighten skin toolbar, Tamagotchi pet panel, SFX gating, monitor focus</h2>
+    <div class="meta">
+      <code class="sha" title="b66a4045123ee55c3dc22d998b4ab71f94208b15">b66a404</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-13T13:32:17-04:00" title="2026-05-13T13:32:17-04:00">1d ago</time>
+    </div>
+  </header>
+  <ul><li>UI fixes on skinned themes:</li><li>- Toolbar buttons shrink to 38x38 with 4px gap and explicit nowrap so</li><li>  every icon fits a single row at common widths (Help + Domains</li><li>  additions previously caused wrap).</li><li>- Right-click context menu items drop emoji glyphs that fell back to</li><li>  .notdef boxes under the Consolas/monospace menu font.</li><li>- Switched .label-button to use label-alpha.png (the trimmed-alpha</li><li>  variant of the pill). label.png deleted.</li><li>Tamagotchi skin:</li><li>- Adds a CSS-injected pixel-pet panel on the left of the prompt-shell</li><li>  via ::before on .prompt-shell, with chunky LCD inset bevel and the</li><li>  pulsing green glow keyframes from the original demo. GIF is bundled</li><li>  inside the skin folder and referenced via `url(&#x27;assets/tamagotchi.gif&#x27;)`.</li><li>- build_skins.py grew an `extra_css` field so per-skin add-ons (this</li><li>  pet panel) don&#x27;t bloat every other skin&#x27;s stylesheet.</li><li>VSCode monitor:</li><li>- showTrace now reveals the output channel with preserveFocus=false so</li><li>  the panel actually grabs focus on click. Also traces a timestamp line</li><li>  every click so an already-visible channel scrolls and confirms.</li><li>Sound effects:</li><li>- CSP media-src widened to `{{CSP_SOURCE}} blob: data:` so &lt;audio&gt; isn&#x27;t</li><li>  blocked.</li><li>- playSfx now gates behind a first-user-gesture unlock (Chromium autoplay</li><li>  policy was rejecting the boot cue). Calls before the gesture queue and</li><li>  flush on the first pointerdown/keydown/click.</li></ul>
+</section>
+
+<section class="commit" id="c-1364c7e">
+  <header>
+    <h2><span class="num">9.</span> feat(panel): skin picker, domains button, terminal cwd, refresh menu</h2>
+    <div class="meta">
+      <code class="sha" title="1364c7e1ab9b754cfe916ff2561138bffc229de0">1364c7e</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-13T12:53:26-04:00" title="2026-05-13T12:53:26-04:00">1d ago</time>
+    </div>
+  </header>
+  <ul><li>- 11 packaged skins (codex-black/glassy/office + 8 from theme pack) with</li><li>  manifest.xml + styles.css. Lazy discovery on Settings open.</li><li>- Domains toolbar button + NameSilo API integration (config.ini key,</li><li>  modal listing domains + nameservers).</li><li>- Help button moved into the toolbar; stop button resized to match</li><li>  label height; toolbar gap tightened in skins to fit Help + Domains.</li><li>- Terminal button always opens in projectFolder, falls back to Desktop.</li><li>- Right-click menu adds Refresh (re-reads index.html + panel.js, posts</li><li>  ready again — no VSCode reload).</li><li>- Monospace lock strengthened on #textInput; getComputedStyle probe</li><li>  posts resolved font to the trace channel for diagnostics.</li><li>- STT not-allowed: webview SpeechRecognition falls back to host-side</li><li>  System.Speech.Recognition via PowerShell, transcript routed back to</li><li>  the textarea.</li><li>- tools/build_skins.py generates and zips all skin packages.</li></ul>
+</section>
+
+<section class="commit" id="c-cfdfbb9">
+  <header>
+    <h2><span class="num">10.</span> GOOD CHECKPOINT - SETUP WIZARD</h2>
+    <div class="meta">
+      <code class="sha" title="cfdfbb98ab11d9637fa64d7079a7e032c77489c1">cfdfbb9</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-13T07:08:48-04:00" title="2026-05-13T07:08:48-04:00">1d ago</time>
+    </div>
+  </header>
+  <ul><li>- Multi-step setup wizard: toolbar button -&gt; modal with one step per</li><li>  integration. Skip / Back / Next / Done. Pre-populates from config.ini.</li><li>- writeConfigPatch() preserves comments + section order when saving.</li><li>- Hooks: 60 .py files imported under /hooks. _config.py central loader,</li><li>  every hook now reads keys via cfg(section, key, env=FALLBACK).</li><li>- All hardcoded live secrets/passwords removed from hook source (x_hook,</li><li>  runway_hook, namesilo_hook, email_*_hook) and moved into config.ini.</li><li>- config.sample.ini added (push-safe template); .gitignore covers</li><li>  config.ini, debug.log, assets/assets.zip.</li><li>- Perf: Prism JS+CSS deferred, refreshSecretsCache parallelized,</li><li>  autoContext deferred off the ready critical path, config.ini cached</li><li>  in a Config singleton. Total time-to-interactive ~1.5s (was ~3.9s).</li><li>- Inline &lt;script&gt; extracted to panel/panel.js (defer); webview URI map</li><li>  exposed via tiny inline window.__cbeUris. CSP meta tag added.</li><li>- File logging: trace() writes to /debug.log (truncated on activate);</li><li>  Output Channel shows the 4-line banner only.</li><li>- Chat thread: fullscreen, prompt-area floats over it. Anthropic</li><li>  default look via VSCode sideBar background.</li><li>- Misc: SVG X close button shared across modals (no font tofu);</li><li>  stop-button height matches label pill; label shadow follows pill</li><li>  silhouette via filter:drop-shadow; auto-context send is silent;</li><li>  terminal button added; read-aloud icon no longer overwritten.</li></ul>
+</section>
+
+<section class="commit" id="c-6eff2c6">
+  <header>
+    <h2><span class="num">11.</span> fix(panel): restore canonical CBE chat palette from 61203bf</h2>
+    <div class="meta">
+      <code class="sha" title="6eff2c60556f164bd9bffe0d747bc2e7f18cc428">6eff2c6</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-13T05:37:20-04:00" title="2026-05-13T05:37:20-04:00">1d ago</time>
+    </div>
+  </header>
+  <ul><li>Reset #thread, .msg, .msg.sent/.assistant/.info/.error to the original</li><li>VSCode-theme palette from commit 61203bf &quot;floating panel + drop shadow</li><li>+ VSCode-theme chat + Font Size toggle&quot;. That commit is the canonical</li><li>default — it uses var(--vscode-editorWidget-background),</li><li>var(--vscode-input-background), var(--vscode-editorHoverWidget-background)</li><li>etc. so chat bubbles inherit the user&#x27;s actual VS Code theme instead of</li><li>hardcoded colors.</li><li>Previous attempt (233f8e7) restored hardcoded #15171c/#1c1c1c from</li><li>79feba5, which was already a redesign — not the true default. The</li><li>user wanted the original VS Code-aware palette back.</li><li>Untouched: toolbar, modals, JS, and all .msg.assistant .cv-* substyles</li><li>(code-block syntax highlighting, copy button, Prism tokens) — those</li><li>are markdown rendering plumbing, not the base chat palette.</li></ul>
+</section>
+
+<section class="commit" id="c-233f8e7">
+  <header>
+    <h2><span class="num">12.</span> feat: attachment chips + chat palette default + View Source always enabled</h2>
+    <div class="meta">
+      <code class="sha" title="233f8e723ff08b69d782b9da5e927b3b9b42b800">233f8e7</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T23:15:29-04:00" title="2026-05-12T23:15:29-04:00">1d ago</time>
+    </div>
+  </header>
+  <ul><li>ATTACHMENTS as chips:</li><li>- New #attachments row sits between the input and the toolbar inside</li><li>  .prompt-shell. Collapsed (zero height/margin) when empty.</li><li>- Each queued file renders as an .attach-chip with 📎 + filename +</li><li>  optional size + a small red − button (inline SVG) to remove.</li><li>- attachFile message no longer dumps the file content into the input</li><li>  textarea — it pushes onto __cbeAttachments and re-renders the chips.</li><li>- send() builds the outgoing prompt as: typed text + fenced code</li><li>  blocks for each attachment. The chat thread shows only the typed</li><li>  line + a compact &quot;📎 filename&quot; summary so we don&#x27;t re-paste</li><li>  potentially large content into the visible history.</li><li>- Attachments are cleared after send.</li><li>CHAT PALETTE back to default (restored from 79feba5):</li><li>- .msg.sent: #1c1c1c bg, #2a2a2a border, #e8e8e8 text</li><li>- .msg.assistant: #15171c bg, #232a37 border, #d9e2f3 text (slight</li><li>  blue tint, the original CBE look)</li><li>- .msg.info: #131313 bg, #1f1f1f border, #777 italic</li><li>- .msg.error: #2a1212 / #5a1f1f / #ff9b9b</li><li>- 13 px / radius 6 / padding 10x14 to match the pre-light spec.</li><li>VIEW SOURCE always enabled:</li><li>- Right-click context menu&#x27;s &quot;View Source&quot; item is no longer greyed</li><li>  out when the click target isn&#x27;t inside &lt;pre&gt;&lt;code&gt;. If there&#x27;s a</li><li>  code block under the cursor it still shows that block; otherwise</li><li>  it falls back to the full panel HTML (document.documentElement.</li><li>  outerHTML with a DOCTYPE prefix), highlighted as markup.</li></ul>
+</section>
+
+<section class="commit" id="c-fdd0413">
+  <header>
+    <h2><span class="num">13.</span> feat: blue spinner overlay on VSCode monitor while busy</h2>
+    <div class="meta">
+      <code class="sha" title="fdd0413bd401fca4f6bb2cbd3406f16eca749358">fdd0413</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T22:48:14-04:00" title="2026-05-12T22:48:14-04:00">1d ago</time>
+    </div>
+  </header>
+  <ul><li>- New /assets/loading_blue.svg — a 50x50 spinning three-quarter arc</li><li>  with a gradient stroke (transparent → #4ea8ff → #7fc8ff) plus a</li><li>  faint base ring. SVG-native &lt;animateTransform&gt; drives the rotation</li><li>  (0.85s linear infinite) so no JS animation needed.</li><li>- Monitor button gains a second &lt;img class=&quot;cbe-spinner&quot;&gt; overlay</li><li>  pinned over the existing vscode_monitor.svg.</li><li>- setBusy(true|false) toggles .is-monitoring on #monitorBtn. While</li><li>  monitoring, the base icon fades to 0.45 with a blue drop-shadow</li><li>  and the spinner fades in (opacity transition .15s).</li><li>- The monitor click still posts {type:&#x27;showTrace&#x27;} (extension.js</li><li>  opens the output channel), so the user gets both the visual</li><li>  &quot;I&#x27;m working&quot; cue AND a one-click jump to the trace.</li></ul>
+</section>
+
+<section class="commit" id="c-dc57038">
+  <header>
+    <h2><span class="num">14.</span> feat: session-start auto-context + working Attach File</h2>
+    <div class="meta">
+      <code class="sha" title="dc570386c8ff8707508a1de8c6a60ac0d1920a8b">dc57038</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T22:45:26-04:00" title="2026-05-12T22:45:26-04:00">1d ago</time>
+    </div>
+  </header>
+  <ul><li>AUTO-CONTEXT on session start:</li><li>- Fires once per extension activation, only when a project folder is set.</li><li>- Builds a recursive dir tree of the project folder (depth 3, budget</li><li>  18k chars, skipping .git/node_modules/__pycache__/dist/build/etc) and</li><li>  reads handbook.txt. Composes them into a labelled prompt block and</li><li>  sends it via the panel as the first user message so the model sees</li><li>  project shape + house rules before any real question.</li><li>- Panel: new &#x27;autoPrompt&#x27; message receiver — sets the input value and</li><li>  triggers send() after a 50 ms tick (giving the input event handlers</li><li>  time to settle).</li><li>ATTACH FILE:</li><li>- attachFileBtn now opens a real VSCode file picker via the host.</li><li>- Reads the file (1 MB cap), detects binary vs text by sampling the</li><li>  first 4 KB for nulls/control bytes, and posts the content back to</li><li>  the panel as { name, ext, text, bytes }.</li><li>- Panel inserts the content at the caret as a fenced code block</li><li>  prefixed with &quot;📎 filename&quot; so the model sees a clear attachment</li><li>  boundary. Caret is positioned just after the inserted block.</li></ul>
+</section>
+
+<section class="commit" id="c-3d86c7e">
+  <header>
+    <h2><span class="num">15.</span> feat: chat history, handbook modal, slash command menu</h2>
+    <div class="meta">
+      <code class="sha" title="3d86c7ed0b97c1de9fe67f7acbd49a3146f407ac">3d86c7e</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T22:40:20-04:00" title="2026-05-12T22:40:20-04:00">1d ago</time>
+    </div>
+  </header>
+  <ul><li>CHAT HISTORY (Chat History tool button):</li><li>- Extension creates chats/chat-M-D-YYYY.log lazily on first send each day.</li><li>- Format: blank line + &quot;## USER · YYYY-MM-DD HH:MM:SS&quot; header + body.</li><li>  Assistant turns logged on assistantDone, user turns on send().</li><li>- Click the toolbar&#x27;s Chat History button → host opens a QuickPick of</li><li>  the existing logs (sorted newest first) and shows the picked file</li><li>  in a normal VSCode editor tab. chats/ is gitignored.</li><li>HANDBOOK (Handbook tool button):</li><li>- New /handbook.txt at the extension root: a complete Aperture-Science</li><li>  flavored employee handbook for LLMs, drawn from the Desktop claude</li><li>  handbook themes (code style, memory rules, dev profile, tooling,</li><li>  reload-window prohibition, etc).</li><li>- Click the Handbook tool button → opens an editable modal showing</li><li>  handbook.txt in a big monospace textarea. Save writes back via the</li><li>  host. Dirty/saved indicator in the footer. Esc closes (prompts on</li><li>  unsaved changes).</li><li>SLASH COMMAND MENU (Show Commands tool button + typing &quot;/&quot;):</li><li>- Typing &quot;/&quot; at the start of the chat input opens a floating menu of</li><li>  commands. Filters as you keep typing.</li><li>- Clicking the Show Commands tool button also opens the menu (without</li><li>  inserting a slash).</li><li>- Up/Down navigate, Enter runs, Esc closes. Click outside also closes.</li><li>- Commands: /help /handbook /clear /settings /prompts /history /font</li><li>  /attach /folder /compact /git /github. Each maps to either an</li><li>  existing handler or an existing toolbar button click.</li></ul>
+</section>
+
+<section class="commit" id="c-ade693f">
+  <header>
+    <h2><span class="num">16.</span> feat: help floats top-right, toolbar centered, prompts.txt + Left/Right</h2>
+    <div class="meta">
+      <code class="sha" title="ade693f3d761e85d1440a39f533b3ad38805fa20">ade693f</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T22:32:10-04:00" title="2026-05-12T22:32:10-04:00">1d ago</time>
+    </div>
+  </header>
+  <ul><li>- helpBtn pulled out of the toolbar entirely and absolute-positioned in</li><li>  the upper-right corner of .demo-stage (z-index 20). Sized 44 px,</li><li>  orange tool-button styling, full hover/active treatment.</li><li>- .prompt-toolbar: justify-content center, spacer removed. Buttons</li><li>  keep their full 48 px size (no compaction). flex-wrap stays on so</li><li>  narrow panel widths still wrap gracefully, but with everything</li><li>  centered each row reads cleanly.</li><li>- prompts.txt: new curated prompt store. Multi-line entries separated</li><li>  by a &quot;---&quot; line. Lives at &lt;extensionPath&gt;/prompts.txt, gitignored.</li><li>  storedPromptsBtn now opens it in a normal VSCode editor tab via the</li><li>  extension host (auto-seeds a starter file on first open). Extension</li><li>  pushes the parsed list to the panel on &#x27;ready&#x27; and again on every</li><li>  reopen.</li><li>- Left/Right arrows in the chat input cycle through prompts.txt</li><li>  entries, but only when the caret is at the absolute start (Left)</li><li>  or end (Right) of the textarea so normal in-text caret navigation</li><li>  is preserved. Drafts are saved + restored like the Up/Down history</li><li>  feature.</li></ul>
+</section>
+
+<section class="commit" id="c-86f8499">
+  <header>
+    <h2><span class="num">17.</span> revert(panel): roll back to 62828b9 — the compacted toolbar from ac2362e was visually wrong (buttons too small, row crammed). This restores the known-good state from before the toolbar got compacted: full-size tool buttons, label-pill width 280, looser gap, help iframe modal. The stored-prompts modal work-in-progress is also discarded since it was unfinished.</h2>
+    <div class="meta">
+      <code class="sha" title="86f8499b40f6aee9e6dd6c21866ae83edae028cc">86f8499</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T22:19:59-04:00" title="2026-05-12T22:19:59-04:00">1d ago</time>
+    </div>
+  </header>
+  <ul><li>If we revisit single-row centering later, keep the previous button</li><li>sizing intact and just drop the spacer.</li></ul>
+</section>
+
+<section class="commit" id="c-ac2362e">
+  <header>
+    <h2><span class="num">18.</span> fix(panel): toolbar in single centered row; help via fetch+innerHTML; default chat colors</h2>
+    <div class="meta">
+      <code class="sha" title="ac2362e5d554f4eecbe861994ce8b02d5eb0a63e">ac2362e</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T22:11:02-04:00" title="2026-05-12T22:11:02-04:00">1d ago</time>
+    </div>
+  </header>
+  <ul><li>- prompt-toolbar: flex-wrap nowrap + justify-content center, spacer</li><li>  removed. All 19 tool buttons + Codex pill + project-path + Stop +</li><li>  Help now stay on one row, centered as a group.</li><li>- Shrunk tool-button 48→44, icons 24→22, label-button 280→220,</li><li>  project-path max 360→220, stop-button height 52→44 / pad 20→14 /</li><li>  font 19→15 so the full row fits comfortably under 1700 px.</li><li>- Chat reset to a neutral dark default: assistant text floats on</li><li>  body (no bubble), user message a subtle #1f1f1f bubble with</li><li>  white text. Removed the boxed border from .msg.assistant.</li><li>- Help modal: dropped the iframe (was rendering black inside the</li><li>  webview CSP). Now fetches help.html and injects the &lt;body&gt;</li><li>  innerHTML into a styled .cbe-help-body div. Result is cached</li><li>  after first open. Failure path shows the network error inline.</li></ul>
+</section>
+
+<section class="commit" id="c-62828b9">
+  <header>
+    <h2><span class="num">19.</span> feat(panel): help modal, prompt history, project folder picker, send +20%</h2>
+    <div class="meta">
+      <code class="sha" title="62828b9e99324d6d78ca20b8242280776a8710e1">62828b9</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T21:59:14-04:00" title="2026-05-12T21:59:14-04:00">1d ago</time>
+    </div>
+  </header>
+  <ul><li>- helpBtn → opens iframe modal sourced from new help.html at the repo</li><li>  root. {{HELP_URI}} substituted in extension.js getPanelHtml.</li><li>  Esc + backdrop click + ✕ button all close the modal.</li><li>- helpBtn moved to far right (after Stop) in the toolbar markup.</li><li>- Prompt history: extension.js read/writes prompt_history.txt (capped</li><li>  at 500 lines, deduped) at the extension root. On &#x27;ready&#x27; the host</li><li>  pushes the list to the panel; on every send the panel pushes the</li><li>  new prompt back. In-panel: Up/Down arrows cycle through prior</li><li>  prompts only when the caret is on the first/last line (so multi-</li><li>  line drafts still navigate normally). Down past the newest entry</li><li>  restores the original draft text. prompt_history.txt is gitignored.</li><li>- Project folder: projectFolderBtn now opens VS Code&#x27;s folder picker</li><li>  (showOpenDialog canSelectFolders) and persists the choice in</li><li>  workspaceState. New #project-path pill sits between the Codex</li><li>  pill and Stop, monospace, max-width 360 px. JS middle-truncates</li><li>  the path so it never widens the toolbar — keeps the drive + last</li><li>  two path segments and replaces the middle with &quot;....&quot;.</li><li>- .send-button width 51→61, height 54→65 (+20% per request);</li><li>  prompt-input-wrap right padding 76→90 so text doesn&#x27;t run into it.</li></ul>
+</section>
+
+<section class="commit" id="c-ae8fc1c">
+  <header>
+    <h2><span class="num">20.</span> fix(panel): drop duplicate savedPromptsBtn; redraw TTS icon as speaker+waves</h2>
+    <div class="meta">
+      <code class="sha" title="ae8fc1c3433f5108343507c5a61b07aad2132cb7">ae8fc1c</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T21:43:55-04:00" title="2026-05-12T21:43:55-04:00">1d ago</time>
+    </div>
+  </header>
+  <ul><li>- savedPromptsBtn was identical to storedPromptsBtn — kept the</li><li>  storedPromptsBtn (stored_prompts.svg) since both bound to the same</li><li>  underlying feature.</li><li>- tts.svg was rendering as a &quot;magic boxed&quot; placeholder (a T glyph</li><li>  next to a tiny speaker). Replaced with a clean speaker body + three</li><li>  concentric sound waves drawn at 24x24 viewBox, currentColor so the</li><li>  .tool-button img invert filter still tints it white.</li></ul>
+</section>
+
+<section class="commit" id="c-c9d2a56">
+  <header>
+    <h2><span class="num">21.</span> feat(panel): dark chat back, all 20 buttons visible, 100px outer margin, diamond halo behind prompt-shell, stronger rollovers</h2>
+    <div class="meta">
+      <code class="sha" title="c9d2a56b7258d02e2aa315c96c0d8c523798d55a">c9d2a56</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T21:36:22-04:00" title="2026-05-12T21:36:22-04:00">1d ago</time>
+    </div>
+  </header>
+  <ul><li>- Body: solid #0a0a0a (no more diamond/gradient on body itself)</li><li>- .demo-stage: padding 30 100 100 100 — 100px margin on L/R/B as requested</li><li>- .prompt-area: new wrapper around prompt-shell with diamond pattern bg</li><li>  visible as a textured halo around the orange shell</li><li>- #thread: back to dark palette (#1a1a1a-ish), light text</li><li>  .msg.sent / .msg.assistant restyled for dark backdrop</li><li>- Toolbar: removed #toolbar-hidden, all 20 tool buttons now visible</li><li>  inline (addBtn, savedPromptsBtn, storedPromptsBtn, chatHistoryBtn,</li><li>  attachFileBtn, ttsBtn, sttBtn, autoReplyBtn, wakeUpBtn,</li><li>  showCommandsBtn, compactBtn, handbookBtn, helpBtn, settingsBtn,</li><li>  extensionsBtn, projectFolderBtn, monitorBtn, gitBtn, githubBtn,</li><li>  fontSizeBtn) followed by Codex pill + Stop</li><li>- .tool-button: 48x48 (down from 58) so all 20 fit; gap 10; flex-wrap</li><li>- Rollovers: hover lifts -2px scale 1.06, brightens bg gradient,</li><li>  adds 30px orange glow; active sinks 1px scale .96 with inset shadow</li><li>- .label-button + .stop-button: matching hover lift + glow + brightness</li></ul>
+</section>
+
+<section class="commit" id="c-f4a0184">
+  <header>
+    <h2><span class="num">22.</span> feat(panel): hook up GPT&#x27;s prompt-bar markup to match good.png</h2>
+    <div class="meta">
+      <code class="sha" title="f4a0184df80487399c947e9c3ad6cb36e05e03b7">f4a0184</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T18:39:01-04:00" title="2026-05-12T18:39:01-04:00">1d ago</time>
+    </div>
+  </header>
+  <ul><li>Replaces the panel&#x27;s prompt-shell CSS and body with the ChatGPT-designed</li><li>prompt-bar markup from claude_promptbar_markup/, adapted to use the</li><li>extension&#x27;s {{ASSETS_BASE}} URI substitution and the existing JS IDs</li><li>(#textInput, #sendBtn, #addBtn, #savedPromptsBtn, #label-pill, #ttsBtn,</li><li>#sttBtn, #autoReplyBtn, #stopBtn). Layout switched .demo-stage to a</li><li>column flex container so #thread fills the space above the prompt-shell.</li><li>- .prompt-shell: gold border + orange gradient + 22px shadow + .tool-button</li><li>  58x58 cluster + .label-button (Codex pill) + .stop-button (rectangular)</li><li>- #thread: white card, flex 1, scrollable, drop-shadowed</li><li>- Stop button bound to &#x27;cancelInFlight&#x27; message (stub on host side)</li><li>- Toolbar SFX delegation switched from #toolbar/.tb-btn to</li><li>  .prompt-toolbar/.tool-button selectors</li><li>- Added #tooltip overlay handler for data-tooltip attributes</li><li>- #toolbar-hidden cluster preserved so 15 off-screen buttons still bind</li></ul>
+</section>
+
+<section class="commit" id="c-da27c4a">
+  <header>
+    <h2><span class="num">23.</span> chore: gitignore the panel render scratch files (.index_tmp.pdf, index.png)</h2>
+    <div class="meta">
+      <code class="sha" title="da27c4a1a1fd0f01c30aa42423aaf29a6a8b7a41">da27c4a</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T13:50:13-04:00" title="2026-05-12T13:50:13-04:00">2d ago</time>
+    </div>
+  </header>
+  
+</section>
+
+<section class="commit" id="c-49a05e7">
+  <header>
+    <h2><span class="num">24.</span> fix: visible toolbar now mirrors good.png (7 items) + 15 hidden but live</h2>
+    <div class="meta">
+      <code class="sha" title="49a05e79ab46d96529e5d4f99a95d955bb65d8cd">49a05e7</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T13:49:51-04:00" title="2026-05-12T13:49:51-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>After the side-by-side compare showed my 19-icon toolbar didn&#x27;t match</li><li>good.png&#x27;s 7-element band, the visible cluster is trimmed to mirror good.png:</li><li>  [+]  [saved_prompts]  [Codex pill]  ...spacer...  [tts]  [stt]  [settings]</li><li>                                                                    + [Send ↑]</li><li>The other 15 features (storedPrompts, chatHistory, attachFile, autoReply,</li><li>wakeUp, showCommands, compact, handbook, help, extensions, projectFolder,</li><li>vscodeMonitor, git, github, fontSize) are kept in the DOM under a new</li><li>#toolbar-hidden div (display:none) so all existing JS click handlers</li><li>still bind. They&#x27;re reachable via the existing settings modal hook or</li><li>the VSCode commands registered in extension.js — surface them in the</li><li>visible toolbar later if needed.</li><li>Other panel-shell tweaks in the same commit:</li><li>- #app re-floats: rounded top corners (10px), drop shadow rises up.</li><li>  body has only a 10px top/left/right gutter (0 bottom) so the panel</li><li>  hugs the bottom of the viewport.</li><li>- Chat palette stays light per the previous round (#f5f5f5 body,</li><li>  #ffffff message bubbles, #1f1f1f text).</li><li>- Input box gets a small white circle-cap on the right (the faint</li><li>  affordance visible in good.png at the end of &quot;Queue another message&quot;).</li><li>- Send button: 36px black circle with the existing send_arrow.svg</li><li>  glyph, 12px right margin so it sits cleanly inside the orange band.</li><li>- Toolbar height 56px to match good.png&#x27;s proportions.</li><li>Functionality preserved:</li><li>- All button IDs unchanged → existing click handlers fire identically.</li><li>- textInput auto-grows on newlines (min-height 22px, max-height 160px).</li><li>- settings modal opens via #settingsBtn or #label-pill click → existing.</li><li>- STT / TTS / sound effects subsystem untouched.</li><li>- Font Size toggle (#fontSizeBtn) hidden but still works when invoked.</li><li>Rendered panel/index.png next to panel/index.html so the comparison</li><li>loop (panel/index.html → panel/index.png → diff vs good.png) is one</li><li>step away.</li><li>Codex by Claude Opus 4.7 and ChatGPT 5.5.</li></ul>
+</section>
+
+<section class="commit" id="c-667e25a">
+  <header>
+    <h2><span class="num">25.</span> fix: switch chat area to light palette matching good.png</h2>
+    <div class="meta">
+      <code class="sha" title="667e25ae3f92c105d34f1bf3ed098cef6cc06acb">667e25a</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T13:27:42-04:00" title="2026-05-12T13:27:42-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>User feedback after a side-by-side compare (PDF render of panel/index.html</li><li>stacked above good.png at the same 1965×731 dims): the chat background</li><li>in good.png is WHITE/LIGHT, not the dark CBE palette I had been</li><li>defending. Light it is.</li><li>Hardcoded light palette (NOT VSCode theme variables — those got rejected</li><li>in a previous round because the user&#x27;s VSCode theme was dark and the</li><li>chat inherited the dark editor BG):</li><li>- body color: #1f1f1f</li><li>- #app background: #f5f5f5 with #d0d0d0 1px top/left/right border</li><li>- .msg.sent + .msg.assistant: #ffffff bubble with subtle border + 1px</li><li>  drop shadow for definition</li><li>- .msg.info: transparent, no border, gray italic (#707070)</li><li>- .msg.error: light red (#fde8e8) with darker text (#8a1f1f)</li><li>- #thread scrollbar: #c0c0c0</li><li>- #input-box: #ffffff with the existing orange border (unchanged)</li><li>- #textInput: #1f1f1f on white, #999 placeholder</li><li>- Drop shadow attenuated for the lighter surface (rgba 0.32 / 0.20 not</li><li>  0.55 / 0.42)</li><li>- font-family: Segoe UI / system-ui (was Consolas monospace — light chat</li><li>  reads better in a UI sans-serif)</li><li>Send button kept as the existing orange/black circle per user choice</li><li>in the prior round.</li><li>Toolbar (orange gradient, 19 icons + scrollable middle + pinned Send)</li><li>unchanged — that part already matched good.png.</li><li>Codex by Claude Opus 4.7 and ChatGPT 5.5.</li></ul>
+</section>
+
+<section class="commit" id="c-79feba5">
+  <header>
+    <h2><span class="num">26.</span> fix: pin sendBtn to right + scrollable toolbar so Send is always visible</h2>
+    <div class="meta">
+      <code class="sha" title="79feba5ff775b73897eda09dae35f90df9566967">79feba5</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T13:07:09-04:00" title="2026-05-12T13:07:09-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>The 18-icon toolbar overflowed in narrow panels (&lt;= ~960 px), pushing the</li><li>Send button — the most important action — off the right edge entirely.</li><li>Verified visually at 720 px via QtWebEngine printToPdf (the user&#x27;s actual</li><li>panel width per their screenshot).</li><li>Structural fix:</li><li>- #toolbar is now a flex container with TWO siblings: a scrollable inner</li><li>  #toolbar-scroll holding all the .tb-btn icons + #label-pill, and the</li><li>  #sendBtn anchored OUTSIDE the scroll region with flex: 0 0 auto + a</li><li>  margin so it always sits flush-right regardless of how many icons</li><li>  overflow horizontally.</li><li>- #toolbar-scroll: flex: 1 1 auto, min-width: 0, overflow-x: auto.</li><li>  4 px tall scrollbar with translucent thumb. Users can swipe / shift-</li><li>  scroll the icon row; Send is pinned.</li><li>- Added a 14 px linear-gradient fade on each side of #toolbar via</li><li>  ::before / ::after pseudos so the scrollable affordance is visible.</li><li>Compaction for the same panel-width budget:</li><li>- .tb-btn: 36×38 -&gt; 30×32, icon: 18×18 -&gt; 16×16, gap: 4 -&gt; 3 px,</li><li>  toolbar padding: 8/10 -&gt; 6/8 px.</li><li>- #label-pill: 240×34 -&gt; 200×28 (still uses label.png).</li><li>- #sendBtn: 38×38 -&gt; 34×34 with margin 4/8/4/0 and a small drop shadow.</li><li>Result: at 720 px viewport the visible row shows + / saved_prompts /</li><li>stored_prompts / chat_history / attach_file / [Codex pill] / stt / tts /</li><li>auto_reply / wake_up / show_commands / compact / handbook / help — 13 of</li><li>19 icons. The other 6 (settings, extensions, project_folder, vscode_monitor,</li><li>git, github, font_size) scroll in via the scroll affordance. Send is</li><li>always visible flush-right.</li><li>Codex by Claude Opus 4.7 and ChatGPT 5.5.</li></ul>
+</section>
+
+<section class="commit" id="c-23e37fd">
+  <header>
+    <h2><span class="num">27.</span> fix: Codex pill uses label.png so it renders readably at 240×34</h2>
+    <div class="meta">
+      <code class="sha" title="23e37fd0dcffb49f50e008e1d09480a2a66beab6">23e37fd</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T12:59:51-04:00" title="2026-05-12T12:59:51-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>The pill was rendering as a tiny dark blob because the CSS pointed at</li><li>{{LABEL_ALPHA_URI}} = label-alpha.png — the 908 KB high-res master with</li><li>a lot of transparent padding. At background-size: contain on a 220×32</li><li>container, the actual label content shrunk to ~120×20.</li><li>Switched to label.png (the 42 KB composited final, content fills the</li><li>image). Bumped container to 240×34 + margin: 0 8px so the pill matches</li><li>good.png&#x27;s prominence in the toolbar.</li><li>Also restored the simple floating shell (instead of the border-image</li><li>overlay that hid the toolbar buttons in the prior commit):</li><li>- #app: dark BG (#0a0a0a), 1px #2a2a2a border on top/left/right, no</li><li>  bottom border, top corners rounded 12px, drop shadow pointing up.</li><li>- #toolbar: keeps its own linear-gradient (orange band) + #401300 top</li><li>  border so it sits cleanly at the bottom edge.</li><li>- Chat msg + input colors back to the original CBE dark palette</li><li>  (#1c1c1c / #15171c / #131313 / #2a1212), NOT theme variables.</li><li>- body padding 14px 14px 0 14px so the panel attaches to the viewport</li><li>  bottom flush.</li><li>Verified via QtWebEngine printToPdf at 960px and 1280px viewports</li><li>(see C:/Users/moren/claude-tools/panel_960.pdf and panel_1280.pdf).</li><li>At 1280px (typical VSCode panel width) every element is visible and</li><li>positioned correctly; at 960px the Send button clips off the right —</li><li>not a CSS bug, just the natural consequence of 20 toolbar items in</li><li>one row.</li><li>New tool: C:/Users/moren/claude-tools/html2pdf.py — loads any HTML</li><li>into an offscreen QtWebEngine view, resolves CBE&#x27;s {{X_URI}}</li><li>placeholders against on-disk asset paths, then prints to PDF. Lets</li><li>us see what the panel actually looks like without a full extension</li><li>reload. Re-runnable.</li><li>Codex by Claude Opus 4.7 and ChatGPT 5.5.</li></ul>
+</section>
+
+<section class="commit" id="c-12c701a">
+  <header>
+    <h2><span class="num">28.</span> fix: panel flush to bottom + proper CSS border-image 9-slice + theme-var chat</h2>
+    <div class="meta">
+      <code class="sha" title="12c701a033f67504ec9891ba90a8dfda2f9126be">12c701a</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T12:48:47-04:00" title="2026-05-12T12:48:47-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>Per user feedback &quot;the bottom shouldnt have rounded corners and the chat</li><li>colors still need reset&quot;:</li><li>1. body padding is now 14px on top/left/right + 0 on the bottom. The panel</li><li>   #app extends to the bottom edge of the viewport, so the rounded bottom</li><li>   corners of good_clean.png are off-screen and the panel reads as</li><li>   attached to the bottom (not floating mid-screen).</li><li>2. Switched from background-image: 100% 100% (which stretches the orange</li><li>   band and hid the toolbar buttons behind it) to a proper CSS</li><li>   border-image:</li><li>       border-image-source: url(good_clean.png)</li><li>       border-image-slice: 60 60 200 60 fill   (image px)</li><li>       border-width: 12 12 0 12               (CSS px; bottom 0)</li><li>   The fill keyword renders the image&#x27;s center over the panel center as</li><li>   the dark background. Top/left/right corners stay rounded; bottom is</li><li>   flat. The image&#x27;s orange band is no longer rendered (bottom slice</li><li>   discarded via border-width: 0); instead the existing #toolbar div&#x27;s</li><li>   gradient is what shows.</li><li>3. #toolbar&#x27;s own linear-gradient is back (was made transparent in the</li><li>   previous commit when the image was the BG). Restores the bright</li><li>   orange + top-border edge that good.png shows. Toolbar buttons are</li><li>   visible again.</li><li>4. Chat msg + input colors switched to VSCode theme variables:</li><li>       var(--vscode-editor-background)</li><li>       var(--vscode-editorWidget-background)</li><li>       var(--vscode-input-background)</li><li>       var(--vscode-foreground)</li><li>       var(--vscode-descriptionForeground)</li><li>       var(--vscode-errorForeground)</li><li>       var(--vscode-font-family) / editor-font-family</li><li>       var(--vscode-input-placeholderForeground)</li><li>   Chat now adapts to whatever theme the user runs. Hardcoded</li><li>   fallbacks preserve the previous dark look if a var doesn&#x27;t resolve.</li><li>5. Box-shadow flipped to point UP (negative y offsets) so the visible</li><li>   shadow is above the panel, suggesting the panel comes UP from the</li><li>   bottom of the screen rather than hovers in space.</li><li>Codex by Claude Opus 4.7 and ChatGPT 5.5.</li></ul>
+</section>
+
+<section class="commit" id="c-eb8a74f">
+  <header>
+    <h2><span class="num">29.</span> feat: panel BG uses GPT-cleaned good.png frame as a 9-slice border image</h2>
+    <div class="meta">
+      <code class="sha" title="eb8a74f7ea90e2a24afb907bd50ed218cdda1a4e">eb8a74f</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T12:33:48-04:00" title="2026-05-12T12:33:48-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>Per the user&#x27;s &quot;use a 9 slice grid&quot; + &quot;edge around it with a dark background&quot;</li><li>directive:</li><li>1. POST&#x27;d good.png to OpenAI /v1/images/edits (gpt-image-1, 1536x1024) with</li><li>   a foreground-removal prompt that strips conversation bubbles, the Codex</li><li>   pill, the Queue-message input, the Stop button, and every icon glyph —</li><li>   keeping only the dark rounded outer frame + the orange toolbar gradient.</li><li>   Saved to assets/good_clean.png.</li><li>2. Sliced the cleaned image into 9 corner/edge/center tiles (assets/frame9/</li><li>   ft-*.png) plus a single stitched 136x136 border-image source</li><li>   (assets/frame_9slice.png) for CSS consumers that want one file.</li><li>3. panel/index.html #app now uses good_clean.png as a stretched background</li><li>   (background-size: 100% 100%, no-repeat, border-radius 12px to clip the</li><li>   seam). The image&#x27;s baked-in orange toolbar band shows through.</li><li>4. #toolbar&#x27;s own linear-gradient + top-border removed — it&#x27;s now a</li><li>   transparent overlay that just hosts the buttons over the image&#x27;s</li><li>   orange band. Image and toolbar align automatically because both come</li><li>   from the same good.png geometry.</li><li>5. #input-wrap background switched to transparent so the image&#x27;s dark</li><li>   chat area shows through behind the input box.</li><li>6. Tooling: new Python helper at C:\Users\moren\claude-tools\gpt_clean_bg.py</li><li>   that wraps the /v1/images/edits call + the 9-slicing in one script,</li><li>   reading the OpenAI key from C:/triodesktop/config.ini. Re-runnable.</li><li>Lint baseline still clean: TS / Biome / ESLint all 0 errors.</li><li>Codex by Claude Opus 4.7 and ChatGPT 5.5.</li></ul>
+</section>
+
+<section class="commit" id="c-61203bf">
+  <header>
+    <h2><span class="num">30.</span> feat: floating panel + drop shadow + VSCode-theme chat + Font Size toggle</h2>
+    <div class="meta">
+      <code class="sha" title="61203bf9614e743497ef30b39d7aaab1c47420e1">61203bf</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T12:24:58-04:00" title="2026-05-12T12:24:58-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>UI:</li><li>- Panel #app is now a floating rounded card with a 14px gutter around it</li><li>  and a 14/6/inset 3-layer drop shadow. body is transparent so the host</li><li>  VSCode background shows through the gutter; the card is the visible</li><li>  surface.</li><li>- Chat colors switched from hard-coded #15171c/#1c1c1c/#0a0a0a values to</li><li>  VSCode theme variables — var(--vscode-editor-background),</li><li>  var(--vscode-editorWidget-background), var(--vscode-input-background),</li><li>  var(--vscode-foreground), var(--vscode-descriptionForeground),</li><li>  var(--vscode-errorForeground), var(--vscode-scrollbarSlider-*) and</li><li>  the matching fonts. Result: chat adapts to whatever VSCode theme the</li><li>  user runs instead of forcing the old slate look.</li><li>Font Size button:</li><li>- New tb-btn entry between #githubBtn and #spacer with the new</li><li>  assets/font_size.svg icon (Aa-style &quot;big A small A&quot; glyph).</li><li>- Click toggles body.cb-big which sets --cb-font-scale: 1 -&gt; 1.8 (80%</li><li>  bigger). Every text size in the chat + toolbar + input uses</li><li>  calc(... * var(--cb-font-scale)).</li><li>- State persists via workspaceState (codexBlackEd.bigFont); restored on</li><li>  every panel init via the existing settings payload.</li><li>- The button itself flashes the existing .autoread green-dashed pulse</li><li>  when toggled on so the active state is obvious.</li><li>extension.js:</li><li>- buildSettingsPayload now includes bigFont (bool, default false).</li><li>- New case &#x27;setBigFont&#x27; message handler writes workspaceState.</li><li>Codex by Claude Opus 4.7 and ChatGPT 5.5.</li></ul>
+</section>
+
+<section class="commit" id="c-adcad44">
+  <header>
+    <h2><span class="num">31.</span> fix: log every swallowed error + drop button circle BG + zero lint errors</h2>
+    <div class="meta">
+      <code class="sha" title="adcad4404ce58837c3efbb57a6b7a74c96b27e49">adcad44</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T11:41:47-04:00" title="2026-05-12T11:41:47-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>UI:</li><li>- Toolbar buttons no longer wear a per-button circle BG. The buttons sit</li><li>  directly on the orange toolbar like good.png shows; hover/active just</li><li>  recolor + scale the icon glyph. The 3 blank*.png assets stay shipped</li><li>  for any future surface that wants them but the toolbar doesn&#x27;t reference</li><li>  them anymore.</li><li>Swallowed-error policy (the whitepaper rule):</li><li>- Every previously-empty `catch (e) {}` now logs a unique context tag</li><li>  and the error message. 18 catches updated across extension.js,</li><li>  bridge/{browser-bridge,cdp-client,supergrok-bridge}.js, and</li><li>  panel/index.html. Channel pick reflects WHITEPAPER logging-discipline:</li><li>    extension.js / bridge -&gt; traceErr(...) or console.error(...)</li><li>    panel/index.html      -&gt; console.debug(...) (DevTools-only, keeps</li><li>                             the Errors pane clean while preserving the</li><li>                             breadcrumb)</li><li>- trace()&#x27;s own internal catches now fall back to process.stderr (can&#x27;t</li><li>  recurse into trace itself).</li><li>Other lint fixes:</li><li>- 3 noAssignInExpressions in extension.js (SSE chunk loop) and</li><li>  panel/index.html (markdown fence scanner) rewritten to</li><li>  `for (;;) { const x = ...; if (...) break; }` form.</li><li>- 24 button elements got explicit type=&quot;button&quot; so they don&#x27;t act like</li><li>  form-submit (a11y/useButtonType).</li><li>- ESLint ignores expanded: lib/** + .claude/** (worktrees) so vendor +</li><li>  agent-scratch don&#x27;t pollute the report.</li><li>- Biome ignores aligned to the same set; v2 schema files.includes</li><li>  negation patterns.</li><li>- Biome formatter disabled in config (intentional — the historical</li><li>  mixed-style won&#x27;t be flattened in a lint pass; `biome format --write`</li><li>  stays available as a deliberate per-commit operation).</li><li>Handbook (Desktop/claude/handbook/0822_vscode_extension_writing.md):</li><li>- Added Rule 0: &quot;Every swallowed error MUST log something.&quot; Bare</li><li>  `catch (e) {}` is never acceptable. Includes a channel-picker table</li><li>  (logger-internal -&gt; process.stderr; ext/Node -&gt; traceErr; webview -&gt;</li><li>  console.debug; genuine failure -&gt; console.error) and a before/after</li><li>  example.</li><li>Lint baseline now:</li><li>  Knip:       0 errors, 5 advisories (all false-positives / intentional)</li><li>  TypeScript: 0 errors</li><li>  Biome:      0 errors, 102 warnings (style; non-blocking)</li><li>  ESLint:     0 errors, 11 warnings (style; non-blocking)</li><li>Was: 31+72 = 103 errors. Net: -103.</li><li>Codex by Claude Opus 4.7 and ChatGPT 5.5.</li></ul>
+</section>
+
+<section class="commit" id="c-a6c67c3">
+  <header>
+    <h2><span class="num">32.</span> v1.7.0: 16-sound SFX subsystem + on/off + volume slider, lint configs</h2>
+    <div class="meta">
+      <code class="sha" title="a6c67c3cf8e57024f29697478cdc3127e0a9beff">a6c67c3</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T11:23:43-04:00" title="2026-05-12T11:23:43-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>Sound effects:</li><li>- 16 .ogg files copied to sounds/ (claude/click/close_modal/connect/disable/</li><li>  enable/error/gemini/gtp/maximize/minimize/open_and_close_application/</li><li>  open_modal/popup/shell/tick). Source typo `ebable.ogg` renamed to enable.ogg.</li><li>- extension.js: sounds added to localResourceRoots + {{SOUNDS_BASE}} URI</li><li>  substitution in getPanelHtml.</li><li>- panel/index.html: SFX subsystem with preloadSfx/playSfx, all 16 preloaded.</li><li>- 8 event hooks: toolbar .tb-btn click -&gt; &#x27;click&#x27;; send -&gt; &#x27;tick&#x27;; addMsg</li><li>  error -&gt; &#x27;error&#x27;; settings modal open/close -&gt; &#x27;open_modal&#x27;/&#x27;close_modal&#x27;;</li><li>  STT start -&gt; &#x27;connect&#x27;, stop -&gt; &#x27;disable&#x27;; init -&gt; &#x27;open_and_close_application&#x27;</li><li>  (one-shot); per-provider response chunk -&gt; claude/gtp/gemini/popup-fallback.</li><li>SFX user controls (this commit, on top of the agent&#x27;s wiring):</li><li>- New Sound Effects on/off checkbox + Volume slider in the settings modal.</li><li>- playSfx() gated on window.SFX_ENABLED, scaled by window.SFX_VOLUME.</li><li>- setSfxVolume() also rewrites every cached HTMLAudioElement&#x27;s .volume so</li><li>  the change is live across all 16 preloaded sounds.</li><li>- Persisted in workspaceState (codexBlackEd.sfxEnabled / sfxVolume) and</li><li>  rehydrated on every panel `init` message; buildSettingsPayload includes</li><li>  them. Cancel reverts live previews to the last saved values.</li><li>Lint + type tooling:</li><li>- Added biome.json (Biome v2 schema; files.includes negation patterns).</li><li>- Added eslint.config.js (ESLint 10 flat config; minimal rules complementing</li><li>  Biome; node + browser globals; panel/injects scoped to script + browser).</li><li>- Added tsconfig.json (allowJs, noEmit; `tsc --noEmit` passes 0 errors).</li><li>- Added globals + @types/node devDependencies.</li><li>- npm scripts: `lint`, `lint:fix`, `format`, `typecheck`, `knip`, `check`.</li><li>Lint baseline against this commit (informational):</li><li>  Knip:       0 errors, 5 advisories (false positives — kept).</li><li>  TypeScript: 0 errors.</li><li>  Biome:      31 errors, 110 warnings, 55 infos (mostly empty catch blocks</li><li>              + style; non-blocking).</li><li>  ESLint:     72 errors, 32 warnings (almost all `&#x27;e&#x27; defined but never used`</li><li>              in swallow-pattern catches; per WHITEPAPER logging-discipline</li><li>              rules these are intentional and can be suppressed in a later pass).</li><li>Codex by Claude Opus 4.7 and ChatGPT 5.5.</li></ul>
+</section>
+
+<section class="commit" id="c-76c8af4">
+  <header>
+    <h2><span class="num">33.</span> v1.6.0: 18-button toolbar (blank BG + SVG icon overlay), serializer dispose, dev tooling</h2>
+    <div class="meta">
+      <code class="sha" title="76c8af4ff3f737ae3207bc73ef369c06aed91c0f">76c8af4</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-12T10:42:34-04:00" title="2026-05-12T10:42:34-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>Toolbar UX (panel/index.html):</li><li>- Single-row toolbar with 18 functional icon buttons + Add + Send, sized to</li><li>  match good.png. Buttons use blank.png (idle) / blank_over.png (hover) /</li><li>  blank_click.png (active) as the round face; SVG glyph is overlaid via</li><li>  mask-image so currentColor tints it (gray idle -&gt; #FF6A00 hover -&gt; #F32E00</li><li>  click). Single source of truth — change the SVG, every state updates.</li><li>- New buttons (with their click-&gt;extension message types):</li><li>    saved_prompts, stored_prompts, chat_history, attach_file, stt, tts,</li><li>    auto_reply, wake_up, show_command_menu, compact, handbook, help,</li><li>    settings, extensions, project_folder, vscode_monitor, git, github</li><li>- Removed old emoji-text mutations from the STT (formerly mic) handler;</li><li>  state now expressed via .speaking / .autoread CSS classes so the SVG</li><li>  icon stays visible at all times.</li><li>Assets:</li><li>- 20 SVG icons in assets/ (15 from icon-generation agent + 5 inline:</li><li>  add, attach_file, show_command_menu, compact, send_arrow). All use</li><li>  viewBox=&quot;0 0 24 24&quot; + fill=&quot;currentColor&quot;; consumer tints via CSS.</li><li>- 3 new blank button BG PNGs (blank.png / blank_over.png / blank_click.png)</li><li>  extracted from send*.png by erasing the central arrow.</li><li>- New bg9/ folder: 9-slice tiles of the orange toolbar BG from good.png with</li><li>  the foreground stripped (per-Y row-median PIL cleanup) plus bg9.manifest.json</li><li>  and bg-clean.png reference. Stretchable horizontally without distortion.</li><li>- Removed 42 superseded button PNGs (the 14-icons-x-3-states matrix from an</li><li>  earlier session — replaced by blank + SVG-overlay architecture).</li><li>extension.js:</li><li>- getPanelHtml: substitutes {{ASSETS_BASE}}, {{BLANK_URI}}, {{BLANK_OVER_URI}},</li><li>  {{BLANK_CLICK_URI}} (in addition to existing label + prism URIs).</li><li>- Panel serializer: deserializeWebviewPanel now calls webviewPanel.dispose()</li><li>  instead of bindPanel(). Closing the panel keeps it closed across reloads.</li><li>- On activate, sweeps any stale tabs with viewType ending in &#x27;codexBlackEd.panel&#x27;</li><li>  and closes them — the &quot;delete the old panels&quot; guarantee.</li><li>Dev tooling (devDependencies):</li><li>- knip, typescript, eslint, @biomejs/biome added. Sizes for reference:</li><li>    knip 3.1M, typescript 24M, eslint 3.8M, @biomejs/biome 728K.</li><li>- Knip identified and we removed: bridge/_smoke.js, injects/red-stop-btn.js</li><li>  (post-pivot deprecated per WHITEPAPER), and the empty hooks/ directory.</li><li>- lib/prism*.js are loaded via HTML &lt;script src&gt; (Knip false positive — kept).</li><li>Cleanup:</li><li>- Old VSIX archives (1.2.0 / 1.3.0 / 1.4.0) deleted from repo root. 1.5.0</li><li>  retained as the latest packaged build. (All are gitignored anyway.)</li><li>Permission-bypass sweep: grepped for showWarningMessage / Allow-Deny prompts</li><li>/ workspace trust gates / explicit permission tests — none found in</li><li>extension.js or bridge/*.js. Nothing to bypass; codebase was already</li><li>permission-gate-free.</li><li>Handbook references new chapters in Desktop/claude/handbook/:</li><li>  0821_sibling_sync_tools.md         — three-way start.py sync tooling</li><li>  0822_vscode_extension_writing.md   — distilled WHITEPAPER + design rules</li><li>Codex by Claude Opus 4.7 and ChatGPT 5.5.</li></ul>
+</section>
+
+<section class="commit" id="c-4acc58d">
+  <header>
+    <h2><span class="num">34.</span> v1.5.0: claudeBridge provider, TTS read-aloud, Show command, Web Speech STT</h2>
+    <div class="meta">
+      <code class="sha" title="4acc58d2dd454415cbec7baa15f4d4ff7ddaec28">4acc58d</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T23:15:17-04:00" title="2026-05-11T23:15:17-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>Three regressions + one new provider this release:</li><li>- Restored TTS / read-aloud (lost in the standalone pivot). New 🔊 toolbar</li><li>  button: single-click reads the last assistant reply via SpeechSynthesisUtterance,</li><li>  double-click toggles auto-read of every reply, click during playback stops.</li><li>  CSS .tb-btn.speaking + .tb-btn.autoread show state.</li><li>- Added codexBlackEd.show command (palette + keybinding accessible) as an</li><li>  alias to openPanel. Was missing from the standalone build.</li><li>- Web Speech STT (🎙 mic) was actually already wired but confirmed working;</li><li>  the agent verified the IIFE binding to webkitSpeechRecognition.</li><li>- New claudeBridge provider: routes to SuperGrok&#x27;s TCP service with</li><li>  target=claude. Mirrors the geminiBridge entry. Settings modal &quot;Open</li><li>  Claude login&quot; button spawns visible C:/SuperGrok/start.py --claude.</li><li>Bumped to 1.5.0. node_modules unchanged.</li></ul>
+</section>
+
+<section class="commit" id="c-e1b7e86">
+  <header>
+    <h2><span class="num">35.</span> Web-bridge providers: grokWeb, chatgptWeb, geminiBridge</h2>
+    <div class="meta">
+      <code class="sha" title="e1b7e868c3e8e167bfed71bb239203a1a17014c4">e1b7e86</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T23:10:39-04:00" title="2026-05-11T23:10:39-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>Three new browser-bridge provider types route through the chatStream dispatcher</li><li>without going through any direct API:</li><li>  grokWeb / chatgptWeb — spawn Chrome via CDP (bridge/{cdp-client,</li><li>    browser-bridge,dom-scripts}.js). Per-provider Chromium profile under</li><li>    globalStorageUri keeps cookies between launches. First send pops the</li><li>    Save-As / config.ini key prompt if not yet authed.</li><li>  geminiBridge — talks TCP to SuperGrok&#x27;s resident bridge service on</li><li>    127.0.0.1:8767 (bridge/supergrok-bridge.js). SuperGrok owns the</li><li>    QWebEngine session offscreen; CBE is just a TCP client. Login flow</li><li>    invokes `python C:/SuperGrok/start.py --gemini` (visible window).</li><li>Provider registry gains a `webBridge`/`superGrok` flag; chatStream branches</li><li>on it; settings modal shows &quot;(web)&quot; / &quot;(SuperGrok)&quot; suffix and an &quot;Open</li><li>login&quot; button instead of the no-key warning. handleSendText skips the</li><li>API-key prompt for these providers (auth lives in browser cookies).</li><li>Also bundled: previous v1.1.0 dead-wires fix (per-provider secret storage,</li><li>maxTokens config piping, max_completion_tokens for OpenAI o-series, Web</li><li>Speech mic, showTrace handler, dropped unused @google/genai+openai deps,</li><li>70% VSIX size cut).</li><li>VSIX at v1.3.0 (1.92 MB).</li></ul>
+</section>
+
+<section class="commit" id="c-dcf13ea">
+  <header>
+    <h2><span class="num">36.</span> Multi-provider chat + settings modal (Claude/ChatGPT/Grok/Gemini/Azure)</h2>
+    <div class="meta">
+      <code class="sha" title="dcf13ea2809e594f9f9bc143e95e4500ba6f6081">dcf13ea</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T21:04:22-04:00" title="2026-05-11T21:04:22-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>extension.js (~500 lines):</li><li>- PROVIDERS registry: anthropic, openai, grok (direct xAI API — not the</li><li>  grok.com browser bridge), gemini, azure. Each has label, default model,</li><li>  candidate model list, and the config.ini field names for key + model.</li><li>- readConfigIni() now parses the full INI (multi-section) and returns</li><li>  {api_keys, azure, ...} instead of just the anthropic key.</li><li>- getProviderKey() pulls from [api_keys] (or [azure] for Azure), with env</li><li>  fallbacks (ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY, GEMINI_API_KEY).</li><li>- chatStream() dispatches by provider:</li><li>    anthropic -&gt; @anthropic-ai/sdk messages.stream()</li><li>    openai / grok / azure -&gt; raw fetch + SSE parse (OAI-compatible)</li><li>    gemini -&gt; fetch with ?alt=sse to streamGenerateContent</li><li>  All yield text deltas through a uniform async iterator into handleSendText.</li><li>- Active provider + per-provider model stored in workspaceState; survives</li><li>  reloads. Status bar shows &quot;CBE: idle [Claude]&quot; / &quot;[Grok]&quot; etc.</li><li>- New command codexBlackEd.openSettings posts {type:&#x27;openSettings&#x27;} to the</li><li>  webview with the full provider+model payload.</li><li>panel/index.html:</li><li>- ⚙ Settings button in toolbar between mic and trace icons.</li><li>- Click → modal with provider dropdown + model dropdown, &quot;no key&quot; warning</li><li>  badge per provider, save/cancel buttons, Esc + overlay-click dismiss.</li><li>- Saves via api.postMessage({type:&#x27;setProvider&#x27;, provider, model}).</li><li>- On panel open, posts {type:&#x27;ready&#x27;}; host responds with {type:&#x27;init&#x27;}</li><li>  carrying the current provider state (cached, not displayed).</li><li>- Label-pill click now opens settings (was no-op).</li><li>config.ini stays gitignored. Multi-provider keys + [azure] section live at</li><li>~/.cbe/config.ini (NOT bundled in the VSIX — vsce&#x27;s secret scanner caught</li><li>the OpenAI key, so we keep the file user-level and read it from the</li><li>existing fallback path in readConfigIni). VSIX is now shareable.</li></ul>
+</section>
+
+<section class="commit" id="c-eb80b08">
+  <header>
+    <h2><span class="num">37.</span> panel: render markdown fences with Prism-highlighted code blocks</h2>
+    <div class="meta">
+      <code class="sha" title="eb80b0827d9109d772d2c8e8aa3214bd0928adde">eb80b08</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T20:48:45-04:00" title="2026-05-11T20:48:45-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>Delivery: lib/-based (prism.min.js + prism-langs.min.js + prism-dark.min.css</li><li>restored from 22ab94c). Cleaner than inlining a 30 KB Prism core into</li><li>index.html — external libraries belong in lib/, panel stays focused.</li><li>- extension.js: add lib/ to localResourceRoots; expose three Prism</li><li>  webview URIs via template tokens.</li><li>- package.json: add lib/** to &quot;files&quot;.</li><li>- panel/index.html:</li><li>  * Load Prism CSS + core + lang packs via webview.asWebviewUri.</li><li>  * Set Prism.manual = true so it doesn&#x27;t auto-scan the panel DOM.</li><li>  * On assistantDone: parse the canonical text with a fence regex,</li><li>    build cv-code-wrap / cv-code-bar / cv-code-lang / cv-copy-btn</li><li>    DOM, call Prism.highlightElement per &lt;code&gt;.</li><li>  * Copy button: navigator.clipboard.writeText with execCommand</li><li>    fallback; flips to &quot;.copied&quot; + &quot;Copied!&quot; for 1.5s.</li><li>  * VS Code dark+ token colours scoped to .msg.assistant.</li><li>  * Inline `code` rendered as code.cv-inline on prose chunks.</li><li>Edge cases handled:</li><li>  * Unclosed fences (regex alternates on closing ``` OR end-of-string).</li><li>  * Unknown languages: still wrapped, label uppercased, no highlight.</li><li>  * Aliases: posh/ps1/ps -&gt; powershell, sh/shell/zsh -&gt; bash,</li><li>    js/ts/py/yml -&gt; canonical Prism names.</li><li>  * Prose between/after fences preserved with white-space: pre-wrap</li><li>    via a per-prose cv-prose span (assistant msg switches to</li><li>    white-space: normal once rendered to host mixed block/inline).</li><li>  * Render failure -&gt; fall back to plain text so reply still shows.</li></ul>
+</section>
+
+<section class="commit" id="c-a3f8f29">
+  <header>
+    <h2><span class="num">38.</span> Add right-click View Source modal with Prism highlighting</h2>
+    <div class="meta">
+      <code class="sha" title="a3f8f294b314cac5f1fe2d896078596e5aec5e0b">a3f8f29</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T20:47:00-04:00" title="2026-05-11T20:47:00-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>- panel/index.html: global contextmenu handler shows custom menu;</li><li>  &quot;View Source&quot; enabled only on `pre code` elements. Modal renders</li><li>  Prism-highlighted code with manual per-line line numbers</li><li>  (table-row layout so wrapping never breaks alignment).</li><li>  Esc / overlay-click close. Copy button included.</li><li>- extension.js: localResourceRoots now includes lib/. Three new</li><li>  template placeholders {{PRISM_JS_URI}} / {{PRISM_LANGS_URI}} /</li><li>  {{PRISM_CSS_URI}} substituted via webview.asWebviewUri.</li><li>- package.json: lib/** added to files array.</li><li>- lib/: restored prism.min.js, prism-langs.min.js, prism-dark.min.css</li><li>  from commit 22ab94c.</li><li>Prism delivery: chose path (a) — bundled lib/ files served via</li><li>webview.asWebviewUri. Cleaner than inlining ~60KB of Prism into</li><li>index.html, avoids the http://127.0.0.1:57837 dependency of the</li><li>pre-pivot, and is CSP-safe under VS Code&#x27;s default webview policy.</li><li>Verified prism-langs.min.js + prism.min.js cover all required</li><li>languages: powershell, bash, xml, css, python, svg, js, ts, php.</li><li>Aliases (sh→bash, ps1→powershell, jsx→javascript, etc.) handled</li><li>in normalizeLang().</li><li>The global contextmenu listener uses preventDefault so VS Code&#x27;s</li><li>default webview menu is suppressed. Another agent owns DevTools —</li><li>the menu is built single-item and the showCtxMenu helper is</li><li>exposed on window.__cbeShowCtxMenu for clean future extension.</li></ul>
+</section>
+
+<section class="commit" id="c-574a531">
+  <header>
+    <h2><span class="num">39.</span> Add right-click context menu with Open DevTools</h2>
+    <div class="meta">
+      <code class="sha" title="574a53116cd0e5e8a52ebf10eebf8efffe5e55de">574a531</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T20:44:48-04:00" title="2026-05-11T20:44:48-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>Panel webview now intercepts contextmenu events and renders a custom dark</li><li>menu with two items: a disabled &quot;View Source (n/a)&quot; placeholder (left for</li><li>Agent 1&#x27;s parallel View Source work to wire up) and &quot;Open DevTools&quot;.</li><li>Clicking DevTools posts {type:&#x27;openDevTools&#x27;} to the host, which calls</li><li>workbench.action.webview.openDeveloperTools. Menu dismisses on outside</li><li>mousedown or Escape, repositions to stay on-screen.</li></ul>
+</section>
+
+<section class="commit" id="c-d214b05">
+  <header>
+    <h2><span class="num">40.</span> getApiKey: read from config.ini first (project + ~/.cbe/ fallback)</h2>
+    <div class="meta">
+      <code class="sha" title="d214b05e669a08fa062fad2f4511ce201be24eec">d214b05</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T20:35:35-04:00" title="2026-05-11T20:35:35-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>extension.js: readConfigIni() parses [api_keys] anthropic_api_key from</li><li>either &lt;extensionPath&gt;/config.ini or ~/.cbe/config.ini. Used as the</li><li>first source in getApiKey, before ANTHROPIC_API_KEY env, SecretStorage,</li><li>and the first-run prompt. Logs which path the key came from + the key</li><li>length (never the value) to the trace channel.</li><li>package.json: config.ini added to files allowlist so the VSIX bundles</li><li>whatever config.ini exists in the project at build time. The file is</li><li>.gitignore&#x27;d so the actual key is never committed.</li></ul>
+</section>
+
+<section class="commit" id="c-94ca3ea">
+  <header>
+    <h2><span class="num">41.</span> Wire real chat backend: Anthropic SDK streaming + API key flow + trace channel</h2>
+    <div class="meta">
+      <code class="sha" title="94ca3ead32659b0455f0d0beb6d862b996c05f85">94ca3ea</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T20:30:55-04:00" title="2026-05-11T20:30:55-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>extension.js (282 lines, up from 68):</li><li>- onDidReceiveMessage handler dispatches sendText/reset/labelClick</li><li>- getApiKey: ANTHROPIC_API_KEY env -&gt; SecretStorage -&gt; first-run prompt</li><li>- @anthropic-ai/sdk client with lazy init, streams via messages.stream({...})</li><li>- Per-session conversation history (in-memory, cleared on reset)</li><li>- Output channel &quot;Claude Codex Black&quot; traces every step (recv, stream start,</li><li>  chunk count, tokens used, errors with stack)</li><li>- Status bar item: &quot;CBE: idle | streaming | error&quot; with spinner</li><li>- Commands: setApiKey, clearApiKey, resetConversation, showTrace</li><li>panel/index.html:</li><li>- assistantStart/chunk/assistantDone message handlers</li><li>- Streaming cursor (blinking pill) while assistant is mid-response</li><li>- setBusy disables input + send button during stream</li><li>- Error display, info display, &quot;+&quot; resets conversation</li><li>- Monitor button opens trace channel</li><li>package.json:</li><li>- @anthropic-ai/sdk dep added (bundled into VSIX via node_modules/** in files)</li><li>- Config: model (sonnet-4-6 default), maxTokens (4096)</li><li>- 4 new commands contributed</li><li>SUPER STOP upgrade (injects/red-stop-btn.js was written this session) is paused</li><li>pending chat-backend validation. Restore from this commit if needed.</li></ul>
+</section>
+
+<section class="commit" id="c-311eb0b">
+  <header>
+    <h2><span class="num">42.</span> WORKING CHECKPOINT</h2>
+    <div class="meta">
+      <code class="sha" title="311eb0bb544ca12691b65a1d1218f957f3db2e56">311eb0b</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T20:07:22-04:00" title="2026-05-11T20:07:22-04:00">2d ago</time>
+    </div>
+  </header>
+  
+</section>
+
+<section class="commit" id="c-3610d9a">
+  <header>
+    <h2><span class="num">43.</span> Drop redundant activationEvents</h2>
+    <div class="meta">
+      <code class="sha" title="3610d9a84eb766e3f587119f976e100cb23f422d">3610d9a</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T19:26:20-04:00" title="2026-05-11T19:26:20-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>Modern VS Code auto-generates onCommand activation from the command</li><li>contribution, so the explicit entry is just lint noise.</li></ul>
+</section>
+
+<section class="commit" id="c-a1c914a">
+  <header>
+    <h2><span class="num">44.</span> Restore assets + wire splat icon to editor/title menu</h2>
+    <div class="meta">
+      <code class="sha" title="a1c914a389a356764704cc40f3569cc476d199f7">a1c914a</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T19:24:59-04:00" title="2026-05-11T19:24:59-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>Brings back the asset set that was accidentally deleted in the pivot:</li><li>custom label PNGs, send button states, claude-logo-source, icon-dark</li><li>preview, icon.svg, and the black-splat icon (moved from resources/ to</li><li>assets/ since it&#x27;s product art, not a generic resource).</li><li>Wires assets/icon-light.png + resources/icon-dark.png back into the</li><li>editor/title navigation group via the codexBlackEd.openPanel command,</li><li>restoring the theme-aware top-right icon that was originally there.</li></ul>
+</section>
+
+<section class="commit" id="c-f9a749e">
+  <header>
+    <h2><span class="num">45.</span> Pivot to standalone: delete parasitic patcher, injects, hooks, watchdog</h2>
+    <div class="meta">
+      <code class="sha" title="f9a749e52d29af59d57c3af8b951c9a621cd995a">f9a749e</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T19:08:36-04:00" title="2026-05-11T19:08:36-04:00">2d ago</time>
+    </div>
+  </header>
+  <ul><li>extension.js collapsed from 1349 lines to 68. Now does one thing:</li><li>register codexBlackEd.openPanel + open own webview that renders</li><li>assets/label-alpha.png. Zero references to claude-vscode, zero file</li><li>mutation of anthropic.claude-code, zero cache clearing, zero watchdog,</li><li>zero auto-wakeup, zero injection into other webviews.</li><li>Deleted: patch-webview.js, extension.js.post-pivot.bak, cbe_watchdog.ps1,</li><li>cbe-server.js, fork-from-anthropic.js, fix_collisions.py, all *.py</li><li>helpers, all sprint*.txt, WHITEPAPER.md, HELP.md, config.ini*,</li><li>injects/ (30 files), hooks/ (8 files), reports/, lib/, skins/, themes/,</li><li>sounds/, tools/. Unused assets pruned to label-alpha.png + icon.png.</li><li>package.json: activationEvents narrowed to onCommand:codexBlackEd.openPanel.</li><li>Dependencies block removed entirely (no @anthropic-ai/sdk, no sharp).</li></ul>
+</section>
+
+<section class="commit" id="c-22ab94c">
+  <header>
+    <h2><span class="num">46.</span> STT paste-only by default; orange strip contained to drop-shadow card</h2>
+    <div class="meta">
+      <code class="sha" title="22ab94cff79a668df1ea49450c3dcda70a80ee65">22ab94c</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T08:52:16-04:00" title="2026-05-11T08:52:16-04:00">3d ago</time>
+    </div>
+  </header>
+  <ul><li>- extension.js: submitText(text, submit=true) — STT path passes</li><li>  autoSend setting (default false) so transcript is pasted but not sent,</li><li>  letting the user edit before submitting</li><li>- package.json + README.md: codexBlackEd.autoSend default flipped to false</li><li>- injects/black-edition.js: orange gradient restricted to [class*=inputActions]</li><li>  only (was bleeding across the whole inputFooter wrapper); inputContainer</li><li>  now carries the drop-shadow card framing with #2a2a2e backing; outer-only</li><li>  inputActions rule pins it to 70% column when CC renders it at panel root;</li><li>  rounded bottom corners match the card; new applyInputShadow() fixed-overlay</li><li>  helper for shadow that bypasses parent overflow clipping</li></ul>
+</section>
+
+<section class="commit" id="c-e5bfb5b">
+  <header>
+    <h2><span class="num">47.</span> Add push.py, hot-reload patcher rename, asset baking + new injects</h2>
+    <div class="meta">
+      <code class="sha" title="e5bfb5b2cb77188e61ff92dec50ea9cf22ca280a">e5bfb5b</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T08:42:05-04:00" title="2026-05-11T08:42:05-04:00">3d ago</time>
+    </div>
+  </header>
+  <ul><li>- push.py: token-from-config GitHub push helper (token read from gitignored config.ini)</li><li>- patch-webview.js: re-enable panel title rename &quot;Claude Code&quot; -&gt; &quot;Claude Codex Black Ed.&quot;</li><li>- injects: aa-label-data, aa-send-data, aa-probe-placeholder, chat-logger,</li><li>  dom-probe-font, help-btn, zz-placeholder-probe; updates to black-edition,</li><li>  context-menu, monitor-btn</li><li>- assets: baked label + send button images</li><li>- tools/: mouse + screenshot helpers</li><li>- bake_label.py / bake_send.py / gpt_edit.py / slicer.py: build/dev scripts</li><li>- config.ini.sample: github_token placeholder</li><li>- .gitignore: __pycache__/ and *.pyc</li></ul>
+</section>
+
+<section class="commit" id="c-e7bc5a1">
+  <header>
+    <h2><span class="num">48.</span> Scope input-area styling to chat composer only</h2>
+    <div class="meta">
+      <code class="sha" title="e7bc5a15bdc8ada134a4f379331b7554990f5d12">e7bc5a1</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T03:33:25-04:00" title="2026-05-11T03:33:25-04:00">3d ago</time>
+    </div>
+  </header>
+  <ul><li>forceTextareaDark was iterating every textarea/contenteditable/role=textbox</li><li>on the page and applying the orange 4px border + 70% width to each parent.</li><li>Code diff blocks render as contenteditable widgets so they were getting</li><li>treated as input containers.</li><li>Filter candidates to descendants of [class*=&quot;inputContainer&quot;] or</li><li>[class*=&quot;composer&quot;] so only the actual chat input is styled.</li></ul>
+</section>
+
+<section class="commit" id="c-f2b34bb">
+  <header>
+    <h2><span class="num">49.</span> Untrack config.ini, add config.ini.sample template</h2>
+    <div class="meta">
+      <code class="sha" title="f2b34bbde73a4fb6cbb0aa13c4af574f92beb8da">f2b34bb</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T03:30:52-04:00" title="2026-05-11T03:30:52-04:00">3d ago</time>
+    </div>
+  </header>
+  <ul><li>Real API keys stay local in config.ini (now gitignored). Sample file shows</li><li>the schema with placeholders so anyone cloning knows what to fill in.</li></ul>
+</section>
+
+<section class="commit" id="c-28ee06b">
+  <header>
+    <h2><span class="num">50.</span> Initial commit: Claude Codex Black Edition VSCode extension</h2>
+    <div class="meta">
+      <code class="sha" title="28ee06bce1092d80e19bcd309d807e1bc0a78bb5">28ee06b</code>
+      <span class="author">Trent Tompkins</span>
+      <time datetime="2026-05-11T03:29:05-04:00" title="2026-05-11T03:29:05-04:00">3d ago</time>
+    </div>
+  </header>
+  <ul><li>Fork of claude-voice. Patches Claude Code&#x27;s webview to inject a black/orange</li><li>themed UI with STT (OpenAI + Gemini), screen-aware features, and a bundled</li><li>inject system. Includes patch-webview.js, 19 injects, the cbe-server companion,</li><li>hot-reload bundle watcher, and skin/theme XMLs.</li></ul>
+</section>
+  </main>
+</div>
+</body>
+</html>

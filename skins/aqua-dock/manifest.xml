@@ -17,5 +17,11 @@
     <modal-foot-bg>#0a1828</modal-foot-bg>
     <modal-accent>#5fb8ff</modal-accent>
     <highlight-color>#bfe6ff</highlight-color>
+    <!-- Code-block chrome: title bar above + footer below fenced code.
+         Read by the panel as --cbe-code-bar-bg / --cbe-code-bar-fg. A
+         deep aqua tone sits between modal-bg and the bright title-bg so
+         the bar reads as chrome distinct from the code body. -->
+    <code-bar-bg>#1b3a5c</code-bar-bg>
+    <code-bar-fg>#dceeff</code-bar-fg>
   </colors>
 </skin>

@@ -26,5 +26,10 @@
          focus rings, selection bars, etc). Picked per-skin to read
          clearly on the skin's modal-bg. -->
     <highlight-color>#fdb813</highlight-color>
+    <!-- Code-block chrome: title bar above + footer below fenced code.
+         Read by the panel as --cbe-code-bar-bg / --cbe-code-bar-fg.
+         Darkened Arch cyan keeps the bar cohesive with the accent. -->
+    <code-bar-bg>#0d4d70</code-bar-bg>
+    <code-bar-fg>#d7efff</code-bar-fg>
   </colors>
 </skin>

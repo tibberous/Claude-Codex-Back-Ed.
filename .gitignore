@@ -13,6 +13,14 @@ panel/index.png
 prompt_history.txt
 prompts.txt
 chats/
-logs/
-extensions/
-domains.txt
+# Build artifacts and runtime state — never commit.
+bin/                                  # compiled CBE-Bridge-*.exe outputs
+bridges_cpp/obj/                      # intermediate .obj/.res files
+logs/                                 # chat.log, console.log, build_bridges.log, etc.
+port.txt                              # bridge service writes live port here
+session.log
+data/                                 # QWebEngine profile data (cookies, cache)
+stored_prompts/                       # transcript spool — user-local
+tools/*.log
+tools/_translate_log.txt
+*.log

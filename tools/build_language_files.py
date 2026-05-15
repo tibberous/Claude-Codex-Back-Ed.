@@ -171,6 +171,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "label.install": "Install",
         "label.installed": "Installed",
         "label.installing": "Installing…",
+        "label.change_log": "Change Log",
+        "label.open": "Open",
+        "label.pin_toolbar": "Pin to Toolbar",
+        "label.unpin_toolbar": "Unpin from Toolbar",
+        "label.uninstall": "Uninstall",
         # Extra toolbar tooltips not covered above
         "tooltip.new_conversation": "New conversation",
         "tooltip.stored_prompts": "Stored prompts",

@@ -828,6 +828,10 @@ function getMaxTokens() {
 }
 
 let activePanel;
+/* Singleton WebviewPanel for the NN4-skinned browser shell. Created lazily
+   on the first 'openNN4Browser' message; revealed on subsequent clicks;
+   nulled out by onDidDispose so the next click rebuilds it. */
+let _nn4BrowserPanel = null;
 let conversation = [];
 let outChan;
 /* Our owned terminal — recreated on click if the user closed it. Kept here
@@ -1575,6 +1579,8 @@ function parseSkinManifest(manifestPath) {
                 'modal-foot-bg':    pick('modal-foot-bg'),
                 'modal-accent':     pick('modal-accent'),
                 'highlight-color':  pick('highlight-color'),
+                'code-bar-bg':      pick('code-bar-bg'),
+                'code-bar-fg':      pick('code-bar-fg'),
             },
         };
     } catch (_) {
@@ -2882,6 +2888,39 @@ function bindPanel(context, panel) {
                 case 'openSettings':
                     panel.webview.postMessage({ type: 'openSettings', ...buildSettingsPayload(context) });
                     break;
+                case 'openNN4Browser': {
+                    /* Open (or reveal) a separate WebviewPanel that renders
+                       panel/nn4-browser.html — a Netscape Navigator 4.0
+                       skinned browser shell wrapping an <iframe>. Scripts
+                       are enabled; retainContextWhenHidden keeps the iframe
+                       state alive across tab switches. The HTML is inlined
+                       (no localResourceRoots needed) since the file is
+                       self-contained — pure CSS + inline JS, no asset refs. */
+                    if (!_nn4BrowserPanel) {
+                        _nn4BrowserPanel = vscode.window.createWebviewPanel(
+                            'codexBlackEd.nn4Browser',
+                            'Netscape Navigator 4.0 — CBE',
+                            { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
+                            { enableScripts: true, retainContextWhenHidden: true }
+                        );
+                        try {
+                            _nn4BrowserPanel.webview.html = fs.readFileSync(
+                                path.join(context.extensionPath, 'panel', 'nn4-browser.html'),
+                                'utf8'
+                            );
+                        } catch (e) {
+                            traceErr('read nn4-browser.html', e);
+                            _nn4BrowserPanel.webview.html =
+                                '<html><body style="font-family:sans-serif;padding:1em;">' +
+                                '<h3>NN4 Browser failed to load</h3><pre>' +
+                                String(e && e.message || e) + '</pre></body></html>';
+                        }
+                        _nn4BrowserPanel.onDidDispose(() => { _nn4BrowserPanel = null; });
+                    } else {
+                        _nn4BrowserPanel.reveal(vscode.ViewColumn.Active);
+                    }
+                    break;
+                }
                 case 'setBigFont':
                     await context.workspaceState.update('codexBlackEd.bigFont', !!msg.value);
                     break;
@@ -2929,6 +2968,35 @@ function bindPanel(context, panel) {
                     trace(`active provider set: ${msg.provider} / ${msg.model || '(default)'} sfx=${msg.sfxEnabled}/${msg.sfxVolume} skin=${msg.skin || '(none)'} lang=${msg.language || '(unchanged)'}`);
                     setStatus('idle', false, msg.provider);
                     panel.webview.postMessage({ type: 'info', text: `Provider → ${PROVIDERS[msg.provider].label} · ${msg.model || getActiveModel(context, msg.provider)}` });
+                    /* Bridge service management: web-bridge providers (grokWeb /
+                       chatgptWeb / copilotBridge / geminiBridge) need a Windows
+                       service that runs a Chrome instance with the bridge profile.
+                       Non-web-bridge providers (direct API key, Azure) don't.
+                       When the user switches providers in Settings:
+                         - uninstall the previously-active bridge service (if any)
+                         - install the new one (if the new provider is a web bridge)
+                         - persist which service is currently active so we know
+                           what to uninstall next switch
+                       Both installBridgeServiceFor and uninstallBridgeServiceFor
+                       are async-spawn (powershell elevated), so this never blocks
+                       the panel; the user sees progress via vscode info toasts. */
+                    try {
+                        const _prevBridgeSvc = context.workspaceState.get('codexBlackEd.activeBridgeService') || '';
+                        const _newIsBridge = !!(PROVIDERS[msg.provider] && PROVIDERS[msg.provider].webBridge);
+                        if (_prevBridgeSvc && _prevBridgeSvc !== msg.provider) {
+                            trace(`bridge-svc switch: uninstalling old=${_prevBridgeSvc}`);
+                            try { uninstallBridgeServiceFor(_prevBridgeSvc); } catch (e) { traceErr('bridge uninstall (switch)', e); }
+                        }
+                        if (_newIsBridge && _prevBridgeSvc !== msg.provider) {
+                            trace(`bridge-svc switch: installing new=${msg.provider}`);
+                            try { installBridgeServiceFor(msg.provider); } catch (e) { traceErr('bridge install (switch)', e); }
+                            await context.workspaceState.update('codexBlackEd.activeBridgeService', msg.provider);
+                        } else if (!_newIsBridge && _prevBridgeSvc) {
+                            await context.workspaceState.update('codexBlackEd.activeBridgeService', '');
+                        }
+                    } catch (svcErr) {
+                        traceErr('setProvider bridge svc orchestration', svcErr);
+                    }
                     break;
                 case 'listSkins': {
                     /* Lazy scan: discover skins on-demand each time the webview
@@ -4281,10 +4349,23 @@ function findBrowserPath() {
 
 /* Web-bridge "streaming": send the latest user turn into the page, then poll
    the assistant DOM. We only push the latest turn — the live page already has
-   the prior conversation in its own DOM history. */
+   the prior conversation in its own DOM history.
+
+   Settings-only policy: do NOT auto-spawn the bridge here. The bridge must
+   already be running via the Settings provider dropdown (which calls
+   installBridgeServiceFor). If we land here with no bridge, throw a clear
+   error so the chat panel shows a real "pick a provider in Settings"
+   message instead of silently popping a window. */
 async function* streamWebBridge(providerId, messages) {
     const bridge = getBrowserBridge(providerId);
-    await bridge.ensureRunning();
+    const _alive = typeof bridge.ping === 'function'
+        ? await bridge.ping().then(p => !!(p && (p.ok || p.url))).catch(() => false)
+        : false;
+    if (!_alive) {
+        const p = PROVIDERS[providerId];
+        const label = (p && p.label) || providerId;
+        throw new Error(`No ${label} bridge running. Open CBE Settings, pick ${label} from the provider dropdown — that installs and starts the Windows service. The bridge stays running until you click Close in its tray icon.`);
+    }
     /* Only send the latest user message — the page's own thread has context. */
     const lastUser = [...messages].reverse().find(m => m.role === 'user');
     if (!lastUser) throw new Error('no user message to send');

@@ -28,6 +28,7 @@ import json
 import os
 import shlex
 import signal
+from datetime import datetime  # used by chat.log, port.txt header, rotate-stale
 import socket
 import subprocess
 import sys
@@ -110,6 +111,58 @@ DATA = ROOT / "data"
 LOGS = ROOT / "logs"
 REPORTS = ROOT / "reports"
 VENDOR_CLAUDE = ROOT / "vendor" / "claude"
+
+# --- console mirror: every print() / exception trace ALSO lands in console.log
+# Hook stdout+stderr through a Tee so the operator never has to wonder "did I
+# miss a line that scrolled off". Done at module-import time so output captured
+# from the very first import-side print. The file is truncated per process so
+# each invocation owns its own log; ship-of-Theseus rotation is out of scope.
+try:
+    LOGS.mkdir(parents=True, exist_ok=True)
+    _CONSOLE_LOG_PATH = LOGS / "console.log"
+    try:
+        _console_log_fp = open(_CONSOLE_LOG_PATH, "w", encoding="utf-8", buffering=1)
+    except Exception:
+        _console_log_fp = None
+    class _ConsoleTee:
+        def __init__(self, base, fp):
+            self._base = base
+            self._fp = fp
+        def write(self, s):
+            try:
+                self._base.write(s)
+            except Exception:
+                pass
+            if self._fp is not None:
+                try:
+                    self._fp.write(s)
+                except Exception:
+                    pass
+            return len(s) if isinstance(s, str) else 0
+        def flush(self):
+            try:
+                self._base.flush()
+            except Exception:
+                pass
+            if self._fp is not None:
+                try:
+                    self._fp.flush()
+                except Exception:
+                    pass
+        def isatty(self):
+            try:
+                return bool(self._base.isatty())
+            except Exception:
+                return False
+        def fileno(self):
+            return self._base.fileno()
+        def __getattr__(self, name):
+            return getattr(self._base, name)
+    if _console_log_fp is not None:
+        sys.stdout = _ConsoleTee(sys.stdout, _console_log_fp)
+        sys.stderr = _ConsoleTee(sys.stderr, _console_log_fp)
+except Exception:
+    pass
 DEBUGGER_SURFACES = (
     "heartbeat",
     "poll",
@@ -119,7 +172,67 @@ DEBUGGER_SURFACES = (
     "chat",
 )
 BRIDGE_SERVICE_HOST = "127.0.0.1"
+# NOTE: 8767 is only the *legacy* default. The chat-client path no longer
+# binds it. Each --chat invocation grabs a fresh free ephemeral port via
+# pickFreeBridgePort() and threads it through args.bridge_port so a stale
+# kernel socket on 8767 can never wedge a run (no reboot ever needed).
 BRIDGE_SERVICE_PORT = int(os.environ.get("SUPERGROK_BRIDGE_PORT", "8767") or "8767")
+
+# Per-target predictable bridge ports. ONE Windows service per chat target,
+# each on its own port, registered via NSSM (preferred) or sc.exe. config.ini
+# `[bridge]` mirrors these as `<target>_port` keys; bridgePortForTarget() does
+# config -> BRIDGE_PORTS -> 8788 resolution. Tray companion (--bridge-tray) and
+# service install/list flags all read through that helper, never raw constants.
+BRIDGE_PORTS = {
+    'chatgpt': 8788,
+    'grok':    8789,
+    'copilot': 8790,
+    'gemini':  8791,
+    'claude':  8792,
+    'ollama':  8793,
+}
+BRIDGE_TARGETS = ('chatgpt', 'grok', 'copilot', 'gemini', 'claude', 'ollama')
+
+
+def _readBridgePortsFromConfig() -> dict[str, int]:
+    """Read [bridge] <target>_port overrides from config.ini. Silent on missing
+    file/section/key — BRIDGE_PORTS keeps its built-in defaults. Returns a
+    copy with overrides applied so the constant stays immutable for tests."""
+    out = dict(BRIDGE_PORTS)
+    try:
+        import configparser  # depcheck-ok: stdlib
+        cfg = configparser.ConfigParser(interpolation=None)
+        cfg.read(ROOT / "config.ini", encoding="utf-8")
+        if cfg.has_section("bridge"):
+            for target in BRIDGE_TARGETS:
+                key = f"{target}_port"
+                raw = (cfg.get("bridge", key, fallback="") or "").strip()
+                if raw:
+                    try:
+                        out[target] = int(raw)
+                    except (TypeError, ValueError):
+                        pass
+    except Exception:  # swallow-ok: launcher must still boot without config.ini
+        pass
+    return out
+
+
+# Apply config.ini overrides at import so module-level lookups see them.
+BRIDGE_PORTS.update(_readBridgePortsFromConfig())
+
+
+def bridgePortForTarget(target: object) -> int:
+    """Resolve a target name to its predictable bridge TCP port.
+    Order: config.ini [bridge] <target>_port -> BRIDGE_PORTS -> 8788.
+    Accepts aliases via normalizeChatTarget()."""
+    canon = ""
+    try:
+        canon = normalizeChatTarget(target)
+    except Exception:  # swallow-ok: normalize may not be ready at very-early import
+        canon = str(target or "").strip().lower()
+    if canon in BRIDGE_PORTS:
+        return int(BRIDGE_PORTS[canon])
+    return 8788
 OFFSCREEN_MODE_AUTO = "auto"
 OFFSCREEN_MODE_HIDDEN = "hidden"
 OFFSCREEN_MODE_OFFSCREEN_WINDOW = "offscreen-window"
@@ -169,6 +282,39 @@ COPILOT_CLI_FLAG_ALIASES = {
 }
 CHAT_CLI_FLAG_ALIASES = {"--chat", "-chat", "/chat"} | CHATGPT_CLI_FLAG_ALIASES | GEMINI_CLI_FLAG_ALIASES | CLAUDE_CLI_FLAG_ALIASES | COPILOT_CLI_FLAG_ALIASES
 
+# --promt / --prompt: the user's habitual typo. These behave exactly like
+# --chat (same nargs="*", same dispatch). Wired in buildParser() as dest="chat"
+# aliases and recognized by chatFlagPresent() so the unknown-tail handler still
+# attaches the message. Kept here next to CHAT_CLI_FLAG_ALIASES so the
+# flag-detection helpers see them too.
+CHAT_TYPO_FLAG_ALIASES = {
+    "--promt", "-promt", "/promt",
+    "--prompt", "-prompt", "/prompt",
+}
+CHAT_CLI_FLAG_ALIASES = CHAT_CLI_FLAG_ALIASES | CHAT_TYPO_FLAG_ALIASES
+
+# Bridge service alias dict — ported VERBATIM from
+# C:\Users\moren\Desktop\claude\start.py (CutiePy/Trio _chatOneShotArgs,
+# ~line 6301) so the JS path (bridge/supergrok-bridge.js), the CutiePy
+# shell-out path, and this in-process router all agree on the same alias map.
+# Then EXTENDED with CBE-specific aliases (supergrok, gem/bard/google,
+# anthropic spellings, bing/cp) so a single normalizer covers every entry
+# point. Maps alias -> canonical SuperGrok target.
+bridge_services = {
+    # --- verbatim from Desktop\claude\start.py ---
+    'grok': 'grok', 'grok4': 'grok', 'grok-4': 'grok', 'xai': 'grok',
+    'chatgpt': 'chatgpt', 'chatgtp': 'chatgpt', 'gtp': 'chatgpt', 'gpt': 'chatgpt',
+    'copilot': 'copilot', 'ms-copilot': 'copilot',
+    'claude': 'claude', 'anthropic': 'claude',
+    'gemini': 'gemini', 'bard': 'gemini',
+    # --- CBE extensions (kept consistent with *_TARGET_ALIASES) ---
+    'supergrok': 'grok', 'grok-beta': 'grok',
+    'openai': 'chatgpt', 'gpt4o': 'chatgpt', 'gpt-4o': 'chatgpt', 'gpt5': 'chatgpt', 'gpt-5': 'chatgpt',
+    'mscopilot': 'copilot', 'microsoft-copilot': 'copilot', 'bing': 'copilot', 'cp': 'copilot',
+    'claudeai': 'claude', 'cl': 'claude',
+    'gem': 'gemini', 'google': 'gemini', 'googleai': 'gemini',
+}
+
 
 def normalizeChatTarget(value: object = "") -> str:
     target = str(value or "").strip().lower().replace("_", "-")
@@ -182,6 +328,10 @@ def normalizeChatTarget(value: object = "") -> str:
         return "claude"
     if target in COPILOT_TARGET_ALIASES:
         return "copilot"
+    # Fall back to the ported bridge_services alias map so aliases the
+    # *_TARGET_ALIASES sets miss (e.g. grok4, grok-4) still resolve.
+    if target in bridge_services:
+        return bridge_services[target]
     return target or "grok"
 
 
@@ -789,6 +939,41 @@ def bridgeWindowModeForArgs(args: argparse.Namespace) -> str:
     return mode
 
 def configureQtEnvironment(args: argparse.Namespace) -> None:
+    # Suppress every code path that can make Windows show a USB / hardware-key
+    # security prompt during bridge login. Microsoft login (Copilot, Outlook) and
+    # Google login both attempt WebAuthn first; if that's blocked they fall back
+    # through WebHID / WebUSB / U2F / cross-device auth, EACH of which can fire
+    # its own OS prompt. Killing the whole stack: the bridge logins still work
+    # via plain email+password, just without any hardware-key flow.
+    _existing_qt_flags = str(os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS") or "").strip()
+    # Suppress WebAuthn/WebHID/WebUSB/U2F prompts that fire on Microsoft+Google
+    # login pages, AND switch Chromium's cookie/password storage from the
+    # Windows native (App-Bound Encryption) store to the basic process-portable
+    # store. Without --password-store=basic, each new bridge process is unable
+    # to decrypt cookies written by a previous bridge process — meaning every
+    # bridge restart sees "session logged out" and asks the user to log in
+    # again. With basic, cookies persist process-to-process and the bridge can
+    # reuse the user's saved session forever. LockProfileCookieDatabase off
+    # lets the new process actually open the existing cookie DB.
+    _suppress_hw_auth = (
+        "--disable-features="
+        "WebAuthenticationUseNativeWinApi,"      # don't call Windows webauthn.dll
+        "WebAuthenticationCableV2,"              # phone-as-key cross-device
+        "WebAuthenticationModernUI,"             # Chrome's newer dialog
+        "WebAuthentication,"                     # whole WebAuthn API off
+        "WebHID,"                                # raw HID device prompt
+        "WebUsb,"                                # raw USB device prompt (note camelCase)
+        "U2F,"                                   # legacy U2F
+        "DigitalCredentials,"                    # passkey / digital cred prompt
+        "WebOTP,"                                # SMS OTP autofill
+        "LockProfileCookieDatabase"              # allow new process to reopen cookie DB
+        " --password-store=basic"                # process-portable cookie/password store
+    )
+    if "password-store=basic" not in _existing_qt_flags:
+        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (_existing_qt_flags + " " + _suppress_hw_auth).strip()
+    # Make this visible so we can confirm in console.log that the bridge spawn
+    # actually inherited the suppression flags.
+    print(f"[INFO:start] QTWEBENGINE_CHROMIUM_FLAGS = {os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS','')}", file=sys.stderr, flush=True)
     if args.remote_debug_port:
         os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = str(args.remote_debug_port)
         print(f"[INFO:start] Chromium remote debugging enabled: http://127.0.0.1:{args.remote_debug_port}", file=sys.stderr)
@@ -885,6 +1070,19 @@ def buildParser() -> argparse.ArgumentParser:
     parser.add_argument("--probe-auth", action="store_true", help="Headless: load the chosen --target home URL, report logged-in/out state and minimum no-scroll login window size as JSON, then exit.")
     parser.add_argument("--no-auto-login", action="store_true", help="For --chat: do not auto-pop the stripped login window when the bridge reports a logged-out state. Useful for CI / non-interactive contexts.")
     parser.add_argument("--library", nargs="?", const="list", default=None, help="Manage ChatGPT library. Actions: list, delete-remote, wipe.")
+    # Per-target Windows service registration. ONE service per target on a
+    # predictable port (BRIDGE_PORTS / config.ini). NSSM preferred, sc.exe
+    # fallback. Tray companion (--bridge-tray) is a user-session app spawned
+    # via a Startup-folder shortcut, NOT pinned to the SYSTEM-session service.
+    parser.add_argument("--install-bridge-service", metavar="TARGET", default="", help="Install a Windows service for one chat target (chatgpt|grok|copilot|gemini|claude). Service name: CBE-Bridge-<Target>. Also drops a Startup shortcut for the tray companion.")
+    parser.add_argument("--uninstall-bridge-service", metavar="TARGET", default="", help="Stop and remove the CBE-Bridge-<Target> Windows service plus its Startup shortcut.")
+    parser.add_argument("--start-bridge-service", metavar="TARGET", default="", help="Start the CBE-Bridge-<Target> Windows service.")
+    parser.add_argument("--stop-bridge-service", metavar="TARGET", default="", help="Stop the CBE-Bridge-<Target> Windows service.")
+    parser.add_argument("--restart-bridge-service", metavar="TARGET", default="", help="Stop + start the CBE-Bridge-<Target> Windows service.")
+    parser.add_argument("--list-bridge-services", action="store_true", help="Print a table of all CBE-Bridge-* services: target, name, port, state, PID.")
+    parser.add_argument("--install-all-bridge-services", action="store_true", help="Convenience: install services for every target in BRIDGE_PORTS.")
+    parser.add_argument("--uninstall-all-bridge-services", action="store_true", help="Convenience: uninstall every CBE-Bridge-* service.")
+    parser.add_argument("--bridge-tray", metavar="TARGET", default="", help="Run the tray-icon companion for a chat target. Renders a system tray icon with Status/Information/Test/About/Close menu items wired to the bridge TCP port.")
     try:
         from gh_pipeline import addArgparseFlags as _addGhFlags
         _addGhFlags(parser)
@@ -1336,6 +1534,165 @@ def parseChatArgs(parts: list[str] | None) -> dict[str, str]:
     return {"target": target, "deployment": deployment, "message": message}
 
 
+def detectStaleBridgeSocket(port: int) -> dict[str, Any] | None:
+    """Detect the 'zombie kernel socket' failure on the bridge port.
+
+    Symptom seen in the wild: a SuperGrok bridge PID dies (e.g. pid 27520)
+    but Windows keeps the TCP listen socket pinned in the kernel. netstat
+    shows port 8767 in LISTENING with an owning PID that is no longer alive
+    (or owned by a dead PID). Every connect then either gets refused or
+    accepted-then-immediately-RST, which higher layers surface as a generic
+    'HTTP 502 ... code 143'. That generic message sends the user chasing the
+    wrong problem; the only real fix is a reboot (or, with admin, a TCP
+    stack reset).
+
+    Returns a dict describing the stale state when detected, else None.
+    Best-effort and Windows-specific; any failure -> returns None so callers
+    just fall back to the normal error path.
+    """
+    if os.name != "nt":
+        return None
+    port = int(port or BRIDGE_SERVICE_PORT)
+    listening_pid = 0
+    is_listening = False
+    try:
+        ps = (
+            "$ErrorActionPreference='SilentlyContinue';"
+            f"$c=Get-NetTCPConnection -LocalPort {port} -State Listen;"
+            "if($c){$c | Select-Object -First 1 -ExpandProperty OwningProcess}"
+        )
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            capture_output=True, text=True, timeout=10,
+        )  # lifecycle-bypass-ok: read-only diagnostic, spawns no app process.
+        out = (proc.stdout or "").strip()
+        if out:
+            is_listening = True
+            try:
+                listening_pid = int(out.split()[0])
+            except (ValueError, IndexError):
+                listening_pid = 0
+    except Exception as error:  # swallow-ok: diagnostic only; fall back to None.
+        recordException("start.py.detectStaleBridgeSocket.netstat", error, handled=True)
+        return None
+    if not is_listening:
+        # Nothing pinned the port — not this failure mode.
+        return None
+    pid_alive = False
+    if listening_pid > 0:
+        try:
+            tl = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {listening_pid}", "/NH", "/FO", "CSV"],
+                capture_output=True, text=True, timeout=10,
+            )
+            stdout = tl.stdout or ""
+            pid_alive = (str(listening_pid) in stdout) and ("No tasks" not in stdout)
+        except Exception as error:  # swallow-ok
+            recordException("start.py.detectStaleBridgeSocket.tasklist", error, handled=True)
+            pid_alive = False
+    connect_refused = False
+    if not pid_alive:
+        try:
+            with socket.create_connection((BRIDGE_SERVICE_HOST, port), timeout=3):
+                connect_refused = False
+        except Exception:  # swallow-ok: refusal is the signal we want.
+            connect_refused = True
+    if pid_alive:
+        # A live process owns the port — normal/other failure, not the
+        # zombie-socket case.
+        return None
+    msg = (
+        f"Bridge port {port} is held by a STALE kernel socket: it is in "
+        f"LISTENING state but its owning PID ({listening_pid or 'unknown'}) is "
+        "not alive"
+        + (" and connections are refused" if connect_refused else "")
+        + ". This is the Windows zombie-socket condition (a dead SuperGrok "
+        "bridge left the listen socket pinned in the kernel). It cannot be "
+        "recovered by killing processes or restarting the bridge. A REBOOT is "
+        f"required to free port {port} (or, as admin: run `netsh int ip reset` "
+        "then reboot)."
+    )
+    return {
+        "port": port,
+        "listeningPid": listening_pid,
+        "pidAlive": pid_alive,
+        "connectRefused": connect_refused,
+        "message": msg,
+    }
+
+
+BRIDGE_PORT_FILE = ROOT / "port.txt"
+
+def writeBridgePortFile(port: int) -> None:
+    """Publish the bridge's live port to port.txt so any consumer (CBE's JS
+    supergrok-bridge.js, external scripts, ad-hoc curl) can discover where the
+    service is currently listening without having to scan or guess.
+
+    Format: a single line "host=127.0.0.1 port=8788 pid=12345 ts=2026-05-15T10:32:01.123"
+    Written atomically (tmp + replace) so a reader doing torn-read sees either
+    the old line or the new one, never a half-line.
+    """
+    try:
+        BRIDGE_PORT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = BRIDGE_PORT_FILE.with_suffix(".txt.tmp")
+        line = f"host={BRIDGE_SERVICE_HOST} port={int(port)} pid={os.getpid()} ts={datetime.now().isoformat(timespec='milliseconds')}\n"
+        tmp.write_text(line, encoding="utf-8")
+        tmp.replace(BRIDGE_PORT_FILE)
+    except Exception:  # swallow-ok: port.txt is convenience; failure is non-fatal
+        pass
+
+def _portIsBindable(port: int) -> bool:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind((BRIDGE_SERVICE_HOST, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+def pickFreeBridgePort(attempts: int = 20, start: int | None = None) -> int:
+    """Pick a free TCP port on the loopback interface.
+
+    Strategy: start at `start` (defaulting to BRIDGE_SERVICE_PORT from config.ini
+    [bridge] port=…), and if it's already in use, try start+1, start+2, … up to
+    `attempts` consecutive ports. This keeps the bridge port predictable run-to-
+    run (firewall rules, logs, port.txt readers all stable) while still surviving
+    the case where the canonical port is held by a zombie process or another app.
+
+    Returns the first bindable port. If every port in the range is taken, falls
+    back to OS-assigned ephemeral (bind to 0) so chat never refuses to start.
+    """
+    base = int(start) if start is not None else int(BRIDGE_SERVICE_PORT)
+    tries = max(1, int(attempts or 1))
+    for offset in range(tries):
+        candidate = base + offset
+        if 1 <= candidate <= 65535 and _portIsBindable(candidate):
+            return candidate
+    # All consecutive candidates were taken — let the OS pick anything free.
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind((BRIDGE_SERVICE_HOST, 0))
+        return int(sock.getsockname()[1])
+    except OSError as error:
+        _debugJson("bridge-free-port-fallback", {
+            "eventType": "bridge-free-port-fallback",
+            "attempts": tries,
+            "base": base,
+            "error": f"{type(error).__name__}: {error}",
+            "fallbackPort": BRIDGE_SERVICE_PORT,
+        })
+        return BRIDGE_SERVICE_PORT
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+
 def bridgeRequest(payload: dict[str, Any], *, port: int, timeout: int = 30) -> dict[str, Any]:
     request_id = f"bridge-client-{int(time.time() * 1000)}-{os.getpid()}"
     transport = {"host": BRIDGE_SERVICE_HOST, "port": int(port or BRIDGE_SERVICE_PORT), "timeoutSeconds": int(timeout or 30)}
@@ -1437,8 +1794,13 @@ def waitForBridgeService(*, port: int, timeout: int = 60, debug: bool = False, p
         try:
             response = bridgeRequest({"action": "status"}, port=port, timeout=3)
             if response.get("ok"):
+                # Publish the live port to port.txt so the CBE extension (and any
+                # other consumer) can discover where the bridge is actually
+                # listening without scanning. Atomic write — readers see old or
+                # new line, never half.
+                writeBridgePortFile(port)
                 if debug:
-                    print(f"[TRACE:bridge-client] service ready pid={response.get('pid')} loaded={response.get('loaded')} loadOk={response.get('loadOk')} url={response.get('url')}", file=sys.stderr, flush=True)
+                    print(f"[TRACE:bridge-client] service ready pid={response.get('pid')} loaded={response.get('loaded')} loadOk={response.get('loadOk')} url={response.get('url')} port_published={BRIDGE_PORT_FILE}", file=sys.stderr, flush=True)
                 return True
         except Exception as error:  # swallow-ok
             now = time.monotonic()
@@ -1649,16 +2011,56 @@ def replaceBridgeServiceBeforeServing(args: argparse.Namespace) -> None:
         stopRunningBridgeService(args, status, reason="new --serve-bridge instance replacing old resident bridge")
 
 
+CHAT_LOG_PATH = LOGS / "chat.log"
+
+def _rotateChatLogIfStale() -> None:
+    """If chat.log was last written on a previous calendar day, truncate it.
+    Gives a fresh log per day. Called from runChatCommand once per invocation.
+    Cheap (one stat + maybe one truncate); never blocks chat flow."""
+    try:
+        if CHAT_LOG_PATH.exists():
+            mtime = datetime.fromtimestamp(CHAT_LOG_PATH.stat().st_mtime)
+            if mtime.date() != datetime.now().date():
+                CHAT_LOG_PATH.write_text(
+                    f"[chat.log rotated — previous day's content discarded at {datetime.now().isoformat(timespec='seconds')}]\n",
+                    encoding="utf-8",
+                )
+    except Exception:  # swallow-ok
+        pass
+
+def _appendChatLog(line: str) -> None:
+    """Append a line to LOGS/chat.log. Always-on (unlike chatDebugTrace which
+    is gated by --debug for stderr noise) so every chat round-trip leaves a
+    durable audit trail with the prompt sent, port used, ack received, every
+    poll, and the final response body. Daily rotation handled by
+    _rotateChatLogIfStale() at the top of runChatCommand."""
+    try:
+        CHAT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().isoformat(timespec="milliseconds")
+        with open(CHAT_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"[{ts}] {line}\n")
+    except Exception as e:
+        # Was a silent swallow; chat.log was inexplicably empty so surface the
+        # real reason to stderr instead of pretending logging worked.
+        try:
+            print(f"[WARN:chat-log] write failed path={CHAT_LOG_PATH} err={type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        except Exception:
+            pass
+
 def chatDebugTrace(args: argparse.Namespace, message: str, **fields: Any) -> None:
-    if not bool(getattr(args, "debug", False)):
-        return
+    """Trace a step of the chat round-trip. Always logs to LOGS/chat.log; only
+    echoes to stderr when --debug is set (to keep CLI output clean)."""
     try:
         suffix = ""
         if fields:
             suffix = " " + json.dumps(fields, ensure_ascii=False, default=str, sort_keys=True)
-        print(f"[TRACE:bridge-client] {message}{suffix}", file=sys.stderr, flush=True)
+        _appendChatLog(f"{message}{suffix}")
+        if bool(getattr(args, "debug", False)):
+            print(f"[TRACE:bridge-client] {message}{suffix}", file=sys.stderr, flush=True)
     except Exception:  # swallow-ok
-        print(f"[TRACE:bridge-client] {message}", file=sys.stderr, flush=True)
+        _appendChatLog(message)
+        if bool(getattr(args, "debug", False)):
+            print(f"[TRACE:bridge-client] {message}", file=sys.stderr, flush=True)
 
 def saveOutputIfRequested(args: argparse.Namespace, answer: str) -> None:
     """Implement --file: write the model response to a path on disk.
@@ -1726,6 +2128,375 @@ def chatProviderLabelLocal(target: str) -> str:
     return "Grok"
 
 
+# ===========================================================================
+# GPT-vision pilot — autonomous login/recovery driver for the bridge.
+#
+# When the bridge's JS DOM probe (buildGrokDomSurfaceProbeScript) keeps
+# reporting promptFound=false (typical symptom: stuck on a login or captcha
+# page), we hand control to GPT-4o-class vision: screenshot the QWebEngineView,
+# ship it to OpenAI with a strict JSON action schema, and execute whatever the
+# model returns (CLICK / TYPE / SCROLL / WAIT / RELOAD / DONE / FAIL).
+#
+# Designed to be callable from app.py's GrokBridgeChatJob.handleSurfaceProbe()
+# when the probe fails N consecutive times. Everything goes through chat.log
+# so the user can audit every screenshot path and every model action.
+#
+# Mouse/keyboard injection strategy: pure JS via page.runJavaScript().
+# Rationale:
+#   1. QTest.mouseClick on a QWebEngineView only delivers Qt-level events;
+#      Chromium content needs WebContents-level synthesizeMouse, not Qt mouse.
+#      Using elementFromPoint(x,y).click() routes through Chromium's real
+#      event pipeline.
+#   2. Works under --offscreen / hidden-window bridge modes where the widget
+#      has no visible geometry for QTest to target.
+#   3. No extra imports in app.py.
+# ===========================================================================
+
+GPT_VISION_PILOT_DEFAULT_MAX_STEPS = 20
+GPT_VISION_PILOT_DEFAULT_VIEWPORT = (1280, 900)
+GPT_VISION_PILOT_DEFAULT_FAIL_THRESHOLD = 3
+GPT_VISION_PILOT_HOOK_PATH = Path(r"C:\Users\moren\Desktop\claude\hooks\chatgtp_hook.py")
+
+
+def _gptVisionPilotReadCredentials(target: str) -> dict[str, str]:
+    """Pull email/password for the target from config.ini, falling back to
+    [chatgpt] (since the user uses one Gmail across all services and prefers
+    SSO-with-Google buttons for grok/copilot/gemini/claude)."""
+    creds: dict[str, str] = {"email": "", "password": "", "source": ""}
+    try:
+        import configparser  # depcheck-ok
+        cfg = configparser.ConfigParser(interpolation=None)
+        cfg.read(ROOT / "config.ini", encoding="utf-8")
+        section = (target or "").strip().lower()
+        if section and cfg.has_section(section) and (cfg.get(section, "email", fallback="") or "").strip():
+            creds["email"] = (cfg.get(section, "email", fallback="") or "").strip()
+            creds["password"] = (cfg.get(section, "password", fallback="") or "").strip()
+            creds["source"] = section
+        elif cfg.has_section("chatgpt"):
+            creds["email"] = (cfg.get("chatgpt", "email", fallback="") or "").strip()
+            creds["password"] = (cfg.get("chatgpt", "password", fallback="") or "").strip()
+            creds["source"] = "chatgpt (SSO-with-Google fallback)"
+    except Exception as error:  # swallow-ok: pilot must still run without creds
+        _appendChatLog(f"[gpt-pilot] config.ini read failed: {type(error).__name__}: {error}")
+    return creds
+
+
+def _gptVisionPilotBuildPrompt(target: str, credentials: dict[str, str], viewport: tuple[int, int], step: int, maxSteps: int, lastReason: str) -> str:
+    """Render the system prompt with EVERYTHING GPT needs: target site, viewport,
+    creds, action schema, fallback hints. The user's instruction was explicit:
+    'give him 100% of the info he needs + instructions or he'll just sit there blinking.'"""
+    width, height = viewport
+    homeUrlMap = {
+        "chatgpt":  "https://chatgpt.com/",
+        "grok":     "https://grok.com/",
+        "gemini":   "https://gemini.google.com/app",
+        "claude":   "https://claude.ai/new",
+        "copilot":  "https://copilot.microsoft.com/",
+    }
+    home = homeUrlMap.get(target, "")
+    loginHints = {
+        "chatgpt": "Login flow: click 'Log in' (top-right) -> 'Continue with Google' button (use Gmail SSO -- Google session usually auto-completes) OR type email -> Continue -> password -> Continue.",
+        "grok":    "Login flow: click 'Sign in' -> 'Continue with X' OR 'Continue with Google'. Prefer Google SSO with the [chatgpt] credentials (same Gmail).",
+        "gemini":  "Login flow: requires Google sign-in. If the page shows an account picker, click the trenttompkins@gmail.com tile. If not, click 'Sign in' -> enter email -> Next -> password -> Next.",
+        "claude":  "Login flow: 'Continue with Google' is preferred. Otherwise email -> Continue -> 6-digit code (you may need to WAIT and RELOAD for an email-link path; if so emit FAIL with reason 'email code required').",
+        "copilot": "Login flow: click 'Sign in' -> Microsoft account picker. If our Gmail is offered, click it. Otherwise type the [chatgpt] email -> Next -> password -> Sign in.",
+    }
+    loginHint = loginHints.get(target, "Login flow: locate the primary 'Sign in'/'Log in' button, prefer 'Continue with Google' SSO buttons, type credentials only as a last resort.")
+    credBlock = (
+        f"email='{credentials.get('email','')}', password='{credentials.get('password','')}', "
+        f"source-section={credentials.get('source','none')}"
+    )
+    schema = (
+        '{"action":"CLICK","x":<int 0..' + str(width-1) + '>,"y":<int 0..' + str(height-1) + '>,"why":"<short reason>"}\n'
+        '{"action":"TYPE","text":"<literal text to type at currently-focused element>","why":"<short reason>"}\n'
+        '{"action":"SCROLL","dy":<int pixels positive=down negative=up>,"why":"<short reason>"}\n'
+        '{"action":"WAIT","why":"<short reason>"}\n'
+        '{"action":"RELOAD","why":"<short reason>"}\n'
+        '{"action":"DONE","why":"<the prompt textarea + send button are now visible on screen>"}\n'
+        '{"action":"FAIL","why":"<exact reason a human must intervene>"}\n'
+    )
+    return (
+        "You are an autonomous browser pilot driving a Chromium QtWebEngine view.\n"
+        f"TARGET SITE     : {target}  ({home})\n"
+        f"VIEWPORT        : {width}x{height} CSS pixels (origin top-left)\n"
+        f"CURRENT STEP    : {step+1} of {maxSteps} (hard cap; emit FAIL if approaching).\n"
+        f"PROBE FAILURE   : The bridge's DOM probe last reported: {lastReason or 'prompt textarea not found'}.\n"
+        f"GOAL            : Reach the {target} chat surface where the prompt textarea and send button are visible.\n"
+        f"                 Once reached, emit DONE; the bridge will resume its DOM-send path automatically.\n"
+        f"CREDENTIALS     : {credBlock}\n"
+        f"LOGIN HINT      : {loginHint}\n"
+        "INPUT           : The user message contains a screenshot of the current view.\n"
+        "OUTPUT          : EXACTLY ONE JSON object on a single line, no markdown, no prose, no code fence.\n"
+        "                 Examples (one per line -- pick exactly one and emit it):\n"
+        f"{schema}"
+        "RULES:\n"
+        " - Coordinates are CSS pixels; the model in chatgtp_hook.py downscales internally, but YOUR\n"
+        f"   numbers must be in the {width}x{height} space.\n"
+        " - For TYPE actions, the previous step should have CLICKed the target input. Type only what\n"
+        "   needs to be typed; do not add quotes, do not add a trailing newline.\n"
+        " - Cookie/consent banners: dismiss them with CLICK on the most prominent accept/dismiss button.\n"
+        " - Captcha/2FA/email-code: emit FAIL with a specific why='captcha' or why='2fa-required'.\n"
+        " - Google account picker: prefer the tile that matches the credential email above.\n"
+        " - If the page already looks like the chat surface (visible large textarea at the bottom +\n"
+        "   send-arrow button), emit DONE immediately -- do not over-engineer.\n"
+        " - Never emit prose. ONE JSON object. The runtime parses with json.loads().\n"
+    )
+
+
+def _gptVisionPilotCallModel(screenshotPath: Path, systemPrompt: str, userPrompt: str, timeoutSec: int = 60) -> dict[str, Any]:
+    """Shell out to chatgtp_hook.py vision. The CLI doesn't expose a system arg
+    so we fold the system prompt into the user prompt; the model still treats
+    it as authoritative because the schema is so explicit."""
+    if not GPT_VISION_PILOT_HOOK_PATH.exists():
+        return {"ok": False, "error": f"chatgtp_hook missing at {GPT_VISION_PILOT_HOOK_PATH}"}
+    combinedPrompt = f"{systemPrompt}\n\n=== USER ===\n{userPrompt or 'Inspect the screenshot and emit one JSON action per the schema above.'}"
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(GPT_VISION_PILOT_HOOK_PATH), "vision", str(screenshotPath), combinedPrompt],
+            capture_output=True, text=True, timeout=timeoutSec,
+        )
+    except subprocess.TimeoutExpired as error:
+        return {"ok": False, "error": f"vision call timed out after {timeoutSec}s: {error}"}
+    except Exception as error:
+        return {"ok": False, "error": f"vision call crashed: {type(error).__name__}: {error}"}
+    raw = (proc.stdout or "").strip()
+    if not raw:
+        return {"ok": False, "error": f"vision returned empty stdout; stderr={(proc.stderr or '').strip()[:500]}"}
+    # Tolerate code-fence wrappers GPT occasionally leaks despite the prompt.
+    rawStrip = raw
+    if rawStrip.startswith("```"):
+        rawStrip = rawStrip.split("\n", 1)[1] if "\n" in rawStrip else rawStrip
+        if rawStrip.endswith("```"):
+            rawStrip = rawStrip[: -3]
+        rawStrip = rawStrip.strip()
+        if rawStrip.startswith("json"):
+            rawStrip = rawStrip[4:].strip()
+    # Extract the first {...} block.
+    start = rawStrip.find("{")
+    end = rawStrip.rfind("}")
+    if start < 0 or end <= start:
+        return {"ok": False, "error": "no JSON object in vision output", "raw": raw[:500]}
+    try:
+        parsed = json.loads(rawStrip[start : end + 1])
+    except Exception as error:
+        return {"ok": False, "error": f"json parse failed: {type(error).__name__}: {error}", "raw": raw[:500]}
+    parsed["_raw"] = raw[:1000]
+    parsed["ok"] = True
+    return parsed
+
+
+def _gptVisionPilotExecuteAction(view: Any, page: Any, action: dict[str, Any]) -> dict[str, Any]:
+    """Apply one GPT-emitted action against the QWebEngineView/Page.
+
+    Returns a small status dict so the caller can log it. JS-eval path was
+    chosen over QTest for offscreen-mode compatibility -- see module docstring.
+    """
+    kind = str(action.get("action") or "").strip().upper()
+    if kind == "CLICK":
+        try:
+            x = int(action.get("x") or 0)
+            y = int(action.get("y") or 0)
+        except Exception:
+            return {"ok": False, "error": "CLICK missing x/y"}
+        # Two-pronged JS click: focus + .click() at the precise point. Wrap with
+        # try so a null elementFromPoint doesn't crash the eval.
+        js = (
+            "(function(){try{"
+            f"var el=document.elementFromPoint({x},{y});"
+            "if(!el) return {ok:false,reason:'no element at point'};"
+            "try{el.scrollIntoView({block:'center',inline:'center'});}catch(_){}"
+            "try{el.focus({preventScroll:true});}catch(_){}"
+            "try{el.click();}catch(_){}"
+            "var r=el.getBoundingClientRect();"
+            "return {ok:true,tag:el.tagName,id:el.id||'',cls:String(el.className||'').slice(0,80),text:String(el.textContent||'').trim().slice(0,80),x:r.left,y:r.top};"
+            "}catch(e){return {ok:false,reason:String(e)};}})();"
+        )
+        try:
+            page.runJavaScript(js)
+        except Exception as error:
+            return {"ok": False, "error": f"runJavaScript failed: {error}"}
+        return {"ok": True, "kind": "CLICK", "x": x, "y": y}
+    if kind == "TYPE":
+        text = str(action.get("text") or "")
+        # Use json.dumps for safe string escaping; assign to .value AND emit
+        # input + change events so React-based inputs (chatgpt, claude) update.
+        encoded = json.dumps(text)
+        js = (
+            "(function(){try{"
+            "var el=document.activeElement;"
+            "if(!el||el===document.body) return {ok:false,reason:'no active element'};"
+            f"var v={encoded};"
+            "if(el.isContentEditable){el.textContent=v;el.dispatchEvent(new InputEvent('input',{bubbles:true,data:v,inputType:'insertText'}));}"
+            "else{try{el.value=(el.value||'')+v;}catch(_){el.value=v;}"
+            "el.dispatchEvent(new Event('input',{bubbles:true}));"
+            "el.dispatchEvent(new Event('change',{bubbles:true}));}"
+            "return {ok:true,tag:el.tagName,len:v.length};"
+            "}catch(e){return {ok:false,reason:String(e)};}})();"
+        )
+        try:
+            page.runJavaScript(js)
+        except Exception as error:
+            return {"ok": False, "error": f"runJavaScript failed: {error}"}
+        return {"ok": True, "kind": "TYPE", "chars": len(text)}
+    if kind == "SCROLL":
+        try:
+            dy = int(action.get("dy") or 0)
+        except Exception:
+            dy = 0
+        try:
+            page.runJavaScript(f"window.scrollBy(0, {dy});")
+        except Exception as error:
+            return {"ok": False, "error": f"runJavaScript failed: {error}"}
+        return {"ok": True, "kind": "SCROLL", "dy": dy}
+    if kind == "RELOAD":
+        try:
+            page.triggerAction(page.WebAction.Reload)
+        except Exception:
+            try:
+                page.reload()
+            except Exception as error:
+                return {"ok": False, "error": f"reload failed: {error}"}
+        return {"ok": True, "kind": "RELOAD"}
+    if kind == "WAIT":
+        time.sleep(3)
+        return {"ok": True, "kind": "WAIT"}
+    if kind == "DONE":
+        return {"ok": True, "kind": "DONE", "why": str(action.get("why") or "")}
+    if kind == "FAIL":
+        return {"ok": True, "kind": "FAIL", "why": str(action.get("why") or "")}
+    return {"ok": False, "error": f"unknown action {kind!r}"}
+
+
+def _gptVisionPilotScreenshot(view: Any, outDir: Path, step: int, viewport: tuple[int, int]) -> Path | None:
+    """Grab the QWebEngineView widget into a PNG. Falls back to page.view().grab()
+    where the view's QPixmap is empty (some offscreen modes)."""
+    try:
+        outDir.mkdir(parents=True, exist_ok=True)
+        target = outDir / f"pilot-step-{step:02d}-{int(time.time())}.png"
+        pixmap = None
+        try:
+            pixmap = view.grab()
+        except Exception:
+            pixmap = None
+        # Empty pixmap detection: QPixmap.isNull() means widget had no surface.
+        if pixmap is None or (hasattr(pixmap, "isNull") and pixmap.isNull()):
+            try:
+                page = view.page() if hasattr(view, "page") else None
+                if page is not None and hasattr(page, "view") and hasattr(page.view(), "grab"):
+                    pixmap = page.view().grab()
+            except Exception:
+                pixmap = None
+        if pixmap is None or (hasattr(pixmap, "isNull") and pixmap.isNull()):
+            return None
+        width, height = viewport
+        # Scale to canonical viewport so GPT coordinates stay sane regardless
+        # of the actual widget dpi/size.
+        try:
+            from PySide6.QtCore import Qt as _Qt  # depcheck-ok
+            scaled = pixmap.scaled(width, height, _Qt.AspectRatioMode.IgnoreAspectRatio, _Qt.TransformationMode.SmoothTransformation)
+        except Exception:
+            scaled = pixmap
+        if not scaled.save(str(target), "PNG"):
+            return None
+        return target
+    except Exception as error:
+        _appendChatLog(f"[gpt-pilot] screenshot failed: {type(error).__name__}: {error}")
+        return None
+
+
+def _gptVisionPilot(view: Any, page: Any, target: str, jobId: str = "", maxSteps: int = GPT_VISION_PILOT_DEFAULT_MAX_STEPS, viewport: tuple[int, int] = GPT_VISION_PILOT_DEFAULT_VIEWPORT, lastReason: str = "") -> dict[str, Any]:
+    """Drive `view`/`page` through a login/recovery flow using GPT vision.
+
+    Returns a dict like {ok: bool, reason: str, steps: int, history: [...]}.
+    The caller (app.py GrokBridgeChatJob) re-runs its DOM surface probe after
+    a successful (ok=True) return; on failure the existing reveal-and-fail
+    path takes over.
+    """
+    targetNorm = normalizeChatTarget(target) or "grok"
+    tag = jobId or f"pilot-{int(time.time())}"
+    outDir = LOGS / "gpt-pilot"
+    creds = _gptVisionPilotReadCredentials(targetNorm)
+    history: list[dict[str, Any]] = []
+    _appendChatLog(f"[gpt-pilot] BEGIN job={tag} target={targetNorm} viewport={viewport[0]}x{viewport[1]} maxSteps={maxSteps} creds.source={creds.get('source','none')} lastReason={lastReason!r}")
+
+    # The DOM probe re-check between steps lets us bail early once the chat
+    # surface actually appears (vs trusting GPT to emit DONE at the right
+    # moment). Reuse the same probe script the bridge already runs.
+    probeReady = {"done": False, "ok": False}
+    try:
+        from app import buildGrokDomSurfaceProbeScript  # local-import-ok: optional dependency
+    except Exception:
+        buildGrokDomSurfaceProbeScript = None  # type: ignore[assignment]
+
+    for step in range(maxSteps):
+        screenshotPath = _gptVisionPilotScreenshot(view, outDir, step, viewport)
+        if screenshotPath is None:
+            _appendChatLog(f"[gpt-pilot] step={step+1}/{maxSteps} screenshot FAILED -- aborting pilot")
+            history.append({"step": step + 1, "error": "screenshot failed"})
+            return {"ok": False, "reason": "screenshot failed (view has no surface?)", "steps": step, "history": history}
+        _appendChatLog(f"[gpt-pilot] step={step+1}/{maxSteps} screenshot={screenshotPath}")
+        systemPrompt = _gptVisionPilotBuildPrompt(targetNorm, creds, viewport, step, maxSteps, lastReason)
+        userPrompt = f"This is screenshot step {step+1}/{maxSteps}. Emit one JSON action per the schema."
+        modelResp = _gptVisionPilotCallModel(screenshotPath, systemPrompt, userPrompt)
+        _appendChatLog(f"[gpt-pilot] step={step+1} model_response={json.dumps({k:v for k,v in modelResp.items() if k!='_raw'}, ensure_ascii=False, default=str)[:1200]}")
+        if not modelResp.get("ok"):
+            history.append({"step": step + 1, "screenshot": str(screenshotPath), "model_error": modelResp.get("error"), "raw": modelResp.get("raw")})
+            if step > 0 and history and history[-1].get("model_error") and len(history) >= 2 and history[-2].get("model_error"):
+                return {"ok": False, "reason": f"vision error twice in a row: {modelResp.get('error')}", "steps": step + 1, "history": history}
+            time.sleep(2)
+            continue
+        result = _gptVisionPilotExecuteAction(view, page, modelResp)
+        _appendChatLog(f"[gpt-pilot] step={step+1} executed={json.dumps(result, ensure_ascii=False, default=str)[:600]}")
+        history.append({"step": step + 1, "screenshot": str(screenshotPath), "action": modelResp.get("action"), "why": modelResp.get("why"), "result": result})
+        kind = result.get("kind", "")
+        if kind == "DONE":
+            _appendChatLog(f"[gpt-pilot] DONE after {step+1} steps: {modelResp.get('why')}")
+            return {"ok": True, "reason": str(modelResp.get("why") or "pilot reported DONE"), "steps": step + 1, "history": history}
+        if kind == "FAIL":
+            _appendChatLog(f"[gpt-pilot] FAIL after {step+1} steps: {modelResp.get('why')}")
+            return {"ok": False, "reason": str(modelResp.get("why") or "pilot reported FAIL"), "steps": step + 1, "history": history}
+        # Give the page a moment to react to whatever we just did.
+        time.sleep(2 if kind in ("CLICK", "TYPE", "SCROLL") else 1)
+
+        # Optional early-exit: re-run the bridge's DOM probe. If it returns ok
+        # the chat surface is up and we don't need more vision steps.
+        if buildGrokDomSurfaceProbeScript is not None:
+            probeReady["done"] = False
+            probeReady["ok"] = False
+
+            def _onProbe(raw: Any) -> None:
+                try:
+                    if isinstance(raw, dict) and raw.get("ok"):
+                        probeReady["ok"] = True
+                    elif isinstance(raw, str):
+                        try:
+                            parsed = json.loads(raw)
+                            if isinstance(parsed, dict) and parsed.get("ok"):
+                                probeReady["ok"] = True
+                        except Exception:
+                            pass
+                finally:
+                    probeReady["done"] = True
+            try:
+                page.runJavaScript(buildGrokDomSurfaceProbeScript(targetNorm), _onProbe)
+            except Exception:
+                probeReady["done"] = True
+            try:
+                from PySide6.QtCore import QCoreApplication  # depcheck-ok
+                deadline = time.monotonic() + 2.5
+                while not probeReady["done"] and time.monotonic() < deadline:
+                    QCoreApplication.processEvents()
+                    time.sleep(0.05)
+            except Exception:
+                time.sleep(2.5)
+            if probeReady["ok"]:
+                _appendChatLog(f"[gpt-pilot] DOM probe satisfied after pilot step {step+1} -- exiting pilot early")
+                return {"ok": True, "reason": "DOM probe satisfied mid-pilot", "steps": step + 1, "history": history}
+
+    _appendChatLog(f"[gpt-pilot] EXHAUSTED maxSteps={maxSteps} without DONE")
+    return {"ok": False, "reason": f"pilot exhausted {maxSteps} steps without DONE", "steps": maxSteps, "history": history}
+
+
 def _chatResponseLooksLoggedOut(response: dict[str, Any]) -> bool:
     """Heuristic: did the bridge fail because the user isn't logged in?
 
@@ -1767,12 +2538,55 @@ def _runLoginBridgeAndWait(target: str, profileDir: str = "", debug: bool = Fals
         return 124
 
 
+def _bridgePortExplicitlyRequested() -> bool:
+    """True only when the operator pinned a specific bridge port.
+
+    Either via the env var SUPERGROK_BRIDGE_PORT or an explicit --bridge-port
+    CLI flag. When neither is set we are free to grab a fresh ephemeral port
+    per invocation instead of the legacy hardcoded 8767.
+    """
+    if str(os.environ.get("SUPERGROK_BRIDGE_PORT", "") or "").strip():
+        return True
+    return any(str(tok or "").strip().lower() in {"--bridge-port", "-bridge-port", "/bridge-port"}
+               for tok in list(sys.argv[1:] or []))
+
+
 def runChatCommand(args: argparse.Namespace) -> int:
+    # Rotate chat.log if it's from a previous calendar day, then write section
+    # header so a human can scan for invocation boundaries within today's log.
+    _rotateChatLogIfStale()
+    _appendChatLog("=" * 72)
+    _appendChatLog(f"runChatCommand START  argv_chat={getattr(args, 'chat', None)}  attach={getattr(args, 'attach', None)}  pinned_port={getattr(args, 'bridge_port', None)}")
     try:
         chat = parseChatArgs(args.chat)
     except Exception as error:  # swallow-ok
+        _appendChatLog(f"parseChatArgs FAILED: {type(error).__name__}: {error}")
         print(f"[ERROR:bridge-client] {type(error).__name__}: {error}", file=sys.stderr, flush=True)
         return 2
+    _appendChatLog(f"PROMPT  target={chat.get('target')}  deployment={chat.get('deployment')}  message_chars={len(chat.get('message') or '')}")
+    _appendChatLog(f"PROMPT_BODY: {(chat.get('message') or '')[:2000]}")
+    # Port selection.
+    # 1) Operator pinned via --bridge-port → honor it.
+    # 2) Else if the target has a known per-target port in BRIDGE_PORTS
+    #    (chatgpt=8788, grok=8789, copilot=8790, gemini=8791, claude=8792,
+    #    ollama=8793) → use that. This is what lets `--prompt grok` reach
+    #    the running CBE-Bridge-Grok.exe service.
+    # 3) Else fall back to the old incremental free-port allocator.
+    if not _bridgePortExplicitlyRequested():
+        target_norm = normalizeChatTarget(chat.get("target") or "")
+        per_target_port = bridgePortForTarget(target_norm) if target_norm else 0
+        if per_target_port:
+            args.bridge_port = int(per_target_port)
+            chatDebugTrace(args, "using per-target bridge port", port=per_target_port, target=target_norm)
+        else:
+            chosen = pickFreeBridgePort(attempts=20)
+            args.bridge_port = chosen
+            chatDebugTrace(args, "selected dynamic bridge port (incremental from config)", port=chosen, base=BRIDGE_SERVICE_PORT)
+    # Publish chosen port to port.txt right after selection so external readers
+    # (CBE extension JS, curl scripts) see the target port even before the
+    # service finishes coming up. waitForBridgeService republishes once the
+    # service is actually answering, keeping the file accurate.
+    writeBridgePortFile(int(args.bridge_port or BRIDGE_SERVICE_PORT))
     jobId = f"cli-{int(time.time() * 1000)}"
     chatTimeout = int(args.chat_timeout or 240)
     payload = {
@@ -1820,45 +2634,68 @@ def runChatCommand(args: argparse.Namespace) -> int:
             time.sleep(1.0)
         return {"ok": False, "eventType": "error", "sendId": ackJobId, "error": f"timed out after {chatTimeout}s waiting for chat result", "hint": "Run with --debug to see bridge-client phases, or run: python start.py --bridge-status", "lastProgress": lastProgressText}
 
+    # New policy: --prompt / --chat NEVER auto-spawns a bridge. The bridge is
+    # installed as a Windows service by the CBE Settings flow when the user
+    # picks a provider. If nothing is listening on the bridge port, surface a
+    # clean error pointing the user at Settings — do NOT pop a window.
+    # Legacy auto-start can still be forced by --force-bridge-restart for
+    # operators who genuinely want it; everything else gates on a pre-running
+    # service.
     try:
-        if not args.no_chat_service_start:
-            chatDebugTrace(args, "ensuring resident bridge service", port=int(args.bridge_port or BRIDGE_SERVICE_PORT), forceRestart=bool(args.force_bridge_restart))
-            fresh = ensureFreshBridgeService(args)
-            chatDebugTrace(args, "ensureFreshBridgeService returned", ok=bool(fresh))
-        chatDebugTrace(args, "sending chat request to bridge", port=int(args.bridge_port or BRIDGE_SERVICE_PORT), jobId=jobId)
-        response = _waitForChatResult(bridgeRequest(payload, port=int(args.bridge_port or BRIDGE_SERVICE_PORT), timeout=30))
+        bridge_port_probe = int(args.bridge_port or BRIDGE_SERVICE_PORT)
+        # Settings-only policy: --prompt / --chat NEVER auto-spawn a bridge.
+        # Not even with --force-bridge-restart — the user told us repeatedly
+        # to delete every call that opens the bridge window from this path.
+        # The bridge must be installed via the CBE Settings flow (Windows
+        # service + tray icon), or by `python start.py --install-bridge-service`.
+        # If nothing is listening on the bridge port, error out cleanly.
+        try:
+            probe = bridgeRequest({"action": "status"}, port=bridge_port_probe, timeout=2)
+            if not probe.get("ok"):
+                raise RuntimeError(f"bridge status reply not ok: {probe}")
+        except Exception as probe_err:
+            hint = (
+                "No chat bridge running. Open CBE Settings, pick a provider — that installs "
+                "and starts the matching bridge service. The bridge stays running until you "
+                "click 'Close' in its tray icon."
+            )
+            msg = {"ok": False, "error": "no bridge running for chat", "hint": hint, "probedPort": bridge_port_probe, "probeError": str(probe_err)}
+            _appendChatLog(f"NO_BRIDGE_RUNNING port={bridge_port_probe} probe_err={probe_err}")
+            print(json.dumps(msg, ensure_ascii=False), file=sys.stderr, flush=True)
+            return 2
+        chatDebugTrace(args, "sending chat request to bridge", port=bridge_port_probe, jobId=jobId)
+        response = _waitForChatResult(bridgeRequest(payload, port=bridge_port_probe, timeout=30))
     except Exception as first_error:
         chatDebugTrace(args, "first chat request failed", error=f"{type(first_error).__name__}: {first_error}")
-        if args.no_chat_service_start:
-            print(f"[ERROR:bridge-client] bridge service unavailable or stale: {type(first_error).__name__}: {first_error}", file=sys.stderr, flush=True)
+        bridge_port = int(args.bridge_port or BRIDGE_SERVICE_PORT)
+        # Before blaming the bridge/login, check for the zombie-socket case:
+        # port pinned in LISTEN by a dead PID. Emit the precise reboot
+        # diagnostic instead of a generic 502/code 143 chase.
+        zombie = detectStaleBridgeSocket(bridge_port)
+        if zombie:
+            print(f"[ERROR:bridge-client] {zombie['message']}", file=sys.stderr, flush=True)
+            chatDebugTrace(args, "stale bridge socket detected", **zombie)
             return 2
-        try:
-            chatDebugTrace(args, "starting bridge service after first failure")
-            process = startBridgeServiceProcess(args)
-            chatDebugTrace(args, "bridge service process started", pid=getattr(process, "pid", 0))
-            if not waitForBridgeService(port=int(args.bridge_port or BRIDGE_SERVICE_PORT), timeout=90, debug=args.debug, process=process, logPath=LOGS / "bridge_service.log"):
-                print("[ERROR:bridge-client] resident bridge service did not become ready", file=sys.stderr, flush=True)
-                return 2
-            chatDebugTrace(args, "bridge service became ready; resending chat", port=int(args.bridge_port or BRIDGE_SERVICE_PORT), jobId=jobId)
-            response = _waitForChatResult(bridgeRequest(payload, port=int(args.bridge_port or BRIDGE_SERVICE_PORT), timeout=30))
-        except Exception as error:
-            recordException("start.py.runChatCommand", error, extra={"firstError": f"{type(first_error).__name__}: {first_error}"})
-            print(f"[ERROR:bridge-client] chat failed: {type(error).__name__}: {error}", file=sys.stderr, flush=True)
-            target_for_hint = normalizeChatTarget(getattr(args, "chat_target", "grok"))
-            if target_for_hint == "chatgpt":
-                print("[HINT] Run once visibly with: python start.py --gpt", file=sys.stderr, flush=True)
-                print("[HINT] Log into ChatGPT in the bridge window, leave it running, then use: python start.py --chatgpt \"message\"", file=sys.stderr, flush=True)
-            elif target_for_hint == "gemini":
-                print("[HINT] Run once visibly with: python start.py --gemini", file=sys.stderr, flush=True)
-                print("[HINT] Log into Google in the bridge window, leave it running, then use: python start.py --gemini \"message\"", file=sys.stderr, flush=True)
-            elif target_for_hint == "claude":
-                print("[HINT] Run once visibly with: python start.py --claude", file=sys.stderr, flush=True)
-                print("[HINT] Log into Anthropic in the bridge window, leave it running, then use: python start.py --claude \"message\"", file=sys.stderr, flush=True)
-            else:
-                print("[HINT] Run once visibly with: python start.py --serve-bridge --show-bridge --target grok", file=sys.stderr, flush=True)
-                print("[HINT] After logging into Grok, use: python start.py --chat grok \"message\" --offscreen", file=sys.stderr, flush=True)
-            return 2
+        # Settings-only policy: never auto-spawn the bridge from --prompt/--chat,
+        # even after a first-failure. The user explicitly told us to delete every
+        # call that opens the bridge window from the chat path. Surface the
+        # original error and let the user re-pick the provider in Settings.
+        print(f"[ERROR:bridge-client] bridge service unavailable or stale: {type(first_error).__name__}: {first_error}", file=sys.stderr, flush=True)
+        print("[ERROR:bridge-client] re-open the bridge from CBE Settings (pick a provider) — auto-spawn from --prompt has been disabled.", file=sys.stderr, flush=True)
+        return 2
     chatDebugTrace(args, "final chat response", response=response)
+    # Always-on response capture, separate line for the answer body so it's
+    # grep-able. Truncate to 8000 chars to keep chat.log manageable.
+    try:
+        _appendChatLog(f"RESPONSE_OK={response.get('ok')}  error={response.get('error') or ''}  eventType={response.get('eventType') or ''}")
+        _appendChatLog(f"RESPONSE_BODY: {str(response.get('answer') or '')[:8000]}")
+        if response.get('toolCalls'):
+            _appendChatLog(f"RESPONSE_TOOLCALLS_COUNT={len(response.get('toolCalls'))}")
+        if response.get('attachments'):
+            _appendChatLog(f"RESPONSE_ATTACHMENTS_COUNT={len(response.get('attachments'))}")
+        _appendChatLog(f"runChatCommand END  ok={response.get('ok')}")
+    except Exception:
+        pass
     if response.get("ok"):
         answer = str(response.get("answer") or "")
         attachments = response.get("attachments") if isinstance(response.get("attachments"), list) else []
@@ -1890,28 +2727,16 @@ def runChatCommand(args: argparse.Namespace) -> int:
         except Exception as error:
             print(f"[WARN:save-file] {type(error).__name__}: {error}", file=sys.stderr, flush=True)
         return 0
-    # Auto-handoff: if the failure looks like a logged-out state, pop the
-    # stripped login bridge for the same target, wait for the user to finish
-    # logging in, then retry the chat exactly once. Skip if --no-auto-login.
-    if (not getattr(args, "no_auto_login", False)
-            and not getattr(args, "_auto_login_retry", False)
-            and _chatResponseLooksLoggedOut(response)):
+    # Settings-only policy: auto-handoff login bridge is DISABLED. Previously,
+    # a "looks logged out" response would silently spawn login_bridge.py and
+    # block for up to 10 minutes waiting on an interactive Qt window. The user
+    # demanded zero auto-spawn — they will re-open the bridge from CBE Settings
+    # (which installs the Windows service + tray icon) if the session needs
+    # repair. We also no longer send the bridge a "show" action to pop its
+    # window up for repair — that's another silent UI escalation.
+    if _chatResponseLooksLoggedOut(response):
         target = normalizeChatTarget(getattr(args, "chat_target", "") or chat.get("target") or "grok")
-        print(f"[bridge-client] {target} session looks logged out — opening login window…", file=sys.stderr, flush=True)
-        loginCode = _runLoginBridgeAndWait(target, profileDir=getattr(args, "profile_dir", "") or "", debug=bool(args.debug))
-        chatDebugTrace(args, "auto-handoff login bridge closed", target=target, exitCode=loginCode)
-        if loginCode == 0:
-            # One-shot retry. Set sentinel so we don't loop on the next pass.
-            setattr(args, "_auto_login_retry", True)
-            print(f"[bridge-client] retrying chat after login…", file=sys.stderr, flush=True)
-            return runChatCommand(args)
-        print(f"[bridge-client] login bridge exited {loginCode}; not retrying", file=sys.stderr, flush=True)
-
-    try:
-        if response.get("shownForRepair") or "surface" in str(response.get("error", "")).lower() or "login" in str(response.get("hint", "")).lower():
-            bridgeRequest({"action": "show", "reason": str(response.get("error") or "chat failed")}, port=int(args.bridge_port or BRIDGE_SERVICE_PORT), timeout=5)
-    except Exception:  # swallow-ok
-        pass
+        print(f"[bridge-client] {target} session looks logged out — re-pick the provider in CBE Settings to re-open the bridge for login.", file=sys.stderr, flush=True)
     print(json.dumps(response, ensure_ascii=False, indent=2), file=sys.stderr, flush=True)
     return 1
 
@@ -1965,9 +2790,596 @@ class StartLifecycle:
         )
 
 
+# ---------------------------------------------------------------------------
+# Per-target Windows service registration + tray companion.
+#
+# Architecture decision (option b from the spec): the SERVICE provides the
+# bridge (TCP listener on a predictable port), the TRAY is a user-session
+# companion launched via a Startup-folder shortcut on user login. Services run
+# in SESSION 0 (SYSTEM) by default — tray icons there are invisible to the
+# logged-in user. Decoupling them sidesteps that whole "RunAs <user> + stored
+# password" mess.
+#
+# NSSM is preferred (where.exe nssm). On a machine without NSSM we fall back
+# to sc.exe but the binPath for sc.exe needs the python exe quoted; NSSM
+# handles arg lists more gracefully which is why it's the default.
+# ---------------------------------------------------------------------------
+def _canonicalBridgeTarget(target: object) -> str:
+    """Resolve any alias to a canonical BRIDGE_TARGETS entry, or '' if unknown."""
+    try:
+        canon = normalizeChatTarget(target)
+    except Exception:
+        canon = str(target or "").strip().lower()
+    if canon in BRIDGE_TARGETS:
+        return canon
+    return ""
+
+
+def bridgeServiceName(target: object) -> str:
+    """CBE-Bridge-<Title> — e.g. 'chatgpt' -> 'CBE-Bridge-Chatgpt'."""
+    canon = _canonicalBridgeTarget(target)
+    if not canon:
+        return ""
+    return f"CBE-Bridge-{canon[:1].upper()}{canon[1:]}"
+
+
+def _bridgeServiceLogPath(target: str) -> Path:
+    return LOGS / f"bridge-{target}.log"
+
+
+def _findNssmExe() -> str:
+    """Return absolute path to nssm.exe, or '' if not on PATH."""
+    try:
+        result = subprocess.run(
+            ["where.exe", "nssm"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        first = (result.stdout or "").splitlines()[0].strip() if result.returncode == 0 else ""
+        if first and os.path.isfile(first):
+            return first
+    except Exception:
+        pass
+    return ""
+
+
+def _serviceManagerKind() -> str:
+    """Prefer NSSM, fall back to sc.exe. Returns 'nssm' or 'sc'."""
+    return "nssm" if _findNssmExe() else "sc"
+
+
+def _pythonExeForService() -> str:
+    """Best-effort python.exe path for the service exe. Picks the *current*
+    interpreter so the service uses the same env as the user — avoids the
+    classic 'service uses py2.7 from PATH' surprise. Prefer pythonw.exe-less
+    python.exe here because NSSM redirects stdout/stderr to a log file."""
+    candidate = sys.executable or ""
+    if candidate.lower().endswith("pythonw.exe"):
+        alt = candidate[:-len("pythonw.exe")] + "python.exe"
+        if os.path.isfile(alt):
+            return alt
+    return candidate or "python.exe"
+
+
+def _pythonwExeForTray() -> str:
+    """pythonw.exe for the tray companion so no console window flashes on user
+    login. Falls back to python.exe if pythonw.exe is absent (very rare)."""
+    candidate = sys.executable or ""
+    if candidate.lower().endswith("python.exe"):
+        alt = candidate[:-len("python.exe")] + "pythonw.exe"
+        if os.path.isfile(alt):
+            return alt
+    if candidate.lower().endswith("pythonw.exe"):
+        return candidate
+    return candidate or "pythonw.exe"
+
+
+def _runProcess(cmd: list[str], debug: bool = False) -> tuple[int, str, str]:
+    """Run a subprocess, capture stdout/stderr, log if debug."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
+        if debug:
+            print(f"[svc-cmd] {' '.join(shlex.quote(c) for c in cmd)} -> rc={result.returncode}", file=sys.stderr, flush=True)
+            if (result.stdout or "").strip():
+                print(f"[svc-stdout] {result.stdout.rstrip()}", file=sys.stderr, flush=True)
+            if (result.stderr or "").strip():
+                print(f"[svc-stderr] {result.stderr.rstrip()}", file=sys.stderr, flush=True)
+        return int(result.returncode or 0), (result.stdout or ""), (result.stderr or "")
+    except Exception as error:
+        return 1, "", f"{type(error).__name__}: {error}"
+
+
+def _scServiceExists(serviceName: str) -> bool:
+    rc, _out, _err = _runProcess(["sc.exe", "query", serviceName])
+    return rc == 0
+
+
+def _scServiceState(serviceName: str) -> dict[str, str]:
+    """Return {'state': 'Running'|'Stopped'|'Not Installed', 'pid': '<n>'}."""
+    rc, out, _err = _runProcess(["sc.exe", "queryex", serviceName])
+    if rc != 0:
+        return {"state": "Not Installed", "pid": ""}
+    state = "Stopped"
+    pid = ""
+    for line in (out or "").splitlines():
+        s = line.strip()
+        if s.upper().startswith("STATE"):
+            up = s.upper()
+            if "RUNNING" in up:
+                state = "Running"
+            elif "START_PENDING" in up:
+                state = "Starting"
+            elif "STOP_PENDING" in up:
+                state = "Stopping"
+            elif "PAUSED" in up:
+                state = "Paused"
+            else:
+                state = "Stopped"
+        elif s.upper().startswith("PID"):
+            tail = s.split(":", 1)[-1].strip()
+            pid = tail if tail and tail != "0" else ""
+    return {"state": state, "pid": pid}
+
+
+def _startupFolder() -> Path:
+    appdata = os.environ.get("APPDATA", "")
+    if not appdata:
+        appdata = str(Path.home() / "AppData" / "Roaming")
+    return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+
+
+def _startupShortcutPath(target: str) -> Path:
+    serviceName = bridgeServiceName(target) or f"CBE-Bridge-{target}"
+    return _startupFolder() / f"{serviceName}.lnk"
+
+
+def _createTrayStartupShortcut(target: str, debug: bool = False) -> tuple[bool, str]:
+    """Drop a .lnk in the user's Startup folder that launches the tray on
+    login. Uses WScript.Shell via PowerShell — no extra Python deps needed."""
+    canon = _canonicalBridgeTarget(target)
+    if not canon:
+        return False, f"unknown target: {target!r}"
+    shortcut = _startupShortcutPath(canon)
+    pythonw = _pythonwExeForTray()
+    startPy = str((ROOT / "start.py").resolve())
+    iconPath = str((ROOT / "assets" / "models" / f"{canon}.ico").resolve())
+    ps_lines = [
+        f"$ws = New-Object -ComObject WScript.Shell",
+        f"$sc = $ws.CreateShortcut('{shortcut}')",
+        f"$sc.TargetPath = '{pythonw}'",
+        f"$sc.Arguments = '\"{startPy}\" --bridge-tray {canon}'",
+        f"$sc.WorkingDirectory = '{ROOT}'",
+        f"$sc.IconLocation = '{iconPath}'",
+        f"$sc.Description = 'Claude Codex Black bridge tray ({canon})'",
+        f"$sc.Save()",
+    ]
+    cmd = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "; ".join(ps_lines)]
+    rc, _out, err = _runProcess(cmd, debug=debug)
+    if rc != 0:
+        return False, err or "powershell shortcut creation failed"
+    return True, str(shortcut)
+
+
+def _removeTrayStartupShortcut(target: str) -> tuple[bool, str]:
+    canon = _canonicalBridgeTarget(target)
+    if not canon:
+        return False, f"unknown target: {target!r}"
+    shortcut = _startupShortcutPath(canon)
+    try:
+        if shortcut.exists():
+            shortcut.unlink()
+            return True, str(shortcut)
+        return True, ""  # idempotent
+    except Exception as error:
+        return False, f"{type(error).__name__}: {error}"
+
+
+def _nssmInstall(target: str, debug: bool = False) -> tuple[bool, str]:
+    nssm = _findNssmExe()
+    if not nssm:
+        return False, "nssm not found"
+    canon = _canonicalBridgeTarget(target)
+    if not canon:
+        return False, f"unknown target: {target!r}"
+    name = bridgeServiceName(canon)
+    pyExe = _pythonExeForService()
+    startPy = str((ROOT / "start.py").resolve())
+    port = bridgePortForTarget(canon)
+    logPath = str(_bridgeServiceLogPath(canon).resolve())
+    LOGS.mkdir(parents=True, exist_ok=True)
+    # idempotent install
+    if _scServiceExists(name):
+        return False, f"service already exists: {name}"
+    # NSSM build arg list — each `nssm set` is its own subprocess.
+    steps = [
+        [nssm, "install", name, pyExe, startPy, "--serve-bridge", "--target", canon, "--bridge-port", str(port), "--offscreen"],
+        [nssm, "set", name, "AppDirectory", str(ROOT)],
+        [nssm, "set", name, "Start", "SERVICE_AUTO_START"],
+        [nssm, "set", name, "Description", f"Claude Codex Black - SuperGrok bridge for {canon}"],
+        [nssm, "set", name, "DisplayName", f"Claude Codex Black bridge ({canon})"],
+        [nssm, "set", name, "AppStdout", logPath],
+        [nssm, "set", name, "AppStderr", logPath],
+        [nssm, "set", name, "AppRotateFiles", "1"],
+        [nssm, "set", name, "AppRotateBytes", "1048576"],
+    ]
+    for cmd in steps:
+        rc, _out, err = _runProcess(cmd, debug=debug)
+        if rc != 0:
+            return False, f"nssm step failed: {' '.join(cmd[1:3])}: {err.strip()}"
+    return True, name
+
+
+def _scInstall(target: str, debug: bool = False) -> tuple[bool, str]:
+    """sc.exe fallback. Limitation: stdout/stderr go nowhere unless the
+    service writes to logs itself (start.py already does via BRIDGE_SERVICE_LOG
+    and console-tee). DisplayName + description set via sc config + sc description."""
+    canon = _canonicalBridgeTarget(target)
+    if not canon:
+        return False, f"unknown target: {target!r}"
+    name = bridgeServiceName(canon)
+    if _scServiceExists(name):
+        return False, f"service already exists: {name}"
+    pyExe = _pythonExeForService()
+    startPy = str((ROOT / "start.py").resolve())
+    port = bridgePortForTarget(canon)
+    # binPath needs the whole command line as ONE quoted string.
+    binPath = f'"{pyExe}" "{startPy}" --serve-bridge --target {canon} --bridge-port {port} --offscreen'
+    steps = [
+        ["sc.exe", "create", name, "binPath=", binPath, "start=", "auto", "DisplayName=", f"Claude Codex Black bridge ({canon})"],
+        ["sc.exe", "description", name, f"Claude Codex Black - SuperGrok bridge for {canon}"],
+    ]
+    for cmd in steps:
+        rc, _out, err = _runProcess(cmd, debug=debug)
+        if rc != 0:
+            return False, f"sc step failed: {cmd[1]}: {err.strip()}"
+    return True, name
+
+
+def installBridgeService(target: str, debug: bool = False) -> int:
+    """Public entry point. Picks NSSM or sc.exe and ALSO drops the Startup
+    shortcut for the tray companion. Returns shell-style int exit code."""
+    canon = _canonicalBridgeTarget(target)
+    if not canon:
+        print(json.dumps({"ok": False, "error": f"unknown target {target!r}", "valid": list(BRIDGE_TARGETS)}))
+        return 2
+    kind = _serviceManagerKind()
+    if kind == "nssm":
+        ok, msg = _nssmInstall(canon, debug=debug)
+    else:
+        ok, msg = _scInstall(canon, debug=debug)
+    if not ok:
+        print(json.dumps({"ok": False, "error": msg, "manager": kind, "target": canon}))
+        return 1
+    shortcut_ok, shortcut_msg = _createTrayStartupShortcut(canon, debug=debug)
+    print(json.dumps({
+        "ok": True, "manager": kind, "target": canon, "service": msg,
+        "port": bridgePortForTarget(canon),
+        "log": str(_bridgeServiceLogPath(canon)),
+        "trayShortcut": shortcut_msg if shortcut_ok else "",
+        "trayShortcutError": "" if shortcut_ok else shortcut_msg,
+    }))
+    return 0
+
+
+def uninstallBridgeService(target: str, debug: bool = False) -> int:
+    canon = _canonicalBridgeTarget(target)
+    if not canon:
+        print(json.dumps({"ok": False, "error": f"unknown target {target!r}", "valid": list(BRIDGE_TARGETS)}))
+        return 2
+    name = bridgeServiceName(canon)
+    if not _scServiceExists(name):
+        # idempotent: still remove the startup shortcut if it's lingering
+        shortcut_ok, shortcut_msg = _removeTrayStartupShortcut(canon)
+        print(json.dumps({"ok": True, "noop": True, "service": name, "trayShortcutRemoved": shortcut_msg if shortcut_ok else "", "trayShortcutError": "" if shortcut_ok else shortcut_msg}))
+        return 0
+    # stop first (idempotent)
+    nssm = _findNssmExe()
+    if nssm:
+        _runProcess([nssm, "stop", name], debug=debug)
+        rc, _out, err = _runProcess([nssm, "remove", name, "confirm"], debug=debug)
+        if rc != 0:
+            print(json.dumps({"ok": False, "error": f"nssm remove failed: {err.strip()}"}))
+            return 1
+    else:
+        _runProcess(["sc.exe", "stop", name], debug=debug)
+        rc, _out, err = _runProcess(["sc.exe", "delete", name], debug=debug)
+        if rc != 0:
+            print(json.dumps({"ok": False, "error": f"sc delete failed: {err.strip()}"}))
+            return 1
+    shortcut_ok, shortcut_msg = _removeTrayStartupShortcut(canon)
+    print(json.dumps({"ok": True, "removed": name, "trayShortcutRemoved": shortcut_msg if shortcut_ok else "", "trayShortcutError": "" if shortcut_ok else shortcut_msg}))
+    return 0
+
+
+def startBridgeService(target: str, debug: bool = False) -> int:
+    canon = _canonicalBridgeTarget(target)
+    if not canon:
+        print(json.dumps({"ok": False, "error": f"unknown target {target!r}"}))
+        return 2
+    name = bridgeServiceName(canon)
+    nssm = _findNssmExe()
+    cmd = [nssm, "start", name] if nssm else ["sc.exe", "start", name]
+    rc, _out, err = _runProcess(cmd, debug=debug)
+    print(json.dumps({"ok": rc == 0, "service": name, "error": err.strip() if rc != 0 else ""}))
+    return 0 if rc == 0 else 1
+
+
+def stopBridgeService(target: str, debug: bool = False) -> int:
+    canon = _canonicalBridgeTarget(target)
+    if not canon:
+        print(json.dumps({"ok": False, "error": f"unknown target {target!r}"}))
+        return 2
+    name = bridgeServiceName(canon)
+    nssm = _findNssmExe()
+    cmd = [nssm, "stop", name] if nssm else ["sc.exe", "stop", name]
+    rc, _out, err = _runProcess(cmd, debug=debug)
+    print(json.dumps({"ok": rc == 0, "service": name, "error": err.strip() if rc != 0 else ""}))
+    return 0 if rc == 0 else 1
+
+
+def restartBridgeService(target: str, debug: bool = False) -> int:
+    stopBridgeService(target, debug=debug)
+    # let the SCM settle so the start isn't rejected
+    time.sleep(1.0)
+    return startBridgeService(target, debug=debug)
+
+
+def listBridgeServices() -> int:
+    """Pretty-print a table: target / service / port / state / pid."""
+    rows: list[dict[str, Any]] = []
+    for canon in BRIDGE_TARGETS:
+        name = bridgeServiceName(canon)
+        port = bridgePortForTarget(canon)
+        info = _scServiceState(name)
+        rows.append({
+            "target": canon, "service": name, "port": port,
+            "state": info.get("state", "?"),
+            "pid": info.get("pid", "") or "-",
+        })
+    # tabular print
+    print(f"{'TARGET':<10} {'SERVICE':<22} {'PORT':<6} {'STATE':<14} {'PID'}")
+    print("-" * 64)
+    for r in rows:
+        print(f"{r['target']:<10} {r['service']:<22} {r['port']:<6} {r['state']:<14} {r['pid']}")
+    # also dump structured JSON for scripts
+    print()
+    print(json.dumps({"services": rows}, ensure_ascii=False))
+    return 0
+
+
+def installAllBridgeServices(debug: bool = False) -> int:
+    rc = 0
+    for canon in BRIDGE_TARGETS:
+        sub = installBridgeService(canon, debug=debug)
+        if sub != 0:
+            rc = sub
+    return rc
+
+
+def uninstallAllBridgeServices(debug: bool = False) -> int:
+    rc = 0
+    for canon in BRIDGE_TARGETS:
+        sub = uninstallBridgeService(canon, debug=debug)
+        if sub != 0:
+            rc = sub
+    return rc
+
+
+# ---------------------------------------------------------------------------
+# Tray icon companion. Imports PySide6 lazily because most CLI flows don't
+# need it (and CI containers may not have it). Talks to the bridge over the
+# same TCP newline-JSON protocol the chat client uses ({"action":"status"}).
+# ---------------------------------------------------------------------------
+def _loadLanguageStrings(locale: str = "en") -> dict[str, str]:
+    """Tiny <strings>/<s id="..."> XML loader. No deps — stdlib xml only.
+    Falls back to en.xml on any error so the tray menu always has labels."""
+    out: dict[str, str] = {}
+    try:
+        import xml.etree.ElementTree as ET  # depcheck-ok: stdlib
+        candidates = [ROOT / "languages" / f"{locale}.xml", ROOT / "languages" / "en.xml"]
+        for path in candidates:
+            if not path.exists():
+                continue
+            try:
+                tree = ET.parse(path)
+                for el in tree.getroot().findall("s"):
+                    sid = (el.get("id") or "").strip()
+                    if sid:
+                        out[sid] = (el.text or "")
+                if out:
+                    break
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return out
+
+
+def _trayBridgeStatus(port: int, timeout: float = 5.0) -> dict[str, Any]:
+    """Send {"action":"status"} to 127.0.0.1:<port>, return parsed JSON or
+    {'_error': '...'}. Fire-and-show within 5 s per the spec."""
+    try:
+        with socket.create_connection((BRIDGE_SERVICE_HOST, int(port)), timeout=timeout) as sock:
+            sock.sendall(json.dumps({"action": "status"}).encode("utf-8") + b"\n")
+            sock.settimeout(timeout)
+            chunks: list[bytes] = []
+            while True:
+                try:
+                    data = sock.recv(65536)
+                except socket.timeout:
+                    break
+                if not data:
+                    break
+                chunks.append(data)
+                if b"\n" in data:
+                    break
+            raw = b"".join(chunks).decode("utf-8", errors="replace").strip()
+            if not raw:
+                return {"_error": "empty response"}
+            # service may emit one JSON line OR multiple lines; first line wins
+            first = raw.splitlines()[0]
+            try:
+                return json.loads(first)
+            except Exception:
+                return {"_error": "non-JSON response", "raw": first[:500]}
+    except Exception as error:
+        return {"_error": f"{type(error).__name__}: {error}"}
+
+
+def runBridgeTray(target: str, debug: bool = False) -> int:
+    """PySide6 QSystemTrayIcon mainloop. NEVER spawns a webview — purely a
+    user-session companion for the SERVICE process. Right-click menu items:
+    Status / Information / Test / About / Close. Tooltip auto-refreshes
+    every ~5 s so a glance at the tray shows live Running/Stopped."""
+    canon = _canonicalBridgeTarget(target)
+    if not canon:
+        print(json.dumps({"ok": False, "error": f"unknown target {target!r}", "valid": list(BRIDGE_TARGETS)}), file=sys.stderr, flush=True)
+        return 2
+    try:
+        from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox  # depcheck-ok
+        from PySide6.QtGui import QIcon, QAction
+        from PySide6.QtCore import QTimer
+    except Exception as importErr:
+        print(json.dumps({"ok": False, "error": f"PySide6 import failed: {importErr}"}), file=sys.stderr, flush=True)
+        return 3
+
+    serviceName = bridgeServiceName(canon)
+    port = bridgePortForTarget(canon)
+    iconPath = ROOT / "assets" / "models" / f"{canon}.ico"
+    logPath = _bridgeServiceLogPath(canon)
+    startedAt = time.time()
+    strings = _loadLanguageStrings(os.environ.get("CBE_LOCALE", "en") or "en")
+
+    def L(key: str, fallback: str) -> str:
+        return strings.get(key, fallback)
+
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
+
+    icon = QIcon(str(iconPath)) if iconPath.exists() else QIcon()
+    tray = QSystemTrayIcon(icon)
+    tray.setToolTip(f"Claude Codex Black - {canon.title()} Bridge - {BRIDGE_SERVICE_HOST}:{port}")
+    tray.setVisible(True)
+
+    menu = QMenu()
+
+    def _formatUptime(seconds: float) -> str:
+        s = max(0, int(seconds))
+        h = s // 3600
+        m = (s % 3600) // 60
+        ss = s % 60
+        return f"{h:02d}:{m:02d}:{ss:02d}"
+
+    def _showCopyableBox(title: str, text: str) -> None:
+        box = QMessageBox()
+        box.setWindowTitle(title)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(text)
+        box.setTextInteractionFlags(box.textInteractionFlags() | 0x00000001)  # Qt::TextSelectableByMouse
+        box.exec()
+
+    def onStatus() -> None:
+        info = _scServiceState(serviceName)
+        payload = _trayBridgeStatus(port, timeout=3.0)
+        uptime = _formatUptime(time.time() - startedAt)
+        bridge_pid = ""
+        if isinstance(payload, dict):
+            bridge_pid = str(payload.get("pid") or payload.get("PID") or "")
+        text = (
+            f"Service: {serviceName}\n"
+            f"State: {info.get('state', '?')}\n"
+            f"Port: {port}\n"
+            f"PID: {info.get('pid', '') or bridge_pid or '-'}\n"
+            f"Uptime: {uptime}"
+        )
+        _showCopyableBox(L("tray.status", "Status"), text)
+
+    def onInformation() -> None:
+        text = (
+            f"Host: {BRIDGE_SERVICE_HOST}\n"
+            f"Port: {port}\n"
+            f"Protocol: TCP newline-delimited JSON\n"
+            f"Wire: {{\"action\":\"chat\",\"target\":\"{canon}\",\"message\":\"...\"}}\n"
+            f"Status endpoint: send {{\"action\":\"status\"}} for a JSON health reply\n"
+            f"Logs: {logPath}"
+        )
+        _showCopyableBox(L("tray.information", "Information"), text)
+
+    def onTest() -> None:
+        payload = _trayBridgeStatus(port, timeout=5.0)
+        if isinstance(payload, dict) and payload.get("_error"):
+            _showCopyableBox(L("tray.test", "Test"), f"no response\n\n{payload.get('_error')}")
+            return
+        try:
+            pretty = json.dumps(payload, ensure_ascii=False, indent=2)
+        except Exception:
+            pretty = repr(payload)
+        _showCopyableBox(L("tray.test", "Test"), f"Bridge alive, status payload:\n\n{pretty}")
+
+    def onAbout() -> None:
+        text = (
+            f"{APP_NAME} - {canon.title()} bridge tray\n"
+            f"{APP_NAME} v{APP_VERSION}\n"
+            f"Claude Codex Black\n"
+            f"Service: {serviceName}\n"
+            f"Port: {port}"
+        )
+        _showCopyableBox(L("tray.about", "About"), text)
+
+    def onClose() -> None:
+        reply = QMessageBox.question(
+            None, L("tray.close", "Close"),
+            f"Stop service '{serviceName}' and exit tray?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        nssm = _findNssmExe()
+        cmd = [nssm, "stop", serviceName] if nssm else ["sc.exe", "stop", serviceName]
+        _runProcess(cmd, debug=debug)
+        tray.setVisible(False)
+        app.quit()
+
+    # registered-array pattern (per code style: no long if/elif chains)
+    trayActions = [
+        (L("tray.status",      "Status"),      onStatus),
+        (L("tray.information", "Information"), onInformation),
+        (L("tray.test",        "Test"),        onTest),
+        (L("tray.about",       "About"),       onAbout),
+        (L("tray.close",       "Close"),       onClose),
+    ]
+    for labelText, handler in trayActions:
+        action = QAction(labelText, menu)
+        action.triggered.connect(handler)
+        menu.addAction(action)
+    tray.setContextMenu(menu)
+
+    def refreshTooltip() -> None:
+        info = _scServiceState(serviceName)
+        state = info.get("state", "?")
+        tray.setToolTip(f"Claude Codex Black - {canon.title()} Bridge - {BRIDGE_SERVICE_HOST}:{port} - {state}")
+
+    refreshTooltip()
+    timer = QTimer()
+    timer.setInterval(5000)
+    timer.timeout.connect(refreshTooltip)
+    timer.start()
+
+    return int(app.exec())
+
+
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
+    # --promt / --prompt typo-aliases for --chat. Rewritten here, before
+    # argparse, so the whole existing --chat pipeline (parser, nargs tail
+    # handler, normalizeChatModeArgs, runChatCommand) works unchanged. Only
+    # the standalone flag token is rewritten — never a substring of a real
+    # message — so `--chat "write a prompt"` is untouched.
+    if argv:
+        argv = [
+            "--chat" if str(tok or "").strip().lower() in CHAT_TYPO_FLAG_ALIASES else tok
+            for tok in argv
+        ]
     if len(argv) == 1 and argv[0].lower() in {"help", "man", "/?", "/help", "-?"}:
         print(buildParser().format_help())
         return 0
@@ -2159,194 +3571,302 @@ def main(argv: list[str] | None = None) -> int:
                     return 1
 
             if action in ('list', 'delete-remote'):
-                # Extract library items using Playwright with a temporary Chrome instance
+                # Extract library items by calling chatgpt.com/backend-api/conversations
+                # directly with cookies from the user's normal Chrome browser. No
+                # Playwright, no headless browser, no Cloudflare problem — the cookies
+                # already prove we're a logged-in human.
+                #
+                # 100% of the HTTP send/receive is appended to library_http.log AND
+                # streamed to stderr. On any non-200 / parse failure, the log tail is
+                # fed to chatgtp_hook.ask() for a 3-line diagnosis so the user knows
+                # what changed (endpoint moved, cookies expired, schema swap, etc.).
+                def _gptAnalyze(log_path, http_response, extra_note=''):
+                    try:
+                        hook = Path(r'C:\Users\moren\Desktop\claude\hooks\chatgtp_hook.py')
+                        if not hook.exists():
+                            return {'ok': False, 'error': f'HTTP {http_response.status_code if http_response is not None else "?"}; chatgtp_hook missing for analysis'}
+                        log_text = log_path.read_text(encoding='utf-8', errors='replace')[-8000:]
+                        prompt = (
+                            "I called https://chatgpt.com/backend-api/conversations with the user's logged-in "
+                            "Chrome cookies to fetch their saved chat list, and got a non-200 / unparseable "
+                            "response. Below is the COMPLETE HTTP transaction log including headers and body. "
+                            "Diagnose in 3 lines exactly: (1) what happened, (2) most likely root cause, "
+                            "(3) one specific fix the user should try. NO prose around the 3 lines.\n"
+                            + (f'\nExtra note: {extra_note}\n' if extra_note else '')
+                            + f"\n=== HTTP LOG (last 8000 chars) ===\n{log_text}\n=== END LOG ==="
+                        )
+                        import subprocess as _sp
+                        proc = _sp.run([sys.executable, str(hook), 'ask', prompt],
+                                       capture_output=True, text=True, timeout=45)
+                        diag = (proc.stdout or '').strip() or (proc.stderr or '').strip() or '<no GPT output>'
+                        print(f'[gpt-diagnose]\n{diag}', file=sys.stderr, flush=True)
+                        return {
+                            'ok': False,
+                            'error': f'HTTP {http_response.status_code if http_response is not None else "n/a"}',
+                            'gpt_diagnosis': diag,
+                            'log_path': str(log_path),
+                        }
+                    except Exception as ae:
+                        return {'ok': False, 'error': f'GPT analysis failed: {ae}', 'log_path': str(log_path)}
+
                 def extract_library():
+                    from datetime import datetime as _dt
+                    from pathlib import Path as _Path
+                    import subprocess as _sp
+                    import urllib.request as _urllib
+                    import time as _time
+
+                    log_dir = _Path.home() / '.claude' / 'projects' / 'C--Users-moren' / 'library-cache'
+                    log_dir.mkdir(parents=True, exist_ok=True)
+                    log_path = log_dir / 'library_http.log'
+                    try:
+                        log_path.write_text('', encoding='utf-8')
+                    except Exception:
+                        pass
+
+                    def _log(line):
+                        ts = _dt.now().isoformat(timespec='milliseconds')
+                        msg = f'[{ts}] {line}'
+                        print(msg, file=sys.stderr, flush=True)
+                        try:
+                            with open(log_path, 'a', encoding='utf-8') as f:
+                                f.write(msg + '\n')
+                        except Exception:
+                            pass
+
+                    _log(f'[extract] start  log_path={log_path}')
+
+                    # ChatGPT cookies are App-Bound-Encrypted (Chrome v127+), so reading
+                    # the user's main Chrome cookie store would require admin. Instead:
+                    # spawn our own Chrome with a dedicated CBE profile + CDP enabled,
+                    # then navigate Playwright through CDP to the backend-api JSON URL
+                    # directly. Cookies live in the CBE profile dir (one-time login).
                     try:
                         from playwright.sync_api import sync_playwright
                     except ImportError:
-                        print(json.dumps({'ok': False, 'error': 'Playwright not installed'}), file=sys.stderr)
-                        return {'ok': False}
+                        _log('[extract] playwright not installed')
+                        return {'ok': False, 'error': 'playwright unavailable', 'log_path': str(log_path)}
 
+                    cbe_profile = log_dir / 'chrome-profile'
+                    cbe_profile.mkdir(parents=True, exist_ok=True)
+                    chrome_paths = [
+                        r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+                        r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+                    ]
+                    chrome_exe = next((c for c in chrome_paths if _Path(c).exists()), None)
+                    if not chrome_exe:
+                        return {'ok': False, 'error': 'Chrome not installed', 'log_path': str(log_path)}
+
+                    # Pick a free port. Don't hardcode 9222 — the SuperGrok bridge
+                    # uses that for its own remote-debug, so a collision is the norm.
                     try:
-                        print('[extract] Starting Playwright browser...', file=sys.stderr, flush=True)
+                        import socket as _sock
+                        _s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+                        _s.bind(('127.0.0.1', 0))
+                        cdp_port = int(_s.getsockname()[1])
+                        _s.close()
+                    except Exception:
+                        cdp_port = 9333  # last-resort static fallback off the SuperGrok 9222
+                    cdp_url = f'http://127.0.0.1:{cdp_port}'
+                    cdp_alive = False
+                    # Probe a list of candidate ports: our just-picked one, plus any
+                    # port a currently-running chrome.exe with our user-data-dir is
+                    # listening on. Required because a Chrome already open with the
+                    # CBE profile holds the profile lock — we have to ATTACH to it,
+                    # not spawn a second instance.
+                    candidate_ports = [cdp_port]
+                    try:
+                        running = _sp.run(['wmic', 'process', 'where', "name='chrome.exe'", 'get', 'CommandLine', '/format:list'],
+                                          capture_output=True, text=True, timeout=10)
+                        cbe_dir_str = str(cbe_profile).replace('\\', '\\\\')
+                        for line in (running.stdout or '').splitlines():
+                            if 'chrome-profile' in line and '--remote-debugging-port=' in line:
+                                import re as _re
+                                m = _re.search(r'--remote-debugging-port=(\d+)', line)
+                                if m:
+                                    p = int(m.group(1))
+                                    if p not in candidate_ports:
+                                        candidate_ports.append(p)
+                    except Exception as scan_err:
+                        _log(f'[extract] couldn\'t scan running Chromes: {scan_err}')
+                    # Add common fallback ports too
+                    for p in (9444, 9333, 9222):
+                        if p not in candidate_ports:
+                            candidate_ports.append(p)
+                    _log(f'[extract] probing CDP candidate ports: {candidate_ports}')
+                    for p in candidate_ports:
+                        try:
+                            _urllib.urlopen(f'http://127.0.0.1:{p}/json/version', timeout=2).close()
+                            cdp_port = p
+                            cdp_url = f'http://127.0.0.1:{p}'
+                            cdp_alive = True
+                            _log(f'[extract] attaching to existing Chrome on CDP {p}')
+                            break
+                        except Exception:
+                            pass
 
+                    spawned_proc = None
+                    if not cdp_alive:
+                        # First-run: cookies/ not yet populated → visible window so user
+                        # logs in. Subsequent runs: cookies present → offscreen.
+                        # Chrome 127+ moved cookies to Default/Network/Cookies.
+                        # Older Chrome put them at Default/Cookies. Check both.
+                        has_session = (
+                            (cbe_profile / 'Default' / 'Network' / 'Cookies').exists()
+                            or (cbe_profile / 'Default' / 'Cookies').exists()
+                        )
+                        win_args = (['--window-position=-32000,-32000', '--window-size=1280,900']
+                                    if has_session else ['--window-size=1280,900'])
+                        if not has_session:
+                            _log('[extract] FIRST RUN — Chrome opens visibly. Log into ChatGPT, then re-run --library.')
+                        cmd = [chrome_exe,
+                               f'--remote-debugging-port={cdp_port}',
+                               f'--user-data-dir={cbe_profile}',
+                               '--no-first-run', '--no-default-browser-check',
+                               '--disable-extensions', '--disable-sync',
+                               # Chrome 127+ App-Bound Encryption stops cookies persisted by one
+                               # Chrome process from being decrypted by the next. --password-store=basic
+                               # forces a process-portable cookie store; the LockProfileCookieDatabase
+                               # disable lets the new process actually open the existing store.
+                               '--password-store=basic',
+                               '--disable-features=LockProfileCookieDatabase',
+                               *win_args,
+                               'https://chatgpt.com/']
+                        _log(f'[extract] spawning Chrome: {cmd[0]} (profile={cbe_profile.name})')
+                        spawned_proc = _sp.Popen(cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+                        # Wait for CDP to come up
+                        for i in range(30):
+                            try:
+                                _urllib.urlopen(f'{cdp_url}/json/version', timeout=1).close()
+                                cdp_alive = True
+                                break
+                            except Exception:
+                                _time.sleep(1)
+                        if not cdp_alive:
+                            return {'ok': False, 'error': 'Chrome failed to start with CDP', 'log_path': str(log_path)}
+                        _log(f'[extract] Chrome spawned PID={spawned_proc.pid}, CDP up after {i+1}s')
+
+                    last_response_info = {'status': None}
+                    try:
                         with sync_playwright() as p:
-                            # Launch browser WITHOUT using existing user profile to avoid locking
-                            browser = p.chromium.launch(
-                                headless=True,
-                                args=[
-                                    '--disable-extensions',
-                                    '--disable-sync',
-                                    '--no-startup-window',
-                                    '--disable-gpu',
-                                    '--single-process=false',
-                                    '--disable-dev-shm-usage',
-                                    '--disable-blink-features=AutomationControlled',
-                                    '--disable-web-security',
-                                    '--no-sandbox'
-                                ]
-                            )
+                            browser = p.chromium.connect_over_cdp(cdp_url)
+                            context = browser.contexts[0] if browser.contexts else browser.new_context()
+                            page = context.pages[0] if context.pages else context.new_page()
 
-                            context = browser.new_context(
-                                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                            )
-
-                            # Try to load cookies if they exist
-                            cookies_file = Path.home() / '.claude' / 'projects' / 'C--Users-moren' / 'library-cache' / 'cookies.json'
-                            if cookies_file.exists():
+                            # Log EVERY chatgpt.com request and response so the user can
+                            # see exactly what cookies/headers were sent and what came back.
+                            # This is the diagnostic for "session not authenticated" cases —
+                            # if no Cookie header carries __Secure-next-auth.session-token,
+                            # the API will return empty regardless of UI login state.
+                            def _on_request(req):
+                                if 'chatgpt.com' not in req.url:
+                                    return
                                 try:
-                                    with open(cookies_file, 'r') as f:
-                                        cookies = json.load(f)
-                                        context.add_cookies(cookies)
-                                        print(f'[extract] Loaded {len(cookies)} cookies', file=sys.stderr, flush=True)
-                                except Exception as e:
-                                    print(f'[extract] Could not load cookies: {e}', file=sys.stderr, flush=True)
-
-                            page = context.new_page()
-
-                            print('[extract] Navigating to ChatGPT library...', file=sys.stderr, flush=True)
-                            try:
-                                page.goto('https://chatgpt.com/library', wait_until='networkidle', timeout=120000)
-                            except:
+                                    hdrs = req.headers
+                                    cookie_hdr = hdrs.get('cookie', '')
+                                    cookie_names = [c.split('=', 1)[0].strip() for c in cookie_hdr.split(';') if c.strip()]
+                                    _log(f'[request]  {req.method} {req.url}')
+                                    _log(f'[request]  hdr_count={len(hdrs)}  cookie_count={len(cookie_names)}  cookies={cookie_names}')
+                                    if req.method != 'GET':
+                                        try:
+                                            pd = req.post_data
+                                            if pd:
+                                                _log(f'[request]  body_first_500={pd[:500]}')
+                                        except Exception:
+                                            pass
+                                except Exception as re_err:
+                                    _log(f'[request]  logger error: {re_err}')
+                            def _on_response(resp):
+                                if 'chatgpt.com' not in resp.url:
+                                    return
                                 try:
-                                    page.goto('https://chatgpt.com/library', wait_until='domcontentloaded', timeout=120000)
-                                except:
-                                    pass
+                                    rh = resp.headers
+                                    set_cookie = rh.get('set-cookie', '')
+                                    _log(f'[response] {resp.status} {resp.url}')
+                                    _log(f'[response] content-type={rh.get("content-type","")}  set-cookie_chars={len(set_cookie)}')
+                                except Exception as se_err:
+                                    _log(f'[response] logger error: {se_err}')
+                            page.on('request', _on_request)
+                            page.on('response', _on_response)
 
-                            print('[extract] Waiting for content (Cloudflare challenge)...', file=sys.stderr, flush=True)
-                            # Wait for page to change from "Just a moment..." challenge page
-                            # by waiting for actual content elements to appear
+                            # Warmup navigation to the homepage so Chrome fully loads + decrypts
+                            # the cookie store BEFORE we hit the API. Without this priming step
+                            # the first request goes out with cookie_count=0 even when valid
+                            # session cookies sit on disk (timing of ABE decrypt).
                             try:
-                                # Wait for the challenge iframe/container to disappear or content to load
-                                page.wait_for_function('''() => {
-                                    const body = document.body.innerText || '';
-                                    // Page should have actual content, not just "Just a moment..."
-                                    return body.length > 100 && !body.includes('Just a moment');
-                                }''', timeout=90000)
-                                print('[extract] Cloudflare challenge completed', file=sys.stderr, flush=True)
-                            except Exception as e:
-                                print(f'[extract] Challenge wait failed ({e}), waiting 60 seconds...', file=sys.stderr, flush=True)
-                                time.sleep(60)  # Very long wait for CAPTCHA
+                                _log('[extract] warmup: GET https://chatgpt.com/')
+                                page.goto('https://chatgpt.com/', wait_until='domcontentloaded', timeout=30000)
+                                _time.sleep(2)
+                                # Verify the context now has cookies
+                                ctx_cookies = context.cookies('https://chatgpt.com/')
+                                _log(f'[extract] context cookie count for chatgpt.com after warmup: {len(ctx_cookies)}')
+                                if ctx_cookies:
+                                    _log(f'[extract] cookie names: {[c["name"] for c in ctx_cookies[:10]]}')
+                            except Exception as we:
+                                _log(f'[extract] warmup failed (non-fatal): {we}')
 
-                            # Debug: log page HTML to see what we're actually getting
-                            page_html = page.content()
-                            page_text = page.evaluate('() => document.body.innerText')
-                            print(f'[extract] Page length: {len(page_html)} chars', file=sys.stderr, flush=True)
-                            print(f'[extract] Page text preview:', file=sys.stderr, flush=True)
-                            print(page_text[:1000] if page_text else '[EMPTY-INNERTEXT]', file=sys.stderr, flush=True)
-                            print(f'[extract] HTML preview (first 1500 chars):', file=sys.stderr, flush=True)
-                            print(page_html[:1500], file=sys.stderr, flush=True)
+                            all_items = []
+                            offset = 0
+                            page_limit = 100
+                            while True:
+                                api = f'https://chatgpt.com/backend-api/conversations?offset={offset}&limit={page_limit}&order=updated'
+                                _log(f'[extract] navigating to {api}')
+                                try:
+                                    resp = page.goto(api, wait_until='domcontentloaded', timeout=30000)
+                                except Exception as ne:
+                                    _log(f'[extract] goto failed: {ne}')
+                                    return _gptAnalyze(log_path, None, extra_note=f'goto failed: {ne}')
+                                last_response_info['status'] = resp.status if resp else None
+                                _log(f'[extract] response status={resp.status if resp else "n/a"}  url={page.url}')
+                                # Page is JSON; body is in document.body.innerText
+                                body = page.evaluate('() => document.body.innerText') or ''
+                                _log(f'[extract] body_chars={len(body)}  preview_first_2000={body[:2000]}')
+                                if resp and resp.status != 200:
+                                    return _gptAnalyze(log_path, type('R',(),{'status_code':resp.status})(), extra_note=f'status={resp.status}')
+                                # If redirected to login page, body won't be JSON
+                                if not body.strip().startswith('{'):
+                                    _log('[extract] response is not JSON — likely redirected to login')
+                                    if not (cbe_profile / 'Default' / 'Cookies').exists():
+                                        return {'ok': False, 'error': 'Not logged in to ChatGPT in CBE profile. Log into chatgpt.com in the spawned Chrome window, then re-run.', 'log_path': str(log_path)}
+                                    return _gptAnalyze(log_path, type('R',(),{'status_code':resp.status if resp else None})(), extra_note='response is HTML, not JSON — session may have expired')
+                                try:
+                                    data = json.loads(body)
+                                except Exception as je:
+                                    _log(f'[extract] JSON parse failed: {je}')
+                                    return _gptAnalyze(log_path, None, extra_note=f'JSON parse failed: {je}')
+                                items = data.get('items') if isinstance(data, dict) else None
+                                if items is None:
+                                    _log(f'[extract] no "items" key. keys={list(data.keys()) if isinstance(data, dict) else type(data).__name__}')
+                                    return _gptAnalyze(log_path, None, extra_note='no items key — schema change?')
+                                all_items.extend(items)
+                                total = (data.get('total') if isinstance(data, dict) else 0) or 0
+                                _log(f'[extract] page items={len(items)}  total={total}  accumulated={len(all_items)}')
+                                if not items or len(all_items) >= total:
+                                    break
+                                offset += page_limit
+                                if offset > 10000:
+                                    break
 
-                            # Extract library items
-                            extraction_code = '''(() => {
-                            const files = [];
-                            const chats = [];
-
-                            // Look for items in the main content area - find all elements that look like list items
-                            // ChatGPT library typically uses divs with role="button" or similar interactive containers
-                            const mainContent = document.querySelector('[role="main"]') || document.body;
-
-                            // Target elements that are likely library items (avoid headers, menus, sidebars)
-                            const itemSelectors = [
-                                'a[href*="/library/"], a[href*="/gpts/"]',
-                                'div[role="button"][tabindex="0"]',
-                                '[data-testid*="library"], [data-testid*="gpt"]',
-                                'button:has(span:not(:empty))',
-                                '.space-y-2 > div, .space-y-3 > div, .space-y-4 > div'
-                            ];
-
-                            let items = [];
-                            for (const selector of itemSelectors) {
-                                try {
-                                    items = items.concat(Array.from(mainContent.querySelectorAll(selector)));
-                                } catch (e) {}
+                            chats = [{
+                                'name': it.get('title') or '(untitled)',
+                                'id': it.get('id'),
+                                'updated': it.get('update_time'),
+                                'created': it.get('create_time'),
+                            } for it in all_items if isinstance(it, dict)]
+                            _log(f'[extract] DONE  chats={len(chats)}')
+                            return {
+                                'ok': True,
+                                'files': [],
+                                'chats': chats,
+                                'total': len(chats),
+                                'log_path': str(log_path),
                             }
+                    except Exception as ex:
+                        import traceback as _tb
+                        _log(f'[extract] uncaught: {ex}')
+                        _log(_tb.format_exc())
+                        return _gptAnalyze(log_path, None, extra_note=f'uncaught: {type(ex).__name__}: {ex}')
 
-                            // Deduplicate
-                            items = [...new Set(items)];
-
-                            // Filter out UI elements
-                            items = items.filter(item => {
-                                const rect = item.getBoundingClientRect();
-                                // Exclude hidden or zero-size elements
-                                if (rect.width === 0 || rect.height === 0) return false;
-                                if (item.offsetParent === null) return false;
-                                // Exclude very small elements (likely icons/buttons)
-                                if (rect.height < 30) return false;
-                                return true;
-                            });
-
-                            items.forEach((item, idx) => {
-                                try {
-                                    let text = item.textContent || item.innerText || '';
-                                    text = text.trim();
-                                    if (!text || text.length < 3) return;
-
-                                    // Skip common UI labels
-                                    if (/^(new chat|search|sort|filter|more|less|edit|delete|share|copy|pin)$/i.test(text)) return;
-
-                                    const title = text.split('\\n')[0].split('\\t')[0].trim().slice(0, 200);
-                                    if (!title || title.length < 3) return;
-
-                                    const hasDownload = !!item.querySelector('[aria-label*="download"], a[download]');
-                                    const hasFileIcon = !!item.querySelector('svg[aria-label*="file"]');
-                                    const sizeText = text.match(/\\d+(\\.\\d+)?\\s*(KB|MB|GB|B)/i)?.[0] || '';
-
-                                    const entry = {
-                                        name: title,
-                                        index: idx,
-                                        hasDownload: hasDownload,
-                                        hasFileIcon: hasFileIcon,
-                                        size: sizeText
-                                    };
-
-                                    if (hasDownload || hasFileIcon || sizeText) {
-                                        files.push(entry);
-                                    } else if (title.length > 3 && !title.toLowerCase().includes('new')) {
-                                        chats.push(entry);
-                                    }
-                                } catch (e) {}
-                            });
-
-                            return JSON.stringify({
-                                success: true,
-                                files: files,
-                                chats: chats,
-                                totalItems: files.length + chats.length,
-                                pageUrl: window.location.href,
-                                signedIn: true,
-                                debugItemCount: items.length
-                            });
-                            })()'''
-
-                            result_str = page.evaluate(extraction_code)
-                            result = json.loads(result_str)
-
-                            # Save cookies for next time
-                            try:
-                                cookies = context.cookies()
-                                cache_dir = Path.home() / '.claude' / 'projects' / 'C--Users-moren' / 'library-cache'
-                                cache_dir.mkdir(parents=True, exist_ok=True)
-                                with open(cache_dir / 'cookies.json', 'w') as f:
-                                    json.dump(cookies, f)
-                            except:
-                                pass
-
-                            browser.close()
-
-                            if result and result.get('success'):
-                                return {
-                                    'ok': True,
-                                    'files': result.get('files', []),
-                                    'chats': result.get('chats', []),
-                                    'total': result.get('totalItems', 0)
-                                }
-                            else:
-                                return {'ok': False, 'error': 'Failed to extract library'}
-
-                    except Exception as e:
-                        # Silent fail - don't show tracebacks to avoid noise
-                        return {'ok': False, 'error': 'Extraction failed'}
 
                 # Call the extraction function directly
                 try:
@@ -2356,8 +3876,10 @@ def main(argv: list[str] | None = None) -> int:
                         return 0
                     else:
                         print(json.dumps(output), file=sys.stderr)
+                        return 1
                 except Exception as e:
                     print(f'[library] Extraction failed: {str(e)}', file=sys.stderr, flush=True)
+                    return 1
 
             if action in ('list', 'delete-remote'):
                 import subprocess

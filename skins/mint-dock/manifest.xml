@@ -17,5 +17,10 @@
     <modal-foot-bg>#152016</modal-foot-bg>
     <modal-accent>#7cc882</modal-accent>
     <highlight-color>#d6f5b3</highlight-color>
+    <!-- Code-block chrome: title bar above + footer below fenced code.
+         Read by the panel as --cbe-code-bar-bg / --cbe-code-bar-fg.
+         Deep Mint green, cohesive with the green accent. -->
+    <code-bar-bg>#2c5a30</code-bar-bg>
+    <code-bar-fg>#f2faf2</code-bar-fg>
   </colors>
 </skin>

@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Netscape Navigator 4.0 — CBE</title>
+<!--
+  NN4-skinned browser shell for Claude Codex Black.
+  Pure CSS, single file. No external frameworks.
+
+  Note: many real-world sites (chatgpt.com included) ship
+  X-Frame-Options: DENY or a CSP frame-ancestors directive that
+  prevents embedding in an <iframe>. The shell still renders;
+  the content area will simply show the browser's "refused to
+  connect" page in that case. Swap the default URL below for
+  testing with something embeddable (e.g. https://example.com/).
+-->
+<style>
+  :root {
+    --nn4-chrome:        #c0c0c0;
+    --nn4-chrome-light:  #dfdfdf;
+    --nn4-chrome-dark:   #7f7f7f;
+    --nn4-chrome-border: #808080;
+    --nn4-blue:          #000080;
+    --nn4-text:          #000000;
+    --nn4-sunken-bg:     #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--nn4-chrome);
+    color: var(--nn4-text);
+    font-family: "MS Sans Serif", "Microsoft Sans Serif", Geneva, Tahoma, sans-serif;
+    font-size: 11px;
+    -webkit-font-smoothing: none;
+    overflow: hidden;
+    user-select: none;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ─── Outset / inset bevel helpers ─────────────────────────────── */
+  .bevel-out {
+    border-top:    1px solid var(--nn4-chrome-light);
+    border-left:   1px solid var(--nn4-chrome-light);
+    border-right:  1px solid #000;
+    border-bottom: 1px solid #000;
+    box-shadow:
+      inset -1px -1px 0 var(--nn4-chrome-dark),
+      inset  1px  1px 0 #ffffff;
+  }
+  .bevel-in {
+    border-top:    1px solid var(--nn4-chrome-dark);
+    border-left:   1px solid var(--nn4-chrome-dark);
+    border-right:  1px solid var(--nn4-chrome-light);
+    border-bottom: 1px solid var(--nn4-chrome-light);
+    box-shadow:
+      inset  1px  1px 0 #000000,
+      inset -1px -1px 0 #ffffff;
+    background: var(--nn4-sunken-bg);
+  }
+
+  /* ─── Menubar ──────────────────────────────────────────────────── */
+  .menubar {
+    display: flex;
+    align-items: center;
+    background: var(--nn4-chrome);
+    padding: 2px 4px;
+    border-bottom: 1px solid var(--nn4-chrome-light);
+    box-shadow: inset 0 -1px 0 var(--nn4-chrome-dark);
+    height: 22px;
+    flex: 0 0 auto;
+  }
+  .menubar-items {
+    display: flex;
+    gap: 0;
+    flex: 1 1 auto;
+  }
+  .menu-item {
+    padding: 2px 8px;
+    cursor: default;
+  }
+  .menu-item:hover {
+    background: var(--nn4-blue);
+    color: #ffffff;
+  }
+  .menu-item .u { text-decoration: underline; }
+
+  /* Lighthouse "N" indicator — small bezelled square on the right edge */
+  .lighthouse {
+    width: 26px;
+    height: 22px;
+    margin-left: auto;
+    margin-right: 2px;
+    background: #000;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Times New Roman", Times, serif;
+    font-style: italic;
+    font-weight: bold;
+    font-size: 16px;
+    line-height: 1;
+    position: relative;
+  }
+  .lighthouse::after {
+    /* tiny dot above the N — the classic shooting-star highlight */
+    content: "";
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    width: 2px;
+    height: 2px;
+    background: #ffcc00;
+    border-radius: 50%;
+    box-shadow: 0 0 2px 1px rgba(255,204,0,0.7);
+  }
+
+  /* ─── Main toolbar (Back / Forward / Reload / …) ──────────────── */
+  .toolbar-main {
+    display: flex;
+    align-items: stretch;
+    padding: 3px 4px;
+    background: var(--nn4-chrome);
+    gap: 1px;
+    flex: 0 0 auto;
+    border-bottom: 1px solid var(--nn4-chrome-dark);
+  }
+  .tbtn {
+    width: 52px;
+    min-height: 46px;
+    background: var(--nn4-chrome);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 0 3px 0;
+    cursor: default;
+    border: 1px solid transparent;
+    user-select: none;
+  }
+  .tbtn:hover {
+    border-top:    1px solid var(--nn4-chrome-light);
+    border-left:   1px solid var(--nn4-chrome-light);
+    border-right:  1px solid #000;
+    border-bottom: 1px solid #000;
+    box-shadow:
+      inset -1px -1px 0 var(--nn4-chrome-dark),
+      inset  1px  1px 0 #ffffff;
+  }
+  .tbtn:active,
+  .tbtn.pressed {
+    border-top:    1px solid var(--nn4-chrome-dark);
+    border-left:   1px solid var(--nn4-chrome-dark);
+    border-right:  1px solid var(--nn4-chrome-light);
+    border-bottom: 1px solid var(--nn4-chrome-light);
+    box-shadow:
+      inset  1px  1px 0 #000000,
+      inset -1px -1px 0 #ffffff;
+  }
+  .tbtn .ico {
+    font-size: 18px;
+    line-height: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tbtn .lbl {
+    font-size: 11px;
+    line-height: 12px;
+    margin-top: 2px;
+  }
+  .tbtn.netscape .ico {
+    font-family: "Times New Roman", Times, serif;
+    font-style: italic;
+    font-weight: bold;
+    color: #ffffff;
+    background: #000080;
+    width: 26px;
+    height: 22px;
+    border-radius: 2px;
+  }
+
+  .tb-sep {
+    width: 2px;
+    margin: 2px 3px;
+    border-left:  1px solid var(--nn4-chrome-dark);
+    border-right: 1px solid var(--nn4-chrome-light);
+  }
+
+  /* ─── Location toolbar ─────────────────────────────────────────── */
+  .toolbar-loc {
+    display: flex;
+    align-items: center;
+    padding: 3px 4px;
+    background: var(--nn4-chrome);
+    gap: 4px;
+    flex: 0 0 auto;
+    border-bottom: 1px solid var(--nn4-chrome-dark);
+  }
+  .bookmark-btn {
+    padding: 2px 8px;
+    background: var(--nn4-chrome);
+    cursor: default;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    /* outset bevel */
+    border-top:    1px solid var(--nn4-chrome-light);
+    border-left:   1px solid var(--nn4-chrome-light);
+    border-right:  1px solid #000;
+    border-bottom: 1px solid #000;
+    box-shadow:
+      inset -1px -1px 0 var(--nn4-chrome-dark),
+      inset  1px  1px 0 #ffffff;
+    height: 22px;
+  }
+  .bookmark-btn:active {
+    border-top:    1px solid var(--nn4-chrome-dark);
+    border-left:   1px solid var(--nn4-chrome-dark);
+    border-right:  1px solid var(--nn4-chrome-light);
+    border-bottom: 1px solid var(--nn4-chrome-light);
+    box-shadow:
+      inset  1px  1px 0 #000000,
+      inset -1px -1px 0 #ffffff;
+  }
+  .loc-label {
+    padding: 2px 4px;
+    cursor: default;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .loc-input-wrap {
+    flex: 1 1 auto;
+    height: 22px;
+    background: #ffffff;
+    /* inset bevel */
+    border-top:    1px solid var(--nn4-chrome-dark);
+    border-left:   1px solid var(--nn4-chrome-dark);
+    border-right:  1px solid var(--nn4-chrome-light);
+    border-bottom: 1px solid var(--nn4-chrome-light);
+    box-shadow:
+      inset  1px  1px 0 #000000,
+      inset -1px -1px 0 #ffffff;
+    display: flex;
+    align-items: center;
+    padding: 0 3px;
+  }
+  .loc-input {
+    flex: 1 1 auto;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    font: inherit;
+    height: 18px;
+    padding: 0;
+    color: var(--nn4-text);
+  }
+  .loc-input:focus { background: transparent; }
+
+  /* ─── Content area ─────────────────────────────────────────────── */
+  .content {
+    flex: 1 1 auto;
+    position: relative;
+    background: #ffffff;
+    border-top: 1px solid var(--nn4-chrome-dark);
+    border-bottom: 1px solid var(--nn4-chrome-light);
+    overflow: hidden;
+  }
+  .content iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: #ffffff;
+    display: block;
+  }
+
+  /* ─── Status bar ───────────────────────────────────────────────── */
+  .statusbar {
+    display: flex;
+    align-items: center;
+    background: var(--nn4-chrome);
+    padding: 2px 4px;
+    border-top: 1px solid var(--nn4-chrome-light);
+    box-shadow: inset 0 1px 0 var(--nn4-chrome-dark);
+    height: 20px;
+    flex: 0 0 auto;
+    gap: 4px;
+  }
+  .status-cell {
+    height: 16px;
+    padding: 0 6px;
+    display: flex;
+    align-items: center;
+    /* inset bevel */
+    border-top:    1px solid var(--nn4-chrome-dark);
+    border-left:   1px solid var(--nn4-chrome-dark);
+    border-right:  1px solid var(--nn4-chrome-light);
+    border-bottom: 1px solid var(--nn4-chrome-light);
+    background: var(--nn4-chrome);
+  }
+  .status-cell.grow { flex: 1 1 auto; }
+  .padlock {
+    font-size: 11px;
+    line-height: 1;
+  }
+</style>
+</head>
+<body>
+
+  <!-- ── MENUBAR ─────────────────────────────────────────────────── -->
+  <div class="menubar" role="menubar" aria-label="Menu bar">
+    <div class="menubar-items">
+      <div class="menu-item"><span class="u">F</span>ile</div>
+      <div class="menu-item"><span class="u">E</span>dit</div>
+      <div class="menu-item"><span class="u">V</span>iew</div>
+      <div class="menu-item"><span class="u">G</span>o</div>
+      <div class="menu-item"><span class="u">C</span>ommunicator</div>
+      <div class="menu-item"><span class="u">H</span>elp</div>
+    </div>
+    <div class="lighthouse" title="Activity indicator" aria-hidden="true">N</div>
+  </div>
+
+  <!-- ── MAIN TOOLBAR ────────────────────────────────────────────── -->
+  <div class="toolbar-main" role="toolbar" aria-label="Navigation">
+    <div class="tbtn" id="btnBack"    title="Back">     <span class="ico">&larr;</span><span class="lbl">Back</span></div>
+    <div class="tbtn" id="btnFwd"     title="Forward">  <span class="ico">&rarr;</span><span class="lbl">Forward</span></div>
+    <div class="tbtn" id="btnReload"  title="Reload">   <span class="ico">&#x21bb;</span><span class="lbl">Reload</span></div>
+    <div class="tbtn" id="btnHome"    title="Home">     <span class="ico">&#x2302;</span><span class="lbl">Home</span></div>
+    <div class="tb-sep"></div>
+    <div class="tbtn" id="btnSearch"  title="Search">   <span class="ico">&#x1F50D;</span><span class="lbl">Search</span></div>
+    <div class="tbtn netscape" id="btnNetscape" title="Netscape"><span class="ico">N</span><span class="lbl">Netscape</span></div>
+    <div class="tb-sep"></div>
+    <div class="tbtn" id="btnPrint"   title="Print">    <span class="ico">&#x1F5B6;</span><span class="lbl">Print</span></div>
+    <div class="tbtn" id="btnSec"     title="Security"> <span class="ico">&#x1F512;</span><span class="lbl">Security</span></div>
+    <div class="tbtn" id="btnStop"    title="Stop">     <span class="ico">&#x2715;</span><span class="lbl">Stop</span></div>
+  </div>
+
+  <!-- ── LOCATION TOOLBAR ────────────────────────────────────────── -->
+  <div class="toolbar-loc">
+    <div class="bookmark-btn" id="bookmarksBtn" title="Bookmarks">
+      <span>Bookmarks</span><span>&#x25BC;</span>
+    </div>
+    <div class="loc-label"><span>Location:</span><span>&#x25BC;</span></div>
+    <div class="loc-input-wrap">
+      <input id="locInput" class="loc-input" type="text" spellcheck="false" autocomplete="off" />
+    </div>
+  </div>
+
+  <!-- ── CONTENT ─────────────────────────────────────────────────── -->
+  <div class="content">
+    <iframe id="contentFrame"
+            src="https://chatgpt.com/"
+            referrerpolicy="no-referrer"
+            sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+            title="Browser content"></iframe>
+  </div>
+
+  <!-- ── STATUS BAR ──────────────────────────────────────────────── -->
+  <div class="statusbar" aria-label="Status bar">
+    <div class="status-cell grow" id="statusText">Document: Done</div>
+    <div class="status-cell"><span>&#x1F4DC;</span></div>
+    <div class="status-cell"><span class="padlock" id="padlock" title="Secure">&#x1F512;</span></div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  var frame   = document.getElementById('contentFrame');
+  var loc     = document.getElementById('locInput');
+  var status  = document.getElementById('statusText');
+  var padlock = document.getElementById('padlock');
+
+  var HOME_URL = 'https://chatgpt.com/';
+
+  // Initial URL → mirror src into the location input
+  loc.value = frame.getAttribute('src') || '';
+
+  function setStatus(text) {
+    status.textContent = text || '';
+  }
+
+  function reflectPadlock(url) {
+    try {
+      var u = new URL(url, location.href);
+      padlock.textContent = (u.protocol === 'https:') ? '\u{1F512}' : '\u{1F513}';
+      padlock.title = (u.protocol === 'https:') ? 'Secure' : 'Not secure';
+    } catch (e) { /* leave as-is */ }
+  }
+  reflectPadlock(loc.value);
+
+  function navigate(url) {
+    if (!url) return;
+    // Light heuristic: if no scheme + no leading slash, assume https
+    if (!/^[a-z]+:\/\//i.test(url) && url[0] !== '/' && url[0] !== '?') {
+      // Bare token → search via DuckDuckGo; with a dot → treat as host
+      url = /\s/.test(url) || url.indexOf('.') === -1
+        ? 'https://duckduckgo.com/?q=' + encodeURIComponent(url)
+        : 'https://' + url;
+    }
+    setStatus('Connect: ' + url);
+    try { frame.src = url; } catch (e) { setStatus('Navigation error: ' + e.message); }
+    loc.value = url;
+    reflectPadlock(url);
+  }
+
+  // ── Toolbar button wiring ──────────────────────────────────────
+  document.getElementById('btnBack').addEventListener('click', function () {
+    try { frame.contentWindow.history.back(); setStatus('Back'); }
+    catch (e) { setStatus('Back: cross-origin (cannot read history)'); }
+  });
+  document.getElementById('btnFwd').addEventListener('click', function () {
+    try { frame.contentWindow.history.forward(); setStatus('Forward'); }
+    catch (e) { setStatus('Forward: cross-origin (cannot read history)'); }
+  });
+  document.getElementById('btnReload').addEventListener('click', function () {
+    try {
+      // Most reliable cross-origin reload: re-assign the same src.
+      var src = frame.getAttribute('src');
+      frame.src = 'about:blank';
+      setTimeout(function () { frame.src = src; }, 30);
+      setStatus('Reloading…');
+    } catch (e) { setStatus('Reload error: ' + e.message); }
+  });
+  document.getElementById('btnHome').addEventListener('click', function () {
+    navigate(HOME_URL);
+  });
+  document.getElementById('btnSearch').addEventListener('click', function () {
+    navigate('https://duckduckgo.com/');
+  });
+  document.getElementById('btnNetscape').addEventListener('click', function () {
+    navigate('https://en.wikipedia.org/wiki/Netscape_Navigator');
+  });
+  document.getElementById('btnPrint').addEventListener('click', function () {
+    try { frame.contentWindow.print(); }
+    catch (e) { setStatus('Print: cross-origin (use the page menu)'); }
+  });
+  document.getElementById('btnSec').addEventListener('click', function () {
+    var u = loc.value || '';
+    setStatus(u.indexOf('https://') === 0 ? 'Secured by TLS' : 'Insecure (no TLS)');
+  });
+  document.getElementById('btnStop').addEventListener('click', function () {
+    try { frame.contentWindow.stop(); setStatus('Stopped'); }
+    catch (e) { try { frame.src = 'about:blank'; setStatus('Stopped'); }
+                catch (er) { setStatus('Stop error: ' + er.message); } }
+  });
+
+  // ── Location bar — Enter to navigate ───────────────────────────
+  loc.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      navigate(loc.value.trim());
+    }
+  });
+  loc.addEventListener('focus', function () { loc.select(); });
+
+  // ── Iframe load events — update status + padlock when possible ─
+  frame.addEventListener('load', function () {
+    setStatus('Document: Done');
+    try {
+      // Cross-origin reads throw — guarded.
+      var href = frame.contentWindow.location.href;
+      if (href && href !== 'about:blank') {
+        loc.value = href;
+        reflectPadlock(href);
+      }
+    } catch (e) {
+      // Same-origin read blocked — fall back to the <iframe src> attr.
+      var src = frame.getAttribute('src') || '';
+      if (src) reflectPadlock(src);
+    }
+  });
+  frame.addEventListener('error', function () {
+    setStatus('Document: error (X-Frame-Options or CSP may have blocked the page)');
+  });
+})();
+</script>
+</body>
+</html>

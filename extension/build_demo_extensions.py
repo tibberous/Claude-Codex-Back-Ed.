@@ -37,6 +37,7 @@ CALC_MANIFEST = f"""<?xml version="1.0" encoding="UTF-8"?>
   <created>{TODAY}</created>
   <url>https://trentontompkins.com/cbe/extension/extensions/calculator.ext</url>
   <entry>extension.html</entry>
+  <icon>🧮</icon>
   <min_core>1.0.0</min_core>
   <tag>tools</tag>
   <tag>math</tag>
@@ -134,6 +135,7 @@ MINES_MANIFEST = f"""<?xml version="1.0" encoding="UTF-8"?>
   <created>{TODAY}</created>
   <url>https://trentontompkins.com/cbe/extension/extensions/minesweeper.ext</url>
   <entry>extension.html</entry>
+  <icon>💣</icon>
   <min_core>1.0.0</min_core>
   <tag>game</tag>
   <tag>puzzle</tag>
@@ -268,6 +270,7 @@ EMOJI_MANIFEST = f"""<?xml version="1.0" encoding="UTF-8"?>
   <created>{TODAY}</created>
   <url>https://trentontompkins.com/cbe/extension/extensions/emoji-picker.ext</url>
   <entry>extension.html</entry>
+  <icon>😀</icon>
   <min_core>1.0.0</min_core>
   <tag>tools</tag>
   <tag>unicode</tag>

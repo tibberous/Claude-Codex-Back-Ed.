@@ -26,5 +26,10 @@
          focus rings, selection bars, etc). Picked per-skin to read
          clearly on the skin's modal-bg. -->
     <highlight-color>#800000</highlight-color>
+    <!-- Code-block chrome: title bar above + footer below fenced code.
+         Read by the panel as --cbe-code-bar-bg / --cbe-code-bar-fg.
+         Classic Windows-9x title navy (matches title-bg-1) on white. -->
+    <code-bar-bg>#0a246a</code-bar-bg>
+    <code-bar-fg>#ffffff</code-bar-fg>
   </colors>
 </skin>

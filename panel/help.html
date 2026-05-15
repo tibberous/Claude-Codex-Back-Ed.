@@ -519,11 +519,22 @@
   main.addEventListener('scroll', syncActive);
   syncActive();
 
-  /* Open external links in a new tab so the iframe never navigates away. */
-  Array.prototype.slice.call(document.querySelectorAll('a[href^="http"]')).forEach(function (a) {
-    a.setAttribute('target', '_blank');
-    a.setAttribute('rel', 'noopener');
-  });
+  /* External-link bridge. target="_blank" doesn't escape a VSCode webview
+     iframe — the click would just try to navigate the iframe itself. Instead
+     we intercept clicks on absolute http(s) links and postMessage to the
+     parent panel, which forwards to extension.js, which calls
+     vscode.env.openExternal so the user's real default browser opens. */
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    while (t && t.tagName !== 'A') t = t.parentNode;
+    if (!t || !t.getAttribute) return;
+    var href = t.getAttribute('href') || '';
+    if (!/^https?:\/\//i.test(href)) return;
+    e.preventDefault();
+    try {
+      window.parent.postMessage({ type: 'cbe.openExternal', url: href }, '*');
+    } catch (err) { /* parent missing — fall back to noop */ }
+  }, true);
 })();
 </script>
 </body>

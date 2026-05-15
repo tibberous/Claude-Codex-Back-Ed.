@@ -90,6 +90,7 @@ function readManifestFromExt($extPath) {
         'created'     => (string)($xml->created ?? ''),
         'url'         => (string)($xml->url ?? ''),
         'entry'       => (string)($xml->entry ?? ''),
+        'icon'        => (string)($xml->icon ?? ''),
         'min_core'    => (string)($xml->min_core ?? ''),
         'tags'        => $tags,
     ];
@@ -141,6 +142,9 @@ foreach ($extensions as $e) {
     }
     if ($e['entry'] !== '') {
         echo '    <entry>' . xmlEscape($e['entry']) . '</entry>' . "\n";
+    }
+    if ($e['icon'] !== '') {
+        echo '    <icon>' . xmlEscape($e['icon']) . '</icon>' . "\n";
     }
     foreach ($e['tags'] as $t) {
         echo '    <tag>' . xmlEscape($t) . '</tag>' . "\n";

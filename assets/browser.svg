@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <!-- Globe outline -->
+  <circle cx="12" cy="12" r="9.25" fill="none"/>
+  <!-- Equator + tropics (latitude lines) -->
+  <line x1="2.75" y1="12" x2="21.25" y2="12"/>
+  <path d="M3.6 7.5 H20.4" />
+  <path d="M3.6 16.5 H20.4" />
+  <!-- Meridians (longitude lines) drawn as ellipses -->
+  <ellipse cx="12" cy="12" rx="4.5" ry="9.25" fill="none"/>
+  <ellipse cx="12" cy="12" rx="9.25" ry="4.5" fill="none" opacity="0"/>
+  <!-- Vertical meridian -->
+  <line x1="12" y1="2.75" x2="12" y2="21.25"/>
+</svg>
