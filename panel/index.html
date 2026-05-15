@@ -149,6 +149,18 @@ body {
   font-weight: 400;
   line-height: 1.34;
 }
+/* Universal monospace stack. Covers Latin + Arabic + CJK + Devanagari etc.
+   Consolas / Cascadia / Courier New are LATIN-ONLY — for Arabic the browser
+   falls back to a proportional UA font, breaking layout. "Noto Sans Mono"
+   ships with full Arabic + CJK + Devanagari + Hebrew coverage; "Sarasa Mono"
+   covers CJK; "DejaVu Sans Mono" covers Cyrillic + Arabic; everything else
+   is the standard Latin fallback chain. */
+:root {
+  --cbe-monospace: var(--vscode-editor-font-family),
+    "Noto Sans Mono", "Sarasa Mono SC", "Sarasa Term SC",
+    "DejaVu Sans Mono", "Liberation Mono", "Cascadia Mono", "Cascadia Code",
+    Consolas, "Courier New", ui-monospace, monospace;
+}
 /* Maximum-specificity monospace lock for the prompt textarea.
    Stacked selectors so this beats ANY .tool-button / .prompt-input /
    media-query override in the cascade. The `font` SHORTHAND is what
@@ -159,17 +171,29 @@ body {
    can't strip it. */
 html body .prompt-input-wrap textarea.prompt-input#promptBox,
 html body textarea#promptBox.prompt-input {
-  /* Switched from `Consolas, "Cascadia Mono", "Courier New", monospace` —
-     none of those four were actually loaded in this user's webview sandbox,
-     so the generic-monospace fallback resolved to a PROPORTIONAL UA default.
-     `--vscode-editor-font-family` is the user's editor.fontFamily setting,
-     which is monospace by definition (VSCode requires it). Always present
-     in every webview as part of VSCode's injected variable set. */
-  font-family: var(--vscode-editor-font-family, Consolas, "Cascadia Mono", "Courier New", monospace) !important;
-  font: 400 18px/1.34 var(--vscode-editor-font-family, Consolas, "Cascadia Mono", "Courier New", monospace) !important;
+  font-family: var(--cbe-monospace) !important;
+  /* NOTE: font-size is intentionally OMITTED here so the scaled
+     `.prompt-input { font-size: calc(20px * var(--cb-font-scale)) }` rule
+     wins. An earlier `font:` shorthand baked 18px in and broke the big-font
+     toggle — do not re-introduce a shorthand here. */
+  font-weight: 400 !important;
+  line-height: 1.34 !important;
+  /* unicode-bidi:plaintext lets Arabic text auto-flip to RTL inline while
+     leaving the surrounding LTR layout intact. */
+  unicode-bidi: plaintext;
 }
 .prompt-input::placeholder { color: #434343; opacity: 1;
-  font-family: Consolas, "Cascadia Mono", "Courier New", ui-monospace, monospace !important; }
+  font-family: var(--cbe-monospace) !important; }
+/* Catch-all selector for everything else that should be monospace —
+   git modal input, auto-prompt textarea, code/kbd/pre, chat-bubble code
+   blocks, terminal-ish elements. Any element with the data-cbe-mono
+   attribute, plus the standard semantic monospace tags, picks up the
+   full-coverage stack without per-rule font-family declarations. */
+code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
+#cbe-git-input, #cbe-ap-text, #cbe-ap-secs, #cbe-set-language-trigger,
+.msg pre, .msg code, .msg kbd, .msg .hljs, .msg .language- {
+  font-family: var(--cbe-monospace) !important;
+}
 
 .send-button {
   position: absolute;
@@ -187,6 +211,35 @@ html body textarea#promptBox.prompt-input {
 .send-button.is-hover { background-image: url('{{ASSETS_BASE}}/send_over.png'); }
 .send-button:active,
 .send-button.is-active { background-image: url('{{ASSETS_BASE}}/send_click.png'); }
+/* SKIN-PROOF ARROW OVERLAY — the PNGs above can render invisible when a
+   skin's send-button background-color/gradient washes them out (white-on-
+   white, glass-on-glass, etc). This pseudo-element draws a CRISP upward
+   chevron via SVG mask-image, tinted white with a dark drop-shadow so it
+   reads on ANY background. mask-image lets the button's own background
+   show through everywhere except the arrow shape. */
+.send-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-color: #ffffff;
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 4 L4 14 H9 V20 H15 V14 H20 Z' fill='black'/></svg>");
+          mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 4 L4 14 H9 V20 H15 V14 H20 Z' fill='black'/></svg>");
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+          mask-position: center;
+  -webkit-mask-size: 52% 52%;
+          mask-size: 52% 52%;
+  filter:
+    drop-shadow(0 1px 1px rgba(0, 0, 0, 0.55))
+    drop-shadow(0 0 2px rgba(0, 0, 0, 0.45));
+}
+.send-button:active::before,
+.send-button.is-active::before {
+  /* slight push-in feedback on click so the arrow tracks the press */
+  transform: translateY(1px) scale(0.97);
+}
 
 /* Attachments row — sits between the input and the toolbar. Each chip
    is a queued file the user has attached; the red minus button on each
@@ -373,7 +426,27 @@ html body textarea#promptBox.prompt-input {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: transform .14s ease, box-shadow .14s ease, filter .14s ease;
+  /* Explicit rest transform — without this the button has NO declared
+     transform in the base rest state, so when a skin like mint-dock applies
+     translateY(-3px) on :active and the cursor leaves mid-press, the button
+     can stay "slid down" because no rule reasserts the home position.
+     translateY(0) scale(1) gives transitions a defined origin to return to. */
+  transform: translateY(0) scale(1);
+  /* Explicit transition-property (not "all") so future declarations
+     (background, border-color) don't accidentally animate and look laggy. */
+  transition-property: transform, box-shadow, filter, background, border-color;
+  transition-duration: .14s;
+  transition-timing-function: ease;
+}
+
+/* Defensive home-state reset — when the button is NEITHER hovered NOR
+   pressed NOR in a state class, force transform to home. This rule has
+   the same specificity as the base .tool-button so it is overridden by
+   :hover, :active, .is-active, .autoread, .is-recording, etc. — but the
+   instant the cursor leaves and no state class is set, the home position
+   is reasserted, killing any "stuck slid down" artifact across all skins. */
+.tool-button:not(:hover):not(:active):not(.is-active):not(.autoread):not(.is-recording):not(.is-monitoring):not(.is-autoprompting) {
+  transform: translateY(0) scale(1);
 }
 
 .tool-button:hover {
@@ -421,12 +494,12 @@ html body textarea#promptBox.prompt-input {
   position: absolute !important;
   top: 50% !important;
   left: 50% !important;
-  width: 22px !important;
-  height: 22px !important;
-  min-width: 22px !important;
-  min-height: 22px !important;
-  max-width: 22px !important;
-  max-height: 22px !important;
+  width: 43px !important;
+  height: 43px !important;
+  min-width: 43px !important;
+  min-height: 43px !important;
+  max-width: 43px !important;
+  max-height: 43px !important;
   margin: 0 !important;
   padding: 0 !important;
   transform: translate(-50%, -50%) !important;
@@ -1224,6 +1297,7 @@ html body textarea#promptBox.prompt-input {
       <div class="msg info">Claude Codex Black — standalone. Type to send. First send will prompt for your API key.</div>
     </div>
 
+
     <div class="prompt-area">
       <section class="prompt-shell" aria-label="Prompt composer">
         <div class="prompt-input-wrap" id="input-box">
@@ -1238,7 +1312,7 @@ html body textarea#promptBox.prompt-input {
             class="prompt-input"
             rows="1"
             placeholder="Queue another message..."
-            style="font: 400 18px/1.34 var(--vscode-editor-font-family, Consolas, 'Cascadia Mono', 'Courier New', monospace) !important; font-family: var(--vscode-editor-font-family, Consolas, 'Cascadia Mono', 'Courier New', monospace) !important;"
+            style="font-family: var(--vscode-editor-font-family, Consolas, 'Cascadia Mono', 'Courier New', monospace) !important; font-weight: 400; line-height: 1.34;"
           ></textarea>
           <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" data-i18n-tip="tooltip.send" aria-label="Send message"></button>
         </div>
@@ -1247,19 +1321,19 @@ html body textarea#promptBox.prompt-input {
 
         <div class="prompt-toolbar">
         <div class="toolbar-tools">
-          <button id="addBtn" class="tool-button" type="button" data-tooltip="New conversation" aria-label="New conversation">
+          <button id="addBtn" class="tool-button" type="button" data-tooltip="New conversation" data-i18n-tip="tooltip.new_conversation" aria-label="New conversation">
             <img src="{{ASSETS_BASE}}/add.svg" alt="" />
           </button>
-          <button id="storedPromptsBtn" class="tool-button" type="button" data-tooltip="Stored prompts" aria-label="Stored prompts">
+          <button id="storedPromptsBtn" class="tool-button" type="button" data-tooltip="Stored prompts" data-i18n-tip="tooltip.stored_prompts" aria-label="Stored prompts">
             <img src="{{ASSETS_BASE}}/stored_prompts.svg" alt="" />
           </button>
-          <button id="chatHistoryBtn" class="tool-button" type="button" data-tooltip="Chat history" aria-label="Chat history">
+          <button id="chatHistoryBtn" class="tool-button" type="button" data-tooltip="Chat history" data-i18n-tip="tooltip.chat_history" aria-label="Chat history">
             <img src="{{ASSETS_BASE}}/chat_history.svg" alt="" />
           </button>
           <button id="attachFileBtn" class="tool-button" type="button" data-tooltip="Attach file" data-i18n-tip="tooltip.attach" aria-label="Attach file">
             <img src="{{ASSETS_BASE}}/attach_file.svg" alt="" />
           </button>
-          <button id="ttsBtn" class="tool-button" type="button" data-tooltip="Read aloud · right-click = auto-read every reply" aria-label="Text to speech">
+          <button id="ttsBtn" class="tool-button" type="button" data-tooltip="Read aloud · right-click = auto-read every reply" data-i18n-tip="tooltip.tts" aria-label="Text to speech">
             <img src="{{ASSETS_BASE}}/tts.svg" alt="" />
             <!-- Spinner overlay: hidden until ttsBtn.classList contains
                  `autoread`. Then it animates over the tts icon to signal
@@ -1285,33 +1359,33 @@ html body textarea#promptBox.prompt-input {
           <button id="wakeUpBtn" class="tool-button" type="button" data-tooltip="Wake-up response" data-i18n-tip="tooltip.wake" aria-label="Wake-up response">
             <img src="{{ASSETS_BASE}}/wake_up.svg" alt="" />
           </button>
-          <button id="showCommandsBtn" class="tool-button" type="button" data-tooltip="Show command menu" aria-label="Show command menu">
+          <button id="showCommandsBtn" class="tool-button" type="button" data-tooltip="Show command menu" data-i18n-tip="tooltip.command_menu" aria-label="Show command menu">
             <img src="{{ASSETS_BASE}}/show_command_menu.svg" alt="" />
           </button>
           <button id="compactBtn" class="tool-button" type="button" data-tooltip="Compact conversation" data-i18n-tip="tooltip.compact" aria-label="Compact">
             <img src="{{ASSETS_BASE}}/compact.svg" alt="" />
             <span class="cbe-ctx-ring" aria-hidden="true"></span>
           </button>
-          <button id="handbookBtn" class="tool-button" type="button" data-tooltip="Handbook" aria-label="Handbook">
+          <button id="handbookBtn" class="tool-button" type="button" data-tooltip="Handbook" data-i18n-tip="tooltip.handbook" aria-label="Handbook">
             <img src="{{ASSETS_BASE}}/handbook.svg" alt="" />
           </button>
           <button id="settingsBtn" class="tool-button" type="button" data-tooltip="Settings" data-i18n-tip="tooltip.settings" aria-label="Settings">
             <img src="{{ASSETS_BASE}}/settings.svg" alt="" />
           </button>
-          <button id="extensionsBtn" class="tool-button" type="button" data-tooltip="Extensions" aria-label="Extensions">
+          <button id="extensionsBtn" class="tool-button" type="button" data-tooltip="Extensions" data-i18n-tip="tooltip.extensions" aria-label="Extensions">
             <img src="{{ASSETS_BASE}}/extensions.svg" alt="" />
           </button>
-          <button id="projectFolderBtn" class="tool-button" type="button" data-tooltip="Project folder" aria-label="Project folder">
+          <button id="projectFolderBtn" class="tool-button" type="button" data-tooltip="Project folder" data-i18n-tip="tooltip.project_folder" aria-label="Project folder">
             <img src="{{ASSETS_BASE}}/project_folder.svg" alt="" />
           </button>
           <button id="monitorBtn" class="tool-button" type="button" data-tooltip="VSCode monitor" data-i18n-tip="tooltip.monitor" aria-label="VSCode monitor">
             <img src="{{ASSETS_BASE}}/vscode_monitor.svg" alt="" />
             <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_blue.svg" alt="" />
           </button>
-          <button id="terminalBtn" class="tool-button" type="button" data-tooltip="Terminal" aria-label="Terminal">
+          <button id="terminalBtn" class="tool-button" type="button" data-tooltip="Terminal" data-i18n-tip="tooltip.terminal" aria-label="Terminal">
             <img src="{{ASSETS_BASE}}/terminal.svg" alt="" />
           </button>
-          <button id="setupBtn" class="tool-button" type="button" data-tooltip="Setup wizard — configure API keys" aria-label="Setup">
+          <button id="setupBtn" class="tool-button" type="button" data-tooltip="Setup wizard — configure API keys" data-i18n-tip="tooltip.setup" aria-label="Setup">
             <img src="{{ASSETS_BASE}}/setup.svg" alt="" />
           </button>
           <button id="gitBtn" class="tool-button" type="button" data-tooltip="Git" data-i18n-tip="tooltip.git" aria-label="Git">
@@ -1323,20 +1397,28 @@ html body textarea#promptBox.prompt-input {
           <button id="domainsBtn" class="tool-button" type="button" data-tooltip="NameSilo domains" data-i18n-tip="tooltip.domains" aria-label="Domains">
             <img src="{{ASSETS_BASE}}/domain.svg" alt="" />
           </button>
-          <button id="fontSizeBtn" class="tool-button" type="button" data-tooltip="Font size (toggle big)" aria-label="Font size">
+          <button id="fontSizeBtn" class="tool-button" type="button" data-tooltip="Font size (toggle big)" data-i18n-tip="tooltip.font_size" aria-label="Font size">
             <img src="{{ASSETS_BASE}}/font_size.svg" alt="" />
           </button>
           <button id="helpBtn" class="tool-button" type="button" data-tooltip="Help" data-i18n-tip="tooltip.help" aria-label="Help">
             <img src="{{ASSETS_BASE}}/help.svg" alt="" />
           </button>
+          <button id="libraryBtn" class="tool-button" type="button" data-tooltip="ChatGPT Library" data-i18n-tip="tooltip.library" aria-label="ChatGPT Library">
+            <img src="{{ASSETS_BASE}}/library.svg" alt="" />
+          </button>
+          <!-- Pinned extensions render here — one quick-launch button per
+               extension the user pinned via the Extensions marketplace.
+               Populated by renderPinnedExtensionButtons() in panel.js from
+               config.ini's [extensions] pinned list. -->
+          <span id="cbe-pinned-ext-row" class="cbe-pinned-ext-row" style="display:inline-flex;align-items:center;gap:4px;"></span>
         </div>
 
         <div class="toolbar-meta">
-          <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" aria-label="Current assistant profile">
-            <img src="{{ASSETS_BASE}}/label-alpha.png" alt="Claude Codex — Black Edition" />
+          <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" data-i18n-tip="tooltip.settings" aria-label="Current assistant profile">
+            <img id="brandLabelImg" src="{{ASSETS_BASE}}/labels/en.svg" data-cbe-brand alt="Claude Codex — Black Edition" />
           </button>
 
-          <div id="project-path" class="project-path" data-tooltip="No project folder — click the folder button to pick one" aria-label="Active project folder" title=""></div>
+          <div id="project-path" class="project-path" data-tooltip="No project folder — click the folder button to pick one" data-i18n-tip="label.no_project" aria-label="Active project folder" title=""></div>
 
           <button id="stopBtn" class="stop-button" type="button" data-tooltip="Stop generation" data-i18n-tip="tooltip.stop" aria-label="Stop generation">
             <span class="stop-button__icon" aria-hidden="true"></span>
@@ -1370,5 +1452,6 @@ html body textarea#promptBox.prompt-input {
 <!-- panel.js (deferred) — ~1500 lines of behavior, loaded after the
      document is parsed so HTML/CSS render first. -->
 <script src="{{PANEL_JS_URI}}" defer></script>
+
 </body>
 </html>

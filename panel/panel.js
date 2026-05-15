@@ -158,6 +158,7 @@ let __cbeChunkStarted   = false;  /* per-turn: did we already play the provider 
 
 let busy = false;
 let streamingEl = null;
+let __cbeStatusEl = null;  /* transient progress line for slow providers (SuperGrok cold-start) */
 
 function addMsg(text, cls) {
   const d = document.createElement('div');
@@ -332,7 +333,11 @@ function renderAssistantMarkdown(el, fullText) {
 
 function setBusy(b) {
   busy = b;
-  ti.disabled = b;
+  /* Leave the textarea typeable during streaming so a slow provider (SuperGrok
+     cold-start: 30-60s for chatgpt/grok cold spawn) doesn't lock the UI.
+     send() guards against re-entry via the `busy` flag, and sendBtn is
+     disabled below — so the user can compose the next prompt while the
+     current one streams, but can't fire two requests at once. */
   sendBtn.disabled = b;
   inBox.classList.toggle('busy', b);
   /* Note: `monitorBtn.is-monitoring` is now bound to the VSCode supervisor
@@ -408,9 +413,11 @@ function cbeShowMonitorSpinner(on) {
       ring = document.createElement('span');
       ring.className = 'cbe-monitor-ring';
       ring.style.cssText = [
-        'position:absolute', 'top:50%', 'left:50%', 'width:18px', 'height:18px',
+        /* 43px = ~90% of the 48px tool-button square. Border scaled up so the
+           ring still reads as a thin halo rather than a filled disc. */
+        'position:absolute', 'top:50%', 'left:50%', 'width:43px', 'height:43px',
         'margin:0', 'padding:0', 'box-sizing:border-box', 'border-radius:50%',
-        'border:3px solid rgba(78,168,255,0.25)', 'border-top-color:#4ea8ff',
+        'border:4px solid rgba(78,168,255,0.25)', 'border-top-color:#4ea8ff',
         'transform:translate(-50%,-50%)', 'pointer-events:none', 'z-index:5',
         'animation:cbeMonitorSpin .7s linear infinite',
       ].join(';');
@@ -1501,6 +1508,7 @@ function openSettings(payload) {
     const prov = __cbeProviders.find(p => p.id === cur);
     const ms = overlay.querySelector('#cbe-set-model');
     ms.innerHTML = '';
+    if (!prov) return;
     (prov.models || []).forEach(m => {
       const o = document.createElement('option');
       o.value = m; o.textContent = m;
@@ -1525,7 +1533,7 @@ function openSettings(payload) {
         prov.id === 'chatgptWeb'   ? 'ChatGPT'  :
         prov.id === 'grokWeb'      ? 'Grok'     :
         prov.id === 'geminiBridge' ? 'Gemini'   :
-        prov.id === 'claudeBridge' ? 'Claude'   :
+        prov.id === 'copilotBridge' ? 'Copilot' :
         prov.label;
       loginBtn.textContent = 'Open ' + niceName + ' login';
     } else {
@@ -2286,29 +2294,167 @@ function openHelp() {
   const html = window.__cbeHelpHtml || '';
   modal.innerHTML = `
     <div class="cbe-box" role="dialog" aria-modal="true" aria-label="Help">
-      <div class="cbe-hdr">
-        <span>Claude Codex — Black Edition · Help</span>
-        <button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)"></button>
+      <div class="cbe-hdr" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+        <span data-i18n="title.help">Claude Codex — Black Edition · Help</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button id="cbe-help-changelog-btn" type="button"
+                  data-i18n="label.change_log"
+                  style="background:rgba(255,255,255,0.08);color:inherit;border:1px solid rgba(255,255,255,0.18);border-radius:5px;padding:4px 12px;font:12px ui-sans-serif,system-ui,sans-serif;cursor:pointer;">
+            Change Log
+          </button>
+          <button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)"></button>
+        </div>
       </div>
       <div id="cbe-help-body" style="flex:1 1 auto;display:flex;background:var(--cbe-modal-bg);"></div>
     </div>`;
   modal.addEventListener('click', e => { if (e.target === modal) closeHelp(); });
   modal.querySelector('.cbe-x').addEventListener('click', closeHelp);
+  const changelogBtn = modal.querySelector('#cbe-help-changelog-btn');
+  if (changelogBtn) changelogBtn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    openChangelog();
+  });
   document.body.appendChild(modal);
+  /* Re-apply translations to the freshly-built modal so the title + Change Log
+     button pick up the active locale. applyStrings walks data-i18n attributes. */
+  if (typeof applyStrings === 'function') applyStrings();
   const bodyHost = modal.querySelector('#cbe-help-body');
   if (html) {
     const iframe = document.createElement('iframe');
     iframe.title = 'Help';
     iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
     iframe.style.cssText = 'flex:1 1 auto;width:100%;border:0;background:var(--cbe-modal-bg);';
-    /* Set via the .srcdoc property (not an attribute string) so quotes in the
-       help HTML don't need escaping. */
     iframe.srcdoc = html;
     bodyHost.appendChild(iframe);
   } else {
     bodyHost.innerHTML = '<div style="padding:24px;color:var(--cbe-modal-fg);">Help content not loaded. Reload the panel to retry.</div>';
   }
 }
+
+/* ── Support / promo nag screens ────────────────────────────────────────
+   Three short, dismissable cards that ask the user to chip in or book a
+   consultation. The host (extension.js) tracks panel-open runs in
+   config.ini [stats] run_count and posts `{type:'nag', run}` on runs
+   3, 6, 10, 20, then every 30 after that. The panel picks ONE of the
+   three messages at random per fire so the rotation feels fresh.
+   Each CTA opens its URL via the existing host openExternal handler
+   (vscode.env.openExternal) so the user's default browser handles it. */
+const CBE_NAGS = [
+  {
+    icon: '💛',
+    title: 'Help keep this open-source',
+    body:  'Claude Codex Black is free, open source, and built solo. If it makes your day better, a one-time tip on GoFundMe lets me keep shipping features and fixing bugs.',
+    cta:   'Open GoFundMe',
+    url:   'https://www.gofundme.com/manage/donate-today-to-support-the-creation-of-open-source-tools',
+  },
+  {
+    icon: '❤️',
+    title: 'Sponsor on GitHub',
+    body:  'Prefer recurring? Sponsor me monthly on GitHub. Any tier funds the next sprint — extensions, skins, bridges, the whole stack.',
+    cta:   'Open GitHub Sponsors',
+    url:   'https://github.com/sponsors/tibberous?preview=true',
+  },
+  {
+    icon: '☕',
+    title: 'Free consultation',
+    body:  'Need help wiring this into your own workflow, or have a custom build idea? Book a free consultation — no obligation.',
+    cta:   'Book a free consultation',
+    url:   'https://trenttompkins.com/free_consultation',
+  },
+];
+
+function openNag(run) {
+  /* Don't stack — replace any existing nag modal. */
+  const old = document.getElementById('cbe-nag-modal');
+  if (old) old.remove();
+  const nag = CBE_NAGS[Math.floor(Math.random() * CBE_NAGS.length)];
+  const overlay = document.createElement('div');
+  overlay.id = 'cbe-nag-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:flex;' +
+    'align-items:center;justify-content:center;background:rgba(0,0,0,0.55);';
+  overlay.innerHTML =
+    '<div class="cbe-box" role="dialog" aria-modal="true" aria-label="' + escapeHtmlExt(nag.title) + '" ' +
+      'style="width:440px;max-width:92vw;background:var(--cbe-modal-bg,#1c1f24);' +
+      'border:2px solid var(--cbe-modal-border,#353a45);border-radius:12px;' +
+      'box-shadow:0 18px 60px rgba(0,0,0,.7);overflow:hidden;">' +
+      '<div class="cbe-hdr" style="padding:14px 18px;background:linear-gradient(90deg,' +
+        'var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);' +
+        'font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
+        '<span style="font-size:15px;">' + nag.icon + '  ' + escapeHtmlExt(nag.title) + '</span>' +
+        '<button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)" ' +
+          'style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:20px;cursor:pointer;line-height:1;">×</button>' +
+      '</div>' +
+      '<div style="padding:18px 20px;color:var(--cbe-modal-fg,#e7eaef);font:14px/1.55 system-ui,sans-serif;">' +
+        escapeHtmlExt(nag.body) +
+      '</div>' +
+      '<div style="padding:0 20px 18px 20px;display:flex;justify-content:flex-end;gap:8px;">' +
+        '<button class="cbe-nag-later" type="button" ' +
+          'style="background:rgba(255,255,255,.06);color:var(--cbe-modal-fg,#e7eaef);' +
+          'border:1px solid var(--cbe-modal-border,#3a414c);border-radius:6px;padding:8px 14px;cursor:pointer;">Later</button>' +
+        '<button class="cbe-nag-cta" type="button" data-url="' + escapeHtmlExt(nag.url) + '" ' +
+          'style="background:var(--cbe-modal-accent,#173050);color:var(--cbe-modal-title-fg,#4ea8ff);' +
+          'border:1px solid var(--cbe-modal-border,#4ea8ff);border-radius:6px;padding:8px 14px;cursor:pointer;font-weight:600;">' +
+          escapeHtmlExt(nag.cta) + '</button>' +
+      '</div>' +
+    '</div>';
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('.cbe-x').addEventListener('click', close);
+  overlay.querySelector('.cbe-nag-later').addEventListener('click', close);
+  overlay.querySelector('.cbe-nag-cta').addEventListener('click', () => {
+    const url = overlay.querySelector('.cbe-nag-cta').getAttribute('data-url') || '';
+    if (api && url) api.postMessage({ type: 'openExternal', url });
+    close();
+  });
+  const onEsc = (e) => { if (e.key === 'Escape' && document.getElementById('cbe-nag-modal')) { close(); document.removeEventListener('keydown', onEsc); } };
+  document.addEventListener('keydown', onEsc);
+  document.body.appendChild(overlay);
+}
+
+/* ── Change Log modal — separate from Help so closing Change Log returns the
+   user to the open Help modal. Same srcdoc-iframe pattern: extension.js
+   reads panel/change_log.html on activate and ships the body as
+   window.__cbeChangelogHtml in the init payload. */
+function openChangelog() {
+  let modal = document.getElementById('cbe-changelog-modal');
+  if (modal) { modal.style.display = 'flex'; return; }
+  modal = document.createElement('div');
+  modal.id = 'cbe-changelog-modal';
+  /* Match the help modal's overlay layout. */
+  modal.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);';
+  modal.innerHTML = `
+    <div class="cbe-box" role="dialog" aria-modal="true" aria-label="Change Log"
+         style="width:86vw;max-width:1100px;height:80vh;display:flex;flex-direction:column;background:var(--cbe-modal-bg);border:2px solid var(--cbe-modal-border);border-radius:10px;overflow:hidden;">
+      <div class="cbe-hdr" style="padding:10px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;display:flex;justify-content:space-between;align-items:center;">
+        <span data-i18n="label.change_log">Change Log</span>
+        <button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)"></button>
+      </div>
+      <div id="cbe-changelog-body" style="flex:1 1 auto;display:flex;background:var(--cbe-modal-bg);"></div>
+    </div>`;
+  modal.addEventListener('click', e => { if (e.target === modal) closeChangelog(); });
+  modal.querySelector('.cbe-x').addEventListener('click', closeChangelog);
+  document.body.appendChild(modal);
+  if (typeof applyStrings === 'function') applyStrings();
+  const body = modal.querySelector('#cbe-changelog-body');
+  const html = window.__cbeChangelogHtml || '';
+  if (html) {
+    const iframe = document.createElement('iframe');
+    iframe.title = 'Change Log';
+    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
+    iframe.style.cssText = 'flex:1 1 auto;width:100%;border:0;background:var(--cbe-modal-bg);';
+    iframe.srcdoc = html;
+    body.appendChild(iframe);
+  } else {
+    body.innerHTML = '<div style="padding:24px;color:var(--cbe-modal-fg);">Change log not yet generated. Run <code>python tools/build_changelog.py</code> then reload the panel.</div>';
+  }
+}
+function closeChangelog() {
+  const m = document.getElementById('cbe-changelog-modal');
+  if (m) m.remove();
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('cbe-changelog-modal')) closeChangelog();
+});
 function closeHelp() {
   const m = document.getElementById('cbe-help-modal');
   if (m) m.remove();
@@ -2317,6 +2463,44 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && document.getElementById('cbe-help-modal')) closeHelp();
 });
 document.getElementById('helpBtn').addEventListener('click', openHelp);
+
+/* ── ChatGPT Library modal — list, download, delete files. */
+function openLibrary() {
+  let modal = document.getElementById('cbe-library-modal');
+  if (modal) { modal.style.display = 'flex'; return; }
+  modal = document.createElement('div');
+  modal.id = 'cbe-library-modal';
+  modal.innerHTML = `
+    <div class="cbe-box" role="dialog" aria-modal="true" aria-label="ChatGPT Library">
+      <div class="cbe-hdr">
+        <span>ChatGPT Library — Manage Files</span>
+        <button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)"></button>
+      </div>
+      <div style="flex:1 1 auto;padding:16px;overflow:auto;font:14px monospace;color:var(--cbe-modal-fg);">
+        <div style="color:#999;">Loading library...</div>
+      </div>
+      <div class="cbe-foot">
+        <span class="status">Connecting to ChatGPT…</span>
+        <div>
+          <button class="cbe-btn cbe-btn--close" type="button">Close</button>
+        </div>
+      </div>
+    </div>`;
+  modal.addEventListener('click', e => { if (e.target === modal) closeLibrary(); });
+  modal.querySelector('.cbe-x').addEventListener('click', closeLibrary);
+  modal.querySelector('.cbe-btn--close').addEventListener('click', closeLibrary);
+  document.body.appendChild(modal);
+  if (api) api.postMessage({ type: 'fetchChatGPTLibrary' });
+}
+function closeLibrary() {
+  const m = document.getElementById('cbe-library-modal');
+  if (m) m.remove();
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('cbe-library-modal')) closeLibrary();
+});
+const libBtn = document.getElementById('libraryBtn');
+if (libBtn) libBtn.addEventListener('click', openLibrary);
 
 /* ── Extensions marketplace modal — NATIVE render (no iframe).
    VSCode webviews render external-https iframes as a black rectangle on many
@@ -2365,6 +2549,52 @@ function escapeHtmlExt(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+/* SVG icons used on installed extension cards + on the toolbar pin buttons.
+   16×16, single-color (white) so they pick up the inherited button text color. */
+const CBE_EXT_ICONS = {
+  open:      '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l6 5-6 5z" fill="currentColor"/></svg>',
+  pin:       '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 1.5l5 5-2 1-3 3 1 2.5-1 1-3-3-3.5 3.5-1-1 3.5-3.5-3-3 1-1 2.5 1 3-3z"/></svg>',
+  pinned:    '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M9.5 1.5l5 5-2 1-3 3 1 2.5-1 1-3-3-3.5 3.5-1-1 3.5-3.5-3-3 1-1 2.5 1 3-3z"/></svg>',
+  uninstall: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h10M6 4V2.5h4V4M5 4l.7 9.5a1 1 0 0 0 1 .9h2.6a1 1 0 0 0 1-.9L11 4M7 7v5M9 7v5"/></svg>',
+};
+
+function _extCardActionsHtml(ext) {
+  /* Renders the bottom-right action area: either a single "Install" button
+     (not installed) or three icon buttons Open / Pin / Uninstall (installed).
+     The Pin icon swaps to a filled state when ext.pinned is true. */
+  if (!ext.installed) {
+    return (
+      '<button type="button" class="cbe-ext-install" ' +
+        'data-ext-id="' + escapeHtmlExt(ext.id) + '" ' +
+        'data-ext-name="' + escapeHtmlExt(ext.name) + '" ' +
+        'data-ext-url="' + escapeHtmlExt(ext.fileUrl) + '" ' +
+        'data-ext-md5="' + escapeHtmlExt(ext.md5) + '" ' +
+        'style="background:var(--cbe-modal-accent,#173050);color:var(--cbe-modal-title-fg,#4ea8ff);' +
+        'border:1px solid var(--cbe-modal-border,#4ea8ff);border-radius:6px;padding:6px 12px;' +
+        'font:13px ui-monospace,monospace;cursor:pointer;">Install</button>'
+    );
+  }
+  const iconBtn = (cls, title, svg, color) =>
+    '<button type="button" class="' + cls + '" data-ext-id="' + escapeHtmlExt(ext.id) + '" ' +
+      'data-ext-name="' + escapeHtmlExt(ext.name) + '" ' +
+      'title="' + escapeHtmlExt(title) + '" aria-label="' + escapeHtmlExt(title) + '" ' +
+      'style="background:rgba(255,255,255,.06);color:' + color + ';' +
+      'border:1px solid var(--cbe-modal-border,#3a414c);border-radius:6px;' +
+      'width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;' +
+      'cursor:pointer;padding:0;">' + svg + '</button>';
+  const pinSvg = ext.pinned ? CBE_EXT_ICONS.pinned : CBE_EXT_ICONS.pin;
+  const pinTitle = ext.pinned
+    ? cbeT('label.unpin_toolbar', 'Unpin from Toolbar')
+    : cbeT('label.pin_toolbar', 'Pin to Toolbar');
+  return (
+    '<span style="display:inline-flex;gap:6px;">' +
+      iconBtn('cbe-ext-open',      cbeT('label.open', 'Open'),           CBE_EXT_ICONS.open,      '#6fd58a') +
+      iconBtn('cbe-ext-pin',       pinTitle,                             pinSvg,                  ext.pinned ? '#ffd84d' : 'var(--cbe-modal-title-fg,#4ea8ff)') +
+      iconBtn('cbe-ext-uninstall', cbeT('label.uninstall', 'Uninstall'), CBE_EXT_ICONS.uninstall, '#ff8a8a') +
+    '</span>'
+  );
+}
+
 function renderExtensionsCatalog(items, error) {
   const body = document.getElementById('cbe-ext-body');
   if (!body) return;
@@ -2391,12 +2621,22 @@ function renderExtensionsCatalog(items, error) {
       '<span style="background:rgba(255,255,255,.08);border:1px solid var(--cbe-modal-border,#3a414c);' +
       'border-radius:4px;padding:2px 6px;font-size:11px;opacity:.85;">' + escapeHtmlExt(t) + '</span>'
     ).join(' ');
+    const stateBadge = ext.installed
+      ? '<span style="color:#6fd58a;font-size:11px;font-family:ui-monospace,monospace;border:1px solid #285b3f;' +
+        'border-radius:3px;padding:1px 5px;margin-left:6px;">✓ Installed</span>'
+      : '';
+    const iconGlyph = String((ext.icon || '')).trim();
+    const iconHtml = iconGlyph
+      ? '<span aria-hidden="true" style="font-size:18px;line-height:1;margin-right:6px;' +
+        'font-family:\'Segoe UI Emoji\',\'Noto Color Emoji\',\'Apple Color Emoji\',sans-serif;">' +
+        escapeHtmlExt(iconGlyph) + '</span>'
+      : '';
     return (
       '<div class="cbe-ext-card" data-ext-id="' + escapeHtmlExt(ext.id) + '" ' +
         'style="background:rgba(255,255,255,.05);border:1px solid var(--cbe-modal-border,#3a414c);' +
         'border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px;">' +
         '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">' +
-          '<strong style="font-size:15px;">' + escapeHtmlExt(ext.name) + '</strong>' +
+          '<strong style="font-size:15px;">' + iconHtml + escapeHtmlExt(ext.name) + stateBadge + '</strong>' +
           '<span style="opacity:.6;font-size:11px;font-family:ui-monospace,monospace;">v' + escapeHtmlExt(ext.version) + '</span>' +
         '</div>' +
         '<div style="opacity:.65;font-size:12px;">by ' + escapeHtmlExt(ext.author || 'unknown') +
@@ -2405,14 +2645,7 @@ function renderExtensionsCatalog(items, error) {
         '<div style="display:flex;flex-wrap:wrap;gap:4px;">' + tags + '</div>' +
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
           '<span style="opacity:.6;font-size:11px;font-family:ui-monospace,monospace;">' + fmtBytes(ext.bytes) + '</span>' +
-          '<button type="button" class="cbe-ext-install" ' +
-            'data-ext-id="' + escapeHtmlExt(ext.id) + '" ' +
-            'data-ext-name="' + escapeHtmlExt(ext.name) + '" ' +
-            'data-ext-url="' + escapeHtmlExt(ext.fileUrl) + '" ' +
-            'data-ext-md5="' + escapeHtmlExt(ext.md5) + '" ' +
-            'style="background:var(--cbe-modal-accent,#173050);color:var(--cbe-modal-title-fg,#4ea8ff);' +
-            'border:1px solid var(--cbe-modal-border,#4ea8ff);border-radius:6px;padding:6px 12px;' +
-            'font:13px ui-monospace,monospace;cursor:pointer;">Install</button>' +
+          _extCardActionsHtml(ext) +
         '</div>' +
       '</div>'
     );
@@ -2440,6 +2673,122 @@ function renderExtensionsCatalog(items, error) {
       });
     });
   });
+  body.querySelectorAll('.cbe-ext-open').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (api) api.postMessage({ type: 'openExtension', id: btn.getAttribute('data-ext-id') });
+    });
+  });
+  body.querySelectorAll('.cbe-ext-pin').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-ext-id');
+      const isPinned = (window.__cbePinnedExtensions || []).includes(id);
+      if (api) api.postMessage({ type: isPinned ? 'unpinExtension' : 'pinExtension', id });
+    });
+  });
+  body.querySelectorAll('.cbe-ext-uninstall').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-ext-id');
+      const name = btn.getAttribute('data-ext-name') || id;
+      if (!confirm('Uninstall "' + name + '"?')) return;
+      if (api) api.postMessage({ type: 'uninstallExtension', id });
+    });
+  });
+}
+
+function openExtensionRunner(payload) {
+  /* Modal that iframes an installed extension's entry HTML via srcdoc. The
+     payload comes from the host (`cbe.openExtensionFromHost`) with the HTML
+     already read off disk so we don't need a webview resource URI. */
+  const old = document.getElementById('cbe-ext-runner');
+  if (old) old.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'cbe-ext-runner';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:100000;display:flex;' +
+    'align-items:center;justify-content:center;background:rgba(0,0,0,0.6);';
+  const safeName = escapeHtmlExt(payload.name || payload.id || 'Extension');
+  overlay.innerHTML =
+    '<div class="cbe-box" role="dialog" aria-modal="true" aria-label="' + safeName + '" ' +
+      'style="width:84vw;height:84vh;max-width:1100px;display:flex;flex-direction:column;' +
+      'background:var(--cbe-modal-bg,#1c1f24);border:2px solid var(--cbe-modal-border,#353a45);' +
+      'border-radius:10px;overflow:hidden;box-shadow:0 12px 50px rgba(0,0,0,.7);">' +
+      '<div class="cbe-hdr" style="padding:10px 14px;background:linear-gradient(90deg,' +
+        'var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);' +
+        'font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
+        '<span>' + safeName + '</span>' +
+        '<button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)" ' +
+          'style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:18px;cursor:pointer;">×</button>' +
+      '</div>' +
+      '<iframe srcdoc="" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" ' +
+        'style="flex:1 1 auto;width:100%;border:0;background:#1c1f24;"></iframe>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  const iframe = overlay.querySelector('iframe');
+  iframe.srcdoc = String(payload.html || '');
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('.cbe-x').addEventListener('click', close);
+  const onEsc = (e) => { if (e.key === 'Escape' && document.getElementById('cbe-ext-runner')) { close(); document.removeEventListener('keydown', onEsc); } };
+  document.addEventListener('keydown', onEsc);
+}
+
+function renderPinnedExtensionButtons() {
+  /* Render one tiny pinned-extension button per id in __cbePinnedExtensions,
+     placed in the #cbe-pinned-ext-row strip just before the trailing toolbar
+     overflow. Each button opens the extension when clicked. */
+  const meta = Array.isArray(window.__cbePinnedExtensionsMeta) ? window.__cbePinnedExtensionsMeta : [];
+  let row = document.getElementById('cbe-pinned-ext-row');
+  if (!row) {
+    /* Fall back: append to the body if the host bar doesn't have a slot. */
+    const host = document.querySelector('.title-actions') || document.querySelector('.toolbar') || document.body;
+    row = document.createElement('span');
+    row.id = 'cbe-pinned-ext-row';
+    row.style.cssText = 'display:inline-flex;align-items:center;gap:4px;margin:0 6px;';
+    host.appendChild(row);
+  }
+  row.innerHTML = '';
+  for (const ent of meta) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    /* tool-button is the SAME class as every other toolbar icon (help, git,
+       settings, …). Inheriting it means the pinned-extension buttons pick
+       up the active skin's tile size, hover magnify, drop-shadow, and
+       layout automatically — no per-skin re-styling needed. */
+    btn.className = 'tool-button cbe-pinned-ext';
+    btn.dataset.extId = ent.id;
+    btn.title = ent.name || ent.id;
+    btn.setAttribute('data-tooltip', ent.name || ent.id);
+    btn.setAttribute('aria-label', 'Open ' + (ent.name || ent.id));
+    /* Prefer inline SVG — emoji rendering in the VSCode webview depends on
+       system fonts (Segoe UI Emoji) which may not be available, causing
+       tofu-box rendering. SVG glyphs are always crisp. Fall back to emoji
+       if no SVG, then fall back to the generic open arrow. The span
+       inherits stroke color via currentColor → CSS controls the visual. */
+    const rawSvg = String((ent.iconSvg || '')).trim();
+    const rawIcon = String((ent.icon || '')).trim();
+    if (rawSvg) {
+      btn.innerHTML =
+        '<span class="cbe-pinned-svg" aria-hidden="true" style="' +
+          'display:inline-flex;align-items:center;justify-content:center;' +
+          'width:30px;height:30px;color:#ccc;' +
+        '">' + rawSvg + '</span>';
+    } else if (rawIcon) {
+      btn.innerHTML =
+        '<span class="cbe-pinned-emoji" aria-hidden="true" style="' +
+          'display:inline-flex;align-items:center;justify-content:center;' +
+          'width:30px;height:30px;font-size:26px;line-height:1;' +
+          'font-family:\'Segoe UI Emoji\',\'Noto Color Emoji\',\'Apple Color Emoji\',sans-serif;' +
+          'text-shadow:0 2px 3px rgba(0,0,0,0.55);' +
+        '">' + escapeHtmlExt(rawIcon) + '</span>';
+    } else {
+      btn.innerHTML =
+        '<span style="display:inline-flex;width:30px;height:30px;align-items:center;' +
+        'justify-content:center;color:#fff;">' + CBE_EXT_ICONS.open + '</span>';
+    }
+    btn.addEventListener('click', () => {
+      if (api) api.postMessage({ type: 'openExtension', id: ent.id });
+    });
+    row.appendChild(btn);
+  }
 }
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && document.getElementById('cbe-ext-modal')) closeExtensionsMarketplace();
@@ -2726,8 +3075,9 @@ function cbeT(key, fallback) {
   if (key && Object.prototype.hasOwnProperty.call(__cbeStrings, key)) return __cbeStrings[key];
   return fallback != null ? fallback : key;
 }
-function applyStrings(strings) {
+function applyStrings(strings, language) {
   if (strings && typeof strings === 'object') __cbeStrings = strings;
+  if (typeof language === 'string' && language) window.__cbeActiveLang = language;
   const tbl = __cbeStrings || {};
   document.querySelectorAll('[data-i18n]').forEach((el) => {
     const k = el.getAttribute('data-i18n');
@@ -2744,6 +3094,15 @@ function applyStrings(strings) {
     const k = el.getAttribute('data-i18n-ph');
     if (k && tbl[k] != null) el.setAttribute('placeholder', tbl[k]);
   });
+  /* Brand label is shipped as a per-language SVG under assets/labels/<code>.svg.
+     The English fallback is wired in index.html; here we just swap the src
+     when the active locale is known. */
+  const brand = document.querySelector('[data-cbe-brand]');
+  if (brand) {
+    const lang = (window.__cbeActiveLang || 'en').toLowerCase();
+    const assetsBase = String(window.__cbeAssetsBase || '').replace(/\/$/, '');
+    if (assetsBase) brand.src = `${assetsBase}/labels/${encodeURIComponent(lang)}.svg`;
+  }
 }
 
 /* Map provider id → SFX cue. anthropic→claude, openai→gtp, google/gemini→gemini,
@@ -2751,7 +3110,7 @@ function applyStrings(strings) {
    model is replying" signal. */
 function providerSfxName(id) {
   if (!id) return 'popup';
-  if (id === 'anthropic' || id === 'claudeBridge') return 'claude';
+  if (id === 'anthropic') return 'claude';
   if (id === 'openai'    || id === 'chatgptWeb')   return 'gtp';
   if (id === 'gemini'    || id === 'geminiBridge' || id === 'google') return 'gemini';
   return 'popup';
@@ -2759,10 +3118,29 @@ function providerSfxName(id) {
 
 window.addEventListener('message', e => {
   const m = e.data || {};
+  /* Bridge cbe.openExternal events from nested iframes (the help srcdoc, the
+     extensions marketplace) through to the host — vscode.env.openExternal
+     opens the user's real default browser instead of trying to navigate the
+     sandboxed iframe to nowhere. */
+  if (m && m.type === 'cbe.openExternal' && typeof m.url === 'string') {
+    if (api) api.postMessage({ type: 'openExternal', url: m.url });
+    return;
+  }
   if (m.type === 'assistantStart') {
     streamingEl = addMsg('', 'assistant streaming');
     __cbeChunkStarted = false;
+  } else if (m.type === 'status') {
+    /* Transient progress line for slow providers (SuperGrok cold-start):
+       "Starting SuperGrok server…", "Waiting for grok to respond… (6s)".
+       A SINGLE element that updates in place — not an accumulating log —
+       and it's cleared the moment real answer text arrives. */
+    if (!__cbeStatusEl || !__cbeStatusEl.isConnected) {
+      __cbeStatusEl = addMsg('', 'info cbe-progress');
+    }
+    __cbeStatusEl.textContent = '⏳ ' + (m.text || '');
+    thread.scrollTop = thread.scrollHeight;
   } else if (m.type === 'chunk') {
+    if (__cbeStatusEl) { try { __cbeStatusEl.remove(); } catch (e) {} __cbeStatusEl = null; }
     if (!streamingEl) streamingEl = addMsg('', 'assistant streaming');
     if (!__cbeChunkStarted) {
       __cbeChunkStarted = true;
@@ -2771,6 +3149,7 @@ window.addEventListener('message', e => {
     streamingEl.textContent += (m.text || '');
     thread.scrollTop = thread.scrollHeight;
   } else if (m.type === 'assistantDone') {
+    if (__cbeStatusEl) { try { __cbeStatusEl.remove(); } catch (e) {} __cbeStatusEl = null; }
     if (streamingEl) {
       streamingEl.classList.remove('streaming');
       const fullText = (typeof m.text === 'string' && m.text)
@@ -2794,11 +3173,16 @@ window.addEventListener('message', e => {
     setBusy(false);
     ti.focus();
   } else if (m.type === 'error') {
+    if (__cbeStatusEl) { try { __cbeStatusEl.remove(); } catch (e) {} __cbeStatusEl = null; }
     if (streamingEl) { streamingEl.classList.remove('streaming'); streamingEl = null; }
     addMsg('⚠ ' + (m.message || 'error'), 'error');
     setBusy(false);
   } else if (m.type === 'info') {
     addMsg(m.text || '', 'info');
+  } else if (m.type === 'nag') {
+    /* Host hit a run-count trigger (3/6/10/20, then every 30). Random
+       pick of the three support/promo cards — see CBE_NAGS. */
+    openNag(m.run);
   } else if (m.type === 'init') {
     /* Cache provider state for later; don't open modal yet. */
     __cbeProviders = m.providers || [];
@@ -2818,8 +3202,15 @@ window.addEventListener('message', e => {
        into a div instead of iframing the file — iframes via asWebviewUri were
        rendering empty on some VSCode builds. */
     if (typeof m.helpHtml === 'string' && m.helpHtml) window.__cbeHelpHtml = m.helpHtml;
+    /* Cache change_log.html the same way — openChangelog() innerHTMLs it. */
+    if (typeof m.changelogHtml === 'string' && m.changelogHtml) window.__cbeChangelogHtml = m.changelogHtml;
+    /* Pinned extensions: ids + metadata shipped from config.ini. Render the
+       toolbar quick-launch buttons on first paint. */
+    window.__cbePinnedExtensions = Array.isArray(m.pinnedExtensions) ? m.pinnedExtensions.slice() : [];
+    window.__cbePinnedExtensionsMeta = Array.isArray(m.pinnedExtensionsMeta) ? m.pinnedExtensionsMeta.slice() : [];
+    renderPinnedExtensionButtons();
     /* Apply the active locale's strings to tooltips/labels on first paint. */
-    if (m.strings && typeof m.strings === 'object') applyStrings(m.strings);
+    if (m.strings && typeof m.strings === 'object') applyStrings(m.strings, m.language);
     if (!__cbeOpenAppPlayed) {
       __cbeOpenAppPlayed = true;
       playSfx('open_and_close_application');
@@ -2827,27 +3218,109 @@ window.addEventListener('message', e => {
   } else if (m.type === 'strings') {
     /* Host pushes a fresh strings map after the language is changed in
        Settings. Re-translate everything currently on the page. */
-    applyStrings(m.strings || {});
+    applyStrings(m.strings || {}, m.language);
+  } else if (m.type === 'azureDeployments') {
+    /* Host fetched the real Azure deployments via the data-plane endpoint.
+       Items may be plain strings (legacy) or {name, model} objects. The
+       option's value is always the deployment NAME (used in the chat URL);
+       the label appends ` — <model>` when the underlying model id differs
+       so e.g. a deployment named "sora" running sora-2 reads as
+       "sora — sora-2". Replace the cached Azure provider models with the
+       live names AND, if the Settings modal is open on Azure, swap the
+       <select> options live. */
+    const raw = Array.isArray(m.items) ? m.items.slice() : [];
+    const items = raw.map((it) => (typeof it === 'string')
+      ? { name: it, model: '' }
+      : { name: String((it && it.name) || ''), model: String((it && it.model) || '') }
+    ).filter(it => it.name);
+    const names = items.map(it => it.name);
+    const azureProv = (__cbeProviders || []).find(p => p && p.id === 'azure');
+    if (azureProv) azureProv.models = names;
+    const sel = document.querySelector('#cbe-set-provider');
+    const ms  = document.querySelector('#cbe-set-model');
+    if (sel && ms && sel.value === 'azure' && items.length) {
+      const prev = ms.value;
+      ms.innerHTML = '';
+      items.forEach(({ name, model }) => {
+        const o = document.createElement('option');
+        o.value = name;
+        o.textContent = (model && model !== name) ? (name + ' — ' + model) : name;
+        ms.appendChild(o);
+      });
+      if (names.includes(prev)) ms.value = prev;
+      else if (azureProv && azureProv.current && names.includes(azureProv.current)) ms.value = azureProv.current;
+    }
   } else if (m.type === 'extensionsCatalog') {
     /* Host fetched + parsed extensions.xml.php — render the cards natively. */
     renderExtensionsCatalog(m.items || [], m.error);
   } else if (m.type === 'cbe.installResultFromHost') {
-    /* Host finished an install — flip the matching card's button. */
-    const btn = document.querySelector('.cbe-ext-install[data-ext-id="' +
-      (window.CSS && CSS.escape ? CSS.escape(String(m.id || '')) : String(m.id || '')) + '"]');
-    if (btn) {
-      if (m.ok) {
-        btn.textContent = '✓ Installed';
-        btn.disabled = true;
-        btn.style.opacity = '1';
-        btn.style.color = 'var(--cbe-highlight-color,#6fd58a)';
-        btn.style.borderColor = 'var(--cbe-highlight-color,#6fd58a)';
-      } else {
+    /* Host finished an install. On success, re-fetch the catalog so the card
+       re-renders with Open/Pin/Uninstall icons (the host now reports
+       installed state). On failure, just restore the Install button. */
+    if (m.ok) {
+      if (api) api.postMessage({ type: 'fetchExtensionsCatalog' });
+    } else {
+      const btn = document.querySelector('.cbe-ext-install[data-ext-id="' +
+        (window.CSS && CSS.escape ? CSS.escape(String(m.id || '')) : String(m.id || '')) + '"]');
+      if (btn) {
         btn.textContent = 'Install';
         btn.disabled = false;
         btn.style.opacity = '1';
       }
     }
+  } else if (m.type === 'cbe.openExtensionFromHost') {
+    /* Host read the extension's entry HTML off disk — run it in a srcdoc
+       iframe modal. */
+    openExtensionRunner(m);
+  } else if (m.type === 'cbe.uninstallResultFromHost') {
+    /* Extension removed from disk — refresh pinned state + re-render catalog
+       so the card flips back to "Install". */
+    if (m.ok) {
+      window.__cbePinnedExtensions = Array.isArray(m.pinned) ? m.pinned.slice() : (window.__cbePinnedExtensions || []);
+      window.__cbePinnedExtensionsMeta = (window.__cbePinnedExtensionsMeta || [])
+        .filter(x => window.__cbePinnedExtensions.includes(x.id));
+      renderPinnedExtensionButtons();
+      if (document.getElementById('cbe-ext-body') && api) {
+        api.postMessage({ type: 'fetchExtensionsCatalog' });
+      }
+    }
+  } else if (m.type === 'cbe.pinnedExtensions') {
+    /* Pin/unpin toggled — host persisted to config.ini and echoed the new
+       list + metadata. Update the toolbar strip and re-render any open
+       catalog so the pin icon reflects the new state. */
+    window.__cbePinnedExtensions = Array.isArray(m.pinned) ? m.pinned.slice() : [];
+    window.__cbePinnedExtensionsMeta = Array.isArray(m.meta) ? m.meta.slice() : [];
+    renderPinnedExtensionButtons();
+    if (document.getElementById('cbe-ext-body') && api) {
+      api.postMessage({ type: 'fetchExtensionsCatalog' });
+    }
+  } else if (m.type === 'cbe.chatgptLibrary') {
+    /* Fetched ChatGPT Library file list from SuperGrok bridge. Display files
+       with download/delete actions in the modal. */
+    const modal = document.getElementById('cbe-library-modal');
+    if (!modal) return;
+    const body = modal.querySelector('[style*="overflow"]');
+    const status = modal.querySelector('.status');
+    const files = Array.isArray(m.files) ? m.files : [];
+    if (files.length === 0) {
+      body.innerHTML = '<div style="color:#999;">No files in ChatGPT Library.</div>';
+    } else {
+      let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+      html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.1);"><th style="text-align:left;padding:4px;color:#999;">Name</th><th style="text-align:right;padding:4px;color:#999;">Size</th><th style="text-align:center;padding:4px;color:#999;">Action</th></tr>';
+      for (const f of files) {
+        html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);"><td style="padding:6px;word-break:break-all;">${escapeHtmlExt(f.name || 'Unnamed')}</td><td style="text-align:right;padding:6px;color:#999;">${(f.size ? (f.size / 1024 / 1024).toFixed(1) + ' MB' : '—')}</td><td style="text-align:center;padding:4px;"><button style="background:rgba(200,50,50,0.3);color:#ff6b6b;border:1px solid #ff6b6b;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:11px;" data-action="delete" data-file="${escapeHtmlExt(f.name || '')}">Delete</button></td></tr>`;
+      }
+      html += '</table>';
+      body.innerHTML = html;
+      body.querySelectorAll('[data-action="delete"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (api && confirm(`Delete "${btn.getAttribute('data-file')}" from ChatGPT Library?`)) {
+            api.postMessage({ type: 'deleteChatGPTLibraryFile', filename: btn.getAttribute('data-file') });
+          }
+        });
+      });
+    }
+    if (status && m.status) status.textContent = m.status;
   } else if (m.type === 'applySkin') {
     /* Host-driven skin swap. m.skin = bare filename ('' to clear),
        m.skinUri = full webview URI ('' to clear),

@@ -72,6 +72,7 @@ const PROVIDERS = {
            TCP API, and auto-respawns), so route through it instead. Requires
            C:\SuperGrok\ + a one-time `python start.py --chat` login. */
         label: 'Grok (SuperGrok)',
+        icon: 'grok-bridge.svg',
         superGrok: true,
         target: 'grok',
         superGrokRoot: 'C:\\SuperGrok',
@@ -79,9 +80,17 @@ const PROVIDERS = {
         models: ['(web)'],
     },
     chatgptWeb: {
-        label: 'ChatGPT (web session)',
-        webBridge: true,
+        /* ChatGPT via SuperGrok's CLI (start.py --chatgpt "message"). Same
+           pattern as grokWeb — the old webBridge:true spawn-Chrome path was
+           unreliable; SuperGrok already owns a working QWebEngine session
+           for chatgpt.com. CBE just shells out to its CLI per turn.
+           Requires C:\SuperGrok\ + a one-time `python start.py --chatgpt`
+           login to plant cookies in the profile. */
+        label: 'ChatGPT (SuperGrok)',
+        icon: 'chatgpt-bridge.svg',
+        superGrok: true,
         target: 'chatgpt',
+        superGrokRoot: 'C:\\SuperGrok',
         url: 'https://chatgpt.com/',
         defaultModel: '(web)',
         models: ['(web)'],
@@ -96,17 +105,33 @@ const PROVIDERS = {
         defaultModel: '(web)',
         models: ['(web)'],
     },
-    claudeBridge: {
-        /* Claude via SuperGrok's resident bridge service (TCP). Requires
-           C:\SuperGrok\ + a one-time `python start.py --claude` login. Note:
-           one SuperGrok service answers one target at a time — if a Gemini
-           bridge is running you'll need to stop it before Claude works. */
-        label: 'Claude (SuperGrok)',
+    copilotBridge: {
+        /* Microsoft Copilot (copilot.microsoft.com) via SuperGrok's resident
+           bridge service (TCP). Requires C:\SuperGrok\ + a one-time
+           `python start.py --copilot` login (Microsoft account / Entra ID
+           SSO). The panel's "Open Copilot login" button is wired in
+           panel.js: switching the Settings provider to Copilot triggers it. */
+        label: 'Copilot (SuperGrok)',
+        icon: 'copilot-bridge.svg',
         superGrok: true,
-        target: 'claude',
+        target: 'copilot',
         superGrokRoot: 'C:\\SuperGrok',
+        url: 'https://copilot.microsoft.com/',
         defaultModel: '(web)',
         models: ['(web)'],
+    },
+    chatgptLibrary: {
+        /* ChatGPT Library: list, download, delete files from the user's
+           ChatGPT account. Uses SuperGrok's browser layer (gtp.py or start.py)
+           to login and navigate. Not a chat provider — exposed as a tool/panel
+           command to manage library files. Requires ChatGPT login cookies in
+           SuperGrok's profile. */
+        label: 'ChatGPT Library',
+        icon: 'library.svg',
+        isTool: true,
+        superGrok: true,
+        target: 'chatgpt',
+        superGrokRoot: 'C:\\SuperGrok',
     },
 };
 
@@ -362,6 +387,165 @@ function _httpsGetBuffer(urlStr, timeoutMs) {
         req.on('timeout', () => req.destroy(new Error('timeout')));
         req.end();
     });
+}
+
+/* ── Installed extension registry ──────────────────────────────────────
+   Extensions live in <extensionPath>/extensions/<id>/. Each has a
+   manifest.xml with id, name, version, <entry> (the HTML file to load
+   when "Open" is clicked). Pinned IDs are kept in extensions/_pinned.json
+   so they re-render on the toolbar after a panel reload. */
+function _readManifestXml(xmlText) {
+    const out = { id: '', name: '', version: '', author: '', description: '', entry: '', icon: '' };
+    if (!xmlText) return out;
+    const attrMatch = xmlText.match(/<extension\b([^>]*)>/);
+    if (attrMatch) {
+        const a = attrMatch[1];
+        const pick = (n) => { const m = a.match(new RegExp(`\\b${n}\\s*=\\s*"([^"]*)"`)); return m ? m[1] : ''; };
+        out.id      = pick('id');
+        out.version = pick('version');
+    }
+    const child = (tag) => {
+        const m = xmlText.match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+        return m ? m[1].trim() : '';
+    };
+    out.name        = child('name')        || out.id;
+    out.author      = child('author');
+    out.description = child('description');
+    out.entry       = child('entry');
+    /* <icon> is an emoji (or short text) the extension picks for itself —
+       used for the pinned-toolbar button so it isn't a generic arrow. */
+    out.icon        = child('icon');
+    return out;
+}
+
+function _scanInstalledExtensions(context) {
+    /* Returns Map<id, {name, version, entry, author, description}> for every
+       valid extension found under extensions/. Skips directories without a
+       manifest.xml so half-extracted installs don't show as installed. */
+    const out = new Map();
+    try {
+        const root = path.join(context.extensionPath, 'extensions');
+        if (!fs.existsSync(root)) return out;
+        for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue;
+            if (entry.name.startsWith('_')) continue;  // skip _pinned.json sidecars
+            const manifestPath = path.join(root, entry.name, 'manifest.xml');
+            if (!fs.existsSync(manifestPath)) continue;
+            try {
+                const xml = fs.readFileSync(manifestPath, 'utf8');
+                const info = _readManifestXml(xml);
+                const id = info.id || entry.name;
+                /* If the extension folder ships an icon.svg next to manifest.xml,
+                   read it inline so the panel can render a proper vector glyph
+                   instead of an emoji. Emoji rendering in the VSCode webview is
+                   font-dependent — Segoe UI Emoji isn't always available and
+                   the icon shows as a tofu box. SVG sidesteps that entirely. */
+                const iconSvgPath = path.join(root, entry.name, 'icon.svg');
+                if (fs.existsSync(iconSvgPath)) {
+                    try { info.iconSvg = fs.readFileSync(iconSvgPath, 'utf8'); }
+                    catch (e) { traceErr(`EXT:SCAN:ICON ${entry.name}`, e); }
+                }
+                out.set(id, info);
+            } catch (e) {
+                traceErr(`EXT:SCAN:READ ${entry.name}`, e);
+            }
+        }
+    } catch (e) {
+        traceErr('EXT:SCAN', e);
+    }
+    return out;
+}
+
+/* Pinned-to-toolbar extension IDs persist in config.ini under
+   [extensions] pinned = id1,id2,id3 — a comma-separated list. Pinning is
+   always an explicit user action (the "Pin to Toolbar" icon on the card);
+   nothing auto-pins on install. */
+function _readPinnedExtensions(context) {
+    try {
+        const cfg = readConfigIni(context.extensionPath) || {};
+        const raw = (cfg.extensions && cfg.extensions.pinned) || '';
+        return String(raw)
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean);
+    } catch (e) {
+        traceErr('EXT:PINNED:READ', e);
+        return [];
+    }
+}
+
+function _writePinnedExtensions(context, list) {
+    try {
+        const uniq = [];
+        for (const id of (list || [])) {
+            const clean = String(id).trim();
+            if (clean && !uniq.includes(clean)) uniq.push(clean);
+        }
+        const iniPath = path.join(context.extensionPath, CONFIG_INI_NAME);
+        writeConfigPatch(iniPath, { 'extensions.pinned': uniq.join(',') });
+        /* Force a fresh parse so the next readConfigIni() sees the new value.
+           MUST be reload() — there is no refresh(); calling a missing method
+           silently no-ops, leaving the cache stale so every pin read an empty
+           list and overwrote the previous pin (only 1 ever stuck). */
+        try { if (Config && Config.reload) Config.reload(context.extensionPath); } catch (_) {}
+        return true;
+    } catch (e) {
+        traceErr('EXT:PINNED:WRITE', e);
+        return false;
+    }
+}
+
+/* ── Run-count + nag screen ────────────────────────────────────────────
+   The panel shows a support/promo nag on runs #3, #6, #10, #20, then every
+   30 runs after that (50, 80, 110, …). Run count lives in config.ini under
+   [stats] run_count so it survives restarts. The panel picks which of the
+   three nag messages to show at random — see CBE_NAGS in panel.js. */
+const NAG_FIXED_TRIGGERS = [3, 6, 10, 20];
+const NAG_PERIODIC_INTERVAL = 30;
+const NAG_PERIODIC_START = NAG_FIXED_TRIGGERS[NAG_FIXED_TRIGGERS.length - 1] + NAG_PERIODIC_INTERVAL; // 50
+
+function shouldShowNag(runNumber) {
+    if (NAG_FIXED_TRIGGERS.includes(runNumber)) return true;
+    if (runNumber >= NAG_PERIODIC_START && (runNumber - NAG_PERIODIC_START) % NAG_PERIODIC_INTERVAL === 0) return true;
+    return false;
+}
+
+function bumpRunCount(context) {
+    /* Read [stats] run_count from config.ini, increment, write back. The
+       cached Config is reloaded so the next read sees the new value
+       (same staleness bug that broke pin-all-extensions). Returns the NEW
+       count, so caller checks shouldShowNag(returned). */
+    try {
+        const cfg = readConfigIni(context.extensionPath) || {};
+        const cur = parseInt((cfg.stats && cfg.stats.run_count) || '0', 10) || 0;
+        const next = cur + 1;
+        const iniPath = path.join(context.extensionPath, CONFIG_INI_NAME);
+        writeConfigPatch(iniPath, {
+            'stats.run_count': String(next),
+            'stats.last_run':  new Date().toISOString(),
+        });
+        try { if (Config && Config.reload) Config.reload(context.extensionPath); } catch (_) {}
+        return next;
+    } catch (e) {
+        traceErr('NAG:BUMP_RUN_COUNT', e);
+        return 0;
+    }
+}
+
+function _rmTree(p) {
+    /* Node 14+ has fs.rmSync — use it when available, fall back to manual
+       recursive walk for older Electron host versions. */
+    try {
+        if (fs.rmSync) { fs.rmSync(p, { recursive: true, force: true }); return; }
+    } catch (_) {}
+    if (!fs.existsSync(p)) return;
+    for (const e of fs.readdirSync(p)) {
+        const full = path.join(p, e);
+        const st = fs.lstatSync(full);
+        if (st.isDirectory()) _rmTree(full);
+        else { try { fs.unlinkSync(full); } catch (_) {} }
+    }
+    try { fs.rmdirSync(p); } catch (_) {}
 }
 
 function _parseManifestXml(xmlText) {
@@ -1951,12 +2135,28 @@ async function listNameSiloDomains(context, opts) {
                 domains.push({ name: dname, nameservers: [`(error ${ir.code}: ${ir.detail || ''})`] });
                 continue;
             }
-            let ns = (ir.nameservers && ir.nameservers.nameserver) || [];
+            /* NameSilo's current JSON shape for getDomainInfo:
+                 reply.nameservers = [{ nameserver: "ns1.x", position: 1 }, ...]
+               Legacy XML-wrapped JSON used reply.nameservers.nameserver = [...]
+               of bare strings or {#text} objects. Accept all three. Also
+               sort by `position` when present so the order matches the
+               registrar's UI. */
+            let ns = ir.nameservers;
+            if (ns && !Array.isArray(ns) && typeof ns === 'object') {
+                ns = ns.nameserver || ns.host || [];
+            }
             if (typeof ns === 'string') ns = [ns];
-            const cleaned = (Array.isArray(ns) ? ns : []).map(n => {
-                if (n && typeof n === 'object') return String(n['#text'] || n.host || '').trim();
-                return String(n || '').trim();
-            }).filter(Boolean);
+            if (!Array.isArray(ns)) ns = [];
+            const withPos = ns.map((n, i) => {
+                if (n && typeof n === 'object') {
+                    const host = String(n.nameserver || n.host || n['#text'] || n.value || '').trim();
+                    const pos = Number.isFinite(+n.position) ? +n.position : (i + 1);
+                    return { host, pos };
+                }
+                return { host: String(n || '').trim(), pos: i + 1 };
+            }).filter(x => x.host);
+            withPos.sort((a, b) => a.pos - b.pos);
+            const cleaned = withPos.map(x => x.host);
             domains.push({ name: dname, nameservers: cleaned.length ? cleaned : ['(none)'] });
         } catch (e) {
             domains.push({ name: dname, nameservers: [`(lookup failed: ${e.message || e})`] });
@@ -2190,6 +2390,96 @@ function _languageStringsFor(context, code) {
     return { ...english, ...target };
 }
 
+/* ── Azure deployment discovery via the data-plane endpoint ──────────────
+   Cache holds Array<{name, model}> keyed by endpoint+key tail. */
+let _azureDeploymentsCache = { ts: 0, items: [], key: '' };
+
+/* Mirrors triodesktop start.py / vendor/cloud/chat_sync.py _fetch_azure_deployments:
+     GET {endpoint}/openai/deployments?api-version=<v>
+     Header: api-key: <azure api_key>
+   The Cognitive Services data plane returns every deployment served by THIS
+   endpoint, including its underlying model id — so a deployment named "sora"
+   that's actually running sora-2 surfaces as { name:"sora", model:"sora-2" }.
+   Earlier versions used Azure Resource Manager, which required az CLI login
+   plus subscription/RG/account creds and silently dropped deployments that
+   ARM didn't enumerate (e.g. Claude). The data plane needs only the values
+   already in [azure].endpoint + api_key. We try the newest api-version first
+   and walk back, since older Azure regions still pin to 2023-03-15-preview. */
+function discoverAzureDeployments(context, opts) {
+    /* Returns Promise<Array<{name:string, model:string}>>. */
+    return new Promise((resolve, reject) => {
+        const cfg = readConfigIni(context.extensionPath) || {};
+        const az = cfg.azure || {};
+        const endpoint = String(az.endpoint || '').trim().replace(/\/+$/, '');
+        const apiKey = String(az.api_key || az.api_key1 || '').trim();
+        if (!endpoint || !apiKey) {
+            trace(`AZURE:DEPLOY:SKIP missing endpoint=${!!endpoint} key=${!!apiKey}`);
+            return resolve([]);
+        }
+        const cacheKey = `${endpoint}|${apiKey.slice(-8)}`;
+        const fresh = (Date.now() - _azureDeploymentsCache.ts) < 5 * 60 * 1000;
+        if (fresh && _azureDeploymentsCache.key === cacheKey && !(opts && opts.force)) {
+            return resolve(_azureDeploymentsCache.items.slice());
+        }
+        const versions = ['2025-01-01-preview', '2024-10-21', '2024-05-01-preview', '2023-03-15-preview'];
+        const https = require('https');
+        const tryVersion = (i, lastErr) => {
+            if (i >= versions.length) {
+                return reject(lastErr || new Error(`all api-versions failed for ${endpoint}`));
+            }
+            const v = versions[i];
+            const url = `${endpoint}/openai/deployments?api-version=${v}`;
+            let u;
+            try { u = new URL(url); } catch (e) { return reject(e); }
+            const req = https.request({
+                hostname: u.hostname,
+                port: u.port || 443,
+                path: u.pathname + u.search,
+                method: 'GET',
+                headers: { 'api-key': apiKey, 'Accept': 'application/json' },
+                timeout: 15000,
+            }, (res) => {
+                let body = '';
+                res.on('data', (c) => { body += c; });
+                res.on('end', () => {
+                    if (res.statusCode < 200 || res.statusCode >= 300) {
+                        trace(`AZURE:DEPLOY:HTTP ${res.statusCode} v=${v} body=${body.slice(0, 200)}`);
+                        return tryVersion(i + 1, new Error(`HTTP ${res.statusCode} on v=${v}: ${body.slice(0, 200)}`));
+                    }
+                    try {
+                        const j = JSON.parse(body);
+                        /* Data-plane shape: { data: [ { id, model, ... } ] }.
+                           Older preview versions returned { value: [ { name, properties:{ model:{ name } } } ] };
+                           handle both. */
+                        const raw = j.data || j.value || [];
+                        const items = raw.map((d) => {
+                            const name = String(d.id || d.name || '').trim();
+                            let model = '';
+                            if (typeof d.model === 'string') model = d.model;
+                            else if (d.model && typeof d.model === 'object') model = String(d.model.name || d.model.id || '');
+                            else if (d.properties && d.properties.model) {
+                                const pm = d.properties.model;
+                                model = typeof pm === 'string' ? pm : String(pm.name || pm.id || '');
+                            }
+                            return { name, model: String(model || '').trim() };
+                        }).filter((row) => row.name).sort((a, b) => a.name.localeCompare(b.name));
+                        _azureDeploymentsCache = { ts: Date.now(), items, key: cacheKey };
+                        trace(`AZURE:DEPLOY:OK v=${v} count=${items.length} ${items.map(r => r.name + (r.model && r.model !== r.name ? '(' + r.model + ')' : '')).join(',')}`);
+                        resolve(items.slice());
+                    } catch (e) {
+                        traceErr(`AZURE:DEPLOY:PARSE v=${v}`, e);
+                        tryVersion(i + 1, e);
+                    }
+                });
+            });
+            req.on('error', (e) => { traceErr(`AZURE:DEPLOY:REQ v=${v}`, e); tryVersion(i + 1, e); });
+            req.on('timeout', () => { req.destroy(); tryVersion(i + 1, new Error(`timeout on v=${v}`)); });
+            req.end();
+        };
+        tryVersion(0, null);
+    });
+}
+
 function buildSettingsPayload(context) {
     const endPay = timeStep('    buildSettingsPayload');
     const endIni = timeStep('      readConfigIni');
@@ -2199,9 +2489,21 @@ function buildSettingsPayload(context) {
     const providers = Object.keys(PROVIDERS).map(id => {
         const p = PROVIDERS[id];
         const haveKey = !!getProviderKey(context, id);
-        const models = p.azureSection
-            ? (cfg.azure && cfg.azure.deployment_name ? [cfg.azure.deployment_name] : [])
-            : p.models.slice();
+        let models;
+        if (p.azureSection) {
+            /* Prefer the data-plane-discovered list if the cache has anything;
+               fall back to just the configured deployment_name on first open.
+               Cache stores {name, model} objects; the panel's initial payload
+               only carries strings, so flatten to names here. The panel will
+               receive the rich list shortly via the 'azureDeployments' message. */
+            if (_azureDeploymentsCache.items && _azureDeploymentsCache.items.length) {
+                models = _azureDeploymentsCache.items.map(it => typeof it === 'string' ? it : it.name).filter(Boolean);
+            } else {
+                models = (cfg.azure && cfg.azure.deployment_name) ? [cfg.azure.deployment_name] : [];
+            }
+        } else {
+            models = (p.models && p.models.slice) ? p.models.slice() : [];
+        }
         const currentModel = getActiveModel(context, id);
         if (currentModel && !models.includes(currentModel)) models.unshift(currentModel);
         return { id, label: p.label, models, current: currentModel, haveKey, webBridge: !!p.webBridge, superGrok: !!p.superGrok };
@@ -2324,6 +2626,23 @@ function bindPanel(context, panel) {
                     try {
                         helpHtml = fs.readFileSync(path.join(context.extensionPath, 'panel', 'help.html'), 'utf8');
                     } catch (e) { traceErr('read help.html', e); }
+                    /* Pinned extensions list — shipped on init so the toolbar
+                       can render its quick-launch buttons immediately. Each
+                       entry carries id + name; the icon is shared (📦). */
+                    const _pinnedIds = _readPinnedExtensions(context);
+                    const _scanned   = _scanInstalledExtensions(context);
+                    const _pinnedMeta = _pinnedIds
+                        .map(id => {
+                            const info = _scanned.get(id) || {};
+                            return { id, name: info.name || id, icon: info.icon || '', iconSvg: info.iconSvg || '' };
+                        })
+                        .filter(x => _scanned.has(x.id));
+                    /* Read change_log.html same way as help.html — generated by
+                       tools/build_changelog.py after every commit. */
+                    let changelogHtml = '';
+                    try {
+                        changelogHtml = fs.readFileSync(path.join(context.extensionPath, 'panel', 'change_log.html'), 'utf8');
+                    } catch (e) { /* file may not exist yet — first run before build_changelog */ }
                     panel.webview.postMessage({
                         type: 'init',
                         ...buildSettingsPayload(context),
@@ -2331,8 +2650,30 @@ function bindPanel(context, panel) {
                         skinUri,
                         skinColors: resolved.colors || null,
                         helpHtml,
+                        changelogHtml,
+                        pinnedExtensions: _pinnedIds,
+                        pinnedExtensionsMeta: _pinnedMeta,
                     });
+                    /* Bump the panel-open run counter in config.ini and, if
+                       this run hits a nag trigger (3/6/10/20, then every 30),
+                       tell the panel to show one of the support/promo nags. */
+                    const _runNumber = bumpRunCount(context);
+                    trace(`NAG:RUN_COUNT=${_runNumber}`);
+                    if (shouldShowNag(_runNumber)) {
+                        panel.webview.postMessage({ type: 'nag', run: _runNumber });
+                    }
                     endInit();
+                    /* Kick off Azure data-plane deployment discovery in the
+                       background. The init payload above used whatever was in
+                       the cache (just the configured deployment_name on a cold
+                       start); once the endpoint answers we post the real list
+                       (objects with name + underlying model id) and the panel
+                       swaps in the full set with model annotations. */
+                    discoverAzureDeployments(context).then((items) => {
+                        if (items && items.length) {
+                            panel.webview.postMessage({ type: 'azureDeployments', items });
+                        }
+                    }).catch((e) => traceErr('AZURE:DEPLOY:DISCOVER', e));
                     const endHist = timeStep('  loadPromptHistory');
                     const histItems = loadPromptHistory(context);
                     panel.webview.postMessage({ type: 'promptHistory', items: histItems });
@@ -2665,7 +3006,13 @@ function bindPanel(context, panel) {
                        renders the cards NATIVELY instead of iframing the PHP
                        page — VSCode webviews render external-https iframes as
                        a black rectangle on many builds, so we pull the data
-                       here and hand the panel a plain JS array. */
+                       here and hand the panel a plain JS array.
+
+                       We ALSO scan extensions/<id>/ on disk and mark each
+                       catalog item with `installed: true/false` so the panel
+                       can render "Open"/"Uninstall" instead of "Install" for
+                       anything already present. This way install state
+                       persists across modal close+reopen. */
                     const catalogUrl = 'https://trentontompkins.com/cbe/extension/extensions.xml.php';
                     (async () => {
                         try {
@@ -2711,10 +3058,48 @@ function bindPanel(context, panel) {
                                     description: unescapeXml(childText(body, 'description')),
                                     fileUrl: unescapeXml(childText(body, 'url')),
                                     entry: unescapeXml(childText(body, 'entry')),
+                                    icon: unescapeXml(childText(body, 'icon')),
                                     tags: childAll(body, 'tag').map(unescapeXml),
                                 });
                             }
-                            trace(`EXT:CATALOG:OK url=${catalogUrl} count=${items.length}`);
+                            /* Cross-reference with the on-disk extensions/<id>/
+                               folder so install state survives a modal close+
+                               reopen. Items installed locally but not in the
+                               catalog (sideloaded / catalog removed) still get
+                               surfaced so the user can Open/Uninstall them. */
+                            const installedMap = _scanInstalledExtensions(context);
+                            const pinned       = _readPinnedExtensions(context);
+                            for (const it of items) {
+                                const localInfo = installedMap.get(it.id);
+                                it.installed       = !!localInfo;
+                                it.installedEntry  = localInfo ? localInfo.entry  : '';
+                                it.installedVer    = localInfo ? localInfo.version : '';
+                                it.pinned          = pinned.includes(it.id);
+                                if (!it.icon && localInfo && localInfo.icon) it.icon = localInfo.icon;
+                            }
+                            for (const [id, info] of installedMap.entries()) {
+                                if (items.find(it => it.id === id)) continue;
+                                items.push({
+                                    id,
+                                    name: info.name || id,
+                                    version: info.version || '',
+                                    author: info.author || '',
+                                    created: '',
+                                    md5: '',
+                                    bytes: 0,
+                                    minCore: '',
+                                    description: info.description || '(sideloaded — not in catalog)',
+                                    fileUrl: '',
+                                    entry: info.entry || '',
+                                    icon: info.icon || '',
+                                    tags: [],
+                                    installed: true,
+                                    installedEntry: info.entry || '',
+                                    installedVer: info.version || '',
+                                    pinned: pinned.includes(id),
+                                });
+                            }
+                            trace(`EXT:CATALOG:OK url=${catalogUrl} count=${items.length} installed=${installedMap.size} pinned=${pinned.length}`);
                             panel.webview.postMessage({ type: 'extensionsCatalog', items });
                         } catch (e) {
                             traceErr('EXT:CATALOG:FAIL', e);
@@ -2766,8 +3151,20 @@ function bindPanel(context, panel) {
                             errMsg = e.message || String(e);
                             traceErr('EXT:INSTALL:FAIL id=' + extId, e);
                         }
+                        let installedEntry = '';
+                        if (ok) {
+                            /* Re-scan to pick up the freshly-extracted manifest
+                               so the panel knows the entry HTML path for "Open". */
+                            const scanned = _scanInstalledExtensions(context);
+                            const info = scanned.get(extId);
+                            installedEntry = (info && info.entry) || '';
+                        }
                         try {
-                            panel.webview.postMessage({ type: 'cbe.installResultFromHost', id: extId, ok, name: ext.name || extId });
+                            panel.webview.postMessage({
+                                type: 'cbe.installResultFromHost',
+                                id: extId, ok, name: ext.name || extId,
+                                entry: installedEntry,
+                            });
                         } catch (_) {}
                         if (ok) {
                             panel.webview.postMessage({ type: 'info', text: `Extension installed: ${ext.name || extId}. It lives in extensions/${extId}/.` });
@@ -2775,6 +3172,93 @@ function bindPanel(context, panel) {
                             panel.webview.postMessage({ type: 'error', message: `Extension install failed (${ext.name || extId}): ${errMsg}` });
                         }
                     })();
+                    break;
+                }
+                case 'openExtension': {
+                    /* User clicked the "Open" icon on an installed extension
+                       card. Read the entry HTML off disk, post it back as a
+                       srcdoc payload so the panel can iframe it inside a modal
+                       (or render it on the toolbar if pinned). The entry path
+                       is normalized to stay inside extensions/<id>/. */
+                    const extId = String((msg.id || '')).replace(/[^a-zA-Z0-9_.-]/g, '');
+                    if (!extId) { panel.webview.postMessage({ type: 'error', message: 'openExtension: missing id' }); break; }
+                    try {
+                        const scanned = _scanInstalledExtensions(context);
+                        const info = scanned.get(extId);
+                        if (!info) throw new Error(`extension '${extId}' is not installed`);
+                        const entry = info.entry || 'extension.html';
+                        /* Path-traversal guard: resolve and ensure it's still
+                           under extensions/<id>/. */
+                        const extDir = path.join(context.extensionPath, 'extensions', extId);
+                        const entryAbs = path.resolve(extDir, entry);
+                        if (!entryAbs.toLowerCase().startsWith(extDir.toLowerCase() + path.sep) &&
+                            entryAbs.toLowerCase() !== extDir.toLowerCase()) {
+                            throw new Error(`entry path escapes extension dir: ${entry}`);
+                        }
+                        if (!fs.existsSync(entryAbs)) throw new Error(`entry file not found: ${entry}`);
+                        const html = fs.readFileSync(entryAbs, 'utf8');
+                        panel.webview.postMessage({
+                            type: 'cbe.openExtensionFromHost',
+                            id: extId, name: info.name || extId, html,
+                        });
+                        trace(`EXT:OPEN:OK id=${extId} entry=${entry} bytes=${html.length}`);
+                    } catch (e) {
+                        traceErr(`EXT:OPEN:FAIL id=${extId}`, e);
+                        panel.webview.postMessage({ type: 'error', message: `Open extension failed (${extId}): ${e.message || e}` });
+                    }
+                    break;
+                }
+                case 'uninstallExtension': {
+                    /* Recursive remove of extensions/<id>/ + drop from pinned
+                       list. The panel re-renders the card as "Install" again. */
+                    const extId = String((msg.id || '')).replace(/[^a-zA-Z0-9_.-]/g, '');
+                    if (!extId) { panel.webview.postMessage({ type: 'error', message: 'uninstallExtension: missing id' }); break; }
+                    try {
+                        const dir = path.join(context.extensionPath, 'extensions', extId);
+                        if (fs.existsSync(dir)) _rmTree(dir);
+                        const pinned = _readPinnedExtensions(context).filter(x => x !== extId);
+                        _writePinnedExtensions(context, pinned);
+                        panel.webview.postMessage({
+                            type: 'cbe.uninstallResultFromHost',
+                            id: extId, ok: true, pinned,
+                        });
+                        panel.webview.postMessage({ type: 'info', text: `Extension uninstalled: ${extId}.` });
+                        trace(`EXT:UNINSTALL:OK id=${extId}`);
+                    } catch (e) {
+                        traceErr(`EXT:UNINSTALL:FAIL id=${extId}`, e);
+                        panel.webview.postMessage({ type: 'cbe.uninstallResultFromHost', id: extId, ok: false });
+                        panel.webview.postMessage({ type: 'error', message: `Uninstall failed (${extId}): ${e.message || e}` });
+                    }
+                    break;
+                }
+                case 'pinExtension':
+                case 'unpinExtension': {
+                    /* Toggle membership in extensions/_pinned.json. Panel
+                       receives the new pinned list + re-renders the toolbar. */
+                    const extId = String((msg.id || '')).replace(/[^a-zA-Z0-9_.-]/g, '');
+                    if (!extId) break;
+                    let pinned = _readPinnedExtensions(context);
+                    if (msg.type === 'pinExtension') {
+                        if (!pinned.includes(extId)) pinned.push(extId);
+                    } else {
+                        pinned = pinned.filter(x => x !== extId);
+                    }
+                    _writePinnedExtensions(context, pinned);
+                    /* Build the metadata list the panel needs to render toolbar
+                       buttons — id + name + the extension's own <icon> emoji
+                       (falls back to a generic glyph panel-side if absent). */
+                    const scanned = _scanInstalledExtensions(context);
+                    const meta = pinned
+                        .map(id => {
+                            const info = scanned.get(id) || {};
+                            return { id, name: info.name || id, icon: info.icon || '', iconSvg: info.iconSvg || '' };
+                        })
+                        .filter(x => scanned.has(x.id));
+                    panel.webview.postMessage({
+                        type: 'cbe.pinnedExtensions',
+                        pinned, meta,
+                    });
+                    trace(`EXT:PIN:${msg.type === 'pinExtension' ? 'ADD' : 'REMOVE'} id=${extId} -> [${pinned.join(',')}]`);
                     break;
                 }
                 case 'compactConversation': {
@@ -3091,6 +3575,32 @@ function bindPanel(context, panel) {
                 case 'sttStop':
                     stopSapiStt();
                     break;
+                case 'fetchChatGPTLibrary': {
+                    /* Fetch file list from ChatGPT Library via SuperGrok bridge.
+                       SuperGrok's gtp.py or start.py --library navigates the
+                       ChatGPT.com Library interface and returns a JSON list of
+                       {name, size, date, downloadUrl, deleteUrl} objects. */
+                    (async () => {
+                        try {
+                            const bridge = getSuperGrokBridge('chatgptWeb');
+                            const result = await bridge.chat('__library_list__', { timeoutMs: 120000 });
+                            const files = JSON.parse(result || '[]');
+                            panel.webview.postMessage({
+                                type: 'cbe.chatgptLibrary',
+                                files,
+                                status: `Found ${files.length} files in ChatGPT Library.`,
+                            });
+                            trace(`LIBRARY:LIST ok=${files.length} files`);
+                        } catch (e) {
+                            traceErr('LIBRARY:LIST', e);
+                            panel.webview.postMessage({
+                                type: 'error',
+                                message: `ChatGPT Library: ${e.message || e}`
+                            });
+                        }
+                    })();
+                    break;
+                }
                 default:
                     trace('  unhandled type: ' + msg.type);
             }
@@ -3542,6 +4052,80 @@ async function* streamOpenAIFormat(url, headers, body) {
     }
 }
 
+/* Mirrors triodesktop start.py:_chatAzureDeploymentPrefersResponses (line 9086).
+   Azure has split model families across API surfaces: gpt-5.4 / gpt-5.5 / gpt-5-pro
+   etc. reject /chat/completions with "The requested operation is unsupported"
+   and only serve /openai/v1/responses. Older *-chat deployments still use
+   /chat/completions. The TRIO_AZURE_FORCE_RESPONSES env var force-overrides. */
+function _azureDeploymentPrefersResponses(deployment) {
+    const forced = String(process.env.TRIO_AZURE_FORCE_RESPONSES || '').trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on', 'responses'].includes(forced)) return true;
+    if (['0', 'false', 'no', 'off', 'chat', 'completions'].includes(forced)) return false;
+    const text = String(deployment || '').trim().toLowerCase().replace(/_/g, '-');
+    if (!text) return false;
+    if (text.endsWith('-chat') || text.includes('-chat-')) return false;
+    if (text.startsWith('gpt-5.4') || text.startsWith('gpt-5.5')) return true;
+    return ['gpt-5-pro', 'gpt-5.1', 'gpt-5.1-pro', 'gpt-5.2', 'gpt-5.2-pro'].includes(text);
+}
+
+function _azureErrorLooksOperationUnsupported(text) {
+    const t = String(text || '').toLowerCase();
+    return ['requested operation is unsupported', 'operation is unsupported', 'operationnotsupported',
+            'unsupported operation', 'unsupported_value', "unsupported parameter: 'messages'",
+            'messages parameter', '/chat/completions'].some(m => t.includes(m));
+}
+
+/* Azure /openai/v1/responses streamer. SSE protocol:
+     event: response.output_text.delta
+     data: { "type":"response.output_text.delta", "delta":"text", ... }
+   We only yield the .delta strings. Multi-turn `messages` go straight into the
+   `input` field — the Responses API accepts the same {role, content} shape.
+   Reasoning models burn output tokens on hidden reasoning before answering, so
+   we floor max_output_tokens at 4096. */
+async function* streamAzureResponses(endpoint, apiKey, deployment, messages, maxTokens) {
+    const url = `${String(endpoint).replace(/\/+$/, '')}/openai/v1/responses`;
+    const body = {
+        model: deployment,
+        input: messages.map(m => ({ role: m.role, content: m.content })),
+        stream: true,
+        max_output_tokens: Math.max(maxTokens || 4096, 4096),
+    };
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+        body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} ${res.statusText}${errText ? ': ' + errText.slice(0, 400) : ''}`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        for (;;) {
+            const idx = buf.indexOf('\n');
+            if (idx === -1) break;
+            const line = buf.slice(0, idx).trim();
+            buf = buf.slice(idx + 1);
+            if (!line.startsWith('data:')) continue;
+            const payload = line.slice(5).trim();
+            if (!payload || payload === '[DONE]') continue;
+            try {
+                const j = JSON.parse(payload);
+                if (j.type === 'response.output_text.delta' && typeof j.delta === 'string') {
+                    yield j.delta;
+                } else if (j.type === 'response.completed' || j.type === 'response.failed') {
+                    return;
+                }
+            } catch (e) { /* partial chunk */ }
+        }
+    }
+}
+
 /* Gemini SSE — same protocol shape (data: {...}), different payload structure. */
 async function* streamGemini(apiKey, model, messages, maxTokens) {
     /* Convert {role:'user'|'assistant', content} → Gemini's contents[]. */
@@ -3725,11 +4309,20 @@ function getSuperGrokBridge(providerId) {
     return bridge;
 }
 
-async function* streamSuperGrok(providerId, messages) {
+async function* streamSuperGrok(providerId, messages, onProgress) {
     const bridge = getSuperGrokBridge(providerId);
     const lastUser = [...messages].reverse().find(m => m.role === 'user');
     if (!lastUser) throw new Error('no user message to send');
-    yield* bridge.chatStream(lastUser.content);
+    /* chatStreamWithProgress yields {progress} objects during cold-start /
+       waiting, then a final {text} object. Route progress out-of-band via
+       onProgress so it shows as a status line, not as answer text. */
+    for await (const evt of bridge.chatStreamWithProgress(lastUser.content)) {
+        if (evt && typeof evt.progress === 'string') {
+            if (onProgress) onProgress(evt.progress);
+        } else if (evt && typeof evt.text === 'string') {
+            yield evt.text;
+        }
+    }
 }
 
 /* Anthropic via SDK — wrap stream events as async generator. */
@@ -3755,8 +4348,10 @@ async function* streamAnthropic(apiKey, model, messages, maxTokens) {
     }
 }
 
-/* Dispatch by provider id. Returns async iterator yielding text chunks. */
-async function* chatStream(context, providerId, model, messages, maxTokens) {
+/* Dispatch by provider id. Returns async iterator yielding text chunks.
+   `onProgress(step)` (optional) receives human-readable status strings for
+   slow providers (SuperGrok cold-start) so the panel can show progress. */
+async function* chatStream(context, providerId, model, messages, maxTokens, onProgress) {
     const cfg = readConfigIni(context.extensionPath) || {};
     const provider = PROVIDERS[providerId];
 
@@ -3766,7 +4361,7 @@ async function* chatStream(context, providerId, model, messages, maxTokens) {
     }
 
     if (provider && provider.superGrok) {
-        yield* streamSuperGrok(providerId, messages);
+        yield* streamSuperGrok(providerId, messages, onProgress);
         return;
     }
 
@@ -3797,13 +4392,41 @@ async function* chatStream(context, providerId, model, messages, maxTokens) {
         body.max_tokens = maxTokens;
     } else if (providerId === 'azure') {
         const endpoint = (cfg.azure && cfg.azure.endpoint || '').replace(/\/+$/, '');
-        const apiVersion = (cfg.azure && cfg.azure.api_version) || '2024-12-01-preview';
         if (!endpoint) throw new Error('Azure endpoint missing in config.ini [azure] section.');
         if (!model) throw new Error('Azure deployment_name missing.');
+        /* Two API surfaces, picked by deployment family (mirrors triodesktop's
+           _chatAzureDeploymentPrefersResponses): gpt-5.4 / gpt-5.5 / gpt-5-pro
+           etc. only serve /openai/v1/responses; everything else uses the
+           legacy /openai/deployments/<name>/chat/completions path. If /chat
+           returns "operation unsupported" we fall back to /responses, since
+           Azure occasionally re-routes deployments without warning. */
+        if (_azureDeploymentPrefersResponses(model)) {
+            trace(`AZURE:CHAT route=responses deployment=${model}`);
+            yield* streamAzureResponses(endpoint, key, model, messages, maxTokens);
+            return;
+        }
+        const apiVersion = (cfg.azure && cfg.azure.api_version) || '2025-01-01-preview';
         url = `${endpoint}/openai/deployments/${encodeURIComponent(model)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
         headers = { 'Content-Type': 'application/json', 'api-key': key };
         delete body.model; /* Azure uses deployment in URL */
-        body.max_tokens = maxTokens;
+        const lower = String(model || '').toLowerCase();
+        if (lower.startsWith('gpt-5') || lower.startsWith('o1') || lower.startsWith('o3') || lower.startsWith('o4')) {
+            body.max_completion_tokens = maxTokens;
+        } else {
+            body.max_tokens = maxTokens;
+        }
+        trace(`AZURE:CHAT route=chat-completions deployment=${model} apiVersion=${apiVersion}`);
+        try {
+            yield* streamOpenAIFormat(url, headers, body);
+        } catch (e) {
+            if (_azureErrorLooksOperationUnsupported(e && e.message)) {
+                trace(`AZURE:CHAT fallback chat→responses deployment=${model} reason=${String(e && e.message || '').slice(0, 200)}`);
+                yield* streamAzureResponses(endpoint, key, model, messages, maxTokens);
+                return;
+            }
+            throw e;
+        }
+        return;
     } else {
         throw new Error('Unknown provider: ' + providerId);
     }
@@ -3849,7 +4472,13 @@ async function handleSendText(context, panel, text) {
            no executable blocks, or we hit MAX_TOOL_ITERATIONS as a safety. */
         for (;;) {
             let assembled = '';
-            for await (const delta of chatStream(context, providerId, model, conversation, maxTokens)) {
+            /* onProgress surfaces SuperGrok cold-start steps ("Starting
+               SuperGrok server…", "Waiting for grok to respond… (6s)") as
+               transient status lines so a slow bridge doesn't look hung. */
+            const onProgress = (step) => {
+                panel.webview.postMessage({ type: 'status', text: step });
+            };
+            for await (const delta of chatStream(context, providerId, model, conversation, maxTokens, onProgress)) {
                 assembled += delta;
                 panel.webview.postMessage({ type: 'chunk', text: delta });
             }
