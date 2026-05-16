@@ -68,12 +68,24 @@
       {
         "command": "codexBlackEd.uninstallBridgeService",
         "title": "Claude Codex Black: Uninstall Bridge Chrome Windows Service"
+      },
+      {
+        "command": "codexBlackEd.openBrowser",
+        "title": "Claude Codex Black: Open Web Browser (NN4)",
+        "icon": {
+          "light": "assets/icon-light.png",
+          "dark": "resources/icon-dark.png"
+        }
       }
     ],
     "menus": {
       "editor/title": [
         {
           "command": "codexBlackEd.openPanel",
+          "group": "navigation"
+        },
+        {
+          "command": "codexBlackEd.openBrowser",
           "group": "navigation"
         }
       ]
@@ -83,6 +95,11 @@
         "command": "codexBlackEd.openPanel",
         "key": "ctrl+alt+b",
         "mac": "cmd+alt+b"
+      },
+      {
+        "command": "codexBlackEd.openBrowser",
+        "key": "ctrl+alt+n",
+        "mac": "cmd+alt+n"
       }
     ],
     "configuration": {

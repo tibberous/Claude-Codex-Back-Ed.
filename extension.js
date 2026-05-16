@@ -1356,6 +1356,15 @@ async function activate(context) {
     statusBar.tooltip = 'Claude Codex Black — click to open · `Ctrl+Alt+B`';
     setStatus('idle', false, getActiveProvider(context));
     context.subscriptions.push(statusBar);
+    /* Second status-bar item: standalone "Web Browser" button that opens
+       the NN4 webview. Keeps the retro-stupid browser one click away from
+       anywhere in VSCode, no need to open the chat panel first. */
+    const browserStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
+    browserStatusBar.command = 'codexBlackEd.openBrowser';
+    browserStatusBar.text = '$(browser) Web';
+    browserStatusBar.tooltip = 'Open NN4 Web Browser — `Ctrl+Alt+N`';
+    browserStatusBar.show();
+    context.subscriptions.push(browserStatusBar);
     endStatusBar();
 
     const endCmds = timeStep('  registerCommands');
@@ -1395,6 +1404,41 @@ async function activate(context) {
                 { placeHolder: 'Remove the Chrome service for which web-bridge provider?' }
             );
             if (pick) uninstallBridgeServiceFor(pick.id);
+        }),
+        /* Web Browser command — opens (or reveals) the NN4-skinned browser
+           webview panel directly, without needing to first open the chat
+           panel + click the Browser button. Mirrors the openNN4Browser
+           message handler. Reachable via Ctrl+Alt+N, the editor title bar,
+           the command palette, and the status-bar button below. */
+        vscode.commands.registerCommand('codexBlackEd.openBrowser', () => {
+            try {
+                if (!_nn4BrowserPanel) {
+                    _nn4BrowserPanel = vscode.window.createWebviewPanel(
+                        'codexBlackEd.nn4Browser',
+                        'Netscape Navigator 4.0 — CBE',
+                        { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
+                        { enableScripts: true, retainContextWhenHidden: true }
+                    );
+                    try {
+                        _nn4BrowserPanel.webview.html = fs.readFileSync(
+                            path.join(context.extensionPath, 'panel', 'nn4-browser.html'),
+                            'utf8'
+                        );
+                    } catch (e) {
+                        traceErr('read nn4-browser.html (command)', e);
+                        _nn4BrowserPanel.webview.html =
+                            '<html><body style="font-family:sans-serif;padding:1em;">' +
+                            '<h3>NN4 Browser failed to load</h3><pre>' +
+                            String(e && e.message || e) + '</pre></body></html>';
+                    }
+                    _nn4BrowserPanel.onDidDispose(() => { _nn4BrowserPanel = null; });
+                } else {
+                    _nn4BrowserPanel.reveal(vscode.ViewColumn.Active);
+                }
+            } catch (e) {
+                traceErr('openBrowser command', e);
+                vscode.window.showErrorMessage('Failed to open Web Browser: ' + (e && e.message || String(e)));
+            }
         }),
         /* Manual auto-update trigger — fires the same WinSCP push the
            background activate hook would, but on demand so you don't have

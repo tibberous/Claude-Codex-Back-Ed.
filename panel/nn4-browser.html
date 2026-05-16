@@ -329,18 +329,68 @@
   </div>
 
   <!-- ── MAIN TOOLBAR ────────────────────────────────────────────── -->
+  <!-- Sliced toolbar buttons: period-correct inline SVG pictographs.
+       Default state shows the SVG as drawn. :hover gets brightness(1.15)
+       for the classic "icon highlights when moused over" feel. :active /
+       .pressed shifts the icon down+right 1px so it visibly "depresses"
+       into the inset bevel. CSS for all three states lives next to .tbtn
+       in the head <style>. -->
   <div class="toolbar-main" role="toolbar" aria-label="Navigation">
-    <div class="tbtn" id="btnBack"    title="Back">     <span class="ico">&larr;</span><span class="lbl">Back</span></div>
-    <div class="tbtn" id="btnFwd"     title="Forward">  <span class="ico">&rarr;</span><span class="lbl">Forward</span></div>
-    <div class="tbtn" id="btnReload"  title="Reload">   <span class="ico">&#x21bb;</span><span class="lbl">Reload</span></div>
-    <div class="tbtn" id="btnHome"    title="Home">     <span class="ico">&#x2302;</span><span class="lbl">Home</span></div>
+    <div class="tbtn" id="btnBack"    title="Back">
+      <span class="ico"><svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true">
+        <path d="M3 11 L9 4 L9 8 L19 8 L19 14 L9 14 L9 18 Z" fill="#000080" stroke="#000" stroke-width="1"/>
+      </svg></span><span class="lbl">Back</span>
+    </div>
+    <div class="tbtn" id="btnFwd"     title="Forward">
+      <span class="ico"><svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true">
+        <path d="M19 11 L13 4 L13 8 L3 8 L3 14 L13 14 L13 18 Z" fill="#000080" stroke="#000" stroke-width="1"/>
+      </svg></span><span class="lbl">Forward</span>
+    </div>
+    <div class="tbtn" id="btnReload"  title="Reload">
+      <span class="ico"><svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true">
+        <path d="M5 11 A 6 6 0 1 1 11 17" fill="none" stroke="#000080" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M2 11 L5 8 L8 11 Z" fill="#000080" stroke="#000" stroke-width="0.6"/>
+      </svg></span><span class="lbl">Reload</span>
+    </div>
+    <div class="tbtn" id="btnHome"    title="Home">
+      <span class="ico"><svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true">
+        <path d="M11 3 L3 11 L5 11 L5 18 L17 18 L17 11 L19 11 Z" fill="#a0522d" stroke="#000" stroke-width="1"/>
+        <rect x="9" y="12" width="4" height="6" fill="#8b4513" stroke="#000" stroke-width="0.5"/>
+        <rect x="9.6" y="13.5" width="0.6" height="0.6" fill="#ffcc00"/>
+      </svg></span><span class="lbl">Home</span>
+    </div>
     <div class="tb-sep"></div>
-    <div class="tbtn" id="btnSearch"  title="Search">   <span class="ico">&#x1F50D;</span><span class="lbl">Search</span></div>
+    <div class="tbtn" id="btnSearch"  title="Search">
+      <span class="ico"><svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true">
+        <circle cx="9" cy="9" r="5" fill="#ffffff" stroke="#000080" stroke-width="2"/>
+        <line x1="12.8" y1="12.8" x2="18" y2="18" stroke="#000080" stroke-width="2.6" stroke-linecap="round"/>
+      </svg></span><span class="lbl">Search</span>
+    </div>
     <div class="tbtn netscape" id="btnNetscape" title="Netscape"><span class="ico">N</span><span class="lbl">Netscape</span></div>
     <div class="tb-sep"></div>
-    <div class="tbtn" id="btnPrint"   title="Print">    <span class="ico">&#x1F5B6;</span><span class="lbl">Print</span></div>
-    <div class="tbtn" id="btnSec"     title="Security"> <span class="ico">&#x1F512;</span><span class="lbl">Security</span></div>
-    <div class="tbtn" id="btnStop"    title="Stop">     <span class="ico">&#x2715;</span><span class="lbl">Stop</span></div>
+    <div class="tbtn" id="btnPrint"   title="Print">
+      <span class="ico"><svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true">
+        <rect x="6" y="3" width="10" height="5" fill="#ffffff" stroke="#000" stroke-width="1"/>
+        <rect x="3" y="8" width="16" height="8" fill="#c0c0c0" stroke="#000" stroke-width="1"/>
+        <rect x="6" y="13" width="10" height="6" fill="#ffffff" stroke="#000" stroke-width="1"/>
+        <circle cx="16.5" cy="11" r="0.9" fill="#00aa00"/>
+      </svg></span><span class="lbl">Print</span>
+    </div>
+    <div class="tbtn" id="btnSec"     title="Security">
+      <span class="ico"><svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true">
+        <path d="M7.5 10 L7.5 7 A 3.5 3.5 0 0 1 14.5 7 L14.5 10" fill="none" stroke="#000" stroke-width="1.8"/>
+        <rect x="5" y="10" width="12" height="9" fill="#ffd700" stroke="#000" stroke-width="1"/>
+        <circle cx="11" cy="14" r="1.3" fill="#000"/>
+        <rect x="10.4" y="14" width="1.2" height="3" fill="#000"/>
+      </svg></span><span class="lbl">Security</span>
+    </div>
+    <div class="tbtn" id="btnStop"    title="Stop">
+      <span class="ico"><svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true">
+        <circle cx="11" cy="11" r="8" fill="#cc0000" stroke="#000" stroke-width="1"/>
+        <line x1="6" y1="6" x2="16" y2="16" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round"/>
+        <line x1="6" y1="16" x2="16" y2="6" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round"/>
+      </svg></span><span class="lbl">Stop</span>
+    </div>
   </div>
 
   <!-- ── LOCATION TOOLBAR ────────────────────────────────────────── -->
