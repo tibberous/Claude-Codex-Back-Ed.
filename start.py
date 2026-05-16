@@ -3423,9 +3423,9 @@ def main(argv: list[str] | None = None) -> int:
                     action = argv[idx + 1].lower()
 
             if action == 'auth-save':
-                import subprocess
                 import sqlite3
                 import shutil
+                import base64
                 from pathlib import Path
 
                 try:
@@ -3435,33 +3435,164 @@ def main(argv: list[str] | None = None) -> int:
                     auth_cache_dir.mkdir(parents=True, exist_ok=True)
                     cookies_file = auth_cache_dir / 'auth_cookies.json'
 
-                    cookies_to_save = []
-                    try:
-                        cookies_db = 'C:\\Users\\moren\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Cookies'
-                        if os.path.exists(cookies_db):
-                            conn = sqlite3.connect(cookies_db)
-                            conn.row_factory = sqlite3.Row
-                            cursor = conn.cursor()
-                            cursor.execute("SELECT host_key, name, value, path, expires_utc, secure, httponly FROM cookies WHERE host_key LIKE '%chatgpt%' OR host_key LIKE '%openai%' OR host_key LIKE 'auth%'")
-                            for row in cursor:
-                                cookies_to_save.append({
-                                    'name': row['name'],
-                                    'value': row['value'],
-                                    'domain': row['host_key'].lstrip('.'),
-                                    'path': row['path'],
-                                    'expires': int(row['expires_utc']) if row['expires_utc'] > 0 else -1,
-                                    'httpOnly': bool(row['httponly']),
-                                    'secure': bool(row['secure'])
-                                })
-                            conn.close()
+                    # ------------------------------------------------------------
+                    # Chrome cookie encryption (Windows, v127+):
+                    #   - Each cookie's encrypted_value is a blob:
+                    #       prefix (3 bytes) + IV (12 bytes) + ciphertext + tag (16 bytes)
+                    #   - prefix == b'v10'  -> AES-256-GCM, key = DPAPI-unwrap(
+                    #       Local State[os_crypt][encrypted_key], user-scope)
+                    #   - prefix == b'v20'  -> AES-256-GCM, key = service-scope DPAPI
+                    #       (requires running as SYSTEM via ChromeElevationService).
+                    #       Not feasible without elevation; we skip and log.
+                    #   - Bare value column is plaintext (older flow / non-secure).
+                    # We decrypt v10 here; v20 falls through to the bridge profile's
+                    # own persistent cookies (one-time login via --show-bridge).
+                    # ------------------------------------------------------------
+                    def _loadChromeV10Key():
+                        try:
+                            import win32crypt  # pywin32
+                        except Exception as e:
+                            print(f'[library] pywin32 missing — cannot decrypt v10 cookies: {e}', file=sys.stderr, flush=True)
+                            return None
+                        local_state_p = Path(r'C:\Users\moren\AppData\Local\Google\Chrome\User Data\Local State')
+                        if not local_state_p.is_file():
+                            return None
+                        try:
+                            ls = json.loads(local_state_p.read_text(encoding='utf-8'))
+                            enc_b64 = ls.get('os_crypt', {}).get('encrypted_key', '')
+                            if not enc_b64:
+                                return None
+                            blob = base64.b64decode(enc_b64)
+                            # Strip 'DPAPI' prefix (5 bytes).
+                            if blob[:5] != b'DPAPI':
+                                return None
+                            _, key = win32crypt.CryptUnprotectData(blob[5:], None, None, None, 0)
+                            return key
+                        except Exception as e:
+                            print(f'[library] v10 key unwrap failed: {type(e).__name__}: {e}', file=sys.stderr, flush=True)
+                            return None
 
+                    def _decryptV10(blob: bytes, key: bytes):
+                        try:
+                            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+                        except Exception:
+                            return None
+                        try:
+                            if not blob or blob[:3] != b'v10' or key is None:
+                                return None
+                            iv = blob[3:15]
+                            payload = blob[15:]  # ciphertext + 16-byte tag
+                            pt = AESGCM(key).decrypt(iv, payload, None)
+                            return pt.decode('utf-8', errors='replace')
+                        except Exception:
+                            return None
+
+                    v10_key = _loadChromeV10Key()
+                    if v10_key:
+                        print('[library] v10 key unwrapped from Local State; will decrypt encrypted_value blobs', file=sys.stderr, flush=True)
+                    else:
+                        print('[library] no v10 key available — only plaintext cookies will be saved', file=sys.stderr, flush=True)
+
+                    cookies_to_save = []
+                    skipped_v20 = 0
+                    skipped_other = 0
+                    try:
+                        # Chrome 96+ moved Cookies into Default\Network\.
+                        # Both paths are probed; the live DB is locked by Chrome
+                        # so we copy first; if copy fails we still try sqlite
+                        # URI immutable mode against the live file.
+                        candidates = [
+                            'C:\\Users\\moren\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Network\\Cookies',
+                            'C:\\Users\\moren\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Cookies',
+                        ]
+                        cookies_db = next((p for p in candidates if os.path.exists(p)), None)
+                        copied_path = None
+                        if cookies_db:
+                            import tempfile
+                            try:
+                                copied_path = os.path.join(tempfile.gettempdir(), 'cbe_cookies_copy.db')
+                                shutil.copy2(cookies_db, copied_path)
+                                src_for_open = copied_path
+                                print(f'[library] copied locked db to {copied_path} ({os.path.getsize(copied_path)} bytes)', file=sys.stderr, flush=True)
+                            except Exception as _copyErr:
+                                src_for_open = cookies_db
+                                print(f'[library] copy of locked db failed ({_copyErr}); trying live file via sqlite URI', file=sys.stderr, flush=True)
+                            try:
+                                uri = 'file:/' + src_for_open.replace('\\', '/') + '?mode=ro&immutable=1'
+                                try:
+                                    conn = sqlite3.connect(uri, uri=True, timeout=2.0)
+                                except Exception:
+                                    conn = sqlite3.connect(src_for_open, timeout=2.0)
+                                conn.row_factory = sqlite3.Row
+                                cursor = conn.cursor()
+                                cursor.execute("SELECT host_key, name, value, encrypted_value, path, expires_utc, secure, httponly FROM cookies WHERE host_key LIKE '%chatgpt%' OR host_key LIKE '%openai%' OR host_key LIKE '%auth0%'")
+                                for row in cursor:
+                                    val = row['value']
+                                    enc = bytes(row['encrypted_value']) if row['encrypted_value'] else b''
+                                    if not val and enc:
+                                        prefix = enc[:3]
+                                        if prefix == b'v10':
+                                            pt = _decryptV10(enc, v10_key)
+                                            if pt is None:
+                                                skipped_other += 1
+                                                continue
+                                            val = pt
+                                        elif prefix == b'v20':
+                                            # Service-DPAPI required. Bridge profile's
+                                            # own persistent cookies cover this after a
+                                            # one-time interactive login.
+                                            skipped_v20 += 1
+                                            continue
+                                        else:
+                                            skipped_other += 1
+                                            continue
+                                    if not val:
+                                        continue
+                                    cookies_to_save.append({
+                                        'name': row['name'],
+                                        'value': val,
+                                        'domain': row['host_key'],
+                                        'path': row['path'],
+                                        'expires': int(row['expires_utc']) if row['expires_utc'] > 0 else -1,
+                                        'httpOnly': bool(row['httponly']),
+                                        'secure': bool(row['secure'])
+                                    })
+                                conn.close()
+                            except Exception as _dbErr:
+                                print(f'[library] sqlite open failed ({type(_dbErr).__name__}: {_dbErr}); trying legacy cache fallback', file=sys.stderr, flush=True)
+                            if copied_path and os.path.exists(copied_path):
+                                try: os.remove(copied_path)
+                                except Exception: pass
+
+                        # Fallback: re-use the plaintext cookies.json that prior
+                        # Playwright runs may have written.
+                        if not cookies_to_save:
+                            legacy = auth_cache_dir / 'cookies.json'
+                            if legacy.is_file():
+                                try:
+                                    cookies_to_save = json.loads(legacy.read_text(encoding='utf-8'))
+                                    print(f'[library] using {legacy.name} fallback ({len(cookies_to_save)} plaintext cookies)', file=sys.stderr, flush=True)
+                                except Exception as _legErr:
+                                    print(f'[library] legacy cookies.json unreadable: {_legErr}', file=sys.stderr, flush=True)
+
+                        print(f'[library] saved={len(cookies_to_save)} v20-skipped={skipped_v20} other-skipped={skipped_other}', file=sys.stderr, flush=True)
                         if cookies_to_save:
                             with open(cookies_file, 'w') as f:
                                 json.dump(cookies_to_save, f, indent=2)
-                            print(json.dumps({'ok': True, 'message': f'Saved {len(cookies_to_save)} auth cookies', 'path': str(cookies_file)}))
+                            print(json.dumps({
+                                'ok': True,
+                                'message': f'Saved {len(cookies_to_save)} auth cookies',
+                                'path': str(cookies_file),
+                                'v20_skipped': skipped_v20,
+                                'other_skipped': skipped_other,
+                            }))
                             return 0
                         else:
-                            print(json.dumps({'ok': False, 'error': 'No ChatGPT cookies found. Make sure Chrome is running and you are logged into ChatGPT.'}), file=sys.stderr)
+                            print(json.dumps({
+                                'ok': False,
+                                'error': 'No ChatGPT cookies extracted. Chrome may be locking the DB. Close Chrome briefly and retry, or log in once via `--serve-bridge --show-bridge --target chatgpt`.',
+                                'v20_skipped': skipped_v20,
+                            }), file=sys.stderr)
                             return 1
                     except Exception as e:
                         print(json.dumps({'ok': False, 'error': f'Failed to extract cookies: {str(e)}'}), file=sys.stderr)
@@ -3471,46 +3602,295 @@ def main(argv: list[str] | None = None) -> int:
                     print(json.dumps({'ok': False, 'error': f'Auth save failed: {str(e)}'}), file=sys.stderr)
                     return 1
 
+            elif action == 'login':
+                # Open a real chatgpt.com window in QtWebEngine, persist cookies
+                # to a profile dir, and on close serialize EVERY cookie (HttpOnly,
+                # secure, App-Bound — all of them, since QtWebEngine has its own
+                # cookie store independent of Chrome's DPAPI vault) to the same
+                # auth_cookies.json that --library list reads. One-time chore;
+                # the session-token cookie lasts ~30 days.
+                try:
+                    from pathlib import Path as _LP
+                    auth_cache_dir = _LP.home() / '.claude' / 'projects' / 'C--Users-moren' / 'library-cache'
+                    auth_cache_dir.mkdir(parents=True, exist_ok=True)
+                    cookies_file = auth_cache_dir / 'auth_cookies.json'
+                    profile_dir = auth_cache_dir / 'qt-login-profile'
+                    profile_dir.mkdir(parents=True, exist_ok=True)
+
+                    from PySide6.QtCore import QUrl, QCoreApplication
+                    from PySide6.QtWidgets import QApplication, QMainWindow
+                    from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage
+                    from PySide6.QtWebEngineWidgets import QWebEngineView
+
+                    app_qt = QApplication.instance() or QApplication(sys.argv)
+                    profile = QWebEngineProfile('cbe-library-login', None)
+                    profile.setPersistentStoragePath(str(profile_dir))
+                    profile.setCachePath(str(profile_dir / 'cache'))
+                    profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
+                    profile.setHttpUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
+
+                    collected: list[dict] = []
+                    def _on_cookie_added(c):
+                        try:
+                            name = bytes(c.name()).decode('utf-8', errors='replace')
+                            value = bytes(c.value()).decode('utf-8', errors='replace')
+                            exp = c.expirationDate()
+                            exp_secs = exp.toSecsSinceEpoch() if exp.isValid() else -1
+                            collected.append({
+                                'name': name,
+                                'value': value,
+                                'domain': c.domain(),
+                                'path': c.path(),
+                                'secure': bool(c.isSecure()),
+                                'httpOnly': bool(c.isHttpOnly()),
+                                'expires': exp_secs,
+                            })
+                        except Exception as cerr:
+                            print(f'[library:login] cookie capture error: {type(cerr).__name__}: {cerr}', file=sys.stderr, flush=True)
+                    profile.cookieStore().cookieAdded.connect(_on_cookie_added)
+
+                    page = QWebEnginePage(profile)
+                    view = QWebEngineView()
+                    view.setPage(page)
+                    view.setUrl(QUrl('https://chatgpt.com/'))
+                    window = QMainWindow()
+                    window.setCentralWidget(view)
+                    window.setWindowTitle('Log into ChatGPT  —  close this window when done')
+                    window.resize(1100, 820)
+                    window.show()
+
+                    def _on_quit():
+                        try:
+                            seen = {}
+                            for c in collected:
+                                seen[(c['name'], c['domain'], c['path'])] = c
+                            deduped = list(seen.values())
+                            cookies_file.write_text(json.dumps(deduped, indent=2), encoding='utf-8')
+                            has_session = any(c['name'] == '__Secure-next-auth.session-token' for c in deduped)
+                            print(json.dumps({
+                                'ok': has_session,
+                                'message': f'Saved {len(deduped)} cookies to {cookies_file}',
+                                'session_token_captured': has_session,
+                                'cookie_names': sorted({c['name'] for c in deduped}),
+                            }, indent=2))
+                        except Exception as serr:
+                            print(json.dumps({'ok': False, 'error': f'cookie serialize failed: {type(serr).__name__}: {serr}'}), file=sys.stderr)
+                    app_qt.aboutToQuit.connect(_on_quit)
+
+                    print('[library:login] window opened — log into ChatGPT, then close the window to save cookies.', file=sys.stderr, flush=True)
+                    return int(app_qt.exec())
+                except Exception as login_err:
+                    print(json.dumps({'ok': False, 'error': f'login failed: {type(login_err).__name__}: {login_err}'}), file=sys.stderr)
+                    return 1
+
             elif action in ('list', 'delete-remote', 'inject'):
-                # Short-circuit: prefer the running CBE-Bridge-ChatGPT.exe's
-                # python QtWebEngine child if it's listening on port 9788
-                # (port = 8788 + 1000 sidecar). That child is already logged
-                # into ChatGPT via the chat-bridge profile, so navigating to
-                # /library + scraping the DOM via QtWebEngine JS injection
-                # bypasses Playwright + Cloudflare + the manual-console-paste
-                # dance entirely. Falls through to the legacy Playwright
-                # path if the bridge isn't up or doesn't speak library-list.
+                # Short-circuit: prefer the running CBE-Bridge-ChatGPT.exe (port
+                # BRIDGE_PORTS['chatgpt'] == 8788). The bridge's QtWebEngine
+                # profile is pre-seeded from auth_cookies.json at boot, so /library
+                # loads as logged-in DOM. Falls through to Playwright if the bridge
+                # is down or doesn't speak library-list yet.
+                #
+                # Auto-refresh: if auth_cookies.json is missing or > 20 days old
+                # we re-run `--library auth-save` first. ChatGPT sessions are
+                # typically ~1 month, so 20 days is the comfortable refresh window.
                 if action == 'list':
+                    # FAST PATH (added 2026-05-15): if auth_cookies.json contains
+                    # __Secure-next-auth.session-token (captured via --library
+                    # login, which uses QtWebEngine instead of fighting Chrome's
+                    # App-Bound DPAPI vault), hit chatgpt.com's backend-api
+                    # directly. Three HTTP calls, sub-2-second cold. No Chromium
+                    # boot, no Playwright CDP, no 2500ms post-load sleep.
                     try:
+                        from pathlib import Path as _FPath
+                        _fast_jar = _FPath(os.path.expanduser('~')) / '.claude' / 'projects' / 'C--Users-moren' / 'library-cache' / 'auth_cookies.json'
+                        if _fast_jar.is_file():
+                            _raw = json.loads(_fast_jar.read_text(encoding='utf-8'))
+                            _jar = {c['name']: c['value'] for c in _raw if c.get('name') and c.get('value')}
+                            if '__Secure-next-auth.session-token' in _jar:
+                                import requests as _rq
+                                _sess = _rq.Session()
+                                _sess.cookies.update(_jar)
+                                _sess.headers.update({
+                                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                                    'Accept': 'application/json',
+                                    'Referer': 'https://chatgpt.com/',
+                                })
+                                _t0 = time.time()
+                                _auth_r = _sess.get('https://chatgpt.com/api/auth/session', timeout=10)
+                                _auth_j = {}
+                                try:
+                                    _auth_j = _auth_r.json()
+                                except Exception:
+                                    pass
+                                _access = _auth_j.get('accessToken') if isinstance(_auth_j, dict) else None
+                                if _access:
+                                    _sess.headers['Authorization'] = f'Bearer {_access}'
+                                    _chats_r = _sess.get('https://chatgpt.com/backend-api/conversations?offset=0&limit=100&order=updated', timeout=20)
+                                    _files_r = _sess.get('https://chatgpt.com/backend-api/files', timeout=20)
+                                    _chats = _chats_r.json() if _chats_r.ok else {'error': f'chats status={_chats_r.status_code} body={_chats_r.text[:300]}'}
+                                    _files = _files_r.json() if _files_r.ok else {'error': f'files status={_files_r.status_code} body={_files_r.text[:300]}'}
+                                    print(json.dumps({
+                                        'ok': True,
+                                        'via': 'requests-fast-path',
+                                        'elapsed_sec': round(time.time() - _t0, 3),
+                                        'chats': _chats.get('items', _chats) if isinstance(_chats, dict) else _chats,
+                                        'files': _files.get('items', _files) if isinstance(_files, dict) else _files,
+                                        'chat_count': len(_chats.get('items', [])) if isinstance(_chats, dict) else 0,
+                                        'file_count': len(_files.get('items', [])) if isinstance(_files, dict) else 0,
+                                        'access_token_prefix': str(_access)[:16] + '...',
+                                    }, indent=2))
+                                    return 0
+                                else:
+                                    print(f'[library] fast-path: /api/auth/session returned no accessToken (status={_auth_r.status_code}, body_len={len(_auth_r.text)}); cookies likely expired — run `python start.py --library login` once to refresh', file=sys.stderr, flush=True)
+                                    print(json.dumps({'ok': False, 'via': 'requests-fast-path', 'error': 'session-token rejected (expired or invalid)', 'next_step': 'python start.py --library login'}, indent=2), file=sys.stderr)
+                                    return 3
+                            else:
+                                print(f'[library] fast-path: __Secure-next-auth.session-token absent from auth_cookies.json (have {sorted(_jar)}); run `python start.py --library login` once to capture it', file=sys.stderr, flush=True)
+                                print(json.dumps({'ok': False, 'via': 'requests-fast-path', 'error': 'session-token cookie missing', 'cookie_names': sorted(_jar), 'next_step': 'python start.py --library login'}, indent=2), file=sys.stderr)
+                                return 2
+                    except Exception as _fpe:
+                        print(f'[library] fast-path crashed ({type(_fpe).__name__}: {_fpe}); falling through to legacy QtWebEngine+Playwright path', file=sys.stderr, flush=True)
+                    # --- END FAST PATH ---
+                    try:
+                        from pathlib import Path as _LPath
+                        _cookie_jar = _LPath(os.path.expanduser('~')) / '.claude' / 'projects' / 'C--Users-moren' / 'library-cache' / 'auth_cookies.json'
+                        _needs_refresh = False
+                        if not _cookie_jar.is_file():
+                            _needs_refresh = True
+                            print(f'[library] auth_cookies.json missing; running auth-save first', file=sys.stderr, flush=True)
+                        else:
+                            try:
+                                _age_days = (time.time() - _cookie_jar.stat().st_mtime) / 86400.0
+                                if _age_days > 20.0:
+                                    _needs_refresh = True
+                                    print(f'[library] auth_cookies.json is {_age_days:.1f} days old (>20); refreshing via auth-save', file=sys.stderr, flush=True)
+                            except Exception:
+                                pass
+                        if _needs_refresh:
+                            try:
+                                import subprocess as _sp_refresh
+                                _refresh_proc = _sp_refresh.run(
+                                    [sys.executable, str(_LPath(__file__).resolve()), '--library', 'auth-save'],
+                                    capture_output=True, text=True, timeout=30,
+                                )
+                                if _refresh_proc.returncode == 0:
+                                    print(f'[library] auth-save refresh ok: {_refresh_proc.stdout.strip()[:200]}', file=sys.stderr, flush=True)
+                                else:
+                                    print(f'[library] auth-save refresh failed rc={_refresh_proc.returncode}: {_refresh_proc.stderr.strip()[:400]}', file=sys.stderr, flush=True)
+                            except Exception as _refErr:
+                                print(f'[library] auth-save refresh raised: {type(_refErr).__name__}: {_refErr}', file=sys.stderr, flush=True)
+
+                        # Probe candidate bridge ports. The python --serve-bridge
+                        # child speaks library-list directly. The C++ tray exe
+                        # on BRIDGE_PORTS['chatgpt']==8788 forwards 'chat' to
+                        # its 9788 python child but NOT library-list (yet), so
+                        # we probe the python child port FIRST.
                         import socket as _sock, json as _lj
-                        _s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
-                        _s.settimeout(3)
-                        _s.connect(('127.0.0.1', 9788))
-                        _req = _lj.dumps({'action': 'library-list'}) + '\n'
-                        _s.sendall(_req.encode('utf-8'))
-                        _s.shutdown(_sock.SHUT_WR)
-                        _buf = b''
-                        while True:
-                            _chunk = _s.recv(65536)
-                            if not _chunk:
+                        _bridge_port = int(BRIDGE_PORTS.get('chatgpt', 8788))
+                        _candidate_ports = [_bridge_port + 1000, 9788, 8768, _bridge_port]
+                        _seen = set(); _ordered = []
+                        for _p in _candidate_ports:
+                            if _p not in _seen:
+                                _seen.add(_p); _ordered.append(_p)
+
+                        def _probeLibraryList(port: int, timeout_s: float = 30.0):
+                            try:
+                                _s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+                                _s.settimeout(timeout_s)
+                                _s.connect(('127.0.0.1', port))
+                                _req = _lj.dumps({'action': 'library-list'}) + '\n'
+                                _s.sendall(_req.encode('utf-8'))
+                                _s.shutdown(_sock.SHUT_WR)
+                                _buf = b''
+                                while True:
+                                    _chunk = _s.recv(65536)
+                                    if not _chunk:
+                                        break
+                                    _buf += _chunk
+                                    if len(_buf) > 4_000_000:
+                                        break
+                                _s.close()
+                                _line = _buf.decode('utf-8', errors='replace').split('\n', 1)[0].strip()
+                                if not _line:
+                                    return None
+                                return _lj.loads(_line)
+                            except Exception as _err:
+                                print(f'[library]   port {port}: {type(_err).__name__}: {_err}', file=sys.stderr, flush=True)
+                                return None
+
+                        _resp = None
+                        _used_port = None
+                        for _p in _ordered:
+                            print(f'[library] probing chatgpt bridge on 127.0.0.1:{_p}', file=sys.stderr, flush=True)
+                            _r = _probeLibraryList(_p)
+                            if isinstance(_r, dict) and ('phase' in _r or 'files' in _r or 'chats' in _r):
+                                _resp = _r
+                                _used_port = _p
                                 break
-                            _buf += _chunk
-                            if len(_buf) > 4_000_000:
-                                break
-                        _s.close()
-                        _line = _buf.decode('utf-8', errors='replace').split('\n', 1)[0].strip()
-                        if _line:
-                            _resp = _lj.loads(_line)
-                            if isinstance(_resp, dict) and _resp.get('ok'):
+
+                        if _resp is None:
+                            # Spawn our own --serve-bridge child on a free port.
+                            # Cookie-jar path: the QtWebEngine profile is
+                            # persistent and seeded from auth_cookies.json at boot.
+                            try:
+                                _s2 = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+                                _s2.bind(('127.0.0.1', 0))
+                                _spawn_port = int(_s2.getsockname()[1])
+                                _s2.close()
+                            except Exception:
+                                _spawn_port = 9799
+                            print(f'[library] no responsive bridge with library-list; spawning offscreen --serve-bridge on {_spawn_port}', file=sys.stderr, flush=True)
+                            import subprocess as _sp_spawn
+                            _spawn_proc = _sp_spawn.Popen(
+                                [sys.executable, str(_LPath(__file__).resolve()),
+                                 '--serve-bridge', '--target', 'chatgpt',
+                                 '--bridge-port', str(_spawn_port), '--offscreen'],
+                                stdout=_sp_spawn.DEVNULL, stderr=_sp_spawn.DEVNULL,
+                                creationflags=getattr(_sp_spawn, 'CREATE_NO_WINDOW', 0),
+                            )
+                            import time as _tm
+                            _ready = False
+                            for _attempt in range(40):
+                                _tm.sleep(0.5)
+                                try:
+                                    _tst = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+                                    _tst.settimeout(0.5)
+                                    _tst.connect(('127.0.0.1', _spawn_port))
+                                    _tst.close()
+                                    _ready = True
+                                    break
+                                except Exception:
+                                    continue
+                            if _ready:
+                                print(f'[library] spawned bridge ready on {_spawn_port}; sending library-list', file=sys.stderr, flush=True)
+                                _resp = _probeLibraryList(_spawn_port, timeout_s=45.0)
+                                _used_port = _spawn_port
+                            try:
+                                _spawn_proc.terminate()
+                            except Exception:
+                                pass
+
+                        if isinstance(_resp, dict):
+                            if _resp.get('ok'):
                                 print(_lj.dumps(_resp, ensure_ascii=False, indent=2))
                                 return 0
-                            # bridge replied but said it doesn't know this action -> fall through
-                            if isinstance(_resp, dict) and 'library-list' in str(_resp.get('error', '')).lower():
-                                print('[library] chatgpt bridge does not yet implement library-list; using legacy Playwright path', file=sys.stderr, flush=True)
+                            if _resp.get('phase') == 'needs-login':
+                                print(_lj.dumps({
+                                    'ok': False,
+                                    'phase': 'needs-login',
+                                    'url': _resp.get('url', ''),
+                                    'hint': _resp.get('hint', ''),
+                                    'screenshot_bytes': _resp.get('screenshot_bytes', 0),
+                                    'port_used': _used_port,
+                                    'fix': 'Run `python start.py --library login` once, log in, close window. Session cookie persists in auth_cookies.json and the bridge profile.',
+                                }, indent=2))
+                                return 2
+                            if 'library-list' in str(_resp.get('error', '')).lower():
+                                print('[library] bridge does not implement library-list (likely C++ tray exe — passthrough not yet wired); falling through', file=sys.stderr, flush=True)
                             else:
-                                print(f'[library] chatgpt bridge replied non-ok: {_line[:200]} -- falling back to Playwright', file=sys.stderr, flush=True)
+                                print(f'[library] bridge non-ok on port {_used_port}: {_lj.dumps(_resp)[:300]} -- falling through', file=sys.stderr, flush=True)
                     except Exception as _bridge_err:
-                        print(f'[library] no chatgpt bridge on 127.0.0.1:9788 ({type(_bridge_err).__name__}: {_bridge_err}); using legacy Playwright', file=sys.stderr, flush=True)
+                        print(f'[library] bridge probe loop raised: {type(_bridge_err).__name__}: {_bridge_err}', file=sys.stderr, flush=True)
                 if action == 'inject':
                     import subprocess
                     import threading

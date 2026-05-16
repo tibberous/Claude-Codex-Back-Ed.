@@ -170,6 +170,95 @@ _LIBRARY_SCRAPER_JS = r"""
     }
 })()
 """
+
+# ----------------------------------------------------------------------------
+# Seed ChatGPT cookies into a QWebEngineProfile from a plaintext JSON dump.
+#
+# The dump is produced by `start.py --library auth-save`, which decrypts
+# Chrome's user-DPAPI v10 cookies and dumps anything readable as JSON. We
+# pre-seed the QtWebEngine cookieStore BEFORE the first navigation so /library
+# loads as a logged-in DOM instead of a login wall. Cookies that auth-save
+# couldn't decrypt (App-Bound v20, service-DPAPI) are skipped silently — the
+# bridge profile's own persistent cookies remain in place for those, so a
+# one-time interactive login via --show-bridge stays viable as a backstop.
+#
+# Returns (injected_count, total_count). Failure modes (missing file, malformed
+# JSON, cookieStore unavailable) log a warning and return (0, 0). Never raises.
+# ----------------------------------------------------------------------------
+def _seedChatgptCookiesFromJson(profile: "QWebEngineProfile | None", cookies_json_path: "Path | str | None") -> tuple[int, int]:
+    if profile is None or cookies_json_path is None:
+        return (0, 0)
+    try:
+        from pathlib import Path as _P
+        _path = _P(str(cookies_json_path))
+        if not _path.is_file():
+            return (0, 0)
+        try:
+            jar = json.loads(_path.read_text(encoding="utf-8"))
+        except Exception as err:
+            print(f"[cookie-seed] malformed {_path.name}: {type(err).__name__}: {err}", flush=True)
+            return (0, 0)
+        if not isinstance(jar, list) or not jar:
+            return (0, 0)
+        try:
+            from PySide6.QtNetwork import QNetworkCookie as _QCk
+            from PySide6.QtCore import (
+                QByteArray as _QBA,
+                QDateTime as _QDT,
+                QUrl as _QUrl,
+            )
+        except Exception as err:
+            print(f"[cookie-seed] qt imports failed: {type(err).__name__}: {err}", flush=True)
+            return (0, len(jar))
+        try:
+            store = profile.cookieStore()
+        except Exception as err:
+            print(f"[cookie-seed] cookieStore() unavailable: {type(err).__name__}: {err}", flush=True)
+            return (0, len(jar))
+        injected = 0
+        for entry in jar:
+            try:
+                name = str(entry.get("name") or "")
+                val = str(entry.get("value") or "")
+                if not name or not val:
+                    continue
+                ck = _QCk(_QBA(name.encode("utf-8")), _QBA(val.encode("utf-8")))
+                dom = str(entry.get("domain") or "")
+                if dom:
+                    ck.setDomain(dom)
+                ck.setPath(str(entry.get("path") or "/"))
+                ck.setSecure(bool(entry.get("secure", False)))
+                ck.setHttpOnly(bool(entry.get("httpOnly", False)))
+                exp = entry.get("expires", -1)
+                try:
+                    exp = float(exp)
+                except Exception:
+                    exp = -1
+                if exp and exp > 0:
+                    ck.setExpirationDate(_QDT.fromSecsSinceEpoch(int(exp)))
+                # The setCookie URL must match the cookie's effective origin —
+                # we strip the leading "." (host-only flag) and use https://.
+                host = dom.lstrip(".") or "chatgpt.com"
+                store.setCookie(ck, _QUrl(f"https://{host}/"))
+                injected += 1
+            except Exception:
+                continue
+        print(f"[cookie-seed] injected {injected}/{len(jar)} cookies from {_path.name}", flush=True)
+        return (injected, len(jar))
+    except Exception as err:
+        print(f"[cookie-seed] unexpected: {type(err).__name__}: {err}", flush=True)
+        return (0, 0)
+
+
+# Canonical location of the auth_cookies.json dump produced by
+# `start.py --library auth-save`. Single source so both bridge boot and the
+# library-list handler agree on where to look.
+def _chatgptCookieJarPath() -> "Path":
+    from pathlib import Path as _P
+    return (_P.home() / ".claude" / "projects" / "C--Users-moren"
+            / "library-cache" / "auth_cookies.json")
+
+
 SCRIPTS = ROOT / "scripts"
 DATA = ROOT / "data"
 DEBUG_LOG = ROOT / "debug.log"
@@ -4302,6 +4391,18 @@ class BridgeCommandServer(QObject):
                     pass
                 _page.loadFinished.connect(_on_loaded)
                 from PySide6.QtCore import QUrl as _QUrl
+                # Re-seed cookies at call time as a refresh (the profile boot
+                # already seeded them, but the user may have re-run
+                # `--library auth-save` since the bridge started). Delegates
+                # to module-level helper so future call sites stay consistent.
+                try:
+                    _inj, _tot = _seedChatgptCookiesFromJson(_page.profile(), _chatgptCookieJarPath())
+                    self.log("bridge-service", f"library-list: re-seeded {_inj}/{_tot} cookies from auth_cookies.json")
+                except Exception as _ckErr:
+                    try:
+                        self.log("bridge-service", f"library-list: cookie re-seed failed: {type(_ckErr).__name__}: {_ckErr}")
+                    except Exception:
+                        pass
                 _view.setUrl(_QUrl("https://chatgpt.com/library"))
                 return  # async — _on_loaded -> _on_scrape -> respond
             except Exception as _lib_err:
@@ -5414,6 +5515,22 @@ class SuperGrokBridgeWindow(QMainWindow):
         self.grokProfileStoragePath = storagePath  # noqa: redundant
         self.grokProfileCachePath = cachePath  # noqa: redundant
         self.installEarlyGrokScripts(profile)
+
+        # Pre-seed cookies into the chatgpt bridge profile from the JSON dump
+        # produced by `start.py --library auth-save`. This must run BEFORE the
+        # first setUrl so /library responds with the logged-in DOM instead of
+        # the auth wall. Cookies that auth-save couldn't decrypt (App-Bound
+        # v20, service-DPAPI) are skipped — the profile's own persistent
+        # cookies from prior interactive logins remain available as a
+        # backstop. Silent no-op for non-chatgpt targets and missing files.
+        try:
+            if targetName == "chatgpt":
+                _seedChatgptCookiesFromJson(profile, _chatgptCookieJarPath())
+        except Exception as _seedErr:
+            try:
+                recordException("supergrok_bridge/app.py:profile-cookie-seed", _seedErr, extra={"target": targetName})
+            except Exception:
+                pass
 
         page = BridgeWebPage(profile, view)
         view.setPage(page)
