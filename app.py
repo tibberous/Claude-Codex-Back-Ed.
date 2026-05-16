@@ -4446,12 +4446,27 @@ class BridgeCommandServer(QObject):
                 self.respond(socket, {"ok": False, "error": f"unsupported target {target!r}; expected grok, chatgpt, gemini, claude, or copilot"})
                 return
             message = str(request.get("message") or "")
+            # NOTE: accept both "message" and "prompt" — the MiniComputer pilot
+            # spec uses "prompt", the legacy Qt path uses "message".
+            if not message:
+                message = str(request.get("prompt") or "")
             attachments = request.get("attachments") if isinstance(request.get("attachments"), list) else []
             if not message.strip():
                 self.respond(socket, {"ok": False, "error": "message is blank"})
                 return
             timeoutSeconds = max(5, int(request.get("timeoutSeconds") or 240))
             self.log("bridge-service", f"chat request chars={len(message)} attachments={len(attachments)} timeout={timeoutSeconds}s")
+            # MiniComputer / GPT-4o vision-pilot route: opt-in via
+            # `via=pilot` (or usePilot=true). When set, we shell out the chat
+            # round-trip to tools/cdp_minicomputer.py + tools/gpt_vision_pilot.py
+            # in a background thread and reply when it returns. The Qt
+            # webview path stays the default — no behavior change for callers
+            # that don't ask for the pilot.
+            via = str(request.get("via") or "").strip().lower()
+            usePilot = bool(request.get("usePilot")) or via in {"pilot", "minicomputer", "vision", "vision-pilot"}
+            if usePilot:
+                self._dispatchPilotChat(socket, target, message, int(request.get("maxSteps") or 20))
+                return
             if bool(request.get("async")):
                 jobId = str(request.get("jobId") or f"chat-{int(time.time() * 1000)}").strip()
                 self.chatStarted[jobId] = time.time()
@@ -4489,7 +4504,100 @@ class BridgeCommandServer(QObject):
                 self.pendingChatSockets.discard(sockKey)
                 self.respond(socket, {"ok": False, "error": f"library dispatch failed: {type(error).__name__}: {error}"})
             return
+        if action == "login":
+            # MiniComputer-pilot login probe. GPT-4o opens the target's URL in
+            # an offscreen Chromium and confirms whether the session is
+            # already logged in. It does NOT type credentials — per the
+            # no-fragile-credential-injection rule. If a login wall blocks it,
+            # the pilot returns `fail` and the operator logs in manually via
+            # `python start.py --serve-bridge --show-bridge --target <X>`.
+            target = normalizeChatTarget(request.get("target") or getattr(getattr(self.window, "config", None), "target", "chatgpt"))
+            if target not in {"grok", "chatgpt", "gemini", "claude", "copilot"}:
+                self.respond(socket, {"ok": False, "error": f"login action: unsupported target {target!r}"})
+                return
+            self._dispatchPilotLogin(socket, target, int(request.get("maxSteps") or 30))
+            return
         self.respond(socket, {"ok": False, "error": f"unknown action {action!r}"})
+
+    # --- MiniComputer / GPT-4o vision-pilot dispatch ---------------------------
+    # These wire the bridge command server to the per-target offscreen
+    # Chromium pilot at tools/cdp_minicomputer.py + tools/gpt_vision_pilot.py.
+    # All pilot calls run on a daemon thread so the Qt event loop keeps
+    # spinning while GPT-4o screenshots/clicks/types. The reply is marshalled
+    # back to the Qt thread via QTimer.singleShot so socket I/O stays on the
+    # owner thread (PySide6 socket objects are NOT thread-safe).
+    def _resolvePilotEntry(self):
+        """Lazy import. Returns (driveBridgeChatViaVisionPilot, driveBridgeLoginViaVisionPilot)."""
+        try:
+            from start import driveBridgeChatViaVisionPilot as _chat, driveBridgeLoginViaVisionPilot as _login  # type: ignore
+            return _chat, _login
+        except Exception as e:
+            return None, None  # caller surfaces a clean error
+
+    def _dispatchPilotChat(self, socket: QTcpSocket, target: str, message: str, max_steps: int) -> None:
+        import threading as _th
+        chat_fn, _ = self._resolvePilotEntry()
+        if chat_fn is None:
+            self.respond(socket, {"ok": False, "error": "vision-pilot path unavailable: start.py drive helpers missing or import failed"})
+            return
+        sockKey = id(socket)
+        self.pendingChatSockets.add(sockKey)
+        self.log("bridge-service", f"pilot-chat dispatched target={target} chars={len(message)} max_steps={max_steps}")
+
+        def _runner() -> None:
+            try:
+                result = chat_fn(target, message, max_steps=int(max_steps))
+            except Exception as e:
+                result = {"ok": False, "error": f"pilot dispatch crashed: {type(e).__name__}: {e}", "response": "", "steps": 0}
+            payload = {
+                "ok": bool(result.get("ok")),
+                "target": target,
+                "via": "pilot",
+                "answer": str(result.get("response") or ""),
+                "steps": int(result.get("steps") or 0),
+                "final_url": str(result.get("final_url") or ""),
+                "summary": str(result.get("summary") or ""),
+                "error": str(result.get("error") or ""),
+            }
+            # Marshal back to Qt thread for socket I/O.
+            def _reply(_sock: QTcpSocket = socket, _payload: dict = payload, _key: int = sockKey) -> None:
+                self.pendingChatSockets.discard(_key)
+                self.respond(_sock, _payload)
+            QTimer.singleShot(0, _reply)
+
+        _th.Thread(target=_runner, name=f"pilot-chat-{target}", daemon=True).start()
+
+    def _dispatchPilotLogin(self, socket: QTcpSocket, target: str, max_steps: int) -> None:
+        import threading as _th
+        _, login_fn = self._resolvePilotEntry()
+        if login_fn is None:
+            self.respond(socket, {"ok": False, "error": "vision-pilot path unavailable: start.py drive helpers missing or import failed"})
+            return
+        sockKey = id(socket)
+        self.pendingChatSockets.add(sockKey)
+        self.log("bridge-service", f"pilot-login dispatched target={target} max_steps={max_steps}")
+
+        def _runner() -> None:
+            try:
+                result = login_fn(target, max_steps=int(max_steps))
+            except Exception as e:
+                result = {"ok": False, "error": f"pilot login crashed: {type(e).__name__}: {e}", "logged_in": False, "steps": 0}
+            payload = {
+                "ok": bool(result.get("ok")),
+                "target": target,
+                "via": "pilot",
+                "logged_in": bool(result.get("logged_in")),
+                "steps": int(result.get("steps") or 0),
+                "final_url": str(result.get("final_url") or ""),
+                "summary": str(result.get("summary") or ""),
+                "error": str(result.get("error") or ""),
+            }
+            def _reply(_sock: QTcpSocket = socket, _payload: dict = payload, _key: int = sockKey) -> None:
+                self.pendingChatSockets.discard(_key)
+                self.respond(_sock, _payload)
+            QTimer.singleShot(0, _reply)
+
+        _th.Thread(target=_runner, name=f"pilot-login-{target}", daemon=True).start()
 
     def statusPayload(self) -> dict[str, Any]:
         url = ""

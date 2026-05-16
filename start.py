@@ -233,6 +233,301 @@ def bridgePortForTarget(target: object) -> int:
     if canon in BRIDGE_PORTS:
         return int(BRIDGE_PORTS[canon])
     return 8788
+
+
+# ===========================================================================
+# Inline ChatGPT hook + GPT-vision MiniComputer pilot wiring
+# ---------------------------------------------------------------------------
+# Copied from C:\Users\moren\Desktop\claude\hooks\chatgtp_hook.py per user
+# instruction (2026-05-15) so the bridge is self-contained — bridges_cpp +
+# bridge serve paths should not have to reach across to the CutiePy tree.
+#
+# Only the chat + vision surfaces are inlined. Image-gen / file-upload /
+# container-citation paths stay external (still in hooks/chatgtp_hook.py for
+# anyone that needs them). _InlineChatGPTHook reads its key from THIS repo's
+# config.ini at [api_keys] openai_api_key, NOT C:\triodesktop\config.ini.
+#
+# The MiniComputer pilot lives in tools/cdp_minicomputer.py +
+# tools/gpt_vision_pilot.py. _DriveBridgeViaVisionPilot() is the wire-in
+# point the bridge command handlers (or anyone) can call when they want a
+# vision-piloted round-trip instead of a Qt-bound one.
+# ===========================================================================
+class _InlineChatGPTHook:
+    """Self-contained OpenAI chat + vision client. Reads key from config.ini."""
+
+    API_BASE = "https://api.openai.com/v1"
+
+    @staticmethod
+    def _readApiKey() -> str:
+        try:
+            import configparser as _cp
+            cfg = _cp.RawConfigParser()
+            cfg.read(str(ROOT / "config.ini"), encoding="utf-8")
+            for section in cfg.sections():
+                for key in ("openai_api_key", "api_key"):
+                    if cfg.has_option(section, key):
+                        v = (cfg.get(section, key) or "").strip()
+                        # only accept api_key from an [openai] section to
+                        # avoid grabbing azure/anthropic/xai keys by accident
+                        if key == "api_key" and section.lower() != "openai":
+                            continue
+                        if v.startswith("sk-"):
+                            return v
+        except Exception:
+            pass
+        for env in ("OPENAI_API_KEY", "OPENAI_KEY"):
+            v = (os.environ.get(env) or "").strip()
+            if v:
+                return v
+        return ""
+
+    @staticmethod
+    def _headers() -> dict[str, str]:
+        key = _InlineChatGPTHook._readApiKey()
+        if not key:
+            raise RuntimeError("OpenAI API key not found in config.ini [api_keys] openai_api_key")
+        return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+    @staticmethod
+    def chat(messages: list[dict[str, Any]] | None = None,
+             prompt: str = "",
+             model: str = "gpt-4o-mini",
+             max_tokens: int = 2048,
+             system: str = "") -> str:
+        """Wrap https://api.openai.com/v1/chat/completions.
+
+        Accepts EITHER:
+            - messages=[{"role":"...","content":"..."}, ...]
+            - prompt="..."  (+ optional system="...")
+        Returns the assistant message text, or "" on error.
+        """
+        import urllib.request as _ur
+        import urllib.error as _ue
+        msgs = list(messages or [])
+        if not msgs:
+            if system:
+                msgs.append({"role": "system", "content": str(system)})
+            msgs.append({"role": "user", "content": str(prompt or "")})
+        body = {"model": model, "messages": msgs, "max_tokens": int(max_tokens), "temperature": 0.2}
+        try:
+            req = _ur.Request(
+                f"{_InlineChatGPTHook.API_BASE}/chat/completions",
+                data=json.dumps(body).encode("utf-8"),
+                headers=_InlineChatGPTHook._headers(),
+                method="POST",
+            )
+            with _ur.urlopen(req, timeout=180) as r:
+                payload = json.loads(r.read().decode("utf-8", "replace"))
+            return str(payload["choices"][0]["message"]["content"] or "")
+        except _ue.HTTPError as e:
+            try:
+                err_body = e.read().decode("utf-8", "replace")
+            except Exception:
+                err_body = ""
+            print(f"[InlineChatGPTHook.chat] HTTP {e.code}: {err_body[:600]}", file=sys.stderr, flush=True)
+            return ""
+        except Exception as e:
+            print(f"[InlineChatGPTHook.chat] {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            return ""
+
+    @staticmethod
+    def vision(image: bytes | str,
+               prompt: str = "Describe what's on the screen.",
+               model: str = "gpt-4o",
+               max_tokens: int = 1024,
+               system: str = "") -> str:
+        """Call gpt-4o vision with one image (raw bytes OR base64 string OR
+        a filesystem path) + text prompt. Returns the assistant's text reply.
+        """
+        import urllib.request as _ur
+        import urllib.error as _ue
+        # Resolve image -> base64 string
+        if isinstance(image, (bytes, bytearray)):
+            b64 = base64.b64encode(bytes(image)).decode("ascii")
+        elif isinstance(image, str):
+            if os.path.isfile(image):
+                with open(image, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("ascii")
+            else:
+                b64 = image  # assume already base64
+        else:
+            raise TypeError(f"image must be bytes/str path/b64 string, not {type(image).__name__}")
+        msgs: list[dict[str, Any]] = []
+        if system:
+            msgs.append({"role": "system", "content": str(system)})
+        msgs.append({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": str(prompt or "")},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+            ],
+        })
+        body = {"model": model, "messages": msgs, "max_tokens": int(max_tokens), "temperature": 0.2}
+        try:
+            req = _ur.Request(
+                f"{_InlineChatGPTHook.API_BASE}/chat/completions",
+                data=json.dumps(body).encode("utf-8"),
+                headers=_InlineChatGPTHook._headers(),
+                method="POST",
+            )
+            with _ur.urlopen(req, timeout=240) as r:
+                payload = json.loads(r.read().decode("utf-8", "replace"))
+            return str(payload["choices"][0]["message"]["content"] or "")
+        except _ue.HTTPError as e:
+            try:
+                err_body = e.read().decode("utf-8", "replace")
+            except Exception:
+                err_body = ""
+            print(f"[InlineChatGPTHook.vision] HTTP {e.code}: {err_body[:600]}", file=sys.stderr, flush=True)
+            return ""
+        except Exception as e:
+            print(f"[InlineChatGPTHook.vision] {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            return ""
+
+
+# Per-target start URLs used by the MiniComputer pilot path.
+MINICOMPUTER_START_URLS = {
+    "chatgpt": "https://chatgpt.com/",
+    "grok":    "https://grok.com/",
+    "gemini":  "https://gemini.google.com/app",
+    "claude":  "https://claude.ai/new",
+    "copilot": "https://copilot.microsoft.com/",
+}
+
+# Per-target CDP ports used by the MiniComputer pilot path. Off the bridge
+# 87xx block to avoid colliding with the existing per-target bridge ports.
+# All in the 9785..9789 family (next to NN4 agent browser on 9785, 9786).
+MINICOMPUTER_CDP_PORTS = {
+    "chatgpt": 9790,
+    "grok":    9791,
+    "gemini":  9792,
+    "claude":  9793,
+    "copilot": 9794,
+}
+
+# Cached per-target MiniComputer instances. One Chromium per target ever —
+# respects the 5-agent-cap rule.
+_MINICOMPUTER_CACHE: dict[str, Any] = {}
+
+
+def _miniComputerProfileDir(target: str) -> Path:
+    """Where the per-target Chromium profile lives. Separate from the Qt
+    bridge profile (data/grok_profile etc.) so the two paths can coexist."""
+    return DATA / "minicomputer" / f"{target}-profile"
+
+
+def getMiniComputer(target: str, offscreen: bool = True, autostart: bool = True):
+    """Get-or-create a MiniComputer for one target. Lazily launches Chrome.
+
+    Returns a tools.cdp_minicomputer.MiniComputer instance, or None if the
+    module can't be imported (deps not installed). Caches per process so the
+    same Chrome instance is reused across many chat round-trips.
+    """
+    canon = normalizeChatTarget(target)
+    if canon in _MINICOMPUTER_CACHE:
+        return _MINICOMPUTER_CACHE[canon]
+    if canon == "ollama":
+        return None  # Ollama is a local API, no browser needed.
+    if canon not in MINICOMPUTER_START_URLS:
+        return None
+    # Lazy import — keeps start.py importable without websocket-client.
+    try:
+        sys.path.insert(0, str(ROOT / "tools"))
+        from cdp_minicomputer import MiniComputer as _MC  # type: ignore
+    except Exception as e:
+        print(f"[minicomputer] import failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        return None
+    mini = _MC(
+        target=canon,
+        profile_dir=_miniComputerProfileDir(canon),
+        cdp_port=int(MINICOMPUTER_CDP_PORTS[canon]),
+        start_url=str(MINICOMPUTER_START_URLS[canon]),
+        offscreen=bool(offscreen),
+    )
+    if autostart:
+        try:
+            mini.launch()
+            mini.attach()
+        except Exception as e:
+            print(f"[minicomputer] launch/attach failed for {canon}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            return None
+    _MINICOMPUTER_CACHE[canon] = mini
+    return mini
+
+
+def driveBridgeChatViaVisionPilot(target: str, prompt: str, max_steps: int = 20) -> dict[str, Any]:
+    """Wire-in for bridge handlers: drive one chat round-trip via GPT-4o vision.
+
+    Spawns/reuses the per-target MiniComputer, then calls pilot() with a goal
+    that tells GPT to open a new chat, send `prompt`, wait for the full reply,
+    and return that reply text in `extracted`.
+
+    Return shape (always a dict):
+        {ok, response, steps, action_history, final_url, error?}
+    """
+    canon = normalizeChatTarget(target)
+    mini = getMiniComputer(canon, offscreen=True, autostart=True)
+    if mini is None:
+        return {"ok": False, "error": f"MiniComputer unavailable for target {canon!r}", "response": "", "steps": 0}
+    try:
+        sys.path.insert(0, str(ROOT / "tools"))
+        from gpt_vision_pilot import pilot as _pilot  # type: ignore
+    except Exception as e:
+        return {"ok": False, "error": f"gpt_vision_pilot import failed: {type(e).__name__}: {e}", "response": "", "steps": 0}
+    goal = (
+        f"You are on a {canon} chat web app. "
+        f"Open a NEW chat (or use the existing input box if the page is already at one), "
+        f"type EXACTLY this message into the chat input, send it, wait for the assistant's full reply to finish streaming, "
+        f"then emit done with the assistant's complete reply text in `extracted`.\n\n"
+        f"MESSAGE TO SEND:\n{prompt}\n\n"
+        f"If you hit a login wall, captcha, or any auth prompt: emit fail with reason 'login required'."
+    )
+    result = _pilot(mini, goal=goal, max_steps=int(max_steps))
+    return {
+        "ok": bool(result.get("ok")),
+        "response": result.get("extracted") if result.get("ok") else "",
+        "steps": int(result.get("steps") or 0),
+        "action_history": result.get("action_history") or [],
+        "final_url": result.get("final_url") or "",
+        "summary": result.get("summary") or "",
+        "error": result.get("error") or "",
+    }
+
+
+def driveBridgeLoginViaVisionPilot(target: str, max_steps: int = 30) -> dict[str, Any]:
+    """Wire-in: drive a login-state check + walk-the-flow.
+
+    Note: per CLAUDE.md (no-fragile-credential-injection) the pilot does NOT
+    type credentials. It either confirms already-logged-in or reports back
+    'login required' so the operator logs in once via the visible window.
+    """
+    canon = normalizeChatTarget(target)
+    # Use VISIBLE mode for first-time login so user can interact.
+    mini = getMiniComputer(canon, offscreen=False, autostart=True)
+    if mini is None:
+        return {"ok": False, "error": f"MiniComputer unavailable for target {canon!r}", "logged_in": False, "steps": 0}
+    try:
+        sys.path.insert(0, str(ROOT / "tools"))
+        from gpt_vision_pilot import pilot as _pilot  # type: ignore
+    except Exception as e:
+        return {"ok": False, "error": f"gpt_vision_pilot import failed: {type(e).__name__}: {e}", "logged_in": False, "steps": 0}
+    goal = (
+        f"Check whether the current {canon} session is logged in. "
+        "If the page shows a chat composer / main app UI (NOT a login wall), emit done with extracted='logged-in'. "
+        "If a login screen is shown, emit fail with reason 'login required' so the operator can sign in manually. "
+        "Do NOT type any credentials yourself."
+    )
+    result = _pilot(mini, goal=goal, max_steps=int(max_steps))
+    return {
+        "ok": bool(result.get("ok")),
+        "logged_in": bool(result.get("ok") and str(result.get("extracted") or "").strip().lower() == "logged-in"),
+        "steps": int(result.get("steps") or 0),
+        "final_url": result.get("final_url") or "",
+        "summary": result.get("summary") or "",
+        "error": result.get("error") or "",
+    }
+
+
 OFFSCREEN_MODE_AUTO = "auto"
 OFFSCREEN_MODE_HIDDEN = "hidden"
 OFFSCREEN_MODE_OFFSCREEN_WINDOW = "offscreen-window"
