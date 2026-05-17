@@ -3750,6 +3750,14 @@ function getPanelHtml(context, webview) {
     const soundsBase    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'sounds')));
     const helpUri       = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'panel', 'help.html')));
     const panelJsUri    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'panel', 'panel.js')));
+    /* Tamagotchi game scripts — three vanilla-JS modules that the panel's
+       index.html loads BEFORE panel.js so the game's globals (DotMatrix40,
+       TAMAGOTCHI_SPRITES, TamagotchiGame) are defined for any code that
+       wants to reference them. Each module self-guards against duplicate
+       registration, so re-injecting via hot-reload is safe. */
+    const dotmatrixJsUri    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'panel', 'dotmatrix.js')));
+    const tamaSpritesJsUri  = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'panel', 'dotmatrix-tamagotchi-sprites.js')));
+    const tamaGameJsUri     = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'panel', 'dotmatrix-tamagotchi-game.js')));
     endUris();
 
     const endSubst = timeStep('  substituteTemplateTokens');
@@ -3764,6 +3772,9 @@ function getPanelHtml(context, webview) {
     html = html.split('{{PRISM_CSS_URI}}').join(prismCssUri.toString());
     html = html.split('{{HELP_URI}}').join(helpUri.toString());
     html = html.split('{{PANEL_JS_URI}}').join(panelJsUri.toString());
+    html = html.split('{{DOTMATRIX_JS_URI}}').join(dotmatrixJsUri.toString());
+    html = html.split('{{TAMA_SPRITES_JS_URI}}').join(tamaSpritesJsUri.toString());
+    html = html.split('{{TAMA_GAME_JS_URI}}').join(tamaGameJsUri.toString());
     html = html.split('{{CSP_SOURCE}}').join(webview.cspSource);
     endSubst();
     endHtml(`final bytes=${html.length}`);

@@ -1427,8 +1427,17 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
           <button id="helpBtn" class="tool-button" type="button" data-tooltip="Help" data-i18n-tip="tooltip.help" aria-label="Help">
             <img src="{{ASSETS_BASE}}/help.svg" alt="" />
           </button>
-          <button id="libraryBtn" class="tool-button" type="button" data-tooltip="ChatGPT Library" data-i18n-tip="tooltip.library" aria-label="ChatGPT Library">
-            <img src="{{ASSETS_BASE}}/library.svg" alt="" />
+          <!-- Tamagotchi launcher — opens the dot-matrix pet game (panel/dotmatrix-tamagotchi-*.js).
+               Uses an inline SVG icon (no asset file required) so it works without
+               touching assets/. The actual game shell mounts below as #cbe-tama-shell. -->
+          <button id="tamaBtn" class="tool-button" type="button" data-tooltip="Tamagotchi pet" aria-label="Tamagotchi pet">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+              <rect x="3" y="2" width="18" height="20" rx="6" ry="6" fill="none" stroke="currentColor" stroke-width="1.6"/>
+              <rect x="6" y="5" width="12" height="9" rx="1.5" ry="1.5" fill="currentColor" opacity="0.85"/>
+              <circle cx="9" cy="18" r="1.4" fill="currentColor"/>
+              <circle cx="12" cy="18" r="1.4" fill="currentColor"/>
+              <circle cx="15" cy="18" r="1.4" fill="currentColor"/>
+            </svg>
           </button>
           <!-- Pinned extensions render here — one quick-launch button per
                extension the user pinned via the Extensions marketplace.
@@ -1457,6 +1466,126 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   <!-- Tooltip overlay used by data-tooltip elements -->
   <div id="tooltip" class="tooltip" role="tooltip" aria-hidden="true"></div>
 
+  <!-- ── TAMAGOTCHI GAME SHELL ─────────────────────────────────────────────
+       Hidden by default. Opens as a floating modal overlay when #tamaBtn
+       is pressed (or when window.openTamagotchi() is called via slash
+       commands / future hot-keys). Layout is skin-independent: skins
+       can re-position via CSS using the data-skin="tamagotchi" hook on
+       <body> if they want it docked. ─────────────────────────────────── -->
+  <div id="cbe-tama-shell" hidden role="dialog" aria-label="Tamagotchi pet" aria-modal="false">
+    <div class="cbe-tama-frame">
+      <div class="cbe-tama-titlebar">
+        <span class="cbe-tama-title">Tamagotchi</span>
+        <button id="cbe-tama-close" type="button" aria-label="Close Tamagotchi" title="Close">×</button>
+      </div>
+      <div id="cbe-tama-status" role="status" aria-live="polite">
+        <span class="tama-stat" data-stat="hunger"      data-tooltip="Hunger"            title="Hunger">🍖 100</span>
+        <span class="tama-stat" data-stat="happiness"   data-tooltip="Happiness"         title="Happiness">😀 100</span>
+        <span class="tama-stat" data-stat="health"      data-tooltip="Health"            title="Health">❤️ 100</span>
+        <span class="tama-stat" data-stat="cleanliness" data-tooltip="Cleanliness"       title="Cleanliness">✨ 100</span>
+        <span class="tama-stat" data-stat="age"         data-tooltip="Age in minutes"    title="Age (minutes)">⏱ 0</span>
+      </div>
+      <canvas id="cbe-tama-screen" width="240" height="240"></canvas>
+      <div id="cbe-tama-banner" hidden></div>
+      <div id="cbe-tama-buttons">
+        <button class="tama-btn" data-action="feed"   type="button" title="Feed (cycle meat / eggplant)">Feed</button>
+        <button class="tama-btn" data-action="clean"  type="button" title="Clean poop">Clean</button>
+        <button class="tama-btn" data-action="play"   type="button" title="Play">Play</button>
+        <button class="tama-btn" data-action="shot"   type="button" title="Give shot (heals when sick)">Shot</button>
+        <button class="tama-btn" data-action="light"  type="button" title="Toggle light (sleep)">Light</button>
+        <button class="tama-btn" data-action="select" type="button" title="Select / confirm">Select</button>
+      </div>
+      <div id="cbe-tama-hint" class="cbe-tama-hint">Tip: Feed cycles meat ↔ eggplant. Press Select to feed.</div>
+    </div>
+  </div>
+
+  <!-- Minimal skin-independent CSS for the Tamagotchi modal. The
+       skins/tamagotchi/styles.css file is owned by another agent and may
+       override / reposition any of this; these styles are just the
+       baseline so the game is visible + clickable in ANY skin. -->
+  <style id="cbe-tama-baseline-css">
+    #cbe-tama-shell {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      width: 280px;
+      z-index: 9000;
+      font-family: var(--cbe-monospace, Consolas, monospace);
+      color: #d8d8d8;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.55);
+      border-radius: 14px;
+      user-select: none;
+    }
+    #cbe-tama-shell[hidden] { display: none !important; }
+    #cbe-tama-shell .cbe-tama-frame {
+      background: linear-gradient(180deg, #2c3a1e, #1a2410);
+      border: 2px solid #6f8a3a;
+      border-radius: 14px;
+      padding: 10px 12px 12px 12px;
+    }
+    #cbe-tama-shell .cbe-tama-titlebar {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    #cbe-tama-shell .cbe-tama-title {
+      font-weight: 600; font-size: 13px; letter-spacing: 0.04em;
+      color: #d8e8b8;
+    }
+    #cbe-tama-shell #cbe-tama-close {
+      background: transparent; border: 0; color: #d8e8b8;
+      font-size: 20px; line-height: 1; cursor: pointer; padding: 0 4px;
+    }
+    #cbe-tama-shell #cbe-tama-close:hover { color: #fff; }
+    #cbe-tama-shell #cbe-tama-status {
+      display: flex; flex-wrap: wrap; gap: 4px 8px;
+      font-size: 11px; margin-bottom: 8px;
+      background: rgba(0,0,0,0.25);
+      padding: 4px 6px; border-radius: 6px;
+    }
+    #cbe-tama-shell .tama-stat { white-space: nowrap; }
+    #cbe-tama-shell #cbe-tama-screen {
+      display: block;
+      margin: 0 auto 8px auto;
+      width: 240px; height: 240px;
+      image-rendering: pixelated;
+      image-rendering: -moz-crisp-edges;
+      border: 3px inset #4a5a2a;
+      border-radius: 6px;
+      background: #86bd3e;
+    }
+    #cbe-tama-shell #cbe-tama-banner {
+      text-align: center; font-size: 12px; padding: 6px 4px;
+      background: rgba(180, 60, 60, 0.25);
+      border: 1px solid #a44; border-radius: 6px;
+      margin-bottom: 6px; color: #fdd;
+    }
+    #cbe-tama-shell #cbe-tama-banner button {
+      margin-left: 8px; padding: 2px 8px;
+      background: #6f8a3a; color: #fff; border: 0;
+      border-radius: 4px; cursor: pointer; font-size: 11px;
+    }
+    #cbe-tama-shell #cbe-tama-buttons {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+    }
+    #cbe-tama-shell .tama-btn {
+      background: linear-gradient(180deg, #4a5a2a, #2c3a1e);
+      color: #d8e8b8;
+      border: 1px solid #6f8a3a;
+      border-radius: 4px;
+      padding: 6px 4px;
+      font-size: 11px;
+      font-family: inherit;
+      cursor: pointer;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 0 rgba(0,0,0,0.4);
+    }
+    #cbe-tama-shell .tama-btn:hover { background: linear-gradient(180deg, #5a6a3a, #3c4a2e); }
+    #cbe-tama-shell .tama-btn:active { transform: translateY(1px); box-shadow: inset 0 1px 2px rgba(0,0,0,0.4); }
+    #cbe-tama-shell .cbe-tama-hint {
+      margin-top: 6px; font-size: 10px; color: #99a883; text-align: center;
+      opacity: 0.85;
+    }
+  </style>
+
 <!-- Webview URI map — tiny inline script. Keep small; this is the only
      inline JS that blocks the parser. The bulk of the panel's behavior is
      in the deferred panel.js below. -->
@@ -1473,6 +1602,162 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
      ASSETS_BASE is substituted server-side by extension.js with a
      vscode-webview:// URI; the trailing slash is already absent. -->
 <script>window.__cbeAssetsBase = "{{ASSETS_BASE}}";</script>
+
+<!-- Tamagotchi: dot-matrix engine + sprites + game logic + UI wiring.
+     Loaded BEFORE panel.js so window.DotMatrix40 / window.TAMAGOTCHI_SPRITES /
+     window.TamagotchiGame are defined when panel.js runs (panel.js itself
+     does not reference them yet, but future integrations can). All three
+     files self-guard against double-registration. -->
+<script src="{{DOTMATRIX_JS_URI}}"></script>
+<script src="{{TAMA_SPRITES_JS_URI}}"></script>
+<script src="{{TAMA_GAME_JS_URI}}"></script>
+
+<!-- Tamagotchi UI wiring — instantiates the game on first launch,
+     binds the toolbar button + 6 action buttons + persistence, manages
+     the death/respawn banner. Self-contained so it doesn't bloat panel.js. -->
+<script>
+(function () {
+  "use strict";
+
+  const STORAGE_KEY = "cbe-tamagotchi-v1";
+  let game = null;
+  let lastRenderedStats = null;
+
+  function el(id) { return document.getElementById(id); }
+
+  function refreshStats(g) {
+    /* Render the stat row + (re)draw the death banner. Called every tick. */
+    if (!g) return;
+    const fmt = (n) => Math.round(Math.max(0, Math.min(100, n)));
+    const row = el("cbe-tama-status");
+    if (row) {
+      row.querySelectorAll(".tama-stat").forEach((node) => {
+        const stat = node.getAttribute("data-stat");
+        let v;
+        switch (stat) {
+          case "hunger":      v = "🍖 " + fmt(g.hunger); break;
+          case "happiness":   v = "😀 " + fmt(g.happiness); break;
+          case "health":      v = "❤️ " + fmt(g.health); break;
+          case "cleanliness": v = "✨ " + fmt(g.cleanliness); break;
+          case "age":         v = "⏱ " + (g.age | 0); break;
+          default: return;
+        }
+        if (node.textContent !== v) node.textContent = v;
+      });
+    }
+    /* Death banner appears with a "Hatch new" button. */
+    const banner = el("cbe-tama-banner");
+    if (banner) {
+      if (!g.isAlive) {
+        if (banner.hidden) {
+          banner.hidden = false;
+          banner.innerHTML = "💀 Your pet died. <button type='button' id='cbe-tama-respawn'>Hatch new</button>";
+          const btn = el("cbe-tama-respawn");
+          if (btn) btn.addEventListener("click", () => { g.reset(); banner.hidden = true; });
+        }
+      } else if (!banner.hidden) {
+        banner.hidden = true;
+      }
+    }
+    /* Hint line updates to reflect feed-menu state. */
+    const hint = el("cbe-tama-hint");
+    if (hint) {
+      const target = g.feedMenuOpen
+        ? ("Feed: " + (g.feedMenuChoice === "meat" ? "🥩 Meat" : "🍆 Eggplant") + " — press Select")
+        : "Tip: Feed cycles meat ↔ eggplant. Press Select to feed.";
+      if (hint.textContent !== target) hint.textContent = target;
+    }
+  }
+
+  function ensureGame() {
+    if (game) return game;
+    if (!window.DotMatrix40 || !window.TamagotchiGame || !window.TAMAGOTCHI_SPRITES) {
+      console.warn("[Tamagotchi] dependencies missing — DotMatrix40/TamagotchiGame/SPRITES not loaded");
+      return null;
+    }
+    const canvas = el("cbe-tama-screen");
+    if (!canvas) return null;
+    const matrix = new window.DotMatrix40(canvas, { cellSize: 6, gap: 0, cellShape: "rect" });
+
+    /* Restore from localStorage if a save exists; otherwise start fresh. */
+    const saved = window.TamagotchiGame.loadState(STORAGE_KEY) || {};
+    const opts = Object.assign({}, saved, {
+      storageKey: STORAGE_KEY,
+      onStatsChange: refreshStats,
+    });
+    game = new window.TamagotchiGame(matrix, window.TAMAGOTCHI_SPRITES, opts);
+    window.__cbeTamagotchi = game;  /* expose for debug + slash commands */
+    return game;
+  }
+
+  function openShell() {
+    const shell = el("cbe-tama-shell");
+    if (!shell) return;
+    const g = ensureGame();
+    if (!g) return;
+    shell.hidden = false;
+    g.start();
+    refreshStats(g);
+  }
+
+  function closeShell() {
+    const shell = el("cbe-tama-shell");
+    if (shell) shell.hidden = true;
+    if (game) game.stop();
+  }
+
+  function toggleShell() {
+    const shell = el("cbe-tama-shell");
+    if (!shell) return;
+    if (shell.hidden) openShell(); else closeShell();
+  }
+
+  /* Wire the toolbar button + close button + 6 action buttons + Escape. */
+  function wire() {
+    const tamaBtn = el("tamaBtn");
+    if (tamaBtn) tamaBtn.addEventListener("click", toggleShell);
+
+    const closeBtn = el("cbe-tama-close");
+    if (closeBtn) closeBtn.addEventListener("click", closeShell);
+
+    const shell = el("cbe-tama-shell");
+    if (shell) {
+      shell.addEventListener("click", (ev) => {
+        const btn = ev.target.closest(".tama-btn[data-action]");
+        if (!btn) return;
+        const g = ensureGame();
+        if (!g) return;
+        const action = btn.getAttribute("data-action");
+        /* Map button data-action → method on the game instance. */
+        const fn = g[action];
+        if (typeof fn === "function") {
+          try { fn.call(g); } catch (e) { console.warn("[Tamagotchi] action error:", e); }
+          refreshStats(g);
+        }
+      });
+    }
+
+    document.addEventListener("keydown", (ev) => {
+      const shell = el("cbe-tama-shell");
+      if (!shell || shell.hidden) return;
+      if (ev.key === "Escape") { closeShell(); ev.preventDefault(); }
+    });
+  }
+
+  /* Public openers — slash-command handlers / future integrations can call
+     these without touching the DOM directly. */
+  window.openTamagotchi  = openShell;
+  window.closeTamagotchi = closeShell;
+  window.toggleTamagotchi = toggleShell;
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", wire, { once: true });
+  } else {
+    wire();
+  }
+})();
+</script>
+
 <!-- panel.js (deferred) — ~1500 lines of behavior, loaded after the
      document is parsed so HTML/CSS render first. -->
 <script src="{{PANEL_JS_URI}}" defer></script>
