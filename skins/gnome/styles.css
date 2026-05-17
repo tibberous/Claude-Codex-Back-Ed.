@@ -56,13 +56,37 @@ body {
   color: var(--field-placeholder, color-mix(in srgb, var(--field-text), transparent 60%)) !important;
 }
 
-/* ── Send button — keep the panel's arrow PNG visible.
-   The original .send-button uses `background: transparent url(send.png)`
-   for its arrow. Overriding `background` here wipes the image and leaves
-   a solid-colored square. Only nudge border + glow; let the PNG show. */
+/* ── Send button — circular GNOME-blue orb (2026-05-17 polish).
+   Was 61×65 with orange send.png; now matches Adwaita blue (#3584e4) at
+   48×48 round. Base `.send-button::before` paints the white chevron on
+   top via mask-image. Preserves translateY(-50%) on hover/active. */
 .send-button {
-  border-radius: calc(var(--button-radius, 10px) + 2px) !important;
-  filter: drop-shadow(0 0 8px var(--accent-glow));
+  width: 48px !important;
+  height: 48px !important;
+  right: 10px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  background:
+    radial-gradient(circle at 35% 30%, #82b8f7, #3584e4 55%, #1c4fa0 100%) !important;
+  border: 1px solid rgba(180, 210, 255, 0.55) !important;
+  border-radius: 50% !important;
+  box-shadow:
+    0 6px 14px rgba(0, 0, 0, 0.40),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 0 10px var(--accent-glow) !important;
+  transition: transform 0.12s ease, box-shadow 0.14s ease, background 0.14s ease;
+}
+.send-button:hover,
+.send-button.is-hover {
+  background:
+    radial-gradient(circle at 35% 30%, #b0d0fa, #4f9bf0 55%, #1c4fa0 100%) !important;
+  transform: translateY(-50%) scale(1.08) !important;
+}
+.send-button:active,
+.send-button.is-active {
+  background:
+    radial-gradient(circle at 35% 30%, #5e94d8, #1c4fa0 60%, #133772 100%) !important;
+  transform: translateY(-50%) scale(0.96) !important;
 }
 
 /* ── Toolbar (all .tool-button children inherit) ─────────────────────── */

@@ -58,13 +58,40 @@ body {
   color: var(--field-placeholder, color-mix(in srgb, var(--field-text), transparent 60%)) !important;
 }
 
-/* ── Send button — keep the panel's arrow PNG visible.
-   The original .send-button uses `background: transparent url(send.png)`
-   for its arrow. Overriding `background` here wipes the image and leaves
-   a solid-colored square. Only nudge border + glow; let the PNG show. */
+/* ── Send button — circular blue orb (2026-05-17 polish).
+   The base 61×65 send.png was too big and the wrong color (orange clashed
+   with Ubuntu's aubergine input field). Replace with a 48×48 round button
+   in Ubuntu's signature blue accent. The base `.send-button::before` in
+   panel/index.html draws the white chevron on top via mask-image, so the
+   arrow stays visible. Preserves translateY(-50%) on hover/active to avoid
+   the "janky slide-down" the mint-dock fix discovered. */
 .send-button {
-  border-radius: calc(var(--button-radius, 10px) + 2px) !important;
-  filter: drop-shadow(0 0 8px var(--accent-glow));
+  width: 48px !important;
+  height: 48px !important;
+  right: 10px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  background:
+    radial-gradient(circle at 35% 30%, #7aa8ff, #3584e4 55%, #1c4fa0 100%) !important;
+  border: 1px solid rgba(190, 215, 255, 0.55) !important;
+  border-radius: 50% !important;
+  box-shadow:
+    0 6px 14px rgba(0, 0, 0, 0.40),
+    0 2px 4px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55) !important;
+  transition: transform 0.12s ease, box-shadow 0.14s ease, background 0.14s ease;
+}
+.send-button:hover,
+.send-button.is-hover {
+  background:
+    radial-gradient(circle at 35% 30%, #a0c0ff, #4f9bf0 55%, #1c4fa0 100%) !important;
+  transform: translateY(-50%) scale(1.08) !important;
+}
+.send-button:active,
+.send-button.is-active {
+  background:
+    radial-gradient(circle at 35% 30%, #5a8ce5, #1c4fa0 60%, #133772 100%) !important;
+  transform: translateY(-50%) scale(0.96) !important;
 }
 
 /* ── Toolbar (all .tool-button children inherit) ─────────────────────── */

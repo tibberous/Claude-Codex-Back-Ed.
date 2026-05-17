@@ -98,8 +98,18 @@ body {
 }
 #promptBox::placeholder { color: var(--mc-text-dim) !important; opacity: 0.7; }
 
-/* Send button — Big Sur blue circle with depth. */
+/* Send button — Big Sur blue circle with depth.
+   2026-05-17 polish: shrink to 48×48 to match toolbar icon row instead of
+   the inherited 61×65. The base panel CSS uses position:absolute +
+   top:50% + translateY(-50%) for orbit-style placement, so hover/active
+   transforms must include translateY(-50%) — otherwise the button drops
+   half its height on click (mint-dock "janky slide-down" lesson). */
 .send-button {
+  width: 48px !important;
+  height: 48px !important;
+  right: 10px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
   background: radial-gradient(circle at 35% 30%, #5fb8ff, #0a84ff 65%, #0050b8) !important;
   border: 1px solid rgba(255, 255, 255, 0.6) !important;
   border-radius: 50% !important;
@@ -108,11 +118,10 @@ body {
     0 2px 4px rgba(0, 0, 0, 0.30),
     inset 0 1px 0 rgba(255, 255, 255, 0.75) !important;
   transition: transform 0.14s ease, box-shadow 0.14s ease;
-  position: relative;
   z-index: 2;
 }
-.send-button:hover { transform: scale(1.08); }
-.send-button:active { transform: scale(0.96); }
+.send-button:hover  { transform: translateY(-50%) scale(1.08) !important; }
+.send-button:active { transform: translateY(-50%) scale(0.96) !important; }
 
 #attachments { margin: 0 auto 8px auto; max-width: 720px; }
 
