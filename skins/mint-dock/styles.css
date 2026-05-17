@@ -1,80 +1,98 @@
 /* CBE skin — Mint Dock.
-   Linux Mint flavoured glass dock: green-tinted dark dock strip at the
-   bottom, glass prompt pill above. Each .tool-button is a colored "app
-   tile" (a unique hue per icon, white glyph on top) so the dock looks
-   like a real desktop launcher (Terminal=black, Calc=blue, Firefox=orange,
-   etc.) — NOT all-green-on-green-invisible like the previous version.
-   Hover does a macOS-style dock magnify (lift + scale).
+   Linux Mint Cinnamon look: green water-droplet wallpaper as the body
+   background (wallpaper.png copied from panel/themes/mint/_ref_fullsize.png),
+   a glossy "black glass shelf" dock strip at the bottom of the panel, and
+   22 hand-drawn Mint-flavored app icons that read clearly against the
+   dark dock — Terminal (black w/ traffic lights + green prompt), Firefox-
+   styled file manager, green Mint Menu "M", red round shutdown, gold
+   sticky-note for stored prompts, etc.
 
-   Wet-glass shimmer is faked with a top-half white-to-transparent
-   gradient overlay on .tool-button::after (mix-blend-mode: screen) — the
-   same trick the macos-color-dock skin uses, kept consistent so both
-   skins share the same skeleton.
+   Architecture follows skins/macos-color-dock/ exactly:
+   - .tool-button is a transparent 60x60 slot; the visual is a per-id
+     background-image: url('icons/foo.svg'). The squircle, gloss, and color
+     are baked into each SVG so every tile carries its own real color (just
+     like a real desktop launcher).
+   - The original <img> glyph inside each .tool-button is hidden so the
+     SVG background IS the entire visible icon.
+   - Wet-glass shimmer + dock magnify hover on the slot itself.
 
-   Specificity note: panel/index.html line 384+ defines an orange-default
-   .tool-button at class-only specificity — every override here uses
-   !important so the skin wins. */
+   Specificity: panel/index.html defines a default .tool-button at
+   class-only specificity, so every visual override here uses !important
+   to ensure the skin wins. */
 
 :root {
-  --md-bg-1: #2f5a33;
-  --md-bg-2: #1d3a20;
+  --md-bg-dark: #0a1808;
   --md-glass-hi: rgba(255, 255, 255, 0.55);
   --md-glass-lo: rgba(255, 255, 255, 0.04);
   --md-stroke:   rgba(255, 255, 255, 0.34);
-  --md-accent:   #8fd694;
-  --md-accent-deep: #5fa766;
-  --md-text:     #eef6ee;
-  --md-text-dim: #c4d8c6;
-  --md-shadow:   rgba(6, 16, 8, 0.55);
-  --md-shadow-deep: rgba(0, 0, 0, 0.55);
+  --md-mint:     #86be43;
+  --md-mint-deep: #4a8b1f;
+  --md-mint-pale: #c8e8a8;
+  --md-text:     #f4f6ec;
+  --md-text-dim: #d4e0c4;
+  --md-shadow-deep: rgba(0, 0, 0, 0.65);
 }
 
-/* Backdrop — soft green light pools + faint vignette, echoes the Mint
-   "drops" wallpaper without shipping an image. */
+/* ─── Wallpaper: the real Linux Mint green water-droplet wallpaper ───────
+   Copied verbatim into the skin folder so the panel renders a faithful
+   reproduction (radial-droplet CSS gets nowhere close to the reference). */
 body {
   background:
-    radial-gradient(circle at 18% 16%, rgba(143, 214, 148, 0.22), transparent 30%),
-    radial-gradient(circle at 84% 12%, rgba(120, 200, 130, 0.16), transparent 26%),
-    radial-gradient(circle at 50% 120%, rgba(10, 24, 12, 0.55), transparent 60%),
-    linear-gradient(165deg, var(--md-bg-1), var(--md-bg-2));
+    /* dark left/right vignette so the chat thread stays readable even on
+       narrow panels and the dock has contrast at the bottom */
+    linear-gradient(90deg, rgba(0,0,0,0.45) 0%, transparent 18%, transparent 82%, rgba(0,0,0,0.45) 100%),
+    /* bottom darkening so the dock sits on a slightly darker patch */
+    linear-gradient(180deg, transparent 65%, rgba(0,0,0,0.30) 100%),
+    url('wallpaper.png') center center / cover no-repeat,
+    linear-gradient(180deg, #5a7a30, #2a4010);
+  background-attachment: fixed, fixed, fixed, fixed;
   color: var(--md-text);
 }
 
-/* Conversation thread — readable on the green field. */
-#thread .msg            { color: var(--md-text); }
+/* ─── Chat thread — readable on the green field ─────────────────────────
+   Slight dark glass behind each message so wallpaper green doesn't muddy
+   the text. Mint-themed light/dark contrast. */
+#thread .msg            { color: var(--md-text); text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
 #thread .msg.info       { color: var(--md-text-dim); }
-#thread .msg.user       { background: rgba(255, 255, 255, 0.07); border: 1px solid var(--md-stroke); }
-#thread .msg.assistant  { background: rgba(0, 0, 0, 0.22); border: 1px solid rgba(255, 255, 255, 0.12); }
+#thread .msg.user       {
+  background: rgba(134, 190, 67, 0.18) !important;
+  border: 1px solid rgba(200, 232, 168, 0.40) !important;
+}
+#thread .msg.assistant  {
+  background: rgba(0, 0, 0, 0.45) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+}
 
-/* Stack: floating pill on top, dock strip below. */
+/* Stack: glass prompt pill on top, dock strip below. */
 .prompt-area  { background: transparent; }
 .prompt-shell { background: transparent; border: 0; box-shadow: none; padding: 0; }
 
-/* ── Floating green-glass prompt pill ─────────────────────────────────── */
+/* ─── Floating dark-glass prompt pill ──────────────────────────────────
+   Mint's Cinnamon panel is dark glossy; the prompt input echoes that —
+   dark translucent base, mint-green inner glow, glass shimmer overlay. */
 .prompt-input-wrap {
   position: relative;
   max-width: 720px;
   margin: 6px auto 14px auto;
-  /* Green-tinted layered glass — top highlight, mid wash, bottom shadow. */
   background:
     linear-gradient(180deg,
-      rgba(143, 214, 148, 0.32) 0%,
-      rgba(95, 167, 102, 0.18) 35%,
-      rgba(40, 80, 45, 0.18) 70%,
-      rgba(20, 40, 22, 0.30) 100%) !important;
+      rgba(50, 80, 35, 0.55) 0%,
+      rgba(20, 40, 15, 0.65) 35%,
+      rgba(10, 20, 8, 0.75) 70%,
+      rgba(15, 30, 12, 0.65) 100%) !important;
   border: 1px solid var(--md-stroke) !important;
   border-radius: 30px !important;
   box-shadow:
     0 12px 24px var(--md-shadow-deep),
-    0 4px 8px rgba(0, 0, 0, 0.35),
+    0 4px 8px rgba(0, 0, 0, 0.45),
     inset 0 1px 0 var(--md-glass-hi),
-    inset 0 -2px 6px rgba(0, 0, 0, 0.30) !important;
+    inset 0 -2px 6px rgba(0, 0, 0, 0.40),
+    inset 0 0 22px rgba(134, 190, 67, 0.12) !important;
   backdrop-filter: blur(20px) saturate(1.3);
   -webkit-backdrop-filter: blur(20px) saturate(1.3);
   padding: 4px 6px 4px 4px;
   overflow: hidden;
 }
-/* Wet-glass shimmer overlay (matches the tile shimmer). */
 .prompt-input-wrap::after {
   content: "";
   position: absolute;
@@ -82,8 +100,8 @@ body {
   border-radius: inherit;
   pointer-events: none;
   background: linear-gradient(180deg,
-    rgba(255, 255, 255, 0.55) 0%,
-    rgba(255, 255, 255, 0.18) 30%,
+    rgba(255, 255, 255, 0.45) 0%,
+    rgba(255, 255, 255, 0.15) 30%,
     transparent 55%);
   mix-blend-mode: screen;
   opacity: 0.85;
@@ -92,30 +110,61 @@ body {
   background: transparent !important;
   color: var(--md-text) !important;
   border: 0 !important;
-  position: relative;
-  z-index: 1;
+  /* Textarea MUST sit above the .prompt-input-wrap::after gloss overlay
+     (which is position:absolute; inset:0 with mix-blend-mode:screen) AND
+     above the orbital .send-button so clicks/typing land on the input.
+     pointer-events:auto is belt-and-suspenders against any inherited
+     pointer-events:none from the skin's decorative pseudo-elements. */
+  position: relative !important;
+  z-index: 3 !important;
+  pointer-events: auto !important;
 }
-#promptBox::placeholder { color: var(--md-text-dim) !important; opacity: 0.8; }
+#promptBox::placeholder { color: var(--md-text-dim) !important; opacity: 0.75; }
 
-/* Send button — Mint accent green circle with depth. */
+/* Send button — Mint green orb, deeply glossy.
+   IMPORTANT: hover/active transforms MUST preserve the base translateY(-50%)
+   from panel/index.html L211, otherwise the button drops 50% of its height
+   on click (the "janky slide-down"). Add transition on the arrow ::before
+   so the press-feedback eases instead of snapping. */
 .send-button {
-  background: radial-gradient(circle at 35% 30%, var(--md-accent), var(--md-accent-deep) 65%, #2e6e35) !important;
-  border: 1px solid rgba(255, 255, 255, 0.6) !important;
+  background: radial-gradient(circle at 35% 30%, #c0e890, var(--md-mint) 50%, var(--md-mint-deep) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.65) !important;
   border-radius: 50% !important;
   box-shadow:
-    0 8px 18px var(--md-shadow-deep),
-    0 2px 4px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.75) !important;
-  transition: transform 0.14s ease, box-shadow 0.14s ease;
-  position: relative;
+    0 8px 18px rgba(0, 0, 0, 0.50),
+    0 2px 4px rgba(0, 0, 0, 0.40),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.30) !important;
+  transition: transform 0.12s ease, box-shadow 0.14s ease;
+  position: absolute;
   z-index: 2;
+  overflow: visible !important;
 }
-.send-button:hover { transform: scale(1.08); }
-.send-button:active { transform: scale(0.96); }
+.send-button:hover  { transform: translateY(-50%) scale(1.08) !important; }
+.send-button:active { transform: translateY(-50%) scale(0.96) !important; }
+
+/* Skin-proof arrow overlay — guarantee the white chevron stays visible on
+   top of the mint-green orb gradient, and ease the press-in feedback so
+   it doesn't snap. The base ::before is defined in panel/index.html L226. */
+.send-button::before {
+  transition: transform 0.12s ease;
+  background-color: #ffffff !important;
+  filter:
+    drop-shadow(0 1px 2px rgba(0, 0, 0, 0.60))
+    drop-shadow(0 0 3px rgba(0, 0, 0, 0.45)) !important;
+}
+.send-button:active::before,
+.send-button.is-active::before {
+  transform: translateY(1px) scale(0.97);
+}
 
 #attachments { margin: 0 auto 8px auto; max-width: 720px; }
 
-/* ── The dock strip ───────────────────────────────────────────────────── */
+/* ─── The dock strip — glossy black 3D shelf, like the reference ────────
+   This is the centerpiece. Translucent so the green wallpaper bleeds
+   through the sides, but dark enough to give the colorful tiles strong
+   contrast. The reference dock has a tall rounded-bottom skirt — we
+   simulate it with asymmetric border-radius (subtle top, fatter bottom). */
 .prompt-toolbar {
   position: relative;
   margin: 0 auto 16px auto;
@@ -124,22 +173,54 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding: 12px 18px 14px 18px;
-  background: linear-gradient(180deg, rgba(28, 46, 30, 0.78), rgba(14, 24, 15, 0.90)) !important;
-  border: 1px solid rgba(255, 255, 255, 0.18) !important;
-  border-radius: 24px !important;
+  padding: 10px 22px 14px 22px;
+  background: linear-gradient(180deg,
+    rgba(80, 80, 80, 0.45) 0%,
+    rgba(50, 50, 50, 0.55) 12%,
+    rgba(20, 20, 20, 0.78) 55%,
+    rgba(5, 5, 5, 0.88) 100%) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.55) !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.22) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.22) !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.70) !important;
+  border-radius: 16px 16px 30px 30px / 16px 16px 56px 56px !important;
   box-shadow:
-    0 18px 38px rgba(0, 0, 0, 0.55),
-    0 4px 10px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    inset 0 -2px 8px rgba(0, 0, 0, 0.30) !important;
-  backdrop-filter: blur(20px) saturate(1.2);
-  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+    0 18px 38px rgba(0, 0, 0, 0.60),
+    0 4px 10px rgba(0, 0, 0, 0.40),
+    inset 0 1px 0 rgba(255, 255, 255, 0.40),
+    inset 0 -3px 10px rgba(0, 0, 0, 0.45) !important;
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
 }
+/* Inner gloss highlight strip along the top of the dock (reference shows
+   a clear white sheen). */
+.prompt-toolbar::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 14px; right: 14px;
+  height: 14px;
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.40) 0%,
+    rgba(255,255,255,0.05) 100%);
+  border-radius: 14px 14px 0 0;
+  pointer-events: none;
+}
+/* Soft floor reflection — small dark ellipse just under the dock. */
+.prompt-toolbar::after {
+  content: "";
+  position: absolute;
+  bottom: -8px; left: 8%; right: 8%;
+  height: 10px;
+  background: radial-gradient(ellipse at center,
+    rgba(0, 0, 0, 0.55) 0%, transparent 75%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
 .toolbar-tools {
   display: flex !important;
-  /* Linux Mint dock is a single row of flat icons, like the reference image.
-     NO WRAP — scroll horizontally when viewport is narrow. */
+  /* Linux Mint dock is a single row of icons; never wrap, just scroll. */
   flex-wrap: nowrap !important;
   justify-content: center;
   align-items: flex-end;
@@ -152,105 +233,81 @@ body {
 }
 .toolbar-tools::-webkit-scrollbar { display: none; }
 
-/* ── Per-icon colored tiles ───────────────────────────────────────────── */
-/* Base — geometry, border, strong stacked shadows, shimmer overlay.
-   The PER-ICON background COLOR is set by id-specific rules below. */
+/* ─── Tool button — transparent slot, real SVG icon as background ──────
+   Same pattern as macos-color-dock: the squircle and color live in the
+   SVG, the button just provides geometry, shadow, and hover magnify. */
 .tool-button {
   width: 60px !important;
   height: 60px !important;
   padding: 0 !important;
+  background-color: transparent !important;
+  background-repeat: no-repeat !important;
+  background-position: center !important;
+  background-size: 60px 60px !important;
   border-radius: 14px !important;
-  border: 1px solid rgba(255, 255, 255, 0.30) !important;
-  box-shadow:
-    0 12px 24px rgba(0, 0, 0, 0.45),
-    0 4px 8px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    inset 0 -8px 14px rgba(0, 0, 0, 0.30) !important;
-  transition: transform 0.15s cubic-bezier(.2,.8,.2,1), box-shadow 0.15s ease, filter 0.15s ease;
+  border: 0 !important;
+  filter: drop-shadow(0 10px 16px rgba(0, 0, 0, 0.55))
+          drop-shadow(0 3px 5px rgba(0, 0, 0, 0.40));
+  transition: transform 0.15s cubic-bezier(.2,.8,.2,1), filter 0.15s ease;
   transform-origin: bottom center;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
+  box-shadow: none !important;
 }
-/* Wet-glass shimmer — top half white-to-transparent, screen-blended. */
-.tool-button::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(180deg,
-    rgba(255, 255, 255, 0.55) 0%,
-    rgba(255, 255, 255, 0.18) 30%,
-    transparent 55%);
-  mix-blend-mode: screen;
-  opacity: 0.85;
-}
+/* Hide the original <img> glyph so the SVG background is the only icon. */
+.tool-button img { display: none !important; }
+
 .tool-button:hover {
-  /* dock magnify */
-  transform: translateY(-10px) scale(1.16);
-  filter: brightness(1.10);
-  box-shadow:
-    0 22px 32px rgba(0, 0, 0, 0.55),
-    0 6px 12px rgba(0, 0, 0, 0.40),
-    inset 0 1px 0 rgba(255, 255, 255, 0.75),
-    inset 0 -8px 14px rgba(0, 0, 0, 0.28) !important;
+  transform: translateY(-10px) scale(1.20);
+  filter: drop-shadow(0 22px 30px rgba(0, 0, 0, 0.60))
+          drop-shadow(0 6px 10px rgba(0, 0, 0, 0.45))
+          brightness(1.08);
 }
 .tool-button:active,
 .tool-button.is-active {
   transform: translateY(-3px) scale(1.04);
-  border-color: var(--md-accent) !important;
-  box-shadow:
-    0 6px 14px var(--md-shadow),
-    inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    0 0 0 2px rgba(143, 214, 148, 0.55) !important;
-}
-/* Glyph stays pure white with its own drop shadow. z-index above shimmer. */
-.tool-button img {
-  width: 30px !important;
-  height: 30px !important;
-  position: relative;
-  z-index: 1;
-  filter:
-    brightness(0) invert(1)
-    drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.55))
+          drop-shadow(0 0 0 2px rgba(134, 190, 67, 0.70));
 }
 
-/* ── Per-icon vivid hues — Mint launcher palette ──────────────────────── */
-/* Mix: greens for system/native, blues/oranges/reds for the rest, all
-   reading clearly on the dark green dock. 22 unique colors. */
-#addBtn            { background: linear-gradient(180deg, #8fd694, #3a8c45 100%) !important; } /* mint green */
-#storedPromptsBtn  { background: linear-gradient(180deg, #ffd86b, #c48a00 100%) !important; } /* sticky-note yellow */
-#chatHistoryBtn    { background: linear-gradient(180deg, #b893ff, #5e2db8 100%) !important; } /* history violet */
-#attachFileBtn     { background: linear-gradient(180deg, #6fb8ff, #1f5fbf 100%) !important; } /* paperclip blue */
-#ttsBtn            { background: linear-gradient(180deg, #ff8db5, #d62972 100%) !important; } /* tts pink */
-#sttBtn            { background: linear-gradient(180deg, #5fd6c2, #008f7a 100%) !important; } /* mic teal */
-#autoReplyBtn      { background: linear-gradient(180deg, #ffb56b, #d4631a 100%) !important; } /* auto orange */
-#wakeUpBtn         { background: linear-gradient(180deg, #ffe680, #d4a300 100%) !important; } /* alarm gold */
-#showCommandsBtn   { background: linear-gradient(180deg, #b8b8c0, #4f4f57 100%) !important; } /* menu grey */
-#compactBtn        { background: linear-gradient(180deg, #5fd6b8, #008f70 100%) !important; } /* compact teal */
-#handbookBtn       { background: linear-gradient(180deg, #ff9b7a, #b8341a 100%) !important; } /* book red */
-#settingsBtn       { background: linear-gradient(180deg, #b8b8c0, #4a4a52 100%) !important; } /* gear graphite */
-#extensionsBtn     { background: linear-gradient(180deg, #b894ff, #6a2ad6 100%) !important; } /* puzzle violet */
-#projectFolderBtn  { background: linear-gradient(180deg, #ffd169, #d49500 100%) !important; } /* nemo folder */
-#monitorBtn        { background: linear-gradient(180deg, #6faaff, #1f4ec2 100%) !important; } /* monitor blue */
-#terminalBtn       { background: linear-gradient(180deg, #3a3a42, #050508 100%) !important; } /* terminal black */
-#setupBtn          { background: linear-gradient(180deg, #9be37e, #2f8c1f 100%) !important; } /* setup green */
-#gitBtn            { background: linear-gradient(180deg, #ff8a5c, #f05033 100%) !important; } /* git orange */
-#githubBtn         { background: linear-gradient(180deg, #5e5e75, #14141f 100%) !important; } /* github dark */
-#domainsBtn        { background: linear-gradient(180deg, #7eddff, #007fbf 100%) !important; } /* domains cyan */
-#fontSizeBtn       { background: linear-gradient(180deg, #ff9bd4, #b82897 100%) !important; } /* font magenta */
-#helpBtn           { background: linear-gradient(180deg, #ffe680, #e0b400 100%) !important; } /* help yellow */
+/* ─── Per-icon SVG files (skins/mint-dock/icons/) ──────────────────────
+   Each icon is a fully-styled 64x64 SVG with its own rounded-square frame,
+   color, gloss highlight, and glyph. Hand-drawn in the Mint Cinnamon
+   launcher idiom (black terminal, brown folder, green Mint M, etc.). */
+#addBtn            { background-image: url('icons/add.svg')       !important; }
+#storedPromptsBtn  { background-image: url('icons/notes.svg')     !important; }
+#chatHistoryBtn    { background-image: url('icons/history.svg')   !important; }
+#attachFileBtn     { background-image: url('icons/paperclip.svg') !important; }
+#ttsBtn            { background-image: url('icons/speaker.svg')   !important; }
+#sttBtn            { background-image: url('icons/mic.svg')       !important; }
+#autoReplyBtn      { background-image: url('icons/auto.svg')      !important; }
+#wakeUpBtn         { background-image: url('icons/alarm.svg')     !important; }
+#showCommandsBtn   { background-image: url('icons/menu.svg')      !important; }
+#compactBtn        { background-image: url('icons/compact.svg')   !important; }
+#handbookBtn       { background-image: url('icons/book.svg')      !important; }
+#settingsBtn       { background-image: url('icons/gear.svg')      !important; }
+#extensionsBtn     { background-image: url('icons/puzzle.svg')    !important; }
+#projectFolderBtn  { background-image: url('icons/folder.svg')    !important; }
+#monitorBtn        { background-image: url('icons/monitor.svg')   !important; }
+#terminalBtn       { background-image: url('icons/terminal.svg')  !important; }
+#setupBtn          { background-image: url('icons/toolbox.svg')   !important; }
+#gitBtn            { background-image: url('icons/git.svg')       !important; }
+#githubBtn         { background-image: url('icons/github.svg')    !important; }
+#domainsBtn        { background-image: url('icons/globe.svg')     !important; }
+#fontSizeBtn       { background-image: url('icons/font.svg')      !important; }
+#helpBtn           { background-image: url('icons/help.svg')      !important; }
 
-/* Stop button — Mint red glass with the same wet-glass shimmer. */
+/* Stop button — round red power button, mirrors the reference dock's
+   far-right shutdown icon. */
 .stop-button {
-  border-radius: 14px !important;
-  background: radial-gradient(circle at 35% 30%, #ff7d7d, #c0392b 60%, #8a2018) !important;
-  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  border-radius: 50% !important;
+  background: radial-gradient(circle at 35% 30%, #ff8060, #d8281a 55%, #7a0a0a 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.55) !important;
   box-shadow:
-    0 12px 24px rgba(0, 0, 0, 0.45),
-    0 4px 8px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    inset 0 -8px 14px rgba(0, 0, 0, 0.30) !important;
+    0 10px 22px rgba(0, 0, 0, 0.55),
+    0 3px 6px rgba(0, 0, 0, 0.40),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -6px 12px rgba(0, 0, 0, 0.35) !important;
   position: relative;
   overflow: hidden;
 }
@@ -265,19 +322,19 @@ body {
   opacity: 0.85;
 }
 
-/* Label pill + project path — slim glass chips inside the dock strip. */
+/* Label pill + project path — slim dark-glass chips inside the dock. */
 #label-pill {
-  background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05)) !important;
-  border: 1px solid var(--md-stroke) !important;
+  background: linear-gradient(180deg, rgba(134,190,67,0.30), rgba(74,139,31,0.18)) !important;
+  border: 1px solid rgba(200, 232, 168, 0.45) !important;
   border-radius: 14px !important;
   color: var(--md-text) !important;
   box-shadow:
-    0 4px 8px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255,255,255,0.5) !important;
+    0 4px 8px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255,255,255,0.45) !important;
 }
 .project-path {
   color: var(--md-text-dim) !important;
-  background: rgba(0, 0, 0, 0.22) !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  background: rgba(0, 0, 0, 0.45) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
   border-radius: 12px !important;
 }
