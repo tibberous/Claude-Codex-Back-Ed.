@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension id="minesweeper" version="0.1.0">
+  <name>Minesweeper</name>
+  <author>tibberous</author>
+  <description>Classic minesweeper. 9x9 grid, 10 mines. Left-click to reveal, right-click to flag, double-click revealed cells to chord.</description>
+  <created>2026-05-14</created>
+  <url>https://trentontompkins.com/cbe/extension/extensions/minesweeper.ext</url>
+  <entry>extension.html</entry>
+  <icon>💣</icon>
+  <min_core>1.0.0</min_core>
+  <tag>game</tag>
+  <tag>puzzle</tag>
+</extension>

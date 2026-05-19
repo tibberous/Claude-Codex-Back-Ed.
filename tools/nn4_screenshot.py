@@ -11,9 +11,7 @@ Usage:
 """
 from __future__ import annotations
 
-import os
 import sys
-import time
 from pathlib import Path
 
 # Note: do NOT use QT_QPA_PLATFORM=offscreen here. QtWebEngine paints
@@ -24,7 +22,6 @@ from pathlib import Path
 # captures the real rendered chrome.
 
 from PySide6.QtCore import QUrl, QTimer, Qt
-from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -77,7 +74,7 @@ def main() -> int:
     # Hard time-out — if loadFinished never fires we still bail.
     QTimer.singleShot(RENDER_MS + 5000, lambda: (grab_now() if not grabbed["done"] else None))
 
-    rc = app.exec()
+    app.exec()
     return 0 if grabbed["ok"] else 1
 
 

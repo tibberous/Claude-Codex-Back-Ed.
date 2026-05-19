@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension id="emoji-picker" version="0.1.0">
+  <name>Emoji Picker</name>
+  <author>tibberous</author>
+  <description>Searchable grid of common emoji and special unicode characters (arrows, math, currency, punctuation). Click to copy to clipboard.</description>
+  <created>2026-05-14</created>
+  <url>https://trentontompkins.com/cbe/extension/extensions/emoji-picker.ext</url>
+  <entry>extension.html</entry>
+  <icon>😀</icon>
+  <min_core>1.0.0</min_core>
+  <tag>tools</tag>
+  <tag>unicode</tag>
+</extension>

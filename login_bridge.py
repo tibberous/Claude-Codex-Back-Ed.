@@ -163,7 +163,12 @@ def buildLoginProfile(provider: str, parent: Any, profileDirOverride: str = "") 
     cachePath.mkdir(parents=True, exist_ok=True)
 
     label = PROVIDERS.get(provider, {}).get("label", provider.title())
-    profile = QWebEngineProfile(f"SuperGrokLogin{label}Profile", parent)
+    # Profile storage name MUST match the chat bridge's name in
+    # app.py:createGrokWebView (SuperGrok{label}Profile). QtWebEngine
+    # partitions cookies by profile name; different names = separate jars
+    # even when setPersistentStoragePath points at the same directory.
+    # Mismatched names = "log in once, asked to log in again forever."
+    profile = QWebEngineProfile(f"SuperGrok{label}Profile", parent)
     profile.setPersistentStoragePath(str(storagePath))
     profile.setCachePath(str(cachePath))
     try:
@@ -189,7 +194,7 @@ class LoginOnlyBridgeWindow:
     """
 
     def __init__(self, provider: str, profileDir: str = "", onClose: Callable[[dict[str, Any]], None] | None = None) -> None:
-        from PySide6.QtCore import Qt, QUrl, QTimer
+        from PySide6.QtCore import QUrl, QTimer
         from PySide6.QtWidgets import QMainWindow, QStatusBar
         from PySide6.QtWebEngineWidgets import QWebEngineView
         from PySide6.QtWebEngineCore import QWebEnginePage
@@ -233,9 +238,14 @@ class LoginOnlyBridgeWindow:
         # Don't probe-poll forever; only after a load completes.
 
     def show(self) -> None:
-        self.window.show()
-        self.window.raise_()
-        self.window.activateWindow()
+        # Disabled 2026-05-18 per user: no SuperGrok bridge window may ever
+        # appear. Login state is expected to be persisted from a prior
+        # interactive session OR imported via cookie-import; if neither is
+        # present the bridge will fail headlessly rather than pop a window.
+        pass
+        # self.window.show()
+        # self.window.raise_()
+        # self.window.activateWindow()
 
     def _onLoadFinished(self, ok: bool) -> None:
         if not ok or self._closing:
@@ -329,7 +339,9 @@ def probeAuth(provider: str, profileDir: str = "", timeoutSec: int = 20) -> dict
     page = QWebEnginePage(profile, view)
     view.setPage(page)
     window.setCentralWidget(view)
-    window.show()
+    # Disabled 2026-05-18 per user: never show the SuperGrok bridge window.
+    # The page still loads and probes happen in the offscreen surface.
+    # window.show()
 
     homeUrl = PROVIDERS[provider]["homeUrl"]
     view.load(QUrl(homeUrl))

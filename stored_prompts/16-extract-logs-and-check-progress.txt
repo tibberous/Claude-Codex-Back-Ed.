@@ -1,0 +1,5 @@
+Extract the last 2 days of Claude conversation logs and go through them to confirm what's actually been done. Use:
+
+    python C:\Users\moren\claude-tools\extract_logs.py --out C:\Users\moren\claude-tools\last2days.txt
+
+Then grep that file for each in-progress task to verify it actually landed in code (file mtime, commit hash, live endpoint state) instead of just being claimed. Cross-reference any "completed" todo items against the actual file changes — if a fix says "done" but the bug still reproduces, mark it back to in_progress with the real blocker noted.

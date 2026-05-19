@@ -162,7 +162,7 @@ let __cbeChunkStarted   = false;  /* per-turn: did we already play the provider 
 
 let busy = false;
 let streamingEl = null;
-let __cbeStatusEl = null;  /* transient progress line for slow providers (SuperGrok cold-start) */
+let __cbeStatusEl = null;  /* transient progress line for slow providers */
 
 function addMsg(text, cls) {
   const d = document.createElement('div');
@@ -382,7 +382,7 @@ function renderAssistantMarkdown(el, fullText) {
 
 function setBusy(b) {
   busy = b;
-  /* Leave the textarea typeable during streaming so a slow provider (SuperGrok
+  /* Leave the textarea typeable during streaming so a slow provider
      cold-start: 30-60s for chatgpt/grok cold spawn) doesn't lock the UI.
      send() guards against re-entry via the `busy` flag, and sendBtn is
      disabled below — so the user can compose the next prompt while the
@@ -853,10 +853,22 @@ let __cbeSkinsList  = null;/* null = not yet discovered for this session; [] = s
 function applySkinUri(uri) {
   /* Swap the <link id="cbe-skin"> href. Empty/missing uri clears the
      stylesheet. Browsers handle href="" as a no-op load, so we set the
-     href to empty string to unload the previous skin. */
+     href to empty string to unload the previous skin. Also stamp the
+     active skin id onto <body data-skin> so skin CSS can target
+     skin-specific UI hooks (e.g. tamagotchi docks the pet panel into
+     the prompt shell's left edge). */
   const link = document.getElementById('cbe-skin');
   if (!link) return;
   link.setAttribute('href', uri || '');
+  /* __cbeActiveSkin is a bare filename like "tamagotchi.css" or empty
+     string. Strip extension for the data-attribute value. */
+  try {
+    const bare = String(__cbeActiveSkin || '').replace(/\.css$/i, '');
+    if (bare) document.body.setAttribute('data-skin', bare);
+    else      document.body.removeAttribute('data-skin');
+  } catch (e) {
+    console.warn('[CBE] data-skin stamp failed:', e && e.message);
+  }
 }
 
 function applySkinColors(colors) {
@@ -1537,7 +1549,6 @@ function openSettings(payload) {
     +     '</div>'
     +   '</div>'
     +   '<div class="cbe-foot">'
-    +     '<button type="button" class="cbe-btn cbe-save"   id="cbe-set-login" data-act="login" style="display:none;background:#2a5d8f">Open login</button>'
     +     '<button type="button" class="cbe-btn cbe-cancel" data-act="cancel">Cancel</button>'
     +     '<button type="button" class="cbe-btn cbe-save"   data-act="save">Save</button>'
     +   '</div>'
@@ -1549,8 +1560,7 @@ function openSettings(payload) {
     const o = document.createElement('option');
     o.value = p.id;
     let suffix = '';
-    if (p.superGrok) suffix = '  (SuperGrok)';
-    else if (p.webBridge) suffix = '  (web)';
+    if (p.bridge) suffix = '  (bridge)';
     else if (!p.haveKey) suffix = '  (no key)';
     o.textContent = p.label + suffix;
     sel.appendChild(o);
@@ -1574,25 +1584,15 @@ function openSettings(payload) {
       ms.insertBefore(o, ms.firstChild);
     }
     ms.value = prov.current || (prov.models && prov.models[0]) || '';
-    /* For web-bridge / SuperGrok providers, the model is fixed and the
-       missing-key warn shouldn't fire — instead show a hint and a Login
-       button. The button label is provider-specific. */
+    /* Bridge providers (chatgptBridge/grokBridge/.../ollamaBridge) have
+       no API key — auth lives in the tray exe's QtWebEngine profile (or
+       in the local ollama daemon). Suppress the no-key warning. */
     const warn = overlay.querySelector('#cbe-set-warn');
-    const loginBtn = overlay.querySelector('#cbe-set-login');
-    if (prov.webBridge || prov.superGrok) {
+    if (prov.bridge) {
       warn.classList.remove('show');
-      ms.disabled = true;
-      loginBtn.style.display = 'inline-block';
-      const niceName =
-        prov.id === 'chatgptWeb'   ? 'ChatGPT'  :
-        prov.id === 'grokWeb'      ? 'Grok'     :
-        prov.id === 'geminiBridge' ? 'Gemini'   :
-        prov.id === 'copilotBridge' ? 'Copilot' :
-        prov.label;
-      loginBtn.textContent = 'Open ' + niceName + ' login';
+      ms.disabled = false;
     } else {
       ms.disabled = false;
-      loginBtn.style.display = 'none';
       warn.classList.toggle('show', !prov.haveKey);
     }
   };
@@ -1757,6 +1757,9 @@ function openSettings(payload) {
   overlay.querySelector('#cbe-set-skin').addEventListener('change', (e) => {
     const opt = e.target.options[e.target.selectedIndex];
     const uri = (opt && opt.dataset && opt.dataset.uri) || '';
+    /* Update __cbeActiveSkin BEFORE applySkinUri so the data-skin stamp
+       reflects the previewed skin and skin-specific UI hooks paint live. */
+    __cbeActiveSkin = (e.target && e.target.value) || '';
     applySkinUri(uri);
     /* Live-preview the modal palette too — pulled out of dataset.colors
        (set by renderSkinDropdown when the host's listSkins reply arrived). */
@@ -1789,9 +1792,11 @@ function openSettings(payload) {
       /* Revert live-previewed SFX + skin + modal-palette changes on cancel. */
       setSfxEnabled(__cbeSavedSfxEnabled);
       setSfxVolume(__cbeSavedSfxVolume);
+      /* Restore __cbeActiveSkin BEFORE applySkinUri so the data-skin stamp
+         on <body> reverts to the saved skin (not the previewed one). */
+      __cbeActiveSkin = __cbeSavedSkinAtOpen;
       applySkinUri(__cbeSavedSkinUriAtOpen);
       applySkinColors(__cbeSavedColorsAtOpen);
-      __cbeActiveSkin = __cbeSavedSkinAtOpen;
       closeSettings();
       return;
     }
@@ -1816,10 +1821,6 @@ function openSettings(payload) {
         skin, language,
       });
       closeSettings();
-    }
-    if (act === 'login') {
-      const provider = overlay.querySelector('#cbe-set-provider').value;
-      if (api) api.postMessage({ type: 'openWebLogin', provider });
     }
   });
   document.addEventListener('keydown', escClose, true);
@@ -2518,43 +2519,6 @@ document.addEventListener('keydown', e => {
 });
 document.getElementById('helpBtn').addEventListener('click', openHelp);
 
-/* ── ChatGPT Library modal — list, download, delete files. */
-function openLibrary() {
-  let modal = document.getElementById('cbe-library-modal');
-  if (modal) { modal.style.display = 'flex'; return; }
-  modal = document.createElement('div');
-  modal.id = 'cbe-library-modal';
-  modal.innerHTML = `
-    <div class="cbe-box" role="dialog" aria-modal="true" aria-label="ChatGPT Library">
-      <div class="cbe-hdr">
-        <span>ChatGPT Library — Manage Files</span>
-        <button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)"></button>
-      </div>
-      <div style="flex:1 1 auto;padding:16px;overflow:auto;font:14px monospace;color:var(--cbe-modal-fg);">
-        <div style="color:#999;">Loading library...</div>
-      </div>
-      <div class="cbe-foot">
-        <span class="status">Connecting to ChatGPT…</span>
-        <div>
-          <button class="cbe-btn cbe-btn--close" type="button">Close</button>
-        </div>
-      </div>
-    </div>`;
-  modal.addEventListener('click', e => { if (e.target === modal) closeLibrary(); });
-  modal.querySelector('.cbe-x').addEventListener('click', closeLibrary);
-  modal.querySelector('.cbe-btn--close').addEventListener('click', closeLibrary);
-  document.body.appendChild(modal);
-  if (api) api.postMessage({ type: 'fetchChatGPTLibrary' });
-}
-function closeLibrary() {
-  const m = document.getElementById('cbe-library-modal');
-  if (m) m.remove();
-}
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && document.getElementById('cbe-library-modal')) closeLibrary();
-});
-const libBtn = document.getElementById('libraryBtn');
-if (libBtn) libBtn.addEventListener('click', openLibrary);
 
 /* ── Extensions marketplace modal — NATIVE render (no iframe).
    VSCode webviews render external-https iframes as a black rectangle on many
@@ -3172,8 +3136,8 @@ function applyStrings(strings, language) {
 function providerSfxName(id) {
   if (!id) return 'popup';
   if (id === 'anthropic') return 'claude';
-  if (id === 'openai'    || id === 'chatgptWeb')   return 'gtp';
-  if (id === 'gemini'    || id === 'geminiBridge' || id === 'google') return 'gemini';
+  if (id === 'openai')   return 'gtp';
+  if (id === 'gemini'    || id === 'google') return 'gemini';
   return 'popup';
 }
 
@@ -3191,10 +3155,9 @@ window.addEventListener('message', e => {
     streamingEl = addMsg('', 'assistant streaming');
     __cbeChunkStarted = false;
   } else if (m.type === 'status') {
-    /* Transient progress line for slow providers (SuperGrok cold-start):
-       "Starting SuperGrok server…", "Waiting for grok to respond… (6s)".
-       A SINGLE element that updates in place — not an accumulating log —
-       and it's cleared the moment real answer text arrives. */
+    /* Transient progress line for slow providers. A SINGLE element that
+       updates in place — not an accumulating log — and it's cleared the
+       moment real answer text arrives. */
     if (!__cbeStatusEl || !__cbeStatusEl.isConnected) {
       __cbeStatusEl = addMsg('', 'info cbe-progress');
     }
@@ -3355,33 +3318,6 @@ window.addEventListener('message', e => {
     if (document.getElementById('cbe-ext-body') && api) {
       api.postMessage({ type: 'fetchExtensionsCatalog' });
     }
-  } else if (m.type === 'cbe.chatgptLibrary') {
-    /* Fetched ChatGPT Library file list from SuperGrok bridge. Display files
-       with download/delete actions in the modal. */
-    const modal = document.getElementById('cbe-library-modal');
-    if (!modal) return;
-    const body = modal.querySelector('[style*="overflow"]');
-    const status = modal.querySelector('.status');
-    const files = Array.isArray(m.files) ? m.files : [];
-    if (files.length === 0) {
-      body.innerHTML = '<div style="color:#999;">No files in ChatGPT Library.</div>';
-    } else {
-      let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
-      html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.1);"><th style="text-align:left;padding:4px;color:#999;">Name</th><th style="text-align:right;padding:4px;color:#999;">Size</th><th style="text-align:center;padding:4px;color:#999;">Action</th></tr>';
-      for (const f of files) {
-        html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);"><td style="padding:6px;word-break:break-all;">${escapeHtmlExt(f.name || 'Unnamed')}</td><td style="text-align:right;padding:6px;color:#999;">${(f.size ? (f.size / 1024 / 1024).toFixed(1) + ' MB' : '—')}</td><td style="text-align:center;padding:4px;"><button style="background:rgba(200,50,50,0.3);color:#ff6b6b;border:1px solid #ff6b6b;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:11px;" data-action="delete" data-file="${escapeHtmlExt(f.name || '')}">Delete</button></td></tr>`;
-      }
-      html += '</table>';
-      body.innerHTML = html;
-      body.querySelectorAll('[data-action="delete"]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          if (api && confirm(`Delete "${btn.getAttribute('data-file')}" from ChatGPT Library?`)) {
-            api.postMessage({ type: 'deleteChatGPTLibraryFile', filename: btn.getAttribute('data-file') });
-          }
-        });
-      });
-    }
-    if (status && m.status) status.textContent = m.status;
   } else if (m.type === 'applySkin') {
     /* Host-driven skin swap. m.skin = bare filename ('' to clear),
        m.skinUri = full webview URI ('' to clear),

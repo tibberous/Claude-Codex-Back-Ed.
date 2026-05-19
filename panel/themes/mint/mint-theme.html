@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>CBE Linux Mint Theme</title>
+<style>
+  /* ==========================================================================
+     CBE Linux Mint Theme — pixel-modeled on img.webp (Mint Cinnamon/MATE)
+     Layout (top to bottom):
+       1. Top panel: dark grey ~24px, LM Menu (left) + system tray + clock (right)
+       2. Wallpaper: green + droplets + dark vignette at corners
+       3. Centered translucent "LM" logo (white, single rounded square + curl)
+       4. Top-left desktop icons (Computer + Home folder, with Greek-ish labels)
+       5. Bottom glossy black 3D dock with ~10 colorful inline-SVG app icons
+     All inline (no external assets).
+     ========================================================================== */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    font-family: "Ubuntu", "DejaVu Sans", "Segoe UI", sans-serif;
+    color: #fff;
+    overflow: hidden;
+  }
+  /* ────── Wallpaper layers ──────
+     Ref center is around rgb(138,170,97) ≈ #8aaa61, but mean wallpaper is
+     darker (~rgb(70,95,35) ≈ #466023) because of the strong dark vignette
+     at all four corners. Use a darker base and add radial highlight only
+     in the upper-middle where the LM logo glow lives. */
+  body {
+    background:
+      /* highlight behind the LM mark */
+      radial-gradient(ellipse 55% 50% at 50% 45%, rgba(190,220,140,0.45) 0%, rgba(170,200,120,0.15) 45%, transparent 75%),
+      /* heavy left+right edge vignette (matches the dark sides in the ref) */
+      linear-gradient(90deg, rgba(0,0,0,0.55) 0%, transparent 22%, transparent 78%, rgba(0,0,0,0.55) 100%),
+      /* corner darkening */
+      radial-gradient(circle at 0% 100%,  rgba(0,0,0,0.40) 0%, transparent 40%),
+      radial-gradient(circle at 100% 100%, rgba(0,0,0,0.40) 0%, transparent 40%),
+      radial-gradient(circle at 0% 0%,    rgba(0,0,0,0.35) 0%, transparent 40%),
+      radial-gradient(circle at 100% 0%,  rgba(0,0,0,0.35) 0%, transparent 40%),
+      /* base wallpaper — brighter mid green to match reference */
+      linear-gradient(180deg, #6a8a36 0%, #7a9a46 45%, #80a050 80%, #6a8a36 100%);
+    position: relative;
+  }
+
+  /* Droplet texture overlay — bigger, glassier droplets matching the reference
+     (large, well-defined, with white top-edge highlights and dark undersides). */
+  body::before {
+    content: "";
+    position: absolute; inset: 0;
+    background-image:
+      radial-gradient(ellipse 20px 24px at 5%  10%, rgba(255,255,255,0.30) 0%, rgba(255,255,255,0.05) 60%, transparent 100%),
+      radial-gradient(ellipse 16px 20px at 12% 22%, rgba(255,255,255,0.28) 0%, transparent 75%),
+      radial-gradient(ellipse 24px 28px at 21% 8%,  rgba(255,255,255,0.25) 0%, rgba(255,255,255,0.04) 60%, transparent 100%),
+      radial-gradient(ellipse 10px 14px at 28% 30%, rgba(255,255,255,0.22) 0%, transparent 75%),
+      radial-gradient(ellipse 18px 22px at 35% 18%, rgba(255,255,255,0.26) 0%, transparent 80%),
+      radial-gradient(ellipse 12px 16px at 42% 38%, rgba(255,255,255,0.22) 0%, transparent 75%),
+      radial-gradient(ellipse 20px 24px at 56% 24%, rgba(255,255,255,0.26) 0%, transparent 80%),
+      radial-gradient(ellipse 14px 18px at 64% 14%, rgba(255,255,255,0.24) 0%, transparent 80%),
+      radial-gradient(ellipse 22px 26px at 72% 32%, rgba(255,255,255,0.26) 0%, transparent 80%),
+      radial-gradient(ellipse 12px 16px at 84% 18%, rgba(255,255,255,0.22) 0%, transparent 80%),
+      radial-gradient(ellipse 18px 22px at 92% 38%, rgba(255,255,255,0.24) 0%, transparent 80%),
+      radial-gradient(ellipse 16px 20px at 8%  52%, rgba(255,255,255,0.22) 0%, transparent 80%),
+      radial-gradient(ellipse 14px 18px at 22% 60%, rgba(255,255,255,0.22) 0%, transparent 80%),
+      radial-gradient(ellipse 20px 24px at 30% 72%, rgba(255,255,255,0.24) 0%, transparent 80%),
+      radial-gradient(ellipse 12px 16px at 44% 64%, rgba(255,255,255,0.20) 0%, transparent 80%),
+      radial-gradient(ellipse 26px 30px at 60% 56%, rgba(255,255,255,0.22) 0%, transparent 80%),
+      radial-gradient(ellipse 14px 18px at 76% 68%, rgba(255,255,255,0.22) 0%, transparent 80%),
+      radial-gradient(ellipse 18px 22px at 88% 60%, rgba(255,255,255,0.22) 0%, transparent 80%),
+      radial-gradient(ellipse 22px 26px at 96% 78%, rgba(255,255,255,0.20) 0%, transparent 80%),
+      radial-gradient(ellipse 12px 16px at 14% 80%, rgba(255,255,255,0.20) 0%, transparent 80%),
+      /* tiny micro-droplets */
+      radial-gradient(circle 3px at 18% 14%, rgba(255,255,255,0.4), transparent),
+      radial-gradient(circle 2px at 46% 6%,  rgba(255,255,255,0.35), transparent),
+      radial-gradient(circle 3px at 60% 44%, rgba(255,255,255,0.30), transparent),
+      radial-gradient(circle 2px at 75% 22%, rgba(255,255,255,0.30), transparent),
+      radial-gradient(circle 3px at 86% 50%, rgba(255,255,255,0.30), transparent),
+      radial-gradient(circle 2px at 8%  40%, rgba(255,255,255,0.25), transparent),
+      radial-gradient(circle 3px at 33% 50%, rgba(255,255,255,0.28), transparent),
+      radial-gradient(circle 2px at 52% 70%, rgba(255,255,255,0.25), transparent),
+      radial-gradient(circle 3px at 68% 80%, rgba(255,255,255,0.25), transparent),
+      radial-gradient(circle 2px at 90% 14%, rgba(255,255,255,0.30), transparent),
+      radial-gradient(circle 2px at 4%  64%, rgba(255,255,255,0.25), transparent),
+      radial-gradient(circle 3px at 98% 32%, rgba(255,255,255,0.30), transparent);
+    pointer-events: none;
+    mix-blend-mode: screen;
+  }
+  /* Dark undersides for the droplets, no blend mode (just dark). */
+  body::after {
+    content: "";
+    position: absolute; inset: 0;
+    background-image:
+      radial-gradient(ellipse 18px 5px at 5%  14%, rgba(0,0,0,0.25), transparent 80%),
+      radial-gradient(ellipse 22px 6px at 21% 12%, rgba(0,0,0,0.25), transparent 80%),
+      radial-gradient(ellipse 16px 5px at 35% 22%, rgba(0,0,0,0.22), transparent 80%),
+      radial-gradient(ellipse 18px 5px at 56% 28%, rgba(0,0,0,0.22), transparent 80%),
+      radial-gradient(ellipse 20px 6px at 72% 36%, rgba(0,0,0,0.22), transparent 80%),
+      radial-gradient(ellipse 16px 5px at 92% 42%, rgba(0,0,0,0.22), transparent 80%),
+      radial-gradient(ellipse 24px 7px at 60% 60%, rgba(0,0,0,0.22), transparent 80%),
+      radial-gradient(ellipse 20px 6px at 30% 76%, rgba(0,0,0,0.22), transparent 80%);
+    pointer-events: none;
+  }
+
+  /* ════════ Centered Linux Mint "LM" mark ════════
+     Reference: rounded square stencil with stylized "M", and a tiny curl
+     on the top-right corner that breaks the outline (leaf-like). Single
+     white-ish color, semi-transparent so wallpaper bleeds through. */
+  .lm-logo {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-52%, -50%);
+    width: 22%;
+    max-width: 280px;
+    opacity: 0.55;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45));
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* ════════ Top panel bar (dark grey, full width) ════════ */
+  .top-panel {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 26px;
+    background: linear-gradient(to bottom, #4a4a4a 0%, #353535 50%, #2c2c2c 100%);
+    border-bottom: 1px solid rgba(0,0,0,0.5);
+    z-index: 10;
+    display: flex; align-items: center;
+    padding: 0 6px;
+    font-size: 11px;
+    color: #f0f0f0;
+  }
+  .top-panel-left {
+    display: flex; align-items: center; gap: 6px;
+  }
+  .top-panel-right {
+    display: flex; align-items: center; gap: 4px;
+    margin-left: auto;
+  }
+  .lm-menu-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px 2px 4px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .lm-menu-btn:hover { background: rgba(255,255,255,0.08); }
+  .lm-menu-btn .menu-ico { width: 18px; height: 18px; }
+  .lm-menu-btn .menu-text { font-size: 12px; }
+  .workspace-ico {
+    width: 20px; height: 18px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid #6a6a6a;
+    background: #5a5a5a;
+    border-radius: 2px;
+    margin-left: 4px;
+  }
+  .workspace-ico::after {
+    content: "";
+    width: 5px; height: 4px;
+    background: #86be43;
+    display: block;
+  }
+  .tray { display: flex; align-items: center; gap: 4px; }
+  .tray-ico {
+    width: 18px; height: 18px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .tray-text {
+    font-size: 11px; color: #f0f0f0;
+    margin-left: 4px; white-space: nowrap;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.5);
+  }
+
+  /* ════════ Top-left desktop icons ════════ */
+  .desktop-icons-tl {
+    position: absolute;
+    top: 38px; left: 14px;
+    display: flex; flex-direction: column; gap: 8px;
+    z-index: 3;
+  }
+  .desktop-icon {
+    display: flex; flex-direction: column; align-items: center;
+    width: 80px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .desktop-icon .ico {
+    width: 48px; height: 48px;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6));
+  }
+  .desktop-icon .lbl {
+    margin-top: 3px;
+    font-size: 11px;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    text-align: center;
+    line-height: 1.15;
+  }
+
+  /* ════════ Bottom glossy dock (3D shelf) ════════ */
+  .dock-wrap {
+    position: absolute;
+    bottom: 12px; left: 0; right: 0;
+    display: flex; justify-content: center;
+    z-index: 5;
+    pointer-events: none;
+  }
+  .dock {
+    display: flex; align-items: flex-end;
+    height: 48px;
+    padding: 2px 28px 3px 28px;
+    min-width: 880px;
+    /* Glossy black "glass shelf" — very translucent so green wallpaper
+       bleeds through (matches ref). Slim profile. */
+    background:
+      linear-gradient(to bottom,
+        rgba(255,255,255,0.35) 0%,
+        rgba(140,140,140,0.30) 8%,
+        rgba(50,50,50,0.45) 55%,
+        rgba(10,10,10,0.60) 100%);
+    border-top: 1px solid rgba(255,255,255,0.50);
+    border-left: 1px solid rgba(255,255,255,0.22);
+    border-right: 1px solid rgba(255,255,255,0.22);
+    border-bottom: 1px solid rgba(0,0,0,0.70);
+    border-radius: 14px 14px 28px 28px / 14px 14px 50px 50px;
+    box-shadow:
+      0 6px 14px rgba(0,0,0,0.35),
+      0 1px 0 rgba(255,255,255,0.35) inset;
+    gap: 10px;
+    pointer-events: auto;
+    position: relative;
+  }
+  /* Inner gloss highlight at top of dock */
+  .dock::before {
+    content: "";
+    position: absolute;
+    top: 1px; left: 12px; right: 12px;
+    height: 14px;
+    background: linear-gradient(to bottom,
+      rgba(255,255,255,0.30) 0%,
+      rgba(255,255,255,0.05) 100%);
+    border-radius: 12px 12px 0 0;
+    pointer-events: none;
+  }
+  /* Subtle floor reflection strip under dock */
+  .dock::after {
+    content: "";
+    position: absolute;
+    bottom: -3px; left: 6%; right: 6%;
+    height: 6px;
+    background: radial-gradient(ellipse at center,
+      rgba(0,0,0,0.45) 0%, transparent 75%);
+    border-radius: 50%;
+  }
+  .dock-icon {
+    width: 44px; height: 44px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: transform 0.12s ease-out;
+    position: relative;
+    margin: 2px 0;
+  }
+  .dock-icon:hover {
+    transform: scale(1.20) translateY(-4px);
+  }
+  .dock-icon svg { width: 100%; height: 100%; display: block; }
+  .dock-icon::after {
+    content: attr(data-label);
+    position: absolute;
+    bottom: 100%; left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 8px;
+    padding: 3px 8px;
+    background: rgba(0,0,0,0.85);
+    color: #fff;
+    font-size: 11px;
+    border-radius: 4px;
+    white-space: nowrap;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.15s;
+  }
+  .dock-icon:hover::after { opacity: 1; }
+  .dock-thumb {
+    width: 34px; height: 34px;
+    border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 3px 2px;
+    position: relative;
+    background: #2a2a2a;
+  }
+  .dock-thumb .thumb-img {
+    width: 100%; height: 100%;
+  }
+  .dock-thumb .thumb-badge {
+    position: absolute;
+    bottom: 1px; left: 1px;
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    background: #c63a3a;
+    color: #fff;
+    font-size: 8px;
+    text-align: center;
+    line-height: 11px;
+    font-weight: bold;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═════════════ Top panel bar ═════════════ -->
+<div class="top-panel">
+  <div class="top-panel-left">
+    <div class="lm-menu-btn">
+      <svg class="menu-ico" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <!-- Mini Mint mark in green -->
+        <path d="M3 5 h13 c2 0 4 2 4 4 v10 c0 2 -2 4 -4 4 H7 c-2 0 -4 -2 -4 -4 V9 c0 -2 2 -4 4 -4 z"
+              fill="none" stroke="#86be43" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M14 5 q3 0 4 3" fill="none" stroke="#86be43" stroke-width="2" stroke-linecap="round"/>
+        <path d="M7 18 V9 L11 13 L15 9 V18" fill="none" stroke="#86be43" stroke-width="2"
+              stroke-linejoin="round" stroke-linecap="round"/>
+      </svg>
+      <span class="menu-text">Menu</span>
+    </div>
+    <span class="workspace-ico" title="Workspace"></span>
+  </div>
+  <div class="top-panel-right">
+    <!-- Tray icons (compact, ~18px each) -->
+    <span class="tray-ico" title="Notes">
+      <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+        <rect x="2" y="2" width="11" height="13" fill="#f5c842" stroke="#8b6f1a" stroke-width="0.6"/>
+        <path d="M5 5 h6 M5 8 h6 M5 11 h4" stroke="#7a5a10" stroke-width="0.8"/>
+        <path d="M13 2 L13 6 L17 6 Z" fill="#e8a420"/>
+      </svg>
+    </span>
+    <span class="tray-ico" title="Trash">
+      <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+        <rect x="3" y="5" width="12" height="11" rx="1" fill="#3a3a3a" stroke="#1a1a1a" stroke-width="0.5"/>
+        <rect x="2" y="3" width="14" height="2" rx="0.5" fill="#5a5a5a"/>
+        <path d="M6 7 v6 M9 7 v6 M12 7 v6" stroke="#b00" stroke-width="0.8"/>
+      </svg>
+    </span>
+    <span class="tray-ico" title="Audio">
+      <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+        <path d="M1 14 V8 L3 8 V14 Z M4 14 V5 L6 5 V14 Z M7 14 V10 L9 10 V14 Z M10 14 V3 L12 3 V14 Z M13 14 V7 L15 7 V14 Z M16 14 V11 L18 11 V14 Z" fill="#f0f0f0"/>
+      </svg>
+    </span>
+    <span class="tray-ico" title="Network">
+      <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+        <rect x="2" y="6" width="14" height="6" rx="3" fill="#7dbb45"/>
+        <circle cx="14" cy="9" r="2" fill="#fff"/>
+      </svg>
+    </span>
+    <span class="tray-ico" title="Audio Levels">
+      <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+        <path d="M2 16 V10 L3 10 V16 Z M4 16 V6 L5 6 V16 Z M6 16 V12 L7 12 V16 Z M8 16 V4 L9 4 V16 Z M10 16 V9 L11 9 V16 Z M12 16 V11 L13 11 V16 Z M14 16 V6 L15 6 V16 Z M16 16 V12 L17 12 V16 Z" fill="#e8c842"/>
+      </svg>
+    </span>
+    <span class="tray-ico" title="Document">
+      <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+        <rect x="3" y="2" width="11" height="14" fill="#3a3a3a" stroke="#1a1a1a"/>
+        <rect x="4" y="3" width="9" height="12" fill="#1a1a1a"/>
+        <path d="M5 5 h7 M5 7 h7 M5 9 h5 M5 11 h7 M5 13 h4" stroke="#86be43" stroke-width="0.5"/>
+      </svg>
+    </span>
+    <span class="tray-ico" title="Updates">
+      <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+        <path d="M9 1 L3 4 V9 c0 3 2 6 6 8 c4 -2 6 -5 6 -8 V4 Z" fill="#7dbb45"/>
+        <path d="M5.5 9 L8 11.5 L13 6.5" stroke="#fff" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </span>
+    <span class="tray-ico" title="Mail">
+      <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+        <rect x="2" y="4" width="14" height="10" rx="1" fill="#fff" stroke="#a00" stroke-width="0.6"/>
+        <path d="M2 4 L9 10 L16 4" stroke="#a00" stroke-width="0.9" fill="none"/>
+        <text x="6" y="13" font-family="serif" font-size="6" fill="#a00" font-weight="bold">M</text>
+      </svg>
+    </span>
+    <span class="tray-text" style="font-size:10px;">ΗΠΑ</span>
+    <span class="tray-ico" title="Signal">
+      <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+        <rect x="2" y="13" width="2" height="3" fill="#f0f0f0"/>
+        <rect x="5" y="11" width="2" height="5" fill="#f0f0f0"/>
+        <rect x="8" y="8"  width="2" height="8" fill="#f0f0f0"/>
+        <rect x="11" y="5" width="2" height="11" fill="#f0f0f0"/>
+        <rect x="14" y="2" width="2" height="14" fill="#f0f0f0"/>
+      </svg>
+    </span>
+    <span class="tray-ico" title="Bluetooth">
+      <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+        <path d="M9 2 V16 L13 12 L5 6 L13 6 L9 2 L9 16 L5 12 L13 6"
+              stroke="#3aa3ff" stroke-width="1.4" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+      </svg>
+    </span>
+    <span class="tray-ico" title="Battery / off">
+      <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+        <rect x="2" y="6" width="12" height="6" rx="0.5" fill="none" stroke="#f0f0f0" stroke-width="0.8"/>
+        <path d="M4 8 L12 14 M4 14 L12 8" stroke="#e34" stroke-width="1.5"/>
+      </svg>
+    </span>
+    <span class="tray-ico" title="Weather">
+      <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="9" cy="9" r="4" fill="#f5c842"/>
+        <path d="M9 1 V3 M9 15 V17 M1 9 H3 M15 9 H17 M3 3 L4.5 4.5 M13.5 13.5 L15 15 M3 15 L4.5 13.5 M13.5 4.5 L15 3"
+              stroke="#f5c842" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+    </span>
+    <span class="tray-text">29 °C&nbsp; Κυρ 1 Αύγ, 20:16</span>
+  </div>
+</div>
+
+<!-- ═════════════ Linux Mint "M" mark (centered, translucent) ═════════════
+     Ref: rounded square frame, with a leaf-like curl on the top right.
+     Inside is a thick "M" — left vertical, V-shape going down then up to
+     a right vertical. -->
+<svg class="lm-logo" viewBox="0 0 260 240" xmlns="http://www.w3.org/2000/svg">
+  <!-- Outer rounded square frame — open at top-right where the curl lives -->
+  <path d="M38 36
+           h130
+           c4 0 8 2 10 6
+           c6 12 16 16 28 18
+           c10 2 16 10 16 20
+           V188
+           c0 18 -12 28 -30 28
+           H56
+           c-18 0 -30 -10 -30 -28
+           V64
+           c0 -16 12 -28 28 -28 z"
+        fill="none" stroke="#ffffff" stroke-width="14"
+        stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- Decorative top-right curl/leaf (mimics the M leaf) -->
+  <path d="M168 38
+           q12 2 18 14
+           q4 8 16 12"
+        fill="none" stroke="#ffffff" stroke-width="14"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- The big internal "M" — thick strokes, M-with-V-dip shape.
+       Shorter V dip to match reference proportions. -->
+  <path d="M70 180 V88 L130 132 L190 88 V180"
+        fill="none" stroke="#ffffff" stroke-width="28"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+
+<!-- ═════════════ Top-left desktop icons ═════════════ -->
+<div class="desktop-icons-tl">
+  <!-- Computer (monitor with stand, like the reference Computer/Υπολογιστής icon) -->
+  <div class="desktop-icon">
+    <svg class="ico" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="6" width="56" height="38" rx="3" fill="#e8e8e0" stroke="#5a5a55" stroke-width="1.4"/>
+      <rect x="7" y="9" width="50" height="32" fill="#8fbf6a"/>
+      <rect x="7" y="9" width="50" height="6" fill="#7aa852"/>
+      <path d="M24 44 L20 56 L44 56 L40 44 Z" fill="#cccfc5" stroke="#5a5a55" stroke-width="1.4"/>
+      <rect x="14" y="56" width="36" height="3" rx="1" fill="#9a9a90"/>
+    </svg>
+    <div class="lbl">Computer</div>
+  </div>
+  <!-- Home folder -->
+  <div class="desktop-icon">
+    <svg class="ico" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      <path d="M6 22 L8 22 L8 20 L14 20 L18 16 L30 16 L34 20 L58 20 L58 22 L60 22 L60 52 L6 52 Z"
+            fill="#e8c876" stroke="#9b7a2e" stroke-width="1.2"/>
+      <path d="M6 24 L60 24 L58 52 L8 52 Z" fill="#f3d68a"/>
+      <path d="M6 24 L60 24 L58 28 L8 28 Z" fill="#d4ad5a"/>
+      <path d="M28 30 L36 30 L40 36 L38 44 L26 44 L24 36 Z" fill="#9b7a2e" opacity="0.4"/>
+    </svg>
+    <div class="lbl">Home</div>
+  </div>
+</div>
+
+<!-- ═════════════ Bottom glossy dock ═════════════ -->
+<div class="dock-wrap">
+<div class="dock">
+  <!-- Two workspace thumbnails on far left -->
+  <div class="dock-thumb" title="Workspace 1">
+    <svg class="thumb-img" viewBox="0 0 34 34">
+      <defs>
+        <linearGradient id="ws1" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#5a3a7a"/>
+          <stop offset="1" stop-color="#2a1840"/>
+        </linearGradient>
+      </defs>
+      <rect width="34" height="34" fill="url(#ws1)"/>
+      <circle cx="22" cy="10" r="3" fill="#fff" opacity="0.4"/>
+      <path d="M0 26 L10 18 L18 24 L28 14 L34 20 L34 34 L0 34 Z" fill="#1a0a30" opacity="0.6"/>
+    </svg>
+    <span class="thumb-badge">1</span>
+  </div>
+  <div class="dock-thumb" title="Workspace 2">
+    <svg class="thumb-img" viewBox="0 0 34 34">
+      <rect width="34" height="34" fill="#6a8c4a"/>
+      <rect width="34" height="20" fill="#8aa86c"/>
+      <circle cx="10" cy="10" r="3" fill="#fff" opacity="0.3"/>
+      <circle cx="22" cy="14" r="2" fill="#fff" opacity="0.3"/>
+    </svg>
+  </div>
+
+  <!-- Terminal -->
+  <div class="dock-icon" data-label="Terminal">
+    <svg viewBox="0 0 40 40">
+      <rect x="2" y="4" width="36" height="32" rx="3" fill="#1a1a1a" stroke="#444" stroke-width="0.8"/>
+      <text x="8" y="24" font-family="monospace" font-size="14" fill="#fff" font-weight="bold">&gt;_</text>
+    </svg>
+  </div>
+  <!-- Calculator / Files (grey app) -->
+  <div class="dock-icon" data-label="Calculator">
+    <svg viewBox="0 0 40 40">
+      <rect x="4" y="4" width="32" height="32" rx="3" fill="#d5d5d0" stroke="#7a7a75" stroke-width="0.8"/>
+      <rect x="7" y="7" width="26" height="6" fill="#1a1a1a"/>
+      <text x="10" y="12" font-family="monospace" font-size="6" fill="#86be43">0</text>
+      <g fill="#7a7a75">
+        <rect x="7"  y="16" width="6" height="4" rx="1"/>
+        <rect x="14" y="16" width="6" height="4" rx="1"/>
+        <rect x="21" y="16" width="6" height="4" rx="1"/>
+        <rect x="28" y="16" width="5" height="4" rx="1"/>
+        <rect x="7"  y="21" width="6" height="4" rx="1"/>
+        <rect x="14" y="21" width="6" height="4" rx="1"/>
+        <rect x="21" y="21" width="6" height="4" rx="1"/>
+        <rect x="28" y="21" width="5" height="4" rx="1"/>
+        <rect x="7"  y="26" width="6" height="4" rx="1"/>
+        <rect x="14" y="26" width="6" height="4" rx="1"/>
+        <rect x="21" y="26" width="6" height="4" rx="1"/>
+        <rect x="28" y="26" width="5" height="9" rx="1" fill="#e88030"/>
+        <rect x="7"  y="31" width="13" height="4" rx="1"/>
+        <rect x="21" y="31" width="6" height="4" rx="1"/>
+      </g>
+    </svg>
+  </div>
+  <!-- Firefox -->
+  <div class="dock-icon" data-label="Firefox">
+    <svg viewBox="0 0 40 40">
+      <defs>
+        <radialGradient id="ff1" cx="0.4" cy="0.4" r="0.7">
+          <stop offset="0"   stop-color="#ffcc33"/>
+          <stop offset="0.4" stop-color="#ff8800"/>
+          <stop offset="1"   stop-color="#cc3300"/>
+        </radialGradient>
+      </defs>
+      <circle cx="20" cy="20" r="16" fill="url(#ff1)"/>
+      <path d="M8 14 C 14 6 24 6 30 12 C 34 16 34 22 30 26 C 26 32 16 32 12 26 C 8 22 6 16 8 14 Z"
+            fill="#ff6600"/>
+      <path d="M14 16 C 18 12 24 12 28 16 C 30 18 30 22 28 24 C 24 28 18 28 14 24 C 12 22 12 18 14 16 Z"
+            fill="#ffcc33"/>
+      <circle cx="26" cy="18" r="2.5" fill="#1a3a6a"/>
+      <circle cx="26" cy="18" r="1" fill="#fff"/>
+    </svg>
+  </div>
+  <!-- Art / Paint -->
+  <div class="dock-icon" data-label="Art">
+    <svg viewBox="0 0 40 40">
+      <circle cx="20" cy="20" r="16" fill="#86be43"/>
+      <path d="M14 26 L12 30 L16 28 Z" fill="#5a5a5a"/>
+      <path d="M14 26 L24 14 L26 16 L16 28 Z" fill="#c84a4a"/>
+      <circle cx="11" cy="14" r="2" fill="#d8d030"/>
+      <circle cx="28" cy="12" r="2" fill="#3a8ac8"/>
+      <circle cx="30" cy="24" r="2" fill="#c84a4a"/>
+    </svg>
+  </div>
+  <!-- Window switcher / Show desktop -->
+  <div class="dock-icon" data-label="Show Desktop">
+    <svg viewBox="0 0 40 40">
+      <rect x="4" y="6" width="32" height="22" rx="2" fill="#2a3a4a" stroke="#1a1a1a" stroke-width="0.8"/>
+      <rect x="4" y="6" width="32" height="4" fill="#1a2a3a"/>
+      <rect x="8" y="14" width="10" height="10" fill="#86be43"/>
+      <rect x="22" y="14" width="10" height="10" fill="#3a8ac8"/>
+      <rect x="6" y="30" width="28" height="4" rx="1" fill="#2a3a4a"/>
+    </svg>
+  </div>
+  <!-- File manager (Nemo / Files) -->
+  <div class="dock-icon" data-label="Files">
+    <svg viewBox="0 0 40 40">
+      <path d="M4 10 L4 32 L36 32 L36 14 L18 14 L14 10 Z" fill="#c89546" stroke="#7a5520" stroke-width="0.8"/>
+      <path d="M4 16 L36 16 L34 32 L6 32 Z" fill="#e8b86a"/>
+      <path d="M4 16 L36 16 L34 20 L6 20 Z" fill="#a87a36"/>
+    </svg>
+  </div>
+  <!-- Mint Menu (green M icon) -->
+  <div class="dock-icon" data-label="Mint Menu">
+    <svg viewBox="0 0 40 40">
+      <rect x="4" y="4" width="32" height="32" rx="6" fill="#86be43"/>
+      <path d="M10 30 V12 q0 -2 2 -2 h2 q2 0 3 2 l5 8 l5 -8 q1 -2 3 -2 h2 q2 0 2 2 V30"
+            fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
+  <!-- Text editor / xed (with pencil) -->
+  <div class="dock-icon" data-label="Edit">
+    <svg viewBox="0 0 40 40">
+      <path d="M8 4 L28 4 L34 10 L34 36 L8 36 Z" fill="#f5f5f5" stroke="#888" stroke-width="0.8"/>
+      <path d="M28 4 L28 10 L34 10 Z" fill="#cccccc"/>
+      <path d="M12 14 L26 14 M12 18 L26 18 M12 22 L22 22" stroke="#888" stroke-width="1"/>
+      <!-- pencil -->
+      <path d="M22 28 L34 16 L37 19 L25 31 L20 33 Z" fill="#f5b842" stroke="#7a5a10" stroke-width="0.6"/>
+      <path d="M34 16 L37 19" stroke="#7a5a10" stroke-width="0.8"/>
+    </svg>
+  </div>
+  <!-- Download / inbox (folder with down arrow) -->
+  <div class="dock-icon" data-label="Downloads">
+    <svg viewBox="0 0 40 40">
+      <path d="M4 12 L4 34 L36 34 L36 16 L20 16 L16 12 Z" fill="#7a5a30" stroke="#3a2a10" stroke-width="0.6"/>
+      <path d="M6 18 L34 18 L32 34 L8 34 Z" fill="#a88040"/>
+      <path d="M20 4 L20 20 M14 14 L20 20 L26 14" stroke="#fff" stroke-width="3"
+            fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
+  <!-- Image viewer / picture (golden flame-ish) -->
+  <div class="dock-icon" data-label="Image">
+    <svg viewBox="0 0 40 40">
+      <rect x="4" y="6" width="32" height="28" rx="2" fill="#2a1a08" stroke="#000" stroke-width="0.8"/>
+      <defs>
+        <radialGradient id="flame" cx="0.5" cy="0.7" r="0.8">
+          <stop offset="0"   stop-color="#ffe080"/>
+          <stop offset="0.5" stop-color="#e87820"/>
+          <stop offset="1"   stop-color="#3a1a08"/>
+        </radialGradient>
+      </defs>
+      <path d="M20 30 c -6 0 -10 -5 -10 -10 c 0 -4 3 -8 6 -10 c -1 4 1 6 3 6 c 0 -4 2 -8 5 -10 c 0 4 4 6 6 10 c 1 3 0 6 -2 9 c -2 4 -5 5 -8 5 z"
+            fill="url(#flame)"/>
+    </svg>
+  </div>
+  <!-- Shutdown (red power button) -->
+  <div class="dock-icon" data-label="Shutdown">
+    <svg viewBox="0 0 40 40">
+      <defs>
+        <radialGradient id="pwr" cx="0.4" cy="0.35" r="0.7">
+          <stop offset="0" stop-color="#ff8060"/>
+          <stop offset="0.6" stop-color="#d8281a"/>
+          <stop offset="1" stop-color="#7a0a0a"/>
+        </radialGradient>
+      </defs>
+      <circle cx="20" cy="20" r="16" fill="url(#pwr)" stroke="#3a0a0a" stroke-width="1"/>
+      <path d="M20 9 V20" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+      <path d="M14 14 a 8 8 0 1 0 12 0" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/>
+    </svg>
+  </div>
+</div>
+</div>
+
+</body>
+</html>

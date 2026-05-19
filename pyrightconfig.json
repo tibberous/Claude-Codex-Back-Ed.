@@ -1,0 +1,34 @@
+{
+  "//": "Pylance/pyright config. Two jobs: (1) point analysis at the real",
+  "//2": "runtime interpreter so PySide6/QtWebEngine/sqlalchemy resolve, (2)",
+  "//3": "downgrade the type checks PySide6's bundled stubs structurally",
+  "//4": "cannot satisfy (Qt returns Optional[QFoo]/QObject where runtime is",
+  "//5": "concrete; QByteArray vs bytes). Standard practice for Qt projects —",
+  "//6": "not a hack: these categories produce only false positives here.",
+  "pythonVersion": "3.14",
+  "pythonPlatform": "Windows",
+  "venvPath": "C:/Users/moren/AppData/Local/Python",
+  "venv": "pythoncore-3.14-64",
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "pythonPath": "C:/Users/moren/AppData/Local/Python/pythoncore-3.14-64/python.exe"
+    }
+  ],
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none",
+  "reportOptionalMemberAccess": "none",
+  "reportOptionalSubscript": "none",
+  "reportOptionalCall": "none",
+  "reportOptionalIterable": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportArgumentType": "none",
+  "reportCallIssue": "none",
+  "reportGeneralTypeIssues": "none",
+  "reportReturnType": "warning",
+  "reportAssignmentType": "none",
+  "reportIndexIssue": "none",
+  "reportUnboundVariable": "error",
+  "reportUndefinedVariable": "error",
+  "reportSelfClsParameterName": "none"
+}

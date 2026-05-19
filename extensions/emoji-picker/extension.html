@@ -1,0 +1,68 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Emoji Picker</title>
+<style>
+  body { font-family: "Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", ui-sans-serif, system-ui, sans-serif;
+         background: #1c1f24; color: #e7eaef; margin: 0; padding: 16px; user-select: none; }
+  #search { width: 100%; box-sizing: border-box; padding: 8px 10px; background: #0f1116;
+            color: #e7eaef; border: 1px solid #2b313b; border-radius: 6px; margin-bottom: 10px;
+            font: 14px ui-monospace; }
+  h4 { margin: 12px 0 6px 0; font-size: 12px; color: #b9bec7; text-transform: uppercase;
+       letter-spacing: 0.06em; }
+  .grid { display: grid; gap: 4px; grid-template-columns: repeat(10, 1fr); }
+  .pick { padding: 6px 0; font-size: 20px; text-align: center; background: #2b313b;
+          font-family: "Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", ui-sans-serif, system-ui, sans-serif;
+          border: 1px solid #3a414c; border-radius: 6px; cursor: pointer; }
+  .pick:hover { background: #3a414c; }
+  #status { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+            background: #285b3f; color: #b8ffd0; padding: 6px 12px; border-radius: 6px;
+            font: 12px ui-monospace; opacity: 0; transition: opacity .2s; }
+  #status.show { opacity: 1; }
+</style>
+<input id="search" placeholder="search…" autofocus>
+<div id="out"></div>
+<div id="status">copied</div>
+<script>
+  (function () {
+    const CATEGORIES = {
+      "Faces": "😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🤩 🥳 😏 😒 😞 😔 😟 😕 🙁 ☹️ 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🤭 🤫 🤥 😶 😐 😑 😬 🙄 😯 😦 😧 😮 😲 🥱 😴 🤤 😪 😵".split(' '),
+      "Gestures": "👋 🤚 ✋ 🖐️ 🖖 👌 🤏 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 🖕 👇 ☝️ 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 👐 🤲 🤝 🙏".split(' '),
+      "Animals": "🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🐔 🐧 🐦 🐤 🦄 🐝 🐛 🦋 🐌 🐞 🐢 🦂 🕷️ 🐙 🦀 🐠 🐟 🐬 🐳 🦈 🐊 🐅 🐆 🦓 🦒 🐘 🦏 🦛 🐪 🐫 🦘 🐃 🐂 🐄 🐎 🐖 🐏 🐑 🦙 🐐 🦌 🐕 🐩 🐈 🐓 🦃 🦚 🦜 🦢 🕊️".split(' '),
+      "Food": "🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍈 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🍆 🥑 🥦 🥬 🥒 🌶️ 🫑 🌽 🥕 🫒 🧄 🧅 🥔 🍠 🥐 🥯 🍞 🥖 🥨 🧀 🥚 🍳 🧈 🥞 🧇 🥓 🥩 🍗 🍖 🌭 🍔 🍟 🍕 🥪 🌮 🌯 🫔 🥙 🧆 🥗 🥘 🫕 🍝 🍜 🍲 🍛 🍣 🍱 🥟 🦪 🍤 🍙 🍚 🍘 🍥 🥠 🥮 🍢 🍡 🍧 🍨 🍦 🥧 🧁 🍰 🎂 🍮 🍭 🍬 🍫 🍿 🍩 🍪 🌰 🥜 🍯 🥛 🍼 🫖 ☕ 🍵 🧃 🥤 🧋 🍶 🍺 🍻 🥂 🍷 🥃 🍸 🍹 🧉 🍾".split(' '),
+      "Travel": "🚗 🚕 🚙 🚌 🚎 🏎️ 🚓 🚑 🚒 🚐 🛻 🚚 🚛 🚜 🛵 🏍️ 🛺 🚲 🛴 🛹 🛼 🚂 🚆 🚇 🚊 🚉 ✈️ 🛫 🛬 🛩️ 💺 🚀 🛸 🚁 🛶 ⛵ 🚤 🛥️ 🛳️ ⛴️ 🚢 ⚓ ⛽ 🚧 🚦 🚥".split(' '),
+      "Symbols": "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 ☮️ ✝️ ☪️ 🕉️ ☸️ ✡️ 🔯 🕎 ☯️ ☦️ 🛐 ⛎ ♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓ 🆔 ⚛️ 🉑 ☢️ ☣️ 📴 📳 🈶 🈚 🈸 🈺 🈷️ ✴️ 🆚 💮 🉐 ㊙️ ㊗️ 🈴 🈵 🈹 🈲 🅰️ 🅱️ 🆎 🆑 🅾️ 🆘 ❌ ⭕ 🛑 ⛔ 📛 🚫 💯 💢 ♨️ 🚷 🚯 🚳 🚱 🔞 📵 🚭".split(' '),
+      "Arrows": "← → ↑ ↓ ↔ ↕ ↖ ↗ ↘ ↙ ⇐ ⇒ ⇑ ⇓ ⇔ ⇕ ↩ ↪ ⤴ ⤵ ⬅ ➡ ⬆ ⬇ ⬈ ⬉ ⬊ ⬋ ➤ ➜ ➥ ➦ ➧ ➨ ➩ ➪ ➫ ➬ ➭ ➮ ➯ ➱ ➲ ➳ ➵ ➸ ➻ ➼ ➽".split(' '),
+      "Math":   "± × ÷ ≈ ≠ ≤ ≥ √ ∞ ∑ ∏ ∫ ∂ ∇ ∈ ∉ ⊂ ⊃ ⊆ ⊇ ∪ ∩ ∧ ∨ ¬ ⊕ ⊗ ⊥ ∥ ° ′ ″ π τ φ θ μ Δ Σ Ω α β γ δ ε ζ η λ ρ σ".split(' '),
+      "Currency": "$ € £ ¥ ¢ ₹ ₽ ₩ ₪ ₫ ₱ ₦ ฿ ₴ ₸ ₺ ₼ ₾ ₿ ¤".split(' '),
+      "Punctuation": "— – · • … ‹ › « » “ ” ‘ ’ ¶ § † ‡ ※ ¿ ¡ ‰ ‱ ✓ ✗ ✘ ✔ ★ ☆ ✦ ✧ ✪ ✫ ✬ ✭ ✮ ✯ ✰".split(' '),
+    };
+    const out = document.getElementById('out');
+    const status = document.getElementById('status');
+    const search = document.getElementById('search');
+
+    function render(filter) {
+      out.innerHTML = '';
+      const q = (filter || '').toLowerCase().trim();
+      for (const [cat, chars] of Object.entries(CATEGORIES)) {
+        const matched = q ? chars.filter(c => c.toLowerCase().includes(q) || cat.toLowerCase().includes(q)) : chars;
+        if (!matched.length) continue;
+        const h = document.createElement('h4'); h.textContent = cat; out.appendChild(h);
+        const g = document.createElement('div'); g.className = 'grid';
+        for (const c of matched) {
+          const b = document.createElement('div');
+          b.className = 'pick'; b.textContent = c; b.title = c;
+          b.onclick = () => {
+            try { navigator.clipboard.writeText(c); } catch (_) {}
+            status.textContent = 'copied "' + c + '"';
+            status.classList.add('show');
+            setTimeout(() => status.classList.remove('show'), 800);
+          };
+          g.appendChild(b);
+        }
+        out.appendChild(g);
+      }
+    }
+    search.addEventListener('input', () => render(search.value));
+    render('');
+  })();
+</script>

@@ -1,0 +1,76 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Calculator</title>
+<style>
+  body { font-family: ui-monospace, Consolas, monospace; background: #1c1f24; color: #e7eaef;
+         margin: 0; padding: 16px; user-select: none; }
+  .calc { width: 240px; margin: 0 auto; }
+  #display { width: 100%; box-sizing: border-box; padding: 12px 14px; font: 22px ui-monospace;
+             background: #0f1116; color: #ffd84d; border: 1px solid #2b313b; border-radius: 8px;
+             text-align: right; margin-bottom: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  button { padding: 14px 0; font: 18px ui-monospace; background: #2b313b; color: #e7eaef;
+           border: 1px solid #3a414c; border-radius: 8px; cursor: pointer; }
+  button:hover { background: #3a414c; }
+  button:active { background: #1c1f24; }
+  .op { background: #3a2f55; color: #d4b3ff; }
+  .eq { background: #285b3f; color: #b8ffd0; grid-column: span 2; }
+  .clr { background: #5b2828; color: #ffb8b8; }
+</style>
+<div class="calc">
+  <input id="display" value="0" readonly>
+  <div class="grid">
+    <button class="clr" data-k="C">C</button>
+    <button data-k="(">(</button>
+    <button data-k=")">)</button>
+    <button class="op" data-k="/">÷</button>
+    <button data-k="7">7</button>
+    <button data-k="8">8</button>
+    <button data-k="9">9</button>
+    <button class="op" data-k="*">×</button>
+    <button data-k="4">4</button>
+    <button data-k="5">5</button>
+    <button data-k="6">6</button>
+    <button class="op" data-k="-">−</button>
+    <button data-k="1">1</button>
+    <button data-k="2">2</button>
+    <button data-k="3">3</button>
+    <button class="op" data-k="+">+</button>
+    <button data-k="0">0</button>
+    <button data-k=".">.</button>
+    <button class="eq" data-k="=">=</button>
+  </div>
+</div>
+<script>
+  (function () {
+    const d = document.getElementById('display');
+    let expr = '';
+    function render() { d.value = expr || '0'; }
+    function press(k) {
+      if (k === 'C') { expr = ''; return render(); }
+      if (k === '=') {
+        try {
+          // Restricted eval: only digits, ops, parens, decimal points
+          if (/^[0-9+\-*/().\s]+$/.test(expr)) {
+            const v = Function('"use strict";return (' + expr + ')')();
+            expr = String(v);
+          } else { expr = 'ERR'; }
+        } catch (_) { expr = 'ERR'; }
+        return render();
+      }
+      if (expr === 'ERR' || expr === 'Infinity' || expr === 'NaN') expr = '';
+      expr += k;
+      render();
+    }
+    document.querySelectorAll('button[data-k]').forEach(b => {
+      b.onclick = () => press(b.getAttribute('data-k'));
+    });
+    window.addEventListener('keydown', (e) => {
+      if (/^[0-9+\-*/().]$/.test(e.key)) { press(e.key); return; }
+      if (e.key === 'Enter' || e.key === '=') { press('='); e.preventDefault(); return; }
+      if (e.key === 'Backspace') { expr = expr.slice(0, -1); render(); return; }
+      if (e.key === 'Escape' || e.key === 'c' || e.key === 'C') { press('C'); return; }
+    });
+    render();
+  })();
+</script>

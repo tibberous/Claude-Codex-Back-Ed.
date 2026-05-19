@@ -2,24 +2,27 @@
 <skin>
   <id>mint-dock</id>
   <name>Mint Dock</name>
-  <version>1.0</version>
+  <version>1.1</version>
   <author>Claude Opus 4.7</author>
-  <accent>#8fd694</accent>
+  <accent>#86be43</accent>
   <stylesheet>styles.css</stylesheet>
-  <description>Linux Mint-style glass dock. Floating prompt pill above a detached translucent dock strip; every tool button is a 96px glass tile with a real drop shadow and dock-magnify hover.</description>
+  <description>Linux Mint Cinnamon dock. Real Mint green water-droplet wallpaper, glossy black 3D dock shelf at the bottom, and 22 hand-drawn Mint-flavored app tiles (terminal, folder, green Mint Menu, red power button, etc.) with dock-magnify hover.</description>
   <colors>
-    <modal-bg>#1c2a1d</modal-bg>
-    <modal-fg>#e9f4ea</modal-fg>
-    <modal-border>#8fd694</modal-border>
-    <modal-title-bg-1>#3f7d44</modal-title-bg-1>
-    <modal-title-bg-2>#5fa766</modal-title-bg-2>
-    <modal-title-fg>#f2faf2</modal-title-fg>
-    <modal-foot-bg>#152016</modal-foot-bg>
-    <modal-accent>#7cc882</modal-accent>
-    <highlight-color>#d6f5b3</highlight-color>
+    <!-- Mint Cinnamon modal palette: dark green-tinted base, mint-green
+         accents, light readable foreground. Echoes the dark Cinnamon
+         panel + green Menu button aesthetic. -->
+    <modal-bg>#1a2a14</modal-bg>
+    <modal-fg>#eef6e6</modal-fg>
+    <modal-border>#86be43</modal-border>
+    <modal-title-bg-1>#4a8b1f</modal-title-bg-1>
+    <modal-title-bg-2>#7dbb45</modal-title-bg-2>
+    <modal-title-fg>#ffffff</modal-title-fg>
+    <modal-foot-bg>#0e1a08</modal-foot-bg>
+    <modal-accent>#86be43</modal-accent>
+    <highlight-color>#c8e8a8</highlight-color>
     <!-- Code-block chrome: title bar above + footer below fenced code.
          Read by the panel as --cbe-code-bar-bg / --cbe-code-bar-fg.
-         Deep Mint green, cohesive with the green accent. -->
+         Deep Mint forest green, cohesive with the green accent. -->
     <code-bar-bg>#2c5a30</code-bar-bg>
     <code-bar-fg>#f2faf2</code-bar-fg>
   </colors>

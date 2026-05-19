@@ -39,7 +39,6 @@ import base64
 import json
 import os
 import socket
-import struct
 import sys
 import threading
 import time
@@ -60,15 +59,165 @@ os.environ.setdefault(
     "--password-store=basic "
 )
 
-from PySide6.QtCore import QUrl, QTimer, Qt, QObject, QEvent, QPoint, Slot
-from PySide6.QtGui import QImage, QGuiApplication, QMouseEvent, QKeyEvent
+from PySide6.QtCore import (
+    QUrl, QTimer, Qt, QObject, QPoint, Slot, Signal,
+)
 from PySide6.QtWidgets import QApplication
+from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtTest import QTest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_W = 1280
 DEFAULT_H = 800
+
+# Shared cookie jar location with the bridge service. `start.py --library
+# auth-save` writes here after decrypting Chrome's v10 DPAPI cookies. The
+# bridge seeds its profile from this file at boot; the NN4 harness now does
+# the same so a single auth-save unlocks both paths.
+_LIBRARY_CACHE_DIR = Path.home() / ".claude" / "projects" / "C--Users-moren" / "library-cache"
+_AUTH_COOKIES_PATH = _LIBRARY_CACHE_DIR / "auth_cookies.json"
+_NN4_PROFILE_DIR = _LIBRARY_CACHE_DIR / "nn4-profile"
+
+
+def _seedChatgptCookiesFromJson(profile, cookies_json_path) -> tuple[int, int]:
+    """Inject cookies from auth_cookies.json into a QWebEngineProfile.
+
+    Mirrors app.py:_seedChatgptCookiesFromJson but inlined to avoid pulling
+    the heavy bridge-service module into this lightweight harness. Returns
+    (injected, total). Never raises.
+    """
+    if profile is None or cookies_json_path is None:
+        return (0, 0)
+    try:
+        path = Path(str(cookies_json_path))
+        if not path.is_file():
+            return (0, 0)
+        try:
+            jar = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as err:
+            print(f"[nn4:cookie-seed] malformed {path.name}: {type(err).__name__}: {err}", flush=True)
+            return (0, 0)
+        if not isinstance(jar, list) or not jar:
+            return (0, 0)
+        from PySide6.QtNetwork import QNetworkCookie
+        from PySide6.QtCore import QByteArray, QDateTime
+        store = profile.cookieStore()
+        injected = 0
+        for entry in jar:
+            try:
+                name = str(entry.get("name") or "")
+                val = str(entry.get("value") or "")
+                if not name or not val:
+                    continue
+                ck = QNetworkCookie(QByteArray(name.encode("utf-8")), QByteArray(val.encode("utf-8")))
+                dom = str(entry.get("domain") or "")
+                if dom:
+                    ck.setDomain(dom)
+                ck.setPath(str(entry.get("path") or "/"))
+                ck.setSecure(bool(entry.get("secure", False)))
+                ck.setHttpOnly(bool(entry.get("httpOnly", False)))
+                exp = entry.get("expires", -1)
+                try:
+                    exp = float(exp)
+                except Exception:
+                    exp = -1
+                if exp and exp > 0:
+                    ck.setExpirationDate(QDateTime.fromSecsSinceEpoch(int(exp)))
+                host = dom.lstrip(".") or "chatgpt.com"
+                store.setCookie(ck, QUrl(f"https://{host}/"))
+                injected += 1
+            except Exception:
+                continue
+        print(f"[nn4:cookie-seed] injected {injected}/{len(jar)} cookies from {path.name}", flush=True)
+        return (injected, len(jar))
+    except Exception as err:
+        print(f"[nn4:cookie-seed] unexpected: {type(err).__name__}: {err}", flush=True)
+        return (0, 0)
+
+
+# Same scraper the bridge service uses (app.py:_LIBRARY_SCRAPER_JS). Kept
+# inline so the harness has zero runtime dependency on the bridge module.
+# If the bridge scraper evolves, mirror the change here.
+_LIBRARY_SCRAPER_JS = r"""
+(function(){
+    const result = { ok: true, files: [], wall: {}, debug: {} };
+    try {
+        const url = String(location.href || '');
+        const bodyText = String(document.body ? document.body.innerText || '' : '').toLowerCase();
+        const explicitAuthPath = /\/auth\/login|\/login|\/auth$/.test(url);
+        const loginCtas = /(log in to chatgpt|sign up|continue with google|continue with apple|by messaging chatgpt, you agree)/.test(bodyText);
+        const expectedLibrary = (window.location.pathname || '').toLowerCase().includes('library');
+        const headerEl = document.querySelector('h1, h2');
+        const headerText = headerEl ? String(headerEl.innerText || '').toLowerCase() : '';
+        const headerSaysLibrary = /library|files/.test(headerText);
+        if (explicitAuthPath || loginCtas || (!expectedLibrary && !headerSaysLibrary)) {
+            result.ok = false;
+            result.reason = 'login-required';
+            result.wall = { url: url, hint: 'log in via SuperGrok bridge first', headerText: headerText.slice(0, 120), bodyExcerpt: bodyText.slice(0, 200) };
+            return JSON.stringify(result);
+        }
+        const rowSelectors = [
+            'main [role="row"]',
+            'main [data-testid*="library" i] [role="row"]',
+            'main [data-testid*="library" i] li',
+            'main [data-testid*="library" i] a[href*="/c/"]',
+            'main table tr',
+            'main ul > li:has(a)',
+            'main [class*="row" i]:has(a)',
+            'main a[href^="/c/"]',
+        ];
+        let rows = [];
+        for (const sel of rowSelectors) {
+            try {
+                const found = Array.from(document.querySelectorAll(sel));
+                if (found.length) { rows = found; result.debug.matchedSelector = sel; break; }
+            } catch (_) {}
+        }
+        result.debug.candidateRowCount = rows.length;
+        const seen = new Set();
+        for (const row of rows) {
+            try {
+                if (!row || !row.getBoundingClientRect) continue;
+                const rect = row.getBoundingClientRect();
+                if (rect.width === 0 && rect.height === 0) continue;
+                const text = String(row.innerText || row.textContent || '').trim();
+                if (!text || seen.has(text)) continue;
+                seen.add(text);
+                let name = '';
+                const titleEl = row.querySelector('[data-testid*="title" i], h1, h2, h3, h4, .text-token-text-primary, [class*="title" i]');
+                if (titleEl && (titleEl.innerText || titleEl.textContent)) {
+                    name = String(titleEl.innerText || titleEl.textContent).trim();
+                }
+                if (!name) {
+                    const firstLine = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0];
+                    name = firstLine || '';
+                }
+                if (!name) continue;
+                const link = row.querySelector('a[href]');
+                const href = link ? String(link.getAttribute('href') || '') : '';
+                const sizeMatch = text.match(/\b(\d+(?:\.\d+)?)\s*(KB|MB|GB|B)\b/i);
+                const dateMatch = text.match(/\b(\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2,8} \d{1,2},? \d{4}|[A-Z][a-z]{2,8} \d{1,2})\b/);
+                const typeMatch = text.match(/\b(pdf|docx?|xlsx?|pptx?|csv|txt|md|json|png|jpe?g|gif|webp|mp4|mov|wav|mp3|zip|html?)\b/i);
+                result.files.push({
+                    name: name,
+                    href: href,
+                    size: sizeMatch ? sizeMatch[0] : '',
+                    modified: dateMatch ? dateMatch[0] : '',
+                    type: typeMatch ? typeMatch[0].toLowerCase() : '',
+                    rawText: text.slice(0, 400),
+                });
+            } catch (_) {}
+        }
+        result.debug.scrapedFileCount = result.files.length;
+        result.url = url;
+        result.title = String(document.title || '');
+        return JSON.stringify(result);
+    } catch (error) {
+        return JSON.stringify({ ok: false, reason: 'scraper-exception', error: String(error && error.message || error) });
+    }
+})();
+"""
 
 
 class AgentBrowser:
@@ -81,11 +230,44 @@ class AgentBrowser:
     """
 
     def __init__(self, width: int = DEFAULT_W, height: int = DEFAULT_H,
-                 start_url: str = "https://chatgpt.com/") -> None:
-        self.view = QWebEngineView()
+                 start_url: str = "https://chatgpt.com/",
+                 persistent: bool = True) -> None:
+        # Persistent QWebEngineProfile keeps cookies/localStorage across runs
+        # AND lets us cookie-seed from auth_cookies.json before first nav, so
+        # chatgpt.com/library loads as a logged-in DOM. See the bridge's
+        # _seedChatgptCookiesFromJson for the matching path in app.py.
+        if persistent:
+            _NN4_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+            self.profile = QWebEngineProfile("CBE-NN4-Persistent", None)
+            self.profile.setPersistentStoragePath(str(_NN4_PROFILE_DIR))
+            self.profile.setCachePath(str(_NN4_PROFILE_DIR / "cache"))
+            try:
+                self.profile.setPersistentCookiesPolicy(
+                    QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies
+                )
+            except Exception:
+                pass
+            try:
+                _seedChatgptCookiesFromJson(self.profile, _AUTH_COOKIES_PATH)
+            except Exception as err:
+                print(f"[nn4] cookie seed failed: {type(err).__name__}: {err}", flush=True)
+            self.page = QWebEnginePage(self.profile)
+            self.view = QWebEngineView()
+            self.view.setPage(self.page)
+        else:
+            self.profile = None
+            self.page = None
+            self.view = QWebEngineView()
         self.view.resize(width, height)
-        # WA_DontShowOnScreen lets us grab without surface visibility.
-        self.view.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        # Chromium's compositor needs a real native window surface to render
+        # pages; WA_DontShowOnScreen destroys that surface and the renderer
+        # process produces blank frames forever. Position the window far
+        # off-screen instead so it stays invisible to the user but Qt gives
+        # it a real HWND that Chromium can paint into. Tool flag + no
+        # taskbar so the user never sees an icon flicker either.
+        self.view.setWindowFlag(Qt.WindowType.Tool, True)
+        self.view.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.view.move(-32000, -32000)
         self.view.show()
         # Auto-inject jQuery into every page after load + expose a helper
         # `__cbeConsole(cmd)` that evals user JS with jQuery available, so
@@ -139,9 +321,43 @@ class AgentBrowser:
             "frame": frame,
         }
 
-    def navigate(self, url: str) -> dict:
-        self.view.load(QUrl(url))
-        return {"ok": True, "url": url}
+    def navigate(self, url: str, wait_ms: int = 8000) -> dict:
+        """Navigate and block until loadFinished (or wait_ms elapses).
+
+        QWebEngineView.load() is fire-and-forget; without waiting the next
+        action sees a half-rendered page (or the previous page). Pump the
+        Qt event loop in a tight loop and return once Chromium signals
+        loadFinished or the wait_ms budget runs out. Pass wait_ms=0 to
+        keep the old fire-and-forget behavior.
+        """
+        if wait_ms <= 0:
+            self.view.load(QUrl(url))
+            return {"ok": True, "url": url, "loaded": False, "waited": False}
+        load_state = {"done": False, "ok": False}
+        def _on(ok: bool) -> None:
+            load_state["ok"] = bool(ok)
+            load_state["done"] = True
+        try:
+            self.view.loadFinished.connect(_on)
+        except Exception:
+            pass
+        try:
+            self.view.load(QUrl(url))
+            deadline = time.time() + (max(0, int(wait_ms)) / 1000.0)
+            while not load_state["done"] and time.time() < deadline:
+                QApplication.processEvents()
+                time.sleep(0.02)
+        finally:
+            try:
+                self.view.loadFinished.disconnect(_on)
+            except Exception:
+                pass
+        return {
+            "ok": load_state["done"] and load_state["ok"],
+            "url": self.view.url().toString(),
+            "loaded": load_state["done"] and load_state["ok"],
+            "timedOut": not load_state["done"],
+        }
 
     def click(self, x: int, y: int) -> dict:
         # Use QTest to synthesize a real mouse click at viewport-relative
@@ -223,17 +439,119 @@ class AgentBrowser:
             time.sleep(0.01)
         return {"ok": True, "slept_ms": int(ms)}
 
+    def library_list(self, hydrate_ms: int = 3500, timeout_s: int = 45) -> dict:
+        """Drop-in for the chatgpt python sidecar's `library-list` action.
+
+        Navigates the persistent view to chatgpt.com/library, waits for the
+        SPA to hydrate, runs the same DOM scraper the bridge service uses,
+        and returns the parsed JSON. Cookies were seeded at __init__ from
+        auth_cookies.json, so the page should render as logged-in. If not,
+        the scraper returns reason='login-required' and the caller can
+        prompt the user to re-run `--library auth-save` or `--library login`.
+        """
+        started = time.time()
+        load_done = {"done": False, "ok": False}
+        def _on_loaded(ok: bool) -> None:
+            load_done["ok"] = bool(ok)
+            load_done["done"] = True
+        try:
+            self.view.loadFinished.connect(_on_loaded)
+        except Exception:
+            pass
+        self.view.load(QUrl("https://chatgpt.com/library"))
+        deadline = started + max(5.0, float(timeout_s))
+        while not load_done["done"] and time.time() < deadline:
+            QApplication.processEvents()
+            time.sleep(0.02)
+        try:
+            self.view.loadFinished.disconnect(_on_loaded)
+        except Exception:
+            pass
+        if not load_done["done"]:
+            return {"ok": False, "reason": "timeout", "phase": "load", "timeoutSeconds": int(timeout_s), "url": self.view.url().toString()}
+        if not load_done["ok"]:
+            return {"ok": False, "reason": "page-load-failed", "url": self.view.url().toString()}
+        # Let the SPA hydrate. ChatGPT's library list is rendered client-side
+        # after the shell paints; the scraper finds nothing if we run too early.
+        hydrate_deadline = time.time() + max(0.0, float(hydrate_ms) / 1000.0)
+        while time.time() < hydrate_deadline:
+            QApplication.processEvents()
+            time.sleep(0.02)
+        scrape_slot = {"done": False, "raw": None}
+        def _on_scrape(value):
+            scrape_slot["raw"] = value
+            scrape_slot["done"] = True
+        try:
+            self.view.page().runJavaScript(_LIBRARY_SCRAPER_JS, _on_scrape)
+        except Exception as exc:
+            return {"ok": False, "reason": "runjs-failed", "error": f"{type(exc).__name__}: {exc}"}
+        scrape_deadline = time.time() + 10.0
+        while not scrape_slot["done"] and time.time() < scrape_deadline:
+            QApplication.processEvents()
+            time.sleep(0.02)
+        if not scrape_slot["done"]:
+            return {"ok": False, "reason": "scrape-timeout", "url": self.view.url().toString()}
+        raw = scrape_slot["raw"]
+        try:
+            if isinstance(raw, str):
+                parsed = json.loads(raw)
+            elif isinstance(raw, dict):
+                parsed = raw
+            else:
+                parsed = {"ok": False, "reason": "scraper-bad-return", "raw": str(raw)[:500]}
+        except Exception as exc:
+            parsed = {"ok": False, "reason": "scraper-parse-error", "error": f"{type(exc).__name__}: {exc}", "raw": str(raw)[:500]}
+        parsed.setdefault("elapsedSeconds", round(time.time() - started, 3))
+        parsed.setdefault("via", "nn4_agent_browser")
+        return parsed
+
 
 # ----------------------------- TCP server -------------------------------
+
+class MainThreadDispatcher(QObject):
+    """Live on the Qt main thread; receive a callable + result-box via a
+    cross-thread Signal, run the callable on the main thread.
+
+    Why this exists: `QTimer.singleShot(0, fn)` invoked from a non-Qt
+    worker thread does NOT marshal `fn` onto the main thread — it queues
+    onto the *calling* thread's event loop, which is the worker (which has
+    no event loop), so `fn` never runs. The action server then waits 90s
+    and times out forever. This was the actual "pages not loading" bug
+    seen from the caller's perspective: pages load fine in Chromium, but
+    every action request just hangs.
+
+    Using a `Signal` declared on a QObject that lives on the main thread
+    gives us Qt's auto-connection semantics: cross-thread emit → queued
+    connection → slot runs on the dispatcher's (main) thread.
+    """
+    runRequested = Signal(object, object)  # (fn, resultBox)
+
+    def __init__(self) -> None:
+        super().__init__()
+        # Qt picks `QueuedConnection` automatically because emitter and
+        # receiver live on different threads — but we declare it explicitly
+        # so the intent is obvious to anyone reading.
+        self.runRequested.connect(self._onRun, Qt.ConnectionType.QueuedConnection)
+
+    @Slot(object, object)
+    def _onRun(self, fn, box):
+        try:
+            box["value"] = fn()
+        except Exception as exc:
+            box["value"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        finally:
+            box["done"] = True
+
 
 class ActionServer:
     """Threaded socket server; marshals each request onto the Qt main
     thread, waits for the result, sends it back. One connection at a time
     (browser state isn't reentrant)."""
 
-    def __init__(self, port: int, browser: AgentBrowser) -> None:
+    def __init__(self, port: int, browser: AgentBrowser, dispatcher: "MainThreadDispatcher") -> None:
         self.port = port
         self.browser = browser
+        self.dispatcher = dispatcher
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind(("127.0.0.1", port))
@@ -283,35 +601,44 @@ class ActionServer:
             return {"ok": False, "error": f"bad json: {exc}"}
         action = str(req.get("action", "")).lower()
 
-        # Marshal to main thread via a sync barrier.
-        result = {"done": False, "value": None}
-        def _run_on_main():
-            try:
-                if   action == "screenshot": result["value"] = self.browser.screenshot(str(req.get("frame", "raw")))
-                elif action == "navigate":   result["value"] = self.browser.navigate(str(req.get("url", "")))
-                elif action == "click":      result["value"] = self.browser.click(int(req.get("x", 0)), int(req.get("y", 0)))
-                elif action == "type":       result["value"] = self.browser.type_text(str(req.get("text", "")))
-                elif action == "scroll":     result["value"] = self.browser.scroll(int(req.get("dy", 0)))
-                elif action == "back":       result["value"] = self.browser.back()
-                elif action == "forward":    result["value"] = self.browser.forward()
-                elif action == "reload":     result["value"] = self.browser.reload_page()
-                elif action == "wait":       result["value"] = self.browser.wait_ms(int(req.get("ms", 0)))
-                elif action == "page_url":   result["value"] = self.browser.page_url()
-                elif action == "page_text":  result["value"] = self.browser.page_text(int(req.get("max", 8192)))
-                elif action == "page_html":  result["value"] = self.browser.page_html(int(req.get("max", 32768)))
-                elif action == "eval_js":    result["value"] = self.browser.eval_js(str(req.get("js", "")))
-                elif action == "shutdown":
-                    result["value"] = {"ok": True, "bye": True}
-                    self.shutdown_requested = True
-                    QTimer.singleShot(50, QApplication.instance().quit)
-                else:
-                    result["value"] = {"ok": False, "error": f"unknown action: {action!r}"}
-            except Exception as exc:
-                result["value"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-            finally:
-                result["done"] = True
+        # Build the actual work as a zero-arg callable; the dispatcher will
+        # invoke it on the Qt main thread via a queued Signal connection.
+        # Closures capture `req` / `action` / `self` by reference.
+        browser = self.browser
+        server_self = self
+        def _work():
+            if   action == "screenshot": return browser.screenshot(str(req.get("frame", "raw")))
+            elif action == "navigate":
+                return browser.navigate(
+                    str(req.get("url", "")),
+                    wait_ms=int(req.get("waitMs", req.get("wait_ms", 8000))),
+                )
+            elif action == "click":      return browser.click(int(req.get("x", 0)), int(req.get("y", 0)))
+            elif action == "type":       return browser.type_text(str(req.get("text", "")))
+            elif action == "scroll":     return browser.scroll(int(req.get("dy", 0)))
+            elif action == "back":       return browser.back()
+            elif action == "forward":    return browser.forward()
+            elif action == "reload":     return browser.reload_page()
+            elif action == "wait":       return browser.wait_ms(int(req.get("ms", 0)))
+            elif action == "page_url":   return browser.page_url()
+            elif action == "page_text":  return browser.page_text(int(req.get("max", 8192)))
+            elif action == "page_html":  return browser.page_html(int(req.get("max", 32768)))
+            elif action == "eval_js":    return browser.eval_js(str(req.get("js", "")))
+            elif action == "library-list":
+                return browser.library_list(
+                    hydrate_ms=int(req.get("hydrateMs", 3500)),
+                    timeout_s=int(req.get("timeoutSeconds", 45)),
+                )
+            elif action == "shutdown":
+                server_self.shutdown_requested = True
+                QTimer.singleShot(50, QApplication.instance().quit)
+                return {"ok": True, "bye": True}
+            else:
+                return {"ok": False, "error": f"unknown action: {action!r}"}
 
-        QTimer.singleShot(0, _run_on_main)
+        result = {"done": False, "value": None}
+        # Cross-thread emit → queued connection → slot runs on main thread.
+        self.dispatcher.runRequested.emit(_work, result)
         deadline = time.time() + 90.0
         while not result["done"] and time.time() < deadline:
             time.sleep(0.02)
@@ -335,7 +662,11 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     browser = AgentBrowser(width=args.width, height=args.height, start_url=args.start_url)
-    server = ActionServer(port=args.port, browser=browser)
+    # The dispatcher MUST be constructed on the main (Qt) thread so its
+    # `runRequested` Signal queues onto the main thread when emitted from
+    # the socket worker threads. Do not move it.
+    dispatcher = MainThreadDispatcher()
+    server = ActionServer(port=args.port, browser=browser, dispatcher=dispatcher)
     server.serve_forever()
 
     print(f"[nn4-agent] action server : 127.0.0.1:{args.port}  (newline-JSON protocol)", flush=True)

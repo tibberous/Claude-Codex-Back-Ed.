@@ -25,8 +25,6 @@ Usage:
 """
 from __future__ import annotations
 import argparse
-import shutil
-import sys
 import tempfile
 import zipfile
 from pathlib import Path

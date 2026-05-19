@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Claude Codex Black - macOS Theme</title>
+<style>
+/* ============================================================
+   macOS Yosemite Theme - pixel-targeted to mac.jpg
+   ============================================================ */
+html, body { margin:0; padding:0; height:100%; width:100%;
+  font-family:-apple-system,"Helvetica Neue","Lucida Grande",Helvetica,Arial,sans-serif;
+  font-size:13px; color:#222; overflow:hidden; }
+
+/* --- Desktop (Yosemite mountains, dawn purple/blue) --- */
+.desktop {
+  position:fixed; inset:0;
+  background:
+    /* near foreground mountain silhouette darkening */
+    linear-gradient(180deg, transparent 70%, rgba(20,18,40,0.4) 100%),
+    /* lower silhouettes */
+    radial-gradient(ellipse 70% 14% at 50% 95%, #14264a 50%, transparent 55%),
+    radial-gradient(ellipse 60% 12% at 20% 92%, #15284e 50%, transparent 55%),
+    radial-gradient(ellipse 65% 12% at 80% 92%, #17284a 50%, transparent 55%),
+    /* mid ridges */
+    radial-gradient(ellipse 80% 10% at 35% 82%, #314878 50%, transparent 55%),
+    radial-gradient(ellipse 75% 10% at 70% 84%, #2e4474 50%, transparent 55%),
+    /* far ridges, bluer */
+    radial-gradient(ellipse 120% 8% at 50% 72%, #6385b0 50%, transparent 55%),
+    radial-gradient(ellipse 70% 6% at 20% 68%, #7596be 50%, transparent 55%),
+    /* sky gradient: bright lavender->blue */
+    linear-gradient(180deg,
+      #c9c0e0 0%,
+      #b7afd6 18%,
+      #9aa2c9 38%,
+      #7a8fbe 58%,
+      #5d7ab2 75%,
+      #3f5d99 92%,
+      #2c4a82 100%);
+  z-index:0;
+}
+.desktop::before {
+  content:""; position:absolute; inset:0;
+  background:
+    /* tall jagged mountain peaks (foreground) */
+    radial-gradient(ellipse 22% 9% at 12% 84%, #142142 60%, transparent 61%),
+    radial-gradient(ellipse 28% 11% at 35% 88%, #142440 60%, transparent 61%),
+    radial-gradient(ellipse 24% 10% at 58% 86%, #131f3e 60%, transparent 61%),
+    radial-gradient(ellipse 30% 12% at 82% 88%, #132142 60%, transparent 61%),
+    /* mid pointed peaks */
+    radial-gradient(ellipse 12% 6% at 25% 78%, #2a3e6e 65%, transparent 66%),
+    radial-gradient(ellipse 14% 6% at 48% 76%, #2c416f 65%, transparent 66%),
+    radial-gradient(ellipse 13% 6% at 70% 77%, #2b3f6e 65%, transparent 66%);
+  pointer-events:none;
+}
+
+/* --- Menu bar --- */
+.menubar {
+  position:fixed; top:0; left:0; right:0; height:22px;
+  background:linear-gradient(180deg, rgba(245,245,247,0.88) 0%, rgba(225,225,230,0.85) 100%);
+  border-bottom:1px solid rgba(0,0,0,0.18);
+  backdrop-filter:blur(20px);
+  display:flex; align-items:center; padding:0 8px;
+  font-size:13px; color:#1d1d1f; z-index:1000;
+  box-shadow:0 1px 0 rgba(255,255,255,0.5) inset;
+}
+.menubar .left, .menubar .right { display:flex; align-items:center; gap:14px; }
+.menubar .right { margin-left:auto; gap:12px; }
+.menubar .apple { width:14px; height:14px; display:inline-block; vertical-align:-2px; }
+.menubar .app-name { font-weight:600; }
+.menubar .right .ico { width:15px; height:13px; vertical-align:-2px; }
+.menubar .right .battery-pct { font-size:12px; }
+.menubar .right .clock { font-size:12px; }
+.menubar .right .site { font-size:12px; color:#1d1d1f; }
+
+/* --- Dock --- */
+.dock-wrap {
+  position:fixed; z-index:900;
+  display:flex; align-items:center; justify-content:center;
+  pointer-events:none;
+}
+.dock {
+  display:flex; align-items:flex-end; gap:5px;
+  background:linear-gradient(180deg, rgba(245,245,250,0.55) 0%, rgba(200,200,215,0.45) 100%);
+  border:1px solid rgba(255,255,255,0.45);
+  box-shadow:
+    0 8px 24px rgba(0,0,0,0.35),
+    inset 0 1px 0 rgba(255,255,255,0.65),
+    inset 0 -1px 0 rgba(0,0,0,0.15);
+  backdrop-filter:blur(30px);
+  padding:5px 8px 4px 8px;
+  pointer-events:auto;
+}
+
+/* primary dock — position controlled by data attr */
+.dock-wrap.primary {}
+body[data-dock-position="bottom"] .dock-wrap.primary {
+  left:0; right:0; bottom:6px;
+}
+body[data-dock-position="bottom"] .dock-wrap.primary .dock {
+  flex-direction:row; border-radius:14px;
+}
+body[data-dock-position="left"] .dock-wrap.primary {
+  left:6px; top:22px; bottom:0;
+  flex-direction:column;
+}
+body[data-dock-position="left"] .dock-wrap.primary .dock {
+  flex-direction:column; border-radius:14px;
+  padding:8px 4px 8px 6px;
+  align-items:flex-start;
+}
+body[data-dock-position="right"] .dock-wrap.primary {
+  right:6px; top:22px; bottom:0;
+  flex-direction:column;
+}
+body[data-dock-position="right"] .dock-wrap.primary .dock {
+  flex-direction:column; border-radius:14px;
+  padding:8px 6px 8px 4px;
+  align-items:flex-end;
+}
+
+/* preview side docks (always visible in the reference layout) */
+.dock-wrap.preview-left {
+  left:6px; top:50px; bottom:80px;
+  flex-direction:column; align-items:flex-start;
+}
+.dock-wrap.preview-left .dock {
+  flex-direction:column; border-radius:14px;
+  padding:6px 4px;
+  align-items:center;
+  gap:3px;
+}
+.dock-wrap.preview-right {
+  right:6px; top:50px; bottom:80px;
+  flex-direction:column; align-items:flex-end;
+}
+.dock-wrap.preview-right .dock {
+  flex-direction:column; border-radius:14px;
+  padding:6px 4px;
+  align-items:center;
+  gap:3px;
+}
+.dock-wrap.preview-left .dock-ico,
+.dock-wrap.preview-right .dock-ico { width:34px; height:34px; }
+.dock-wrap.preview-left .dock-ico.sep,
+.dock-wrap.preview-right .dock-ico.sep {
+  width:24px; height:1px; margin:2px 0;
+}
+
+/* When primary dock is on a side, hide the matching preview dock to avoid stacking */
+body[data-dock-position="left"]  .dock-wrap.preview-left  { display:none; }
+body[data-dock-position="right"] .dock-wrap.preview-right { display:none; }
+
+.dock-ico {
+  width:48px; height:48px; position:relative;
+  transition:transform 0.18s cubic-bezier(.2,.7,.3,1.3);
+  transform-origin:bottom center;
+  cursor:pointer;
+}
+body[data-dock-position="left"] .dock-ico { transform-origin:left center; }
+body[data-dock-position="right"] .dock-ico { transform-origin:right center; }
+.dock-ico:hover { transform:scale(1.35) translateY(-6px); }
+body[data-dock-position="left"] .dock-ico:hover  { transform:scale(1.35) translateX(6px); }
+body[data-dock-position="right"] .dock-ico:hover { transform:scale(1.35) translateX(-6px); }
+.dock-ico svg { width:100%; height:100%; display:block;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,0.35)); }
+.dock-ico.sep {
+  width:1px; height:42px; margin:0 4px; background:rgba(0,0,0,0.2);
+  box-shadow:1px 0 0 rgba(255,255,255,0.4);
+  cursor:default;
+}
+.dock-ico.sep:hover { transform:none; }
+.dock-ico .running {
+  position:absolute; bottom:-3px; left:50%; transform:translateX(-50%);
+  width:4px; height:4px; border-radius:50%; background:rgba(40,40,40,0.85);
+  box-shadow:0 0 2px rgba(0,0,0,0.5);
+}
+body[data-dock-position="left"]  .dock-ico .running { bottom:auto; left:auto; right:-3px; top:50%; transform:translateY(-50%); }
+body[data-dock-position="right"] .dock-ico .running { bottom:auto; left:-3px; top:50%; transform:translateY(-50%); }
+
+/* --- Window (System Preferences > Dock) --- */
+.window {
+  position:fixed; top:46px; left:50%; transform:translateX(-50%);
+  width:520px;
+  background:linear-gradient(180deg, #ececec 0%, #d8d8d8 100%);
+  border:1px solid rgba(0,0,0,0.4);
+  border-radius:6px;
+  box-shadow:0 22px 60px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.25);
+  z-index:800;
+  overflow:hidden;
+}
+.titlebar {
+  height:22px; display:flex; align-items:center;
+  background:linear-gradient(180deg, #e8e8e8 0%, #c8c8c8 100%);
+  border-bottom:1px solid #a0a0a0;
+  position:relative;
+  padding:0 8px;
+}
+.traffic { display:flex; gap:8px; }
+.traffic .light {
+  width:12px; height:12px; border-radius:50%;
+  border:0.5px solid rgba(0,0,0,0.25);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -1px 0 rgba(0,0,0,0.2);
+}
+.traffic .red    { background:radial-gradient(circle at 35% 30%, #ff8a86, #fc5b57 70%); }
+.traffic .yellow { background:radial-gradient(circle at 35% 30%, #ffd97a, #f4b740 70%); }
+.traffic .green  { background:radial-gradient(circle at 35% 30%, #9bea84, #4dc448 70%); }
+.titlebar .title {
+  position:absolute; left:0; right:0; text-align:center;
+  font-size:13px; font-weight:600; color:#3a3a3a;
+}
+
+.toolbar {
+  display:flex; align-items:center; gap:10px;
+  padding:8px 12px;
+  background:linear-gradient(180deg, #e0e0e0 0%, #cfcfcf 100%);
+  border-bottom:1px solid #a8a8a8;
+}
+.btn-showall {
+  font-size:12px; padding:2px 10px;
+  background:linear-gradient(180deg, #fafafa 0%, #d9d9d9 100%);
+  border:1px solid #888; border-radius:4px;
+  color:#222;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.7);
+  display:inline-flex; align-items:center; gap:4px;
+}
+.btn-showall::before { content:"\25C0"; font-size:9px; color:#555; }
+.search {
+  margin-left:auto;
+  display:flex; align-items:center;
+  background:#fff;
+  border:1px solid #aaa;
+  border-radius:11px;
+  padding:1px 8px;
+  width:170px; height:18px;
+  box-shadow:inset 0 1px 1px rgba(0,0,0,0.1);
+}
+.search::before { content:"\1F50D"; font-size:10px; margin-right:4px; color:#888; }
+.search input { border:0; outline:0; background:transparent; width:100%; font-size:12px; }
+
+.panel-body { padding:18px 22px 16px; background:#ececec; font-size:12px; position:relative; }
+.row {
+  display:flex; align-items:center; gap:10px;
+  margin-bottom:12px;
+}
+.row .label {
+  width:135px; text-align:right; color:#222; font-size:12px;
+}
+.row .control { flex:1; display:flex; align-items:center; gap:8px; }
+.row.row-block { align-items:flex-start; }
+.row.row-block .label { padding-top:2px; }
+
+.slider {
+  flex:1; height:14px; position:relative; display:flex; align-items:center; gap:4px;
+}
+.slider .track {
+  position:absolute; left:34px; right:34px; top:6px; height:2px;
+  background:linear-gradient(180deg, #999 0%, #c4c4c4 100%);
+  border-radius:1px;
+}
+.slider .knob {
+  width:14px; height:14px; border-radius:50%;
+  background:radial-gradient(circle at 35% 30%, #fff, #cfcfcf 80%);
+  border:0.5px solid #888;
+  position:relative; z-index:2;
+  box-shadow:0 1px 2px rgba(0,0,0,0.3);
+}
+.slider .end {
+  font-size:10.5px; color:#444; width:30px; flex-shrink:0;
+}
+.slider .end.l { text-align:right; }
+.slider .end.r { text-align:left; }
+.slider .bar-area { flex:1; position:relative; height:14px; display:flex; align-items:center; }
+
+.checkbox {
+  width:13px; height:13px; border-radius:3px;
+  background:linear-gradient(180deg, #fff 0%, #e2e2e2 100%);
+  border:1px solid #888;
+  display:inline-flex; align-items:center; justify-content:center;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.8);
+  flex-shrink:0;
+}
+.checkbox.checked {
+  background:linear-gradient(180deg, #6cb1ff 0%, #2d75e4 100%);
+  border-color:#2860c4;
+  color:#fff;
+}
+.checkbox.checked::after {
+  content:"\2713"; font-size:11px; color:#fff; line-height:1;
+  font-weight:bold;
+}
+
+.radio {
+  width:14px; height:14px; border-radius:50%;
+  background:linear-gradient(180deg, #fff 0%, #e0e0e0 100%);
+  border:1px solid #888;
+  position:relative; cursor:pointer;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.8);
+  flex-shrink:0;
+}
+.radio.checked {
+  background:linear-gradient(180deg, #6cb1ff 0%, #2d75e4 100%);
+  border-color:#2860c4;
+}
+.radio.checked::after {
+  content:""; position:absolute; top:50%; left:50%;
+  width:5px; height:5px; border-radius:50%;
+  background:#fff; transform:translate(-50%,-50%);
+}
+.radio-label { font-size:12px; color:#222; cursor:pointer; margin-right:14px; }
+
+.select {
+  display:inline-flex; align-items:center;
+  background:linear-gradient(180deg, #fafafa 0%, #d8d8d8 100%);
+  border:1px solid #888; border-radius:4px;
+  font-size:12px; padding:1px 22px 1px 8px;
+  position:relative; min-width:90px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.7);
+}
+.select::after {
+  content:""; position:absolute; right:4px; top:0; bottom:0;
+  width:14px;
+  background:linear-gradient(180deg, #4a90ff 0%, #2870e0 100%);
+  border-left:1px solid #888;
+  border-radius:0 3px 3px 0;
+}
+.select::before {
+  content:"\25BE"; position:absolute; right:6px; top:50%; transform:translateY(-50%);
+  color:#fff; font-size:9px; z-index:2;
+}
+
+.checks-stack { display:flex; flex-direction:column; gap:6px; flex:1; }
+.checks-stack .ck { display:flex; align-items:center; gap:7px; font-size:12px; }
+
+.help-btn {
+  position:absolute; right:14px; bottom:12px;
+  width:18px; height:18px; border-radius:50%;
+  background:linear-gradient(180deg, #fafafa 0%, #d4d4d4 100%);
+  border:1px solid #888;
+  display:flex; align-items:center; justify-content:center;
+  font-size:12px; color:#444; font-style:italic; font-weight:600;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.7);
+}
+
+/* Red position arrows (overlay matching mac.jpg) */
+.arrow {
+  position:fixed; z-index:850; pointer-events:none;
+  fill:#ed2024;
+  filter:drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+}
+.arrow.left   { left:60px;  top:50%; transform:translateY(-50%); width:200px; height:54px; }
+.arrow.right  { right:60px; top:50%; transform:translateY(-50%); width:200px; height:54px; }
+.arrow.bottom { left:50%; bottom:90px; transform:translateX(-50%); width:54px; height:120px; }
+
+</style>
+</head>
+<body data-dock-position="bottom">
+
+<div class="desktop"></div>
+
+<!-- ====================== MENU BAR ====================== -->
+<div class="menubar">
+  <div class="left">
+    <svg class="apple" viewBox="0 0 24 24"><path fill="#1d1d1f" d="M17 1.5c0 1.5-.6 2.9-1.6 3.9-1 1-2.4 1.8-3.7 1.7-.2-1.4.5-2.9 1.4-3.8C14.1 2.3 15.6 1.6 17 1.5zM21 17.2c-.4 1-1 2-1.8 2.9-1.1 1.3-2.4 2.8-4 2.8-1.6 0-2-1-3.8-1-1.8 0-2.3 1-3.8 1-1.6 0-2.9-1.6-4-2.9-2.3-2.6-4-7.4-1.7-10.7 1.2-1.6 3.2-2.7 5.1-2.7 1.7 0 2.7 1 4 1 1.3 0 2.1-1 4-1 1.5 0 3.1.8 4.2 2.2-3.7 2-3.1 7.3.8 8.4z"/></svg>
+    <span class="app-name">System Preferences</span>
+    <span>Edit</span>
+    <span>View</span>
+    <span>Window</span>
+    <span>Help</span>
+  </div>
+  <div class="right">
+    <svg class="ico" viewBox="0 0 30 14"><rect x="0.5" y="1" width="25" height="12" rx="2" fill="none" stroke="#1d1d1f" stroke-width="1"/><rect x="2" y="2.5" width="22" height="9" fill="#1d1d1f"/><rect x="26" y="4" width="2.5" height="6" rx="0.5" fill="#1d1d1f"/></svg>
+    <span class="battery-pct">86%</span>
+    <svg class="ico" viewBox="0 0 16 12"><path fill="#1d1d1f" d="M8 0C5 0 2.3 1.05 0.3 2.8l1.4 1.4C3.4 2.8 5.6 1.9 8 1.9s4.6.9 6.3 2.3l1.4-1.4C13.7 1.05 11 0 8 0zm0 3.8C5.9 3.8 4 4.55 2.6 5.7l1.4 1.4C5 6.4 6.4 5.7 8 5.7s3 .7 4 1.4l1.4-1.4C12 4.55 10.1 3.8 8 3.8zm0 3.8c-1.1 0-2 .4-2.7 1L8 11l2.7-2.4c-.7-.6-1.6-1-2.7-1z"/></svg>
+    <svg class="ico" viewBox="0 0 16 14"><path fill="#1d1d1f" d="M0 4.5v5h3l4 3.5V1L3 4.5H0zm10.5 2.5c0-1.5-.85-2.8-2.1-3.4v6.8c1.25-.6 2.1-1.9 2.1-3.4zm-2.1-5.5v1.95C10.4 4.1 12 5.85 12 8s-1.6 3.9-3.6 4.55V14.5C11.55 13.75 14 11.15 14 8s-2.45-5.75-5.6-6.5z"/></svg>
+    <span class="clock">Fri 1:13 PM</span>
+    <span class="site">OSXDaily.com</span>
+  </div>
+</div>
+
+<!-- ====================== SYSTEM PREFERENCES > DOCK WINDOW ====================== -->
+<div class="window" id="sysprefs">
+  <div class="titlebar">
+    <div class="traffic">
+      <div class="light red"></div>
+      <div class="light yellow"></div>
+      <div class="light green"></div>
+    </div>
+    <div class="title">Dock</div>
+  </div>
+  <div class="toolbar">
+    <button class="btn-showall">Show All</button>
+    <div class="search"><input placeholder=""></div>
+  </div>
+  <div class="panel-body" style="padding-bottom:38px;">
+
+    <!-- Size -->
+    <div class="row">
+      <div class="label">Size:</div>
+      <div class="control">
+        <span class="slider" style="max-width:260px;">
+          <span class="end l">Small</span>
+          <span class="bar-area"><span class="track"></span><span class="knob" style="margin-left:30%"></span></span>
+          <span class="end r">Large</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- Magnification -->
+    <div class="row">
+      <div class="label"></div>
+      <div class="control">
+        <span class="checkbox"></span>
+        <span>Magnification:</span>
+        <span class="slider" style="max-width:200px;">
+          <span class="end l">Min</span>
+          <span class="bar-area"><span class="track"></span><span class="knob" style="margin-left:50%"></span></span>
+          <span class="end r">Max</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- Position on screen -->
+    <div class="row">
+      <div class="label">Position on screen:</div>
+      <div class="control">
+        <span class="radio" id="r-left"  onclick="setDock('left')"></span>
+        <span class="radio-label" onclick="setDock('left')">Left</span>
+        <span class="radio checked" id="r-bottom" onclick="setDock('bottom')"></span>
+        <span class="radio-label" onclick="setDock('bottom')">Bottom</span>
+        <span class="radio" id="r-right" onclick="setDock('right')"></span>
+        <span class="radio-label" onclick="setDock('right')">Right</span>
+      </div>
+    </div>
+
+    <!-- Minimize using -->
+    <div class="row">
+      <div class="label">Minimize windows using:</div>
+      <div class="control">
+        <span class="select">Genie effect</span>
+      </div>
+    </div>
+
+    <!-- Checkboxes block -->
+    <div class="row row-block">
+      <div class="label"></div>
+      <div class="checks-stack">
+        <div class="ck"><span class="checkbox"></span>Double-click a window&rsquo;s title bar to minimize</div>
+        <div class="ck"><span class="checkbox checked"></span>Minimize windows into application icon</div>
+        <div class="ck"><span class="checkbox checked"></span>Animate opening applications</div>
+        <div class="ck"><span class="checkbox"></span>Automatically hide and show the Dock</div>
+        <div class="ck"><span class="checkbox checked"></span>Show indicator lights for open applications</div>
+      </div>
+    </div>
+
+    <div class="help-btn">?</div>
+  </div>
+</div>
+
+<!-- ====================== DOCK ====================== -->
+<div class="dock-wrap primary">
+  <div class="dock" id="dock">
+
+    <!-- Finder -->
+    <div class="dock-ico" title="Finder">
+      <svg viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id="finderG" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#7eb8ff"/><stop offset="1" stop-color="#3477e0"/>
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="60" height="60" rx="13" fill="url(#finderG)"/>
+        <path d="M22 18 L22 30 M42 18 L42 30" stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none"/>
+        <path d="M22 42 Q32 50 42 42" stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none"/>
+      </svg>
+      <div class="running"></div>
+    </div>
+
+    <!-- Launchpad -->
+    <div class="dock-ico" title="Launchpad">
+      <svg viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id="lpG" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#d6d8dc"/><stop offset="1" stop-color="#8e94a1"/>
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="60" height="60" rx="13" fill="url(#lpG)"/>
+        <g fill="#fff" opacity="0.95">
+          <rect x="14" y="14" width="10" height="10" rx="2"/>
+          <rect x="27" y="14" width="10" height="10" rx="2"/>
+          <rect x="40" y="14" width="10" height="10" rx="2"/>
+          <rect x="14" y="27" width="10" height="10" rx="2"/>
+          <rect x="27" y="27" width="10" height="10" rx="2"/>
+          <rect x="40" y="27" width="10" height="10" rx="2"/>
+          <rect x="14" y="40" width="10" height="10" rx="2"/>
+          <rect x="27" y="40" width="10" height="10" rx="2"/>
+          <rect x="40" y="40" width="10" height="10" rx="2"/>
+        </g>
+      </svg>
+    </div>
+
+    <!-- Safari (compass) -->
+    <div class="dock-ico" title="Safari">
+      <svg viewBox="0 0 64 64">
+        <defs>
+          <radialGradient id="safariG" cx="0.5" cy="0.5" r="0.55">
+            <stop offset="0" stop-color="#e8f3ff"/><stop offset="1" stop-color="#5c9ddf"/>
+          </radialGradient>
+        </defs>
+        <circle cx="32" cy="32" r="28" fill="url(#safariG)" stroke="#3779b4" stroke-width="2"/>
+        <circle cx="32" cy="32" r="22" fill="#fdfdfd"/>
+        <g stroke="#666" stroke-width="1">
+          <line x1="32" y1="12" x2="32" y2="16"/>
+          <line x1="32" y1="48" x2="32" y2="52"/>
+          <line x1="12" y1="32" x2="16" y2="32"/>
+          <line x1="48" y1="32" x2="52" y2="32"/>
+        </g>
+        <polygon points="32,32 26,38 32,18" fill="#e23b3b"/>
+        <polygon points="32,32 38,26 32,46" fill="#fafafa" stroke="#777" stroke-width="0.5"/>
+        <circle cx="32" cy="32" r="2" fill="#222"/>
+      </svg>
+    </div>
+
+    <!-- Mail -->
+    <div class="dock-ico" title="Mail">
+      <svg viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id="mailG" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#a0d8ff"/><stop offset="1" stop-color="#3a8fdc"/>
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="60" height="60" rx="13" fill="url(#mailG)"/>
+        <rect x="10" y="20" width="44" height="26" rx="3" fill="#fff" stroke="#2a6db0" stroke-width="1"/>
+        <path d="M10 20 L32 38 L54 20" stroke="#2a6db0" stroke-width="2" fill="none"/>
+      </svg>
+    </div>
+
+    <!-- Contacts (address book) -->
+    <div class="dock-ico" title="Contacts">
+      <svg viewBox="0 0 64 64">
+        <rect x="6" y="6" width="52" height="52" rx="6" fill="#c9a982"/>
+        <rect x="10" y="10" width="44" height="44" rx="2" fill="#fff7ec"/>
+        <line x1="32" y1="10" x2="32" y2="54" stroke="#7a5a32" stroke-width="1.5"/>
+        <circle cx="22" cy="26" r="4" fill="#7a5a32"/>
+        <path d="M16 38 Q22 32 28 38" stroke="#7a5a32" stroke-width="1.5" fill="none"/>
+      </svg>
+    </div>
+
+    <!-- Calendar (13) -->
+    <div class="dock-ico" title="Calendar">
+      <svg viewBox="0 0 64 64">
+        <rect x="4" y="6" width="56" height="52" rx="6" fill="#fff" stroke="#bbb" stroke-width="1"/>
+        <rect x="4" y="6" width="56" height="14" rx="6" fill="#e23b3b"/>
+        <text x="32" y="17" text-anchor="middle" fill="#fff" font-size="9" font-weight="700" font-family="Helvetica">FRIDAY</text>
+        <text x="32" y="49" text-anchor="middle" fill="#222" font-size="32" font-weight="300" font-family="Helvetica">13</text>
+      </svg>
+      <div class="running"></div>
+    </div>
+
+    <!-- Photos (rainbow flower) -->
+    <div class="dock-ico" title="Photos">
+      <svg viewBox="0 0 64 64">
+        <rect x="2" y="2" width="60" height="60" rx="13" fill="#fafafa"/>
+        <g transform="translate(32 32)">
+          <ellipse cx="0" cy="-12" rx="6" ry="11" fill="#fbb13b"/>
+          <ellipse cx="0" cy="-12" rx="6" ry="11" fill="#e54040" transform="rotate(72)"/>
+          <ellipse cx="0" cy="-12" rx="6" ry="11" fill="#a64ad1" transform="rotate(144)"/>
+          <ellipse cx="0" cy="-12" rx="6" ry="11" fill="#3aa3e8" transform="rotate(216)"/>
+          <ellipse cx="0" cy="-12" rx="6" ry="11" fill="#3cc06f" transform="rotate(288)"/>
+        </g>
+      </svg>
+    </div>
+
+    <!-- FaceTime -->
+    <div class="dock-ico" title="FaceTime">
+      <svg viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id="ftG" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#7fe05c"/><stop offset="1" stop-color="#2fa83f"/>
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="60" height="60" rx="13" fill="url(#ftG)"/>
+        <rect x="12" y="20" width="30" height="24" rx="4" fill="#fff"/>
+        <polygon points="42,28 54,22 54,42 42,36" fill="#fff"/>
+      </svg>
+    </div>
+
+    <!-- Messages (green bubble) -->
+    <div class="dock-ico" title="Messages">
+      <svg viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id="msgG" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#7be064"/><stop offset="1" stop-color="#26a93a"/>
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="60" height="60" rx="13" fill="#fafafa"/>
+        <path d="M10 26 Q10 14 24 14 L40 14 Q54 14 54 26 Q54 38 40 38 L26 38 L16 46 L20 38 Q10 36 10 26 Z" fill="url(#msgG)"/>
+      </svg>
+    </div>
+
+    <!-- Maps -->
+    <div class="dock-ico" title="Maps">
+      <svg viewBox="0 0 64 64">
+        <rect x="2" y="2" width="60" height="60" rx="13" fill="#e9ddc4"/>
+        <path d="M6 18 L24 12 L40 18 L58 12 L58 50 L40 56 L24 50 L6 56 Z" fill="#cde6a8"/>
+        <path d="M24 12 L24 50 M40 18 L40 56" stroke="#a8b88a" stroke-width="1" fill="none"/>
+        <path d="M14 30 Q28 30 32 38 Q36 46 50 42" stroke="#e23b3b" stroke-width="2" fill="none"/>
+        <circle cx="14" cy="30" r="2.5" fill="#3477e0"/>
+        <circle cx="50" cy="42" r="2.5" fill="#e23b3b"/>
+      </svg>
+    </div>
+
+    <!-- iTunes (music) -->
+    <div class="dock-ico" title="iTunes">
+      <svg viewBox="0 0 64 64">
+        <defs>
+          <radialGradient id="itG" cx="0.5" cy="0.4" r="0.6">
+            <stop offset="0" stop-color="#ff7aa6"/><stop offset="1" stop-color="#c12d6c"/>
+          </radialGradient>
+        </defs>
+        <circle cx="32" cy="32" r="29" fill="url(#itG)"/>
+        <circle cx="32" cy="32" r="29" fill="none" stroke="#7a1840" stroke-width="1"/>
+        <path d="M28 18 L46 14 L46 40" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <ellipse cx="26" cy="42" rx="6" ry="5" fill="#fff"/>
+        <ellipse cx="44" cy="40" rx="6" ry="5" fill="#fff"/>
+      </svg>
+    </div>
+
+    <!-- App Store -->
+    <div class="dock-ico" title="App Store">
+      <svg viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id="asG" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#5fbbff"/><stop offset="1" stop-color="#1d6fd0"/>
+          </linearGradient>
+        </defs>
+        <circle cx="32" cy="32" r="29" fill="url(#asG)"/>
+        <path d="M22 44 L32 22 L42 44 M26 36 L38 36" stroke="#fff" stroke-width="4" stroke-linecap="round" fill="none"/>
+      </svg>
+    </div>
+
+    <!-- Notes -->
+    <div class="dock-ico" title="Notes">
+      <svg viewBox="0 0 64 64">
+        <rect x="6" y="4" width="52" height="56" rx="3" fill="#fff8b8"/>
+        <rect x="6" y="4" width="52" height="10" fill="#e8c64a"/>
+        <line x1="14" y1="24" x2="50" y2="24" stroke="#caa747" stroke-width="0.8"/>
+        <line x1="14" y1="32" x2="50" y2="32" stroke="#caa747" stroke-width="0.8"/>
+        <line x1="14" y1="40" x2="50" y2="40" stroke="#caa747" stroke-width="0.8"/>
+        <line x1="14" y1="48" x2="42" y2="48" stroke="#caa747" stroke-width="0.8"/>
+      </svg>
+    </div>
+
+    <!-- separator -->
+    <div class="dock-ico sep"></div>
+
+    <!-- Documents folder -->
+    <div class="dock-ico" title="Documents">
+      <svg viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id="folG" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#9fc5ec"/><stop offset="1" stop-color="#5896d3"/>
+          </linearGradient>
+        </defs>
+        <path d="M6 18 L26 18 L30 22 L58 22 L58 52 L6 52 Z" fill="url(#folG)" stroke="#3a78b8" stroke-width="1"/>
+      </svg>
+    </div>
+
+    <!-- Downloads folder -->
+    <div class="dock-ico" title="Downloads">
+      <svg viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id="dlG" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#3a3a3a"/><stop offset="1" stop-color="#181818"/>
+          </linearGradient>
+        </defs>
+        <circle cx="32" cy="32" r="28" fill="url(#dlG)"/>
+        <path d="M32 14 L32 40 M22 32 L32 42 L42 32" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="18" y1="48" x2="46" y2="48" stroke="#fff" stroke-width="2"/>
+      </svg>
+    </div>
+
+    <!-- Trash -->
+    <div class="dock-ico" title="Trash">
+      <svg viewBox="0 0 64 64">
+        <path d="M18 22 L46 22 L43 56 L21 56 Z" fill="#e8eaef" stroke="#a8aab0" stroke-width="1"/>
+        <line x1="26" y1="28" x2="27" y2="50" stroke="#9a9ca0" stroke-width="1.4"/>
+        <line x1="32" y1="28" x2="32" y2="50" stroke="#9a9ca0" stroke-width="1.4"/>
+        <line x1="38" y1="28" x2="37" y2="50" stroke="#9a9ca0" stroke-width="1.4"/>
+        <rect x="14" y="16" width="36" height="6" rx="2" fill="#cfd1d6" stroke="#888" stroke-width="0.8"/>
+        <rect x="28" y="12" width="8" height="6" rx="1.5" fill="#cfd1d6" stroke="#888" stroke-width="0.8"/>
+      </svg>
+    </div>
+
+  </div>
+</div>
+
+<!-- ====================== POSITION-ARROW OVERLAY (matches mac.jpg) ====================== -->
+<svg class="arrow left" viewBox="0 0 170 60" preserveAspectRatio="none">
+  <polygon points="0,30 50,5 50,20 170,20 170,40 50,40 50,55"/>
+</svg>
+<svg class="arrow right" viewBox="0 0 170 60" preserveAspectRatio="none">
+  <polygon points="170,30 120,5 120,20 0,20 0,40 120,40 120,55"/>
+</svg>
+<svg class="arrow bottom" viewBox="0 0 60 130" preserveAspectRatio="none">
+  <polygon points="30,130 5,80 20,80 20,0 40,0 40,80 55,80"/>
+</svg>
+
+<!-- Preview side docks (clones of primary, visible in reference layout) -->
+<div class="dock-wrap preview-left">
+  <div class="dock" id="dock-left-preview"></div>
+</div>
+<div class="dock-wrap preview-right">
+  <div class="dock" id="dock-right-preview"></div>
+</div>
+
+<script>
+function setDock(pos){
+  document.body.setAttribute('data-dock-position', pos);
+  document.getElementById('r-left').classList.toggle('checked', pos==='left');
+  document.getElementById('r-bottom').classList.toggle('checked', pos==='bottom');
+  document.getElementById('r-right').classList.toggle('checked', pos==='right');
+}
+// Clone the primary dock into the side previews so all three are visible like in mac.jpg.
+(function cloneDocks(){
+  var src = document.getElementById('dock');
+  if (!src) return;
+  ['dock-left-preview','dock-right-preview'].forEach(function(id){
+    var dst = document.getElementById(id);
+    if (!dst) return;
+    Array.prototype.forEach.call(src.children, function(child){
+      var c = child.cloneNode(true);
+      // strip running dots in previews for cleanliness
+      Array.prototype.forEach.call(c.querySelectorAll('.running'), function(r){ r.remove(); });
+      dst.appendChild(c);
+    });
+  });
+})();
+</script>
+</body>
+</html>

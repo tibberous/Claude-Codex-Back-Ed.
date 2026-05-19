@@ -1,0 +1,41 @@
+loaded en.xml: 91 keys
+will translate into 37 locales: zh, hi, es, fr, bn, ru, pt, ur, id, de, ja, sw, mr, vi, te, ha, tr, pa, tl, ta, yue, ko, fa, it, pl, uk, nl, ro, th, el, cs, hu, sv, fi, he, nb, da
+  [ 1/37]   zh  OK  13.2s  translated=91/91  -> zh.xml
+  [ 2/37]   hi  OK  19.4s  translated=91/91  -> hi.xml
+  [ 3/37]   es  OK  11.6s  translated=91/91  -> es.xml
+  [ 4/37]   fr  OK  12.1s  translated=91/91  -> fr.xml
+  [ 5/37]   bn  OK  22.9s  translated=91/91  -> bn.xml
+  [ 6/37]   ru  OK  17.4s  translated=91/91  -> ru.xml
+  [ 7/37]   pt  OK  16.0s  translated=91/91  -> pt.xml
+  [ 8/37]   ur  OK  23.6s  translated=91/91  -> ur.xml
+  [ 9/37]   id  OK  12.9s  translated=91/91  -> id.xml
+  [10/37]   de  OK  19.3s  translated=91/91  -> de.xml
+  [11/37]   ja  OK  17.6s  translated=91/91  -> ja.xml
+  [12/37]   sw  OK  30.4s  translated=91/91  -> sw.xml
+  [13/37]   mr  OK  25.8s  translated=91/91  -> mr.xml
+  [14/37]   vi  OK  16.9s  translated=91/91  -> vi.xml
+  [15/37]   te  OK  41.6s  translated=91/91  -> te.xml
+  [16/37]   ha  OK  23.9s  translated=91/91  -> ha.xml
+  [17/37]   tr  OK  19.5s  translated=91/91  -> tr.xml
+  [18/37]   pa  OK  64.0s  translated=91/91  -> pa.xml
+  [19/37]   tl  OK  20.5s  translated=91/91  -> tl.xml
+  [20/37]   ta  OK  38.7s  translated=91/91  -> ta.xml
+  [21/37]  yue  OK  13.0s  translated=91/91  -> yue.xml
+  [22/37]   ko  OK  13.1s  translated=91/91  -> ko.xml
+  [23/37]   fa  OK  22.5s  translated=91/91  -> fa.xml
+  [24/37]   it  OK  12.8s  translated=91/91  -> it.xml
+  [25/37]   pl  OK  22.7s  translated=91/91  -> pl.xml
+  [26/37]   uk  OK  15.0s  translated=91/91  -> uk.xml
+  [27/37]   nl  OK  12.8s  translated=91/91  -> nl.xml
+  [28/37]   ro  OK  18.5s  translated=91/91  -> ro.xml
+  [29/37]   th  OK  27.0s  translated=91/91  -> th.xml
+  [30/37]   el  OK  23.0s  translated=91/91  -> el.xml
+  [31/37]   cs  OK  13.7s  translated=91/91  -> cs.xml
+  [32/37]   hu  OK  21.0s  translated=91/91  -> hu.xml
+  [33/37]   sv  OK  13.2s  translated=91/91  -> sv.xml
+  [34/37]   fi  OK  18.1s  translated=91/91  -> fi.xml
+  [35/37]   he  OK  24.8s  translated=91/91  -> he.xml
+  [36/37]   nb  OK  14.3s  translated=91/91  -> nb.xml
+  [37/37]   da  OK  17.2s  translated=91/91  -> da.xml
+
+done. translated 37 locales.

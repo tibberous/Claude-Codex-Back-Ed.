@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension id="calculator" version="0.1.0">
+  <name>Calculator</name>
+  <author>tibberous</author>
+  <description>Standard four-function calculator. Keyboard + click input. Self-contained HTML, no dependencies.</description>
+  <created>2026-05-14</created>
+  <url>https://trentontompkins.com/cbe/extension/extensions/calculator.ext</url>
+  <entry>extension.html</entry>
+  <icon>🧮</icon>
+  <min_core>1.0.0</min_core>
+  <tag>tools</tag>
+  <tag>math</tag>
+</extension>

@@ -1,0 +1,114 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Minesweeper</title>
+<style>
+  body { font-family: "Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", ui-monospace, Consolas, monospace;
+         background: #1c1f24; color: #e7eaef; margin: 0; padding: 16px; user-select: none; }
+  h3 { margin: 0 0 8px 0; text-align: center; }
+  #info { text-align: center; margin-bottom: 8px; font-size: 13px; color: #b9bec7; }
+  #grid { display: grid; gap: 2px; margin: 0 auto; width: max-content;
+          grid-template-columns: repeat(9, 28px); }
+  .cell { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+          font-weight: 600; font-size: 14px;
+          font-family: "Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", ui-monospace, Consolas, monospace;
+          background: #3a414c; color: #e7eaef; cursor: pointer; border: 1px solid #4a525e; }
+  .cell.revealed { background: #1c1f24; border-color: #2b313b; cursor: default; }
+  .cell.mine { background: #5b2828; color: #ffb8b8; }
+  .cell.flag { color: #ffd84d; }
+  .n1 { color: #6fb0ff; } .n2 { color: #7fd58a; } .n3 { color: #ff8a8a; }
+  .n4 { color: #c08aff; } .n5 { color: #ff8a4a; } .n6 { color: #4adcff; }
+  button { display: block; margin: 8px auto 0; padding: 6px 12px; background: #2b313b;
+           color: #e7eaef; border: 1px solid #3a414c; border-radius: 6px; cursor: pointer;
+           font: 13px ui-monospace; }
+</style>
+<h3>Minesweeper</h3>
+<div id="info">Flags: <span id="flags">0</span>/10 · <span id="status">…</span></div>
+<div id="grid"></div>
+<button id="reset">Reset</button>
+<script>
+  (function () {
+    const W = 9, H = 9, MINES = 10;
+    const grid = document.getElementById('grid');
+    const flagsEl = document.getElementById('flags');
+    const statusEl = document.getElementById('status');
+    let board, revealed, flagged, dead, won;
+
+    function init() {
+      board = Array.from({length: H}, () => Array(W).fill(0));
+      revealed = Array.from({length: H}, () => Array(W).fill(false));
+      flagged = Array.from({length: H}, () => Array(W).fill(false));
+      dead = false; won = false;
+      let placed = 0;
+      while (placed < MINES) {
+        const x = Math.floor(Math.random() * W), y = Math.floor(Math.random() * H);
+        if (board[y][x] === -1) continue;
+        board[y][x] = -1; placed++;
+      }
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        if (board[y][x] === -1) continue;
+        let c = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          if (board[ny][nx] === -1) c++;
+        }
+        board[y][x] = c;
+      }
+      render();
+    }
+
+    function reveal(x, y) {
+      if (dead || won) return;
+      if (revealed[y][x] || flagged[y][x]) return;
+      revealed[y][x] = true;
+      if (board[y][x] === -1) {
+        dead = true;
+        for (let yy = 0; yy < H; yy++) for (let xx = 0; xx < W; xx++)
+          if (board[yy][xx] === -1) revealed[yy][xx] = true;
+        return;
+      }
+      if (board[y][x] === 0) {
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          reveal(nx, ny);
+        }
+      }
+    }
+
+    function checkWin() {
+      let safe = 0;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        if (board[y][x] !== -1 && revealed[y][x]) safe++;
+      }
+      if (safe === W * H - MINES) won = true;
+    }
+
+    function render() {
+      grid.innerHTML = '';
+      let flagCount = 0;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const c = document.createElement('div');
+        c.className = 'cell';
+        if (flagged[y][x]) { flagCount++; c.classList.add('flag'); c.textContent = '🚩'; }
+        if (revealed[y][x]) {
+          c.classList.add('revealed');
+          if (board[y][x] === -1) { c.classList.add('mine'); c.textContent = '💣'; }
+          else if (board[y][x] > 0) { c.classList.add('n' + board[y][x]); c.textContent = board[y][x]; }
+        }
+        c.oncontextmenu = (e) => {
+          e.preventDefault();
+          if (dead || won || revealed[y][x]) return;
+          flagged[y][x] = !flagged[y][x];
+          render();
+        };
+        c.onclick = () => { reveal(x, y); checkWin(); render(); };
+        grid.appendChild(c);
+      }
+      flagsEl.textContent = flagCount;
+      statusEl.textContent = dead ? '💥 BOOM' : (won ? '🎉 WIN' : 'playing');
+    }
+    document.getElementById('reset').onclick = init;
+    init();
+  })();
+</script>

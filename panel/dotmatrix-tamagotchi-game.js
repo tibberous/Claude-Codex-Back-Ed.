@@ -24,6 +24,12 @@
 
     if (global.TamagotchiGame) return;
 
+    /* Lifecycle stage order. Index 0 = pre-hatch egg, last = senior; then
+       "dead" is the terminal state (not in this list — flipping isAlive
+       handles it). Defined before the class so constructor references
+       resolve. Also exposed as `TamagotchiGame.STAGES` after definition. */
+    const STAGES = ["egg", "baby", "child", "teen", "adult", "senior"];
+
     class TamagotchiGame {
         constructor(matrix, sprites, opts) {
             opts = opts || {};
@@ -46,6 +52,28 @@
             this.poopSpritesOnScreen = opts.poopSpritesOnScreen ?? 0;
             this.lastFeedTime = Date.now();
             this.feedCooldown = 5000;  // 5s after feeding before poop chance
+
+            /* ──── Lifecycle stage machine ──────────────────────────────
+               Stages advance with age (in real minutes since hatch). Each
+               stage maps to a sprite-family override layered on top of
+               mood/action animation selection. The egg stage is a
+               pre-hatch state during which mood animations are suppressed
+               in favour of the egg-wobble animation; once hatched, mood
+               drives animation and the stage picks the body sprite. */
+            this.stages = STAGES;
+            this.stage = opts.stage || "egg";
+            /* Per-stage age thresholds in minutes — total lifecycle ~22 min
+               at default rates. Tunable via opts.stageMinutes. */
+            this.stageMinutes = Object.assign({
+                egg:    2,   // hatches after 2 min
+                baby:   4,   // → child at age 6
+                child:  6,   // → teen at age 12
+                teen:   5,   // → adult at age 17
+                adult:  8,   // → senior at age 25
+                senior: 15,  // dies of old age at age 40
+            }, opts.stageMinutes || {});
+            this._lastStage = this.stage;
+            this._stageJingleQueued = false;
 
             // Animation override — when set (e.g. "eating"), takes priority over
             // mood-based animation for `eatingMs`. Decays each tick.
@@ -101,6 +129,7 @@
                 isSleeping: this.isSleeping,
                 isAlive: this.isAlive,
                 poopSpritesOnScreen: this.poopSpritesOnScreen,
+                stage: this.stage,
                 savedAt: Date.now(),
             };
         }
@@ -125,7 +154,10 @@
                 const data = JSON.parse(raw);
                 if (!data || typeof data !== "object") return null;
                 /* Decay stats based on real time elapsed since save so the pet
-                   feels "alive" between sessions. Same rates as tick(). */
+                   feels "alive" between sessions. Same rates as tick().
+                   Decay is in units/min, NOT units/tick — tick() multiplies
+                   by tickMs/60_000 so loadState() can use raw elapsedMin
+                   directly without re-deriving the per-tick constants. */
                 const elapsedMs = Math.max(0, Date.now() - (data.savedAt || Date.now()));
                 const elapsedMin = elapsedMs / 60000;
                 /* per-minute decay constants — match tick() decay scaled to 1 min */
@@ -133,6 +165,9 @@
                 data.happiness   = Math.max(0, (data.happiness   ?? 100) - 0.10 * elapsedMin);
                 data.health      = Math.max(0, (data.health      ?? 100) - 0.05 * elapsedMin);
                 data.cleanliness = Math.max(0, (data.cleanliness ?? 100) - 0.08 * elapsedMin);
+                /* Age the pet by real elapsed minutes — lifecycle progresses
+                   while the panel is closed (otherwise it feels frozen). */
+                data.age = (data.age ?? 0) + elapsedMin;
                 /* Death from offline starvation/sickness is possible. */
                 if (data.hunger <= 0 || data.health <= 0) data.isAlive = false;
                 return data;
@@ -421,7 +456,7 @@
         light() { this.toggleLight(); }
 
         /* Reset the world — UI wires this to a "Hatch new" button when the
-           creature dies. */
+           creature dies. Lifecycle restarts at egg. */
         reset() {
             this.hunger = 100;
             this.happiness = 100;
@@ -436,18 +471,74 @@
             this.animationOverrideUntil = 0;
             this._deathSfxPlayed = false;
             this.lastFeedTime = Date.now();
+            this.stage = "egg";
+            this._lastStage = "egg";
             this.saveState();
         }
 
         /* ──── State & Animation ──── */
+
+        /* Walk the stage table, return the stage name for the current
+           age. Drives both visual override and stage-transition jingles. */
+        stageForAge(age) {
+            const order = STAGES;
+            let cumulative = 0;
+            for (const s of order) {
+                cumulative += this.stageMinutes[s] || 0;
+                if (age < cumulative) return s;
+            }
+            /* Past the senior window → dies of old age. The caller is
+               responsible for flipping isAlive when this returns "dead". */
+            return "dead";
+        }
+
+        /* Advance the lifecycle stage when age crosses a threshold. Plays
+           a stage-up jingle and queues a "happy" override so the pet
+           visibly reacts. Senior → dead flips isAlive. */
+        advanceStageIfDue() {
+            if (!this.isAlive) return;
+            const next = this.stageForAge(this.age);
+            if (next === this._lastStage) return;
+            /* Old age — terminal stage transition kills the pet. */
+            if (next === "dead") {
+                this.isAlive = false;
+                if (!this._deathSfxPlayed) {
+                    this.sfxDeath();
+                    this._deathSfxPlayed = true;
+                }
+                this.stage = "dead";
+                this._lastStage = "dead";
+                this.saveState();
+                if (typeof this.onDeath === "function") {
+                    try { this.onDeath(this); } catch (e) { /* ignore */ }
+                }
+                return;
+            }
+            this.stage = next;
+            this._lastStage = next;
+            this.sfxStageUp();
+            /* Bump happiness on hatch / growth (the pet celebrates). */
+            this.happiness = Math.min(100, this.happiness + 15);
+            this.animationOverride = "happy";
+            this.animationOverrideUntil = Date.now() + 2500;
+            this.saveState();
+        }
 
         updateAnimation() {
             if (!this.isAlive) {
                 this.currentAnimation = "dead";
                 return;
             }
-            /* Animation override (e.g. "eating" right after feed) wins for
-               its window, then falls back to mood-based selection. */
+            /* Egg stage suppresses mood-based animation — the pet is
+               unhatched, so it just wobbles. Renderer uses the "egg"
+               sprite family directly. */
+            if (this.stage === "egg") {
+                this.currentAnimation = "egg";
+                return;
+            }
+            /* Animation override (e.g. "eating" right after feed, or
+               stage-up celebration) wins for its window, then falls back
+               to mood-based selection. */
             if (this.animationOverride && Date.now() < this.animationOverrideUntil) {
                 this.currentAnimation = this.animationOverride;
                 return;
@@ -467,9 +558,51 @@
             }
         }
 
+        /* Resolve the animation key to an actual sprite-frame array given
+           the current lifecycle stage. Baby + senior have stage-specific
+           bodies that REPLACE the standard idle/happy/sad/etc. while the
+           mood persists. Sleeping/sick/eating/dead always use the shared
+           sprites because the pose is what matters more than the body. */
+        spriteForCurrentState() {
+            const a = this.currentAnimation;
+            const s = this.sprites || {};
+            /* Egg is its own sprite family. */
+            if (a === "egg" && s.egg) return s.egg;
+            /* Lifecycle-stage body swaps for body-shape-dependent moods. */
+            const bodySwapMoods = { idle: 1, happy: 1, sad: 1, walking: 1 };
+            if (bodySwapMoods[a]) {
+                if (this.stage === "baby" && s.baby) return s.baby;
+                if (this.stage === "senior" && s.senior) return s.senior;
+            }
+            /* Default — use the named animation directly. */
+            return s[a] || s.idle;
+        }
+
+        /* Stage-transition jingle — three quick rising notes. Cheap and
+           distinct from feed/play so users learn the cue. */
+        sfxStageUp() {
+            this.playSound((ctx) => {
+                const now = ctx.currentTime;
+                const notes = [523, 659, 784];  // C5 E5 G5
+                notes.forEach((freq, i) => {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.type = "triangle";
+                    const start = now + i * 0.09;
+                    osc.frequency.setValueAtTime(freq, start);
+                    gain.gain.setValueAtTime(this.soundVolume * 0.6, start);
+                    gain.gain.exponentialRampToValueAtTime(0.01, start + 0.12);
+                    osc.start(start);
+                    osc.stop(start + 0.12);
+                });
+            });
+        }
+
         render() {
             if (!this.matrix) return;
-            const sprite = this.sprites[this.currentAnimation];
+            const sprite = this.spriteForCurrentState();
             if (!sprite) return;
 
             /* Animation frame advances on every ~4 ticks so a 4-frame array
@@ -535,8 +668,13 @@
                     this.health = Math.max(0, this.health - 0.20 * decayPerTick * this.poopSpritesOnScreen);
                 }
 
-                /* Age in minutes — ~600 ticks at 100ms per tick = 1 minute. */
-                if (this.tickCount % 600 === 0) this.age += 1;
+                /* Age accumulates fractionally each tick so stage thresholds
+                   can fire mid-minute without waiting for the next integer
+                   minute boundary. */
+                this.age += deltaMs / 60000;
+
+                /* Lifecycle stage advances. Plays jingle on transition. */
+                this.advanceStageIfDue();
 
                 /* Death conditions — fired exactly once on the alive→dead edge. */
                 if (this.hunger <= 0 || this.health <= 0) {
@@ -599,6 +737,9 @@
             }
         }
     }
+
+    /* Also expose STAGES on the class for UI labels. */
+    TamagotchiGame.STAGES = STAGES;
 
     global.TamagotchiGame = TamagotchiGame;
 

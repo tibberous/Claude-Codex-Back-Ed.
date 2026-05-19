@@ -206,37 +206,77 @@ body {
 }
 
 /* ── Tamagotchi pet panel ──────────────────────────────────────────────
-   Pure-CSS injection of assets/tamagotchi.gif on the left edge of the
-   prompt shell via a ::before pseudo-element. No DOM/JS changes — the
-   GIF is loaded as a background-image (animation works in
-   background-image just like in <img>). The frame uses the same chunky
-   inset bevel + pulsing green glow the original demo had. */
-.prompt-shell {
-  position: relative !important;
-  padding-left: 168px !important;
+   The old static GIF (assets/tamagotchi.gif) is replaced by the live
+   DotMatrix40 dot-matrix canvas — same physical slot, but the pet now
+   animates, ages, and responds to the 6 hardware buttons. The shell
+   markup lives in panel/index.html as `#cbe-tama-shell` (initially
+   `hidden`). On the tamagotchi skin we:
+     1. Reveal `#cbe-tama-shell` automatically (always visible — no
+        toolbar click required to see the pet).
+     2. Dock it into the left edge of `.prompt-shell` where the GIF used
+        to live (~168px wide) instead of floating bottom-right.
+     3. Stamp the LCD-frame bevel + pulsing green glow onto its frame
+        so the retro pixel-pet look is preserved.
+   The toolbar button (#tamaBtn) still works on every skin to toggle
+   visibility, but on the tamagotchi skin closing it just re-shows on
+   next interaction since the skin pins it back open. */
+body[data-skin="tamagotchi"] #cbe-tama-shell {
+  /* Override the baseline floating-bottom-right position from index.html. */
+  position: absolute !important;
+  left: 16px !important;
+  top: 16px !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: 270px !important;
+  z-index: 2 !important;
+  display: block !important;
 }
-.prompt-shell::before {
-  content: "";
-  position: absolute;
-  left: 16px;
-  top: 16px;
-  width: 132px;
-  height: 138px;
-  padding: 10px;
-  border: 3px solid #416b18;
+body[data-skin="tamagotchi"] #cbe-tama-shell[hidden] {
+  /* Skin overrides the [hidden] attribute — the pet is always visible
+     in this skin. Users can still close the panel temporarily via the
+     ✕ button; the skin will re-show it on next openTamagotchi() call. */
+  display: block !important;
+}
+body[data-skin="tamagotchi"] #cbe-tama-shell .cbe-tama-frame {
   background:
-    url('assets/tamagotchi.gif') center/92px 92px no-repeat,
-    #86bd3e;
+    radial-gradient(circle at 30% 22%, #b6e57a, #86bd3e 60%, #5f8d29 100%) !important;
+  border: 3px solid #416b18 !important;
+  border-radius: 8px !important;
   box-shadow:
     inset 4px 4px 0 rgba(233,255,172,.55),
     inset -4px -4px 0 rgba(49,86,17,.62),
     0 0 0 2px rgba(98,165,31,.65),
     8px 8px 0 rgba(0,0,0,.32),
-    0 0 18px rgba(144,255,64,.55);
-  image-rendering: pixelated;
+    0 0 18px rgba(144,255,64,.55) !important;
   animation: cbe-tamagotchi-glow 1.35s ease-in-out infinite;
-  pointer-events: none;
-  z-index: 1;
+}
+body[data-skin="tamagotchi"] #cbe-tama-shell .cbe-tama-title,
+body[data-skin="tamagotchi"] #cbe-tama-shell .tama-stat,
+body[data-skin="tamagotchi"] #cbe-tama-shell .cbe-tama-hint {
+  color: #2c3a1e !important;
+}
+body[data-skin="tamagotchi"] #cbe-tama-shell #cbe-tama-status {
+  background: rgba(255,255,255,0.28) !important;
+}
+body[data-skin="tamagotchi"] #cbe-tama-shell .tama-btn {
+  background: linear-gradient(180deg, #c9ee75, #79a936) !important;
+  color: #2c3a1e !important;
+  border: 1px solid #426d1d !important;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.35);
+}
+body[data-skin="tamagotchi"] #cbe-tama-shell .tama-btn:hover {
+  background: linear-gradient(180deg, #d8f583, #8bbf45) !important;
+}
+body[data-skin="tamagotchi"] #cbe-tama-shell #cbe-tama-screen {
+  border: 3px inset #416b18 !important;
+}
+/* Push the prompt-shell content over to make room for the docked panel.
+   This is the same 168px reserve the old GIF rule used, but now the
+   real pet panel lives there instead of a static image. */
+body[data-skin="tamagotchi"] .prompt-shell {
+  position: relative !important;
+  padding-left: 300px !important;
+  min-height: 360px;
 }
 @keyframes cbe-tamagotchi-glow {
   0%, 100% {

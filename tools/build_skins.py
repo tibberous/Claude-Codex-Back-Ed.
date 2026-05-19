@@ -23,7 +23,6 @@ All 10 skins target ONLY the real CBE selectors:
   .label-button, .stop-button
 """
 
-import os
 import shutil
 import zipfile
 from pathlib import Path
