@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<title>Claude Codex — Black Edition · Βοήθεια</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #16181d;
+    --surface: #1f2229;
+    --surface-2: #262a33;
+    --border: #353a45;
+    --text: #e7eaef;
+    --muted: #aab1bd;
+    --accent: #4ea8ff;
+    --accent-soft: rgba(78,168,255,0.12);
+    --kbd-bg: #0f1116;
+    --kbd-border: #2b313b;
+    --warn: #ffd84d;
+    --err: #ff8a8a;
+    --ok: #6fd58a;
+  }
+  * { box-sizing: border-box; }
+  /* .app is included here because CBE inlines this file's body into a <div>
+     inside the panel (no <html>/<body> wrapper) — without .app carrying the
+     dark background + text color, the panel skin's background bleeds through
+     and you get unreadable text. Standalone (real <body>) it's still fine. */
+  html, body, .app { margin: 0; padding: 0; height: 100%; background: var(--bg);
+               color: var(--text); font: 14.5px/1.55 ui-sans-serif, system-ui,
+               -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  code { background: var(--kbd-bg); padding: 1px 6px; border-radius: 4px;
+         border: 1px solid var(--kbd-border); font-size: 0.92em; }
+  kbd { background: var(--kbd-bg); padding: 1px 7px; border-radius: 4px;
+        border: 1px solid var(--kbd-border); border-bottom-width: 2px;
+        font-size: 0.85em; color: #ffd84d; }
+  pre { background: var(--kbd-bg); border: 1px solid var(--border);
+        border-radius: 6px; padding: 12px 14px; overflow-x: auto;
+        font-size: 12.5px; }
+  /* Layout: fixed TOC sidebar + scrolling content. The content scrolls
+     inside #main, which jQuery smooth-scrolls when TOC links are clicked. */
+  /* height:100% (not 100vh) so the layout fills the modal body when inlined,
+     and the full standalone window when opened as a real page. */
+  .app { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
+  nav.toc { background: var(--surface); border-right: 1px solid var(--border);
+            overflow-y: auto; padding: 18px 0 24px 0; position: sticky; top: 0;
+            height: 100%; }
+  nav.toc h2 { margin: 0 18px 8px 18px; font-size: 11px; letter-spacing: 0.08em;
+               color: var(--muted); text-transform: uppercase; }
+  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: tocnum; }
+  nav.toc ol li { counter-increment: tocnum; }
+  nav.toc ol li > a { display: block; padding: 7px 18px 7px 36px; font-size: 13.5px;
+                       color: var(--text); position: relative; line-height: 1.3;
+                       border-left: 3px solid transparent; }
+  /* Click feedback wired from panel.js: active TOC link gets an accent bar +
+     tint, the landed section flashes a soft accent glow that fades out. */
+  nav.toc ol li > a.cbe-toc-active {
+    border-left-color: var(--accent); background: var(--accent-soft);
+    color: var(--accent);
+  }
+  @keyframes cbeHelpFlash {
+    0%   { background: var(--accent-soft); }
+    100% { background: transparent; }
+  }
+  .cbe-help-flash { animation: cbeHelpFlash 1.1s ease-out 1; border-radius: 6px; }
+  nav.toc ol li > a::before { content: counter(tocnum); position: absolute;
+                              left: 14px; top: 7px; color: var(--muted);
+                              font-family: ui-monospace; font-size: 11px;
+                              min-width: 16px; text-align: right; }
+  nav.toc ol li > a:hover { background: var(--surface-2); text-decoration: none; }
+  nav.toc ol li > a.active { background: var(--accent-soft);
+                              border-left-color: var(--accent); color: var(--accent); }
+  main#main { overflow-y: auto; padding: 28px 36px 80px 36px; height: 100vh; }
+  main#main > header { margin-bottom: 26px; padding-bottom: 14px;
+                       border-bottom: 1px solid var(--border); }
+  main#main > header h1 { margin: 0 0 4px 0; font-size: 24px; font-weight: 600;
+                          letter-spacing: 0.005em; }
+  main#main > header .meta { color: var(--muted); font-size: 13px; }
+  section.help-section { scroll-margin-top: 16px; max-width: 820px;
+                          margin: 0 0 36px 0; padding-top: 6px; }
+  section.help-section h2 { font-size: 19px; margin: 0 0 10px 0; font-weight: 600;
+                            display: flex; align-items: baseline; gap: 10px; }
+  section.help-section h2 .num { color: var(--muted); font: 13px ui-monospace;
+                                  min-width: 1.5em; }
+  section.help-section h3 { font-size: 15px; margin: 18px 0 6px 0; font-weight: 600;
+                            color: var(--text); }
+  section.help-section p { margin: 0 0 10px 0; color: var(--text); }
+  section.help-section ul { margin: 0 0 12px 0; padding-left: 22px; }
+  section.help-section li { margin-bottom: 4px; }
+  section.help-section table { border-collapse: collapse; width: 100%;
+                                margin: 6px 0 14px 0; font-size: 13.5px; }
+  section.help-section th, section.help-section td { border: 1px solid var(--border);
+                                                       padding: 6px 10px; text-align: left;
+                                                       vertical-align: top; }
+  section.help-section th { background: var(--surface-2); font-weight: 600; }
+  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft);
+             padding: 10px 14px; border-radius: 0 4px 4px 0; margin: 10px 0 14px 0; }
+  .callout.warn { border-color: var(--warn); background: rgba(255,216,77,0.08); }
+  .callout.err  { border-color: var(--err);  background: rgba(255,138,138,0.08); }
+  .top-link { float: right; font-size: 12px; color: var(--muted); }
+  .top-link:hover { color: var(--accent); }
+  /* Scrollbar */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: var(--bg); }
+  *::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <nav class="toc" aria-label="Πίνακας περιεχομένων">
+    <h2>Περιεχόμενα</h2>
+    <ol id="toc-list">
+      <li><a href="#welcome">Καλώς ήρθατε</a></li>
+      <li><a href="#keyboard">Συντομεύσεις πληκτρολογίου</a></li>
+      <li><a href="#prompt-box">Το πλαίσιο prompt</a></li>
+      <li><a href="#toolbar">Κουμπιά εργαλειοθήκης</a></li>
+      <li><a href="#providers">Μοντέλα &amp; πάροχοι</a></li>
+      <li><a href="#stt">Ομιλία σε κείμενο</a></li>
+      <li><a href="#auto-prompt">Αυτόματο Prompt</a></li>
+      <li><a href="#tts">Αυτόματη ανάγνωση (TTS)</a></li>
+      <li><a href="#compact">Συμπαγής &amp; χρήση περιεχομένου</a></li>
+      <li><a href="#wake-up">Απάντηση ξύπνησης</a></li>
+      <li><a href="#attachments">Συνημμένα αρχεία</a></li>
+      <li><a href="#git">Μοντέλο Git</a></li>
+      <li><a href="#github">Αποθετήρια GitHub</a></li>
+      <li><a href="#domains">Τομείς NameSilo</a></li>
+      <li><a href="#skins">Skins &amp; θέματα</a></li>
+      <li><a href="#settings">Ρυθμίσεις</a></li>
+      <li><a href="#language">Γλώσσα</a></li>
+      <li><a href="#monitor">Επιβλέπων VSCode</a></li>
+      <li><a href="#auto-update">Αυτόματη ενημέρωση (pull)</a></li>
+      <li><a href="#admin-push">Ώθηση διαχειριστή</a></li>
+      <li><a href="#extensions">Αγορά επεκτάσεων</a></li>
+      <li><a href="#slash">Εντολές κάθετου</a></li>
+      <li><a href="#context-menu">Μενού δεξιού κλικ</a></li>
+      <li><a href="#trace">Κανάλι ιχνών</a></li>
+      <li><a href="#troubleshooting">Αντιμετώπιση προβλημάτων</a></li>
+      <li><a href="#about">Σχετικά &amp; άδεια</a></li>
+    </ol>
+  </nav>
+
+  <main id="main">
+    <header>
+      <h1>Claude Codex — Black Edition</h1>
+      <div class="meta">Ένα δοχείο συνομιλίας AI πολλαπλών παρόχων χωρίς σύνδεση για το VSCode.
+        Πατήστε <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd> για εναλλαγή.</div>
+    </header>
+
+    <section id="welcome" class="help-section">
+      <h2><span class="num">1.</span> Καλώς ήρθατε</h2>
+      <p>Το Claude Codex Black είναι ένα webview του VSCode που σας επιτρέπει να συνομιλείτε με πολλαπλούς παρόχους AI
+        (Claude, OpenAI, Gemini, Grok, Azure, τοπικό Ollama) από ένα μόνο, θεματοποιήσιμο πάνελ.
+        Όλα όσα χρειάζονται ένα κλειδί διαβάζουν από το <code>config.ini</code> στη ρίζα της επέκτασης —
+        δεν απαιτείται UI ρυθμίσεων επέκτασης, αλλά ένα μοντέλο Ρυθμίσεων αντιπροσωπεύει τα πιο χρήσιμα
+        πεδία για επεξεργασία μόνο με κλικ.</p>
+      <div class="callout">
+        Είστε νέοι εδώ; Ξεκινήστε ανοίγοντας τις <em>Ρυθμίσεις</em> (εικονίδιο γραναζιού), επιλέξτε τον πάροχό σας, επικολλήστε
+        το κλειδί API σας και, στη συνέχεια, πληκτρολογήστε ένα prompt και πατήστε <kbd>Enter</kbd>. Κάθε άλλη λειτουργία σε
+        αυτόν τον οδηγό είναι προαιρετική.
+      </div>
+    </section>
+
+    <section id="keyboard" class="help-section">
+      <h2><span class="num">2.</span> Συντομεύσεις πληκτρολογίου</h2>
+      <table>
+        <thead><tr><th>Κλειδί</th><th>Αποτέλεσμα</th></tr></thead>
+        <tbody>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd></td><td>Εναλλαγή του πάνελ CBE</td></tr>
+          <tr><td><kbd>Enter</kbd></td><td>Αποστολή του τρέχοντος prompt</td></tr>
+          <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Νέα γραμμή μέσα στο πλαίσιο prompt</td></tr>
+          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Κύκλος μέσω των προηγουμένως αποσταλμένων prompts (από <code>prompt_history.txt</code>)</td></tr>
+          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Κύκλος στις επιμελημένες εγγραφές <code>prompts.txt</code> όταν το καράφι βρίσκεται στην αρχή/τέλος του textarea</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>Κλείσιμο οποιουδήποτε ανοιχτού μοντέλου</td></tr>
+          <tr><td><kbd>/</kbd></td><td>Ανοίξτε την παλέτα εντολών κάθετου</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="prompt-box" class="help-section">
+      <h2><span class="num">3.</span> Το πλαίσιο prompt</h2>
+      <p>Το μεγάλο επεξεργάσιμο textarea στο κάτω μέρος. Πληκτρολογήστε, επικολλήστε, σύρετε ένα αρχείο, επισυνάψτε μέσω του συνδέσμου —
+        όποιο κείμενο τοποθετείτε εδώ είναι το χρήστη σειρά της επόμενης κλήσης API.</p>
+      <p>Η γραμματοσειρά κλειδώνεται στη γραμματοσειρά monospace του επεξεργαστή σας στο VSCode (μέσω της
+        <code>--vscode-editor-font-family</code> CSS variable) έτσι ώστε το πάνελ να μοιάζει σπίτι
+        μέσα στον επεξεργαστή.</p>
+    </section>
+
+    <section id="toolbar" class="help-section">
+      <h2><span class="num">4.</span> Κουμπιά εργαλειοθήκης</h2>
+      <p>Κάτω σειρά, από αριστερά προς δεξιά. Συμβουλές εμφανίζονται όταν περνάτε το ποντίκι · το πάνελ τις διαβάζει επίσης
+        στη γλώσσα που επιλέξατε (δείτε <a href="#language">Γλώσσα</a>).</p>
+      <table>
+        <thead><tr><th>Εικονίδιο</th><th>Λειτουργία</th></tr></thead>
+        <tbody>
+          <tr><td>🎤 Μικρόφωνο</td><td>Ομιλία σε κείμενο — Web Speech API με fallback SAPI. Δείτε <a href="#stt">§ 6</a>.</td></tr>
+          <tr><td>📎 Σύνδεσμος</td><td>Επιλέξτε ένα ή περισσότερα αρχεία για να τα ενσωματώσετε στο prompt</td></tr>
+          <tr><td>🔁 Ξύπνημα</td><td>Επεξεργασία του κειμένου ξύπνησης Auto Prompt (ζει σε <code>wake.txt</code>)</td></tr>
+          <tr><td>⏱ Αυτόματο Prompt</td><td>Εναλλαγή του αντίστροφου μέτρησης αδράνειας αυτο-πυρ</td></tr>
+          <tr><td>📚 Συμπαγής</td><td>Περικοπή του ιστορικού συνομιλίας στις τελευταίες αναχώρησης. Δακτύλιος δείχνει χρήση παραθύρου περιεχομένου.</td></tr>
+          <tr><td>📁 Git</td><td>Εκτέλεση εντολών git στον φάκελο του έργου</td></tr>
+          <tr><td>🌐 Τομείς</td><td>Τραβήξτε τη λίστα τομέων σας NameSilo</td></tr>
+          <tr><td>🐙 GitHub</td><td>Σύμβολο των αποθετηρίων σας στο GitHub μέσω PAT</td></tr>
+          <tr><td>🎨 Skin</td><td>Επιλέξτε ένα θέμα πάνελ (ανακαλυφθεί ζωντανά από <code>skins/</code>)</td></tr>
+          <tr><td>🧩 Επεκτάσεις</td><td>Ανοίξτε το μοντέλο iframe της αγοράς. Δείτε <a href="#extensions">§ 21</a>.</td></tr>
+          <tr><td>⚙ Ρυθμίσεις</td><td>Ανοίξτε το μοντέλο ρυθμίσεων</td></tr>
+          <tr><td>📜 Εγχειρίδιο</td><td>Ανοίξτε <code>handbook.txt</code> για επεξεργασία</td></tr>
+          <tr><td>❔ Βοήθεια</td><td>Αυτό το έγγραφο</td></tr>
+          <tr><td>⏹ Σταματήστε</td><td>Ακύρωση της κλήσης μοντέλου κατά τη διάρκεια</td></tr>
+          <tr><td>📤 Αποστολή</td><td>Υποβολή του prompt (ίδιο με <kbd>Enter</kbd>)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="providers" class="help-section">
+      <h2><span class="num">5.</span> Μοντέλα &amp; πάροχοι</h2>
+      <p>Το CBE διακινεί <strong>11 γέφυρες</strong> ως drop-in <code>.bridge</code> plugins κάτω από
+        <code>bridges/</code>. Κάθε ένα είναι ένα αυτόνομο zip με manifest.xml + bridge.py
+        + εικόνες. Απλώς ρίξτε ένα νέο <code>.bridge</code> αρχείο και εμφανίζεται στο αναπτυσσόμενο κέρμα
+        — δεν απαιτείται αλλαγή κώδικα επέκτασης.</p>
+      <h3>Γέφυρες κειμένου-συνομιλίας (7)</h3>
+      <ul>
+        <li><strong>ChatGPT</strong> — chatgpt.com, συνδρομή Plus/Pro</li>
+        <li><strong>Grok</strong> — grok.com, εγγραφή xAI native (το ανώνυμο επίπεδο είναι πολύ περιορισμένο · εισάγετε πρώτα)</li>
+        <li><strong>Gemini</strong> — gemini.google.com, λογαριασμός Google</li>
+        <li><strong>Claude</strong> — claude.ai, σύνδεση με μαγικό σύνδεσμο (εκτελέστε <code>tools/sign_in_helper.py claude</code> μία φορά)</li>
+        <li><strong>Copilot</strong> — copilot.microsoft.com, δωρεάν λογαριασμός Microsoft</li>
+        <li><strong>DeepSeek</strong> — chat.deepseek.com, εγγραφή email/password native (ΜΗ χρησιμοποιείτε Google SSO)</li>
+        <li><strong>Ollama</strong> — τοπικό <code>127.0.0.1:11434</code>, χωρίς σύνδεση</li>
+      </ul>
+      <h3>Γέφυρες παραγωγής βίντεο (4)</h3>
+      <ul>
+        <li><strong>Sora 2</strong> — sora.com, επαναχρησιμοποίηση της σύνδεσης ChatGPT Plus/Pro</li>
+        <li><strong>Google Veo</strong> — gemini.google.com (Veo mode), συνδρομή Gemini Advanced</li>
+        <li><strong>Runway Gen-3/4</strong> — app.runwayml.com, ξεχωριστή συνδρομή Runway</li>
+        <li><strong>Bing Video Creator</strong> — bing.com/videos/create, <em>δωρεάν Sora-2</em> με λογαριασμό Microsoft</li>
+      </ul>
+      <p>Τα δημιουργημένα βίντεο αποθηκεύονται σε <code>videos/&lt;bridge&gt;/&lt;timestamp&gt;_&lt;prompt-slug&gt;.mp4</code>
+        και αυτόματη αναπαραγωγή στο πάνελ Video Library (δείτε §Video Library παρακάτω).</p>
+      <p>Επιλέξτε μια γέφυρα + μοντέλο από το αναπτυσσόμενο κέρμα δίπλα στο πλαίσιο prompt, ή μέσω
+        <em>Ρυθμίσεις → Γενικά</em>. Η επιλογή είναι ανά χώρο εργασίας και διατηρείται στο
+        workspaceState. Για να προσθέσετε μια νέα γέφυρα, δείτε <code>docs/WRITING_BRIDGES.md</code>.</p>
+    </section>
+
+    <section id="video-library" class="help-section">
+      <h2><span class="num">5a.</span> Βιβλιοθήκη βίντεο</h2>
+      <p>Ένα αποκλειστικό πάνελ για περιήγηση + παρακολούθηση βίντεο που δημιουργήθηκαν από τις γέφυρες βίντεο
+        (Sora, Veo, Runway, Bing Video Creator). Ανοίγει μέσω της Παλέτας Εντολών:
+        <em>Claude Codex Black: Open Video Library</em> ή την εντολή <code>codexBlackEd.openVideoPlayer</code>.</p>
+      <ul>
+        <li>Η πλευρική στήλη παραθέτει κάθε <code>.mp4</code> / <code>.webm</code> / <code>.mov</code> κάτω από
+          <code>videos/&lt;bridge&gt;/</code>, ομαδοποιημένα κατά γέφυρα και ταξινομημένα ως νεότερα πρώτα.</li>
+        <li>Το πιο φρέσκο βίντεο αναπαράγεται αυτόματα κατά το πρώτο άνοιγμα.</li>
+        <li>Το πάνελ παρακολουθεί τον κατάλογο <code>videos/</code> σε ένα τικ 2 δευτερολέπτων — οποιοδήποτε νέο κατασκευασμένο βίντεο
+          εμφανίζεται με ένα ✨ badge «Μόλις δημιουργήθηκε» και αυτόματη αναπαραγωγή
+          (απενεργοποίηση μέσω <em>Auto ▶ new</em>).</li>
+        <li>Κάντε κλικ στο <em>📂 Ανοίξτε</em> για να αποκαλύψετε τον φάκελο <code>videos/</code> στη διαχείριση αρχείων OS σας.</li>
+      </ul>
+    </section>
+
+    <section id="stt" class="help-section">
+      <h2><span class="num">6.</span> Ομιλία σε κείμενο</h2>
+      <p>Κάντε κλικ στο μικρόφωνο, μιλήστε, κάντε κλικ ξανά για να σταματήσετε (ή περιμένετε τον χρόνο σιωπής).
+        Δύο κινητήρες δοκιμάζονται με σειρά:</p>
+      <ol style="padding-left:22px;">
+        <li><strong>Web Speech API</strong> — Αναγνωριστής νέφους της Google που τρέχει στο webview.
+          Χρησιμοποιεί την περίοδό σας Gmail/Google · δεν απαιτείται επιπλέον κλειδί.</li>
+        <li><strong>Windows SAPI</strong> (fallback) — Διαδικασία PowerShell προ-θερμαμένη κατά την
+          κλήση της κατά την ενεργοποίηση της επέκτασης. Προστιθέμενο παράθυρο ακρόασης μέσω
+          <code>[voice] listen_seconds</code> στο <code>config.ini</code>.</li>
+      </ol>
+      <div class="callout">
+        Το SAPI είναι <em>προ-θερμαμένο κατά την ενεργοποίηση της επέκτασης</em> έτσι ώστε το πρώτο κλικ μικρόφωνου
+        να αποφεύγει την ψυχρή εκκίνηση 2-4 δευτερολέπτων που ήταν δάγκωμα των πρώιμων κλικ σταματήματος.
+      </div>
+    </section>
+
+    <section id="auto-prompt" class="help-section">
+      <h2><span class="num">7.</span> Αυτόματο Prompt</h2>
+      <p>Το κουμπί σήμα-με-spinner. Όταν είναι ΕΝΕΡΓΟΠΟΙΗΜΕΝΟ, μετά από N δευτερόλεπτα αδράνειας το πάνελ
+        αυτό-αποστέλλει το ρυθμισμένο κείμενο ξύπνησης. Το ψηφίο αντίστροφης μέτρησης αποδίδεται σε
+        <code>--cbe-highlight-color</code>, το οποίο κάθε skin ορίζει.</p>
+      <p>Επεξεργασία του κειμένου ξύπνησης μέσω του κουμπιού 🔁 Wake — κάνει round-trips <code>wake.txt</code>.</p>
+    </section>
+
+    <section id="tts" class="help-section">
+      <h2><span class="num">8.</span> Αυτόματη ανάγνωση (TTS)</h2>
+      <p>Το εικονίδιο του στόματος. Όταν είναι ΕΝΕΡΓΟΠΟΙΗΜΕΝΟ, κάθε απάντηση βοηθού ομιλίας μέσω του συνθέτη Web Speech
+        (Google) ή fallback SAPI. Ένας μπλε oreol λάμπει γύρω από το εικονίδιο ενώ αναπαράγεται ήχος.</p>
+    </section>
+
+    <section id="compact" class="help-section">
+      <h2><span class="num">9.</span> Συμπαγής &amp; χρήση περιεχομένου</h2>
+      <p>Ο πίνακας συνομιλίας που αποστέλλεται στο μοντέλο μεγαλώνει με κάθε σειρά. Ο δακτύλιος γύρω από
+        το εικονίδιο Compact δείχνει τη τρέχουσα χρήση παραθύρου περιεχομένου ως κωνική κλίση — άδειο
+        όταν φρέσκο, πλήρες όταν κοντά στο όριο περιεχομένου του μοντέλου.</p>
+      <p>Κάντε κλικ στο Compact για περικοπή ιστορικού κάτω στις τελευταίες τέσσερις σειρές. Η επόμενη κλήση API
+        χρησιμοποιεί τον μικρότερο πίνακα.</p>
+    </section>
+
+    <section id="wake-up" class="help-section">
+      <h2><span class="num">10.</span> Απάντηση ξύπνησης</h2>
+      <p>Αποθηκευμένο στο <code>wake.txt</code> στη ρίζα της επέκτασης. Χρησιμοποιείται από το Auto Prompt ως το
+        μήνυμα που θα αποσταλεί όταν ξυπνήσει το χρονόμετρο αδράνειας. Επεξεργασία μέσω του κουμπιού 🔁.</p>
+    </section>
+
+    <section id="attachments" class="help-section">
+      <h2><span class="num">11.</span> Συνημμένα αρχεία</h2>
+      <p>Κάντε κλικ 📎 για να επιλέξετε ένα ή περισσότερα αρχεία. Κρατήστε <kbd>Ctrl</kbd> ή <kbd>Shift</kbd> στο
+        επιλογέα για πολλαπλή επιλογή. Κάθε αρχείο είναι ενσωματωμένο στο prompt ως περιφραγμένο κενό κείμενο
+        με το όνομα αρχείου και γλώσσα. Δυαδικά αρχεία πάνω από 1 MB παραλείπονται με ειδοποίηση.</p>
+    </section>
+
+    <section id="git" class="help-section">
+      <h2><span class="num">12.</span> Μοντέλο Git</h2>
+      <p>Κάντε κλικ 📁 Git. Εάν δεν έχει ρυθμιστεί φάκελος έργου, λαμβάνετε πρώτα έναν επιλογέα φακέλου —
+        η επιλεγμένη διαδρομή γράφεται στο <code>[project] path</code> στο <code>config.ini</code>.
+        Οι επόμενες κλήσεις git εκτελούνται με cwd ορίστε σε αυτή τη διαδρομή.</p>
+    </section>
+
+    <section id="github" class="help-section">
+      <h2><span class="num">13.</span> Αποθετήρια GitHub</h2>
+      <p>Παραθέτει κάθε αποθετήριο προσβάσιμο στο <code>[github] pat</code> σας. Κάντε κλικ σε μια σειρά για εισαγωγή
+        της διεύθυνσης URL κλώνου της σε ένα prompt. Ο κατάλογος είναι σελιδοποιημένος και αποθηκευμένος.</p>
+    </section>
+
+    <section id="domains" class="help-section">
+      <h2><span class="num">14.</span> Τομείς NameSilo</h2>
+      <p>Τραβάει κάθε τομέα στο λογαριασμό σας NameSilo χρησιμοποιώντας <code>[namesilo] api_key</code>
+        (ή <code>[api_keys] namesilo_api_key</code> ως fallback). Κατά το πρώτο άνοιγμα, τα αποτελέσματα είναι
+        αποθηκευμένα σε <code>domains.txt</code> · τις επόμενες εκκινήσεις πάνελ χρησιμοποιούν την προσωρινή μνήμη. Κάντε κλικ
+        <em>Ανανέωση</em> στο μοντέλο για την εξαναγκασμένη ανάκτηση.</p>
+      <div class="callout warn">
+        Εάν δείτε ποτέ «χωρίς τομέα» με κωδικό απάντησης 300, ελέγξτε το κανάλι ιχνών — τα κενά αποθέματα
+        δεν δηλητηρίαζουν πλέον τις μελλοντικές εκκινήσεις πάνελ, αλλά ένα σταθερό <code>domains.txt</code> σε
+        άλλη διαδρομή εγκατάστασης θα μπορούσε να.
+      </div>
+    </section>
+
+    <section id="skins" class="help-section">
+      <h2><span class="num">15.</span> Skins &amp; θέματα</h2>
+      <p>Το κουμπί 🎨 ανοίγει έναν επιλογέα ανακάλυψης που σαρώνει <code>skins/</code> ζωντανά (όχι κατά την εκκίνηση),
+        έτσι η ρίψη ενός νέου φακέλου κατά τη διάρκεια εκτέλεσης είναι αρκετή. Κάθε skin έχει
+        <code>manifest.xml</code> που ορίζει την παλέτα του — συμπεριλαμβανομένου του
+        <strong>χρώματος ύψους</strong>, το οποίο το Auto Prompt countdown badge, δακτύλιοι εστίασης,
+        και όλα τα κλειδιά εποπτείας σπιν.</p>
+      <p>Τα ενσωματωμένα skins περιλαμβάνουν: <code>gnome</code> (Adwaita gray), <code>terminal</code>
+        (μαύρο/πράσινο με hot-pink accent), <code>tamagotchi</code> (ανοικτόχρωμα αγόρια με
+        πάνελ mascot sprite), <code>blocky</code>, και άλλα.</p>
+    </section>
+
+    <section id="settings" class="help-section">
+      <h2><span class="num">16.</span> Ρυθμίσεις</h2>
+      <p>Ανοίγει από το ⚙ γραναζί. Καρτέλες:</p>
+      <ul>
+        <li><strong>Γενικά</strong> — όνομα εμφάνισης, προεπιλεγμένο μοντέλο, αποστολή στο enter</li>
+        <li><strong>Φωνή</strong> — συσκευή μικρόφωνου, listen_seconds, επιλογή κινητήρα STT, αυτόματη ανάγνωση TTS</li>
+        <li><strong>Ενημερώσεις</strong> — σημαία <code>is_admin</code>, περίοδος WinSCP, απομακρυσμένη διαδρομή</li>
+        <li><strong>Κλειδιά</strong> — κάθε κλειδί API παρόχου</li>
+        <li><strong>Επιβλέπων</strong> — εναλλαγή εποπτείας VSCode, θύρα, διάστημα δημοσκόπησης</li>
+        <li><strong>Γλώσσα</strong> — επιλογή από 39 γλώσσες · δείτε <a href="#language">§ 17</a></li>
+      </ul>
+      <p>Το μοντέλο θυμάται το μέγεθος και τη θέση του μεταξύ των συνεδριών.</p>
+    </section>
+
+    <section id="language" class="help-section">
+      <h2><span class="num">17.</span> Γλώσσα</h2>
+      <p>Το πάνελ διακινεί με μεταφράσεις για τις 39 πιο συνομιλητές γλώσσες. Τα αρχεία γλώσσας
+        ζουν στο <code>languages/&lt;code&gt;.xml</code> και φορτώνονται μία φορά κατά την ενεργοποίηση της επέκτασης. Τα εξουσιοδοτημένα κλειδιά επιστρέφονται στα αγγλικά.</p>
+      <p>Επιλέξτε τη γλώσσα σας στο <em>Ρυθμίσεις → Γλώσσα</em>. Ένα εικονίδιο σημαία εμφανίζεται δίπλα
+        σε κάθε επιλογή (φορτωμένο από <code>assets/flags/&lt;code&gt;.svg</code>). Η επιλογή
+        αποθηκεύεται στο <code>[settings] language</code> στο <code>config.ini</code>.</p>
+    </section>
+
+    <section id="monitor" class="help-section">
+      <h2><span class="num">18.</span> Επιβλέπων VSCode</h2>
+      <p>Μια υπηρεσία Windows (<code>CBEVSCodeSupervisor</code>) τυλίγει το
+        <code>tools/vscode_supervisor.ps1</code> script μέσω NSSM και δεσμεύει έναν HttpListener
+        στο <strong>http://127.0.0.1:3434/</strong>. Το κουμπί monitor του πάνελ λάμπει μπλε
+        όταν ο τελικός σημείο <code>/status</code> του εποπτείου απαντά 200 OK.</p>
+      <p>Εάν η δοκιμή HTTP αποτύχει αλλά η υπηρεσία έχει εγκατασταθεί, ο σκύλος παρακολούθησης του πάνελ
+        αυτό-ξεκινά ξανά την υπηρεσία (ψύχος 30 δευτερολέπτων έτσι δεν restart-storm).</p>
+      <p>Left-click το κουμπί monitor για εγκατάσταση / έναρξη / σταματήστε. Right-click για ανοίγμα του
+        καναλιού ιχνών.</p>
+    </section>
+
+    <section id="auto-update" class="help-section">
+      <h2><span class="num">19.</span> Αυτόματη ενημέρωση (pull)</h2>
+      <p>4 δευτερόλεπτα μετά την ενεργοποίηση της επέκτασης, το πάνελ ανακτά
+        <code>https://trentontompkins.com/cbe/manifest.xml.php</code> — μια δήλωση MD5+size
+        των τελευταίων δημοσιευμένων αρχείων. Για κάθε απομακρυσμένο αρχείο, το τοπικό αντίγραφο MD5 είναι
+        σε σύγκριση · μόνο αλλαγμένα/λειπόμενα αρχεία λαμβάνονται κατάληψης HTTPS.</p>
+      <p>Κατάσταση τοπική χρήστη (<code>config.ini</code>, <code>debug.log</code>,
+        <code>domains.txt</code>, <code>wake.txt</code>, <code>prompt_history.txt</code>) είναι
+        στη λίστα αποκλεισμού ανάληψης και δεν αντιγράφεται ποτέ.</p>
+    </section>
+
+    <section id="admin-push" class="help-section">
+      <h2><span class="num">20.</span> Ώθηση διαχειριστή</h2>
+      <p>Μόνο οι πελάτες με <code>[updates] is_admin = true</code> ποτέ δεν ωθούν στο διακομιστή.
+        Ενεργοποιημένο μέσω:</p>
+      <ul>
+        <li>Παλέτα εντολών → <em>Claude Codex Black: Push update</em></li>
+        <li>Εντολή κάθετου <code>/push</code></li>
+      </ul>
+      <p>Χρησιμοποιεί την περίοδο WinSCP που έχει αποθηκευτεί στο <code>[updates] winscp_session</code> (προεπιλογή
+        <code>vps</code>). Ωθήσεις μέσω <code>/script=…</code> με την εντολή συγχρονισμού και
+        ένα filemask που αποκλείει τα μυστικά &amp; κατάσταση ανά μηχάνημα.</p>
+    </section>
+
+    <section id="extensions" class="help-section">
+      <h2><span class="num">21.</span> Αγορά επεκτάσεων</h2>
+      <p>Κάντε κλικ στο κουμπί 🧩 Extensions. Ένα μοντέλο iframe ανοίγει στο
+        <code>https://trentontompkins.com/cbe/extension/extension_marketplace.php</code>,
+        το οποίο ανακτά τον κατάλογο στο
+        <code>extensions.xml.php</code> και αποδίδει κάθε διαθέσιμη επέκταση ως κάρτα με
+        περιγραφή, ετικέτες, έκδοση, μέγεθος αρχείου, MD5, και ένα κουμπί <strong>Εγκατάστασης</strong>.</p>
+      <p>Μια επέκταση είναι συσκευασμένη ως <code>&lt;id&gt;.ext</code> — ένα αρχείο zip που περιέχει
+        <code>manifest.xml</code> συν κώδικας επέκτασης (συνήθως ένα μόνο
+        <code>extension.html</code>). Όταν κάνετε κλικ Εγκατάσταση, το iframe της αγοράς στέλνει
+        ένα <code>postMessage</code> πίσω στο πάνελ · το πάνελ ανακτά απευθείας το
+        <code>.ext</code> αρχείο από το διακομιστή και το εξάγει κάτω
+        <code>extensions/</code> στο φάκελο επέκτασης.</p>
+      <p>Τρεις επιδείξεις επεκτάσεις διακινούν την εκκίνηση καταλόγου:
+        <strong>Αριθμομηχανή</strong>, <strong>Minesweeper</strong>, και ένας <strong>Επιλογέας
+        Emoji</strong>.</p>
+    </section>
+
+    <section id="slash" class="help-section">
+      <h2><span class="num">22.</span> Εντολές κάθετου</h2>
+      <p>Πληκτρολογήστε <kbd>/</kbd> στο πλαίσιο prompt για ανοίγμα της παλέτας εντολών κάθετου. Κάντε κλικ σε μια σειρά
+        για <em>εισαγωγή</em> του κειμένου εντολής στο prompt σας (επεξεργάσιμο), ή πατήστε
+        <kbd>Enter</kbd> σε μια εκτελέσιμη σειρά για πυροδότηση άμεσα.</p>
+      <p>Μια μη εξαντλητική λίστα:</p>
+      <table>
+        <thead><tr><th>Εντολή</th><th>Αποτέλεσμα</th></tr></thead>
+        <tbody>
+          <tr><td><code>/help</code></td><td>Ανοίξτε αυτό το έγγραφο</td></tr>
+          <tr><td><code>/skin</code></td><td>Δημιουργήστε τον επιλογέα δέρματος</td></tr>
+          <tr><td><code>/push</code></td><td>Ώθηση αυτόματης ενημέρωσης (μόνο admin)</td></tr>
+          <tr><td><code>/license</code></td><td>Εμφάνιση <code>LICENSE.TXT</code></td></tr>
+          <tr><td><code>/clear</code></td><td>Εκκαθάριση ιστορικού συνομιλίας</td></tr>
+          <tr><td><code>/domains</code></td><td>Ανοίξτε τα τομέα NameSilo modal</td></tr>
+          <tr><td><code>/git</code></td><td>Ανοίξτε το μοντέλο Git</td></tr>
+          <tr><td><code>/wake</code></td><td>Ανοίξτε τον επεξεργαστή ξύπνησης</td></tr>
+          <tr><td><code>/memory</code></td><td>Ανοίξτε τον δείκτη μνήμης έργου</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="context-menu" class="help-section">
+      <h2><span class="num">23.</span> Μενού δεξιού κλικ</h2>
+      <p>Δεξί κλικ οπουδήποτε στο πάνελ για ένα σχετικό μενού (ορίστε ως μια μόνο συμβολοσειρά XML
+        στο <code>panel.js</code>). Οι εγγραφές περιλαμβάνουν Ανανέωση (ανακατάσταση πάνελ χωρίς
+        θίγει τον κεντρικό υπολογιστή — ποτέ μην χρησιμοποιείτε <code>reloadWindow</code>), Εκκαθάριση
+        συνομιλία, Ανοίξτε ρυθμίσεις, και Επιθεώρηση (DevTools, αποσφαλμάτωση κατασκευών μόνο).</p>
+    </section>
+
+    <section id="trace" class="help-section">
+      <h2><span class="num">24.</span> Κανάλι ιχνών</h2>
+      <p>Η επέκταση γράφει έναν κοκκώδη χρονοδιάγραμμα στο <code>debug.log</code> δίπλα στην
+        επέκταση. Όλα τα αξιοσημείωτα προορίζονται εκεί: αλλαγές παρόχου, κύκλος ζωής STT,
+        δοκιμές εποπτείας, κώδικες απάντησης NameSilo, πάνελ↔κεντρικό μήνυμα γέφυρας, push/pull
+        μέτρηση δηλώσεων.</p>
+      <p>Right-click το κουμπί monitor για one-click ανοίγμα του καναλιού ιχνών.</p>
+    </section>
+
+    <section id="troubleshooting" class="help-section">
+      <h2><span class="num">25.</span> Αντιμετώπιση προβλημάτων</h2>
+      <table>
+        <thead><tr><th>Σύμπτωμα</th><th>Πιθανή αιτία</th></tr></thead>
+        <tbody>
+          <tr><td>Το πλαίσιο prompt φαίνεται αναλογικό, όχι monospace</td>
+              <td><code>--vscode-editor-font-family</code> δεν έχει εφαρμοστεί · ελέγξτε τις μεταβλητές <code>:root</code></td></tr>
+          <tr><td>Το Auto Prompt spinner είναι μια μαύρη τελεία</td>
+              <td>Λάθος SVG asset · πρέπει να είναι <code>auto_read_spinner.svg</code> με drop-shadow halo</td></tr>
+          <tr><td>Το κουμπί Compact δεν κάνει τίποτα</td>
+              <td>Χειριστής κεντρικού υπολογιστή που λείπει — <code>case 'compactConversation'</code> στο δρομολογητή extension.js</td></tr>
+          <tr><td>«0 τομέα» στο μοντέλο τομέων</td>
+              <td>Η απάντηση NameSilo.code != 300 (το κανάλι ιχνών την έχει), ή σταθερό <code>domains.txt</code></td></tr>
+          <tr><td>STT «κανένα ομιλίας που ανιχνεύεται» αμέσως</td>
+              <td>Σταματήσατε πριν το SAPI δέσει το μικρόφωνο. Η προ-θέρμανση τώρα παραλείπει αυτή την αναμονή — επαληθεύστε με <code>stt: using pre-warmed SAPI</code> σε <code>debug.log</code></td></tr>
+          <tr><td>Η ώθηση αποτυγχάνει σε διαδρομή με κενά</td>
+              <td>Χρησιμοποιώντας <code>/command=</code> inline · πάντα χρησιμοποιήστε <code>/script=tempfile.winscp</code></td></tr>
+          <tr><td>Η μπλε αίγλη επιβλέπων δεν ανάβει</td>
+              <td>Υπηρεσία δεν τρέχει. Left-click monitorBtn για εγκατάσταση/έναρξη, ή εκτελέστε <code>Start-Service CBEVSCodeSupervisor</code></td></tr>
+          <tr><td>Η ανανέωση «διορθώνει» κάτι</td>
+              <td>Δεν το έκανε. Ποτέ μην χρησιμοποιείτε <code>reloadWindow</code>. Χρησιμοποιήστε την Ανανέωση καταχώρηση menu context αντί αυτού.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="about" class="help-section">
+      <h2><span class="num">26.</span> Σχετικά &amp; άδεια</h2>
+      <p>Claude Codex — Black Edition. MIT-licensed. Καθρέφτης πηγής:
+        <a href="https://github.com/tibberous/Claude-Codex-Back-Ed.." target="_blank" rel="noopener">github.com/tibberous/Claude-Codex-Back-Ed..</a>.
+        Επίσημος διακομιστής αυτόματης ενημέρωσης: <a href="https://trentontompkins.com/cbe/" target="_blank" rel="noopener">trentontompkins.com/cbe</a>.</p>
+      <p>Για σχόλια ή εμπορικές εργασίες, επικοινωνήστε <a href="https://trentontompkins.com" target="_blank" rel="noopener">trentontompkins.com</a> · (724) 431-5207.</p>
+      <p style="margin-top:24px; color: var(--muted); font-size: 12px;">
+        <em>Αυτή η βοήθεια είναι επίσης iframed στο κουμπί Βοήθεια στη γραμμή εργαλείων πάνελ. Πηγή:
+        <code>panel/help.html</code>.</em>
+      </p>
+    </section>
+
+  </main>
+</div>
+
+<script>
+/* Native smooth-scroll TOC navigation. jQuery CDN scripts are blocked by the
+   VSCode webview CSP, so this uses plain DOM APIs — scrollIntoView with
+   behavior:'smooth' gives the identical animated scroll without any external
+   dependency. Works inside the webview iframe sandbox. */
+(function () {
+  const main = document.getElementById('main');
+  const tocLinks = Array.prototype.slice.call(document.querySelectorAll('nav.toc a[href^="#"]'));
+  const sections = Array.prototype.slice.call(document.querySelectorAll('section.help-section'));
+
+  tocLinks.forEach(function (link) {
+    link.addEventListener('click', function (e) {
+      e.preventDefault();
+      const id = link.getAttribute('href');
+      const target = document.querySelector(id);
+      if (!target) return;
+      /* scrollIntoView animates within the nearest scroll container (#main,
+         which has overflow:auto). scroll-margin-top on the section handles
+         the small top offset so headings aren't flush against the edge. */
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      try { history.replaceState(null, '', id); } catch (_) {}
+    });
+  });
+
+  /* Highlight whichever section is currently scrolled into view. */
+  function syncActive() {
+    const scrollTop = main

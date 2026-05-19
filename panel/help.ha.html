@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="ha">
+<head>
+<meta charset="utf-8">
+<title>Claude Codex — Black Edition · Taimakon</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #16181d;
+    --surface: #1f2229;
+    --surface-2: #262a33;
+    --border: #353a45;
+    --text: #e7eaef;
+    --muted: #aab1bd;
+    --accent: #4ea8ff;
+    --accent-soft: rgba(78,168,255,0.12);
+    --kbd-bg: #0f1116;
+    --kbd-border: #2b313b;
+    --warn: #ffd84d;
+    --err: #ff8a8a;
+    --ok: #6fd58a;
+  }
+  * { box-sizing: border-box; }
+  /* .app is included here because CBE inlines this file's body into a <div>
+     inside the panel (no <html>/<body> wrapper) — without .app carrying the
+     dark background + text color, the panel skin's background bleeds through
+     and you get unreadable text. Standalone (real <body>) it's still fine. */
+  html, body, .app { margin: 0; padding: 0; height: 100%; background: var(--bg);
+               color: var(--text); font: 14.5px/1.55 ui-sans-serif, system-ui,
+               -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  code { background: var(--kbd-bg); padding: 1px 6px; border-radius: 4px;
+         border: 1px solid var(--kbd-border); font-size: 0.92em; }
+  kbd { background: var(--kbd-bg); padding: 1px 7px; border-radius: 4px;
+        border: 1px solid var(--kbd-border); border-bottom-width: 2px;
+        font-size: 0.85em; color: #ffd84d; }
+  pre { background: var(--kbd-bg); border: 1px solid var(--border);
+        border-radius: 6px; padding: 12px 14px; overflow-x: auto;
+        font-size: 12.5px; }
+  /* Layout: fixed TOC sidebar + scrolling content. The content scrolls
+     inside #main, which jQuery smooth-scrolls when TOC links are clicked. */
+  /* height:100% (not 100vh) so the layout fills the modal body when inlined,
+     and the full standalone window when opened as a real page. */
+  .app { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
+  nav.toc { background: var(--surface); border-right: 1px solid var(--border);
+            overflow-y: auto; padding: 18px 0 24px 0; position: sticky; top: 0;
+            height: 100%; }
+  nav.toc h2 { margin: 0 18px 8px 18px; font-size: 11px; letter-spacing: 0.08em;
+               color: var(--muted); text-transform: uppercase; }
+  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: tocnum; }
+  nav.toc ol li { counter-increment: tocnum; }
+  nav.toc ol li > a { display: block; padding: 7px 18px 7px 36px; font-size: 13.5px;
+                       color: var(--text); position: relative; line-height: 1.3;
+                       border-left: 3px solid transparent; }
+  /* Click feedback wired from panel.js: active TOC link gets an accent bar +
+     tint, the landed section flashes a soft accent glow that fades out. */
+  nav.toc ol li > a.cbe-toc-active {
+    border-left-color: var(--accent); background: var(--accent-soft);
+    color: var(--accent);
+  }
+  @keyframes cbeHelpFlash {
+    0%   { background: var(--accent-soft); }
+    100% { background: transparent; }
+  }
+  .cbe-help-flash { animation: cbeHelpFlash 1.1s ease-out 1; border-radius: 6px; }
+  nav.toc ol li > a::before { content: counter(tocnum); position: absolute;
+                              left: 14px; top: 7px; color: var(--muted);
+                              font-family: ui-monospace; font-size: 11px;
+                              min-width: 16px; text-align: right; }
+  nav.toc ol li > a:hover { background: var(--surface-2); text-decoration: none; }
+  nav.toc ol li > a.active { background: var(--accent-soft);
+                              border-left-color: var(--accent); color: var(--accent); }
+  main#main { overflow-y: auto; padding: 28px 36px 80px 36px; height: 100vh; }
+  main#main > header { margin-bottom: 26px; padding-bottom: 14px;
+                       border-bottom: 1px solid var(--border); }
+  main#main > header h1 { margin: 0 0 4px 0; font-size: 24px; font-weight: 600;
+                          letter-spacing: 0.005em; }
+  main#main > header .meta { color: var(--muted); font-size: 13px; }
+  section.help-section { scroll-margin-top: 16px; max-width: 820px;
+                          margin: 0 0 36px 0; padding-top: 6px; }
+  section.help-section h2 { font-size: 19px; margin: 0 0 10px 0; font-weight: 600;
+                            display: flex; align-items: baseline; gap: 10px; }
+  section.help-section h2 .num { color: var(--muted); font: 13px ui-monospace;
+                                  min-width: 1.5em; }
+  section.help-section h3 { font-size: 15px; margin: 18px 0 6px 0; font-weight: 600;
+                            color: var(--text); }
+  section.help-section p { margin: 0 0 10px 0; color: var(--text); }
+  section.help-section ul { margin: 0 0 12px 0; padding-left: 22px; }
+  section.help-section li { margin-bottom: 4px; }
+  section.help-section table { border-collapse: collapse; width: 100%;
+                                margin: 6px 0 14px 0; font-size: 13.5px; }
+  section.help-section th, section.help-section td { border: 1px solid var(--border);
+                                                       padding: 6px 10px; text-align: left;
+                                                       vertical-align: top; }
+  section.help-section th { background: var(--surface-2); font-weight: 600; }
+  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft);
+             padding: 10px 14px; border-radius: 0 4px 4px 0; margin: 10px 0 14px 0; }
+  .callout.warn { border-color: var(--warn); background: rgba(255,216,77,0.08); }
+  .callout.err  { border-color: var(--err);  background: rgba(255,138,138,0.08); }
+  .top-link { float: right; font-size: 12px; color: var(--muted); }
+  .top-link:hover { color: var(--accent); }
+  /* Scrollbar */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: var(--bg); }
+  *::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <nav class="toc" aria-label="Teburin abubuwa">
+    <h2>Abubuwa</h2>
+    <ol id="toc-list">
+      <li><a href="#welcome">Maraba</a></li>
+      <li><a href="#keyboard">Agogon keyboards</a></li>
+      <li><a href="#prompt-box">Akwatin abken</a></li>
+      <li><a href="#toolbar">Batutuwan toolbar</a></li>
+      <li><a href="#providers">Models &amp; masu samarwa</a></li>
+      <li><a href="#stt">Iska zuwa mauna</a></li>
+      <li><a href="#auto-prompt">Auto Prompt</a></li>
+      <li><a href="#tts">Auto karanta (TTS)</a></li>
+      <li><a href="#compact">Karama &amp; amfani kontekst</a></li>
+      <li><a href="#wake-up">Amsa tsarewa</a></li>
+      <li><a href="#attachments">Haɗin fayiloli</a></li>
+      <li><a href="#git">Git wuri</a></li>
+      <li><a href="#github">Gida GitHub</a></li>
+      <li><a href="#domains">NameSilo Yankunan</a></li>
+      <li><a href="#skins">Jiki &amp; jiya</a></li>
+      <li><a href="#settings">Tsaita</a></li>
+      <li><a href="#language">Harshe</a></li>
+      <li><a href="#monitor">VSCode mai kula</a></li>
+      <li><a href="#auto-update">Auto-update (ja)</a></li>
+      <li><a href="#admin-push">Admin push</a></li>
+      <li><a href="#extensions">Extensions kasuwa</a></li>
+      <li><a href="#slash">Slash aiki</a></li>
+      <li><a href="#context-menu">Kyauta dama menu</a></li>
+      <li><a href="#trace">Trace tashar</a></li>
+      <li><a href="#troubleshooting">Warwarewar matsala</a></li>
+      <li><a href="#about">Kan gida &amp; laisans</a></li>
+    </ol>
+  </nav>
+
+  <main id="main">
+    <header>
+      <h1>Claude Codex — Black Edition</h1>
+      <div class="meta">Gida tun farko multi-provider AI chat panel don VSCode.
+        Danna <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd> don tunkarar.</div>
+    </header>
+
+    <section id="welcome" class="help-section">
+      <h2><span class="num">1.</span> Maraba</h2>
+      <p>Claude Codex Black wata VSCode webview ce wanda ke ba ka damar yin magana da masu samarwa AI da dama
+        (Claude, OpenAI, Gemini, Grok, Azure, gida Ollama) daga panel guda, mai kamannewa. Kome da ke buƙatar maɓalɓali yana karanta daga <code>config.ini</code> a asusun jaji —
+        babu buƙatar extension settings UI, amma Settings modal yana nuna abubuwa mafi ƙamari
+        masu yoron baje dole.</p>
+      <div class="callout">
+        Saba ne an zo? Fara ta bubuɗe <em>Tsaita</em> (rago), zaɓi masu samarwa, liƙa
+        maɓallacin API, sai ku rubuta abken kuma bugi <kbd>Enter</kbd>. Kome sauran aikin da ke nan gida
+        wannan jagora, fasalin ne.
+      </div>
+    </section>
+
+    <section id="keyboard" class="help-section">
+      <h2><span class="num">2.</span> Agogon keyboards</h2>
+      <table>
+        <thead><tr><th>Maɓuɓɓug</th><th>Tasiri</th></tr></thead>
+        <tbody>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd></td><td>Tunkarar panel CBE</td></tr>
+          <tr><td><kbd>Enter</kbd></td><td>Aiki abken na yanzu</td></tr>
+          <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Sabon layi ciki akwatin abken</td></tr>
+          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Zagaye ta cikin abubuwa da aka gabata (daga <code>prompt_history.txt</code>)</td></tr>
+          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Zagaye ta cikin abubuwa da aka zaɓa <code>prompts.txt</code> lokacin da caretus yana a gida/karshe na textarea</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>Rufe kome buuɗe modal</a></td></tr>
+          <tr><td><kbd>/</kbd></td><td>Bubuɗe slash-command paleta</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="prompt-box" class="help-section">
+      <h2><span class="num">3.</span> Akwatin abken</h2>
+      <p>Babbar editable textarea a gida. Rubuta, liƙa, ja fayil, haɗi ta ƙugiya — kome da kuke saka a nan
+        shine ba da fulanin gida na gaggawa API na gida.</p>
+      <p>Haɗi an ƙunshi ga VSCode editor's monospace haɗi (ta yadda
+        <code>--vscode-editor-font-family</code> CSS variable) haka panel yana duba ko kanta
+        a ciki editor.</p>
+    </section>
+
+    <section id="toolbar" class="help-section">
+      <h2><span class="num">4.</span> Batutuwan toolbar</h2>
+      <p>Sau na gida, hagu zuwa dama. Tooltips suna bayyana a maimaita; panel kuma yana karantawa
+        a yaren da aka zaɓa (duba <a href="#language">Harshe</a>).</p>
+      <table>
+        <thead><tr><th>Siffa</th><th>Aiki</th></tr></thead>
+        <tbody>
+          <tr><td>🎤 Mic</td><td>Iska-zuwa-mauna — Web Speech API tare da SAPI karamshe. Duba <a href="#stt">§ 6</a>.</td></tr>
+          <tr><td>📎 Haɗi</td><td>Zaɓi faili ɗaya ko da yawa don tsara cikin abken</td></tr>
+          <tr><td>🔁 Tsarewa</td><td>Baje mauna da auto-wake Prompt (ya zaɓu <code>wake.txt</code>)</td></tr>
+          <tr><td>⏱ Auto Prompt</td><td>Tunkarar rashin aiki countdown auto-fire</td></tr>
+          <tr><td>📚 Karama</td><td>Raɓa tarihin jiga zuwa daga sauni da yawa. Ring yana nuna amfani kontekst-gida.</td></tr>
+          <tr><td>📁 Git</td><td>Gudna git aiki a folda aikace</td></tr>
+          <tr><td>🌐 Yankunan</td><td>Ja isitin yankunan NameSilo</td></tr>
+          <tr><td>🐙 GitHub</td><td>Jera abubuwan PAT GitHub na kannu</td></tr>
+          <tr><td>🎨 Jiki</td><td>Zaɓi panel jiya (gano ta gudu daga <code>skins/</code>)</td></tr>
+          <tr><td>🧩 Extensions</td><td>Bubuɗe kasuwar iframe wuri. Duba <a href="#extensions">§ 21</a>.</td></tr>
+          <tr><td>⚙ Tsaita</td><td>Bubuɗe wuri tsaita</td></tr>
+          <tr><td>📜 Littafi</td><td>Bubuɗe <code>handbook.txt</code> don baje</td></tr>
+          <tr><td>❔ Taimakon</td><td>Wannan gida</td></tr>
+          <tr><td>⏹ Tsayawa</td><td>Buɗe model call da ke fama</td></tr>
+          <tr><td>📤 Aiki</td><td>Naɗa abken (kamar <kbd>Enter</kbd>)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="providers" class="help-section">
+      <h2><span class="num">5.</span> Models &amp; masu samarwa</h2>
+      <p>CBE yana aiki da <strong>11 karuwa</strong> azaman drop-in <code>.bridge</code> plugins karkashin
+        <code>bridges/</code>. Kowane daya wata zip ce ta kai ɗaya tare da manifest.xml + bridge.py
+        + abubuwan kalangu. Saɓa saba <code>.bridge</code> fayil kuma yana bayyana a cartridge
+        zaɓon — babu buƙatar jaji code canji.</p>
+      <h3>Mauna-chat karuwa (7)</h3>
+      <ul>
+        <li><strong>ChatGPT</strong> — chatgpt.com, Plus/Pro subscription</li>
+        <li><strong>Grok</strong> — grok.com, xAI shiga (anonymous tier yana rashin gida; shiga kaɗai)</li>
+        <li><strong>Gemini</strong> — gemini.google.com, Google akaunt</li>
+        <li><strong>Claude</strong> — claude.ai, magic-link shiga (gudna <code>tools/sign_in_helper.py claude</code> kaɗai)</li>
+        <li><strong>Copilot</strong> — copilot.microsoft.com, free Microsoft akaunt</li>
+        <li><strong>DeepSeek</strong> — chat.deepseek.com, gida email/password (kama ba yi amfani Google SSO ba)</li>
+        <li><strong>Ollama</strong> — gida <code>127.0.0.1:11434</code>, babu shiga buƙatu</li>
+      </ul>
+      <h3>Bideo-samarwa karuwa (4)</h3>
+      <ul>
+        <li><strong>Sora 2</strong> — sora.com, yadda saidawa ChatGPT Plus/Pro shiga</li>
+        <li><strong>Google Veo</strong> — gemini.google.com (Veo yanayi), Gemini Advanced subscription</li>
+        <li><strong>Runway Gen-3/4</strong> — app.runwayml.com, daban Runway subscription</li>
+        <li><strong>Bing Video Creator</strong> — bing.com/videos/create, <em>free Sora-2</em> tare da Microsoft akaunt</li>
+      </ul>
+      <p>Abubuwan bideo da aka samarwa suna adana zuwa <code>videos/&lt;bridge&gt;/&lt;timestamp&gt;_&lt;prompt-slug&gt;.mp4</code>
+        kuma auto-play a Video Library panel (duba §Video Library a gida).</p>
+      <p>Zaɓi karuwa + model daga cartridge zaɓon kusa da akwatin abken, ko ta
+        <em>Tsaita → General</em>. Zaɓon yana gida per-workspace kuma ta adana a
+        workspaceState. Don ƙari karuwa saba, duba <code>docs/WRITING_BRIDGES.md</code>.</p>
+    </section>
+
+    <section id="video-library" class="help-section">
+      <h2><span class="num">5a.</span> Video Library</h2>
+      <p>Ka tawaɗe panel don kirga + duba bideona da aka samarwa ta karuwa bideo
+        (Sora, Veo, Runway, Bing Video Creator). Bubuɗe ta yadda Command Palette:
+        <em>Claude Codex Black: Open Video Library</em> ko <code>codexBlackEd.openVideoPlayer</code>
+        aiki.</p>
+      <ul>
+        <li>Sidebar jera kome <code>.mp4</code> / <code>.webm</code> / <code>.mov</code> karkashin
+          <code>videos/&lt;bridge&gt;/</code>, karuwa da tsarai kaɗai-gida.</li>
+        <li>Sabbin bideo auto-play a bubuɗen farko.</li>
+        <li>Panel yana kula da <code>videos/</code> dir a duba 2-makyari — kome samarwa bideo saba
+          yana bayyana tare da ✨ "Jiya samarwa" badge kuma auto-plays
+          (toggle off ta <em>Auto ▶ new</em>).</li>
+        <li>Danna <em>📂 Bubuɗe</em> don nuna <code>videos/</code> folda a OS fayil manager.</li>
+      </ul>
+    </section>
+
+    <section id="stt" class="help-section">
+      <h2><span class="num">6.</span> Iska zuwa mauna</h2>
+      <p>Danna mic, yi magana, danna gida don tsayawa (ko jira da sura-timeout).
+        Injina biyu ana ƙoƙarin a jeri:</p>
+      <ol style="padding-left:22px;">
+        <li><strong>Web Speech API</strong> — Google's gida recognizer da ke aiki a webview.
+          Yana amfani da Gmail/Google saɓon; babu maɓallaci saba da aka buƙata.</li>
+        <li><strong>Windows SAPI</strong> (karamshe) — pre-warmed PowerShell aiki wanda aka kira lokacin
+          webview blocks mic amfani. Configurable sura window ta
+          <code>[voice] listen_seconds</code> a <code>config.ini</code>.</li>
+      </ol>
+      <div class="callout">
+        SAPI ne <em>pre-warmed a extension activate</em> haka farko mic danna yana gida 2-4 makyari
+        sannu da aka ƙare wacce ta kumce farko tsayawa-danna.
+      </div>
+    </section>
+
+    <section id="auto-prompt" class="help-section">
+      <h2><span class="num">7.</span> Auto Prompt</h2>
+      <p>Badge-tare-ta-spinner batatu. Lokacin ON, bayan N makyari na rashin aiki panel
+        auto-send mauna ta auto-wake abken. Countdown digit ana zana a
+        <code>--cbe-highlight-color</code>, wanda kome skin yana bayyana.</p>
+      <p>Baje mauna ta 🔁 Wake batatu — yana zagaye <code>wake.txt</code>.</p>
+    </section>
+
+    <section id="tts" class="help-section">
+      <h2><span class="num">8.</span> Auto karanta (TTS)</h2>
+      <p>Bakaki aiki. Lokacin ON, kome mai karatu amsa ana magana a ta Web Speech
+        synthesizer (Google) ko SAPI karamshe. Baba shuɗi halo yana koma circle aiki yayin
+        sauti yana aiki.</p>
+    </section>
+
+    <section id="compact" class="help-section">
+      <h2><span class="num">9.</span> Karama &amp; amfani kontekst</h2>
+      <p>Jiga array aiki zuwa model yana girma tare da kome sauni. Ring kewaye
+        Karama icon nuna amfani kontekst-gida na yanzu azaman conic gradient — kunya
+        lokacin saba, cikakke lokacin kusa da model's kontekst iyaka.</p>
+      <p>Danna Karama don raɓa tarihin zuwa daga sauni hudu. Gaggawa API na gida
+        yana amfani ƙaramin array.</p>
+    </section>
+
+    <section id="wake-up" class="help-section">
+      <h2><span class="num">10.</span> Amsa tsarewa</h2>
+      <p>Adana a <code>wake.txt</code> a asusun jaji. An amfani ta ta Auto Prompt azaman
+        sauni don aiki lokacin rashin aiki timer yana fito. Baje ta 🔁 toolbar batatu.</p>
+    </section>
+
+    <section id="attachments" class="help-section">
+      <h2><span class="num">11.</span> Haɗin fayiloli</h2>
+      <p>Danna 📎 don zaɓi faili ɗaya ko da yawa. Rike <kbd>Ctrl</kbd> ko <kbd>Shift</kbd> a zaɓo
+        don multi-zaɓo. Kome fayil ana tsara cikin abken azaman fenced code block
+        tare da sunan fayil da harshe. Fayiloli daban aboƙin mahaidorin 1 MB ana tsiyaye tare da sanarwa.</p>
+    </section>
+
+    <section id="git" class="help-section">
+      <h2><span class="num">12.</span> Git wuri</h2>
+      <p>Danna 📁 Git. Idan babu aikace folda da aka tsara, kuna samun folda zaɓo kaɗai —
+        zaɓon hanya ana rubuta zuwa <code>[project] path</code> a <code>config.ini</code>.
+        Sauni git na gida yana aiki tare da cwd sa zuwa hanya.</p>
+    </section>
+
+    <section id="github" class="help-section">
+      <h2><span class="num">13.</span> GitHub gida</h2>
+      <p>Jera abubuwan da kamar yadda <code>[github] pat</code>. Danna layi don tsara
+        git URL zuwa abken. Jera yana paginate kuma cached.</p>
+    </section>
+
+    <section id="domains" class="help-section">
+      <h2><span class="num">14.</span> NameSilo Yankunan</h2>
+      <p>Ja kome yankun a NameSilo akaunt ta amfani <code>[namesilo] api_key</code>
+        (ko <code>[api_keys] namesilo_api_key</code> azaman karamshe). A farko bubuɗen, sakamakon cached zuwa <code>domains.txt</code>; sauni panel boots serve daga cache. Danna
+        <em>Reload</em> a wuri don abin saba ja.</p>
+      <div class="callout warn">
+        Idan kun taɓa ga "babu yankunan" tare da 300 amsa code, duba trace tashar — kunya
+        caches ba ta gida ba poisoning gida boots ba, amma saba da <code>domains.txt</code> a
+        sauran nuni hanya kula.</div>
+    </section>
+
+    <section id="skins" class="help-section">
+      <h2><span class="num">15.</span> Jiki &amp; jiya</h2>
+      <p>Batatu 🎨 pop gano zaɓo wanda yana kula <code>skins/</code> jiya (ba a
+        startup), haka saɓa saba folda a aiki ya isa. Kome jiki yana da
+        <code>manifest.xml</code> wanda yana bayyana palette — har da
+        <strong>highlight kala</strong>, wanda Auto Prompt countdown badge, focus rings,
+        kuma supervisor pulse duka amfani.</p>
+      <p>Jiki da suka kai da sun hada: <code>gnome</code> (Adwaita gray), <code>terminal</code>
+        (black/green tare da hot-pink accent), <code>tamagotchi</code> (egg-shell pastels tare da
+        sprite kalangu panel), <code>blocky</code>, da sauran.</p>
+    </section>
+
+    <section id="settings" class="help-section">
+      <h2><span class="num">16.</span> Tsaita</h2>
+      <p>Bubuɗe daga ⚙ rago. Tabs:</p>
+      <ul>
+        <li><strong>General</strong> — nuna suna, default model, send-on-enter</li>
+        <li><strong>Voice</strong> — mic device, listen_seconds, STT injina zaɓo, TTS auto-karanta</li>
+        <li><strong>Updates</strong> — <code>is_admin</code> flag, WinSCP saɓon, remote hanya</li>
+        <li><strong>Maɓallaci</strong> — kome samarwa maɓallaci API</li>
+        <li><strong>Monitor</strong> — VSCode mai kula tunkarar, port, poll interval</li>
+        <li><strong>Harshe</strong> — zaɓi daga 39 locales; duba <a href="#language">§ 17</a></li>
+      </ul>
+      <p>Wuri yana tuna girman sa kuma sassa tsakanin saɓo.</p>
+    </section>
+
+    <section id="language" class="help-section">
+      <h2><span class="num">17.</span> Harshe</h2>
+      <p>Panel yana aiki da fassarori don 39 mafi-yi-magana harsunan. Locale fayiloli
+        zaɓo a <code>languages/&lt;code&gt;.xml</code> kuma loading kaɗai a extension
+        activate. Bambanta maɓuɓɓug ta karamshe zuwa English.</p>
+      <p>Zaɓi harshe a <em>Tsaita → Harshe</em>. Rago aiki ana nuna kusa da
+        kome zaɓo (loading daga <code>assets/flags/&lt;code&gt;.svg</code>). Zaɓon
+        ana adana zuwa <code>[settings] language</code> a <code>config.ini</code>.</p>
+    </section>
+
+    <section id="monitor" class="help-section">
+      <h2><span class="num">18.</span> VSCode mai kula</h2>
+      <p>A Windows wasaici (<code>CBEVSCodeSupervisor</code>) yana kebe
+        <code>tools/vscode_supervisor.ps1</code> script ta NSSM kuma yana ɗaura HttpListener
+        a <strong>http://127.0.0.1:3434/</strong>. Panel's monitor batatu yana hasken baba
+        lokacin mai kula <code>/status</code> endpoint yana amsa 200 OK.</p>
+      <p>Idan HTTP probe yana gazawa amma wasaici ya nuna shidar, panel's watchdog
+        auto-restart wasaici (30-makyari cool-down haka ba restart-storm ba).</p>
+      <p>Haragu-danna monitor batatu don nuni / farko / tsayawa. Kyauta-danna don bubuɗe
+        trace tashar.</p>
+    </section>
+
+    <section id="auto-update" class="help-section">
+      <h2><span class="num">19.</span> Auto-update (ja)</h2>
+      <p>4 makyari bayan jaji activate, panel yana fetch
+        <code>https://trentontompkins.com/cbe/manifest.xml.php</code> — MD5+girma manifest
+        na sabbin jajiya fayiloli. Kome remote fayil, gida copy's MD5 ana kwatanta; kawai yadda/bambanta fayiloli ana down a HTTPS.</p>
+      <p>User-gida ƙasa (<code>config.ini</code>, <code>debug.log</code>,
+        <code>domains.txt</code>, <code>wake.txt</code>, <code>prompt_history.txt</code>) na
+        ja exclusion jeri kuma ba ta share kuma ba.</p>
+    </section>
+
+    <section id="admin-push" class="help-section">
+      <h2><span class="num">20.</span> Admin push</h2>
+      <p>Kawai aboƙai tare da <code>[updates] is_admin = true</code> sai su push zuwa wasaici.
+        Wuce ta:</p>
+      <ul>
+        <li>Command Palette → <em>Claude Codex Black: Push update</em></li>
+        <li>Slash aiki <code>/push</code></li>
+      </ul>
+      <p>Yana amfani WinSCP adana saɓon da suka rubuta a <code>[updates] winscp_session</code> (default
+        <code>vps</code>). Pushes ta <code>/script=…</code> tare da synchronize aiki kuma
+        filemask wanda yana toshe siri &amp; per-machine ƙasa.</p>
+    </section>
+
+    <section id="extensions" class="help-section">
+      <h2><span class="num">21.</span> Extensions kasuwa</h2>
+      <p>Danna 🧩 Extensions batatu. Iframe wuri yana bubuɗe zuwa
+        <code>https://trentontompkins.com/cbe/extension/extension_marketplace.php</code>,
+        wanda yana fetch catalog a
+        <code>extensions.xml.php</code> kuma zana kome extension yadda kadi tare da
+        bayanai, tags, version, fayil girma, MD5, kuma <strong>Install</strong> batatu.</p>
+      <p>Yadda ya zanga azaman <code>&lt;id&gt;.ext</code> — zip archive wanda ya dauke
+        <code>manifest.xml</code> kuma yadda code (talakakke<code>extension.html</code>). Lokacin ku danna Install, kasuwa iframe yana aiki
+        <code>postMessage</code> zuwa panel; panel yana download
+        <code>.ext</code> fayil kai tsaye daga wasaici kuma tsara shi karkashin
+        <code>extensions/</code> a jaji folda.</p>
+      <p>Demo yadda ukku ya aiki tare da launch catalog:
+        <strong>Calculator</strong>, <strong>Minesweeper</strong>, kuma <strong>Emoji
+        Picker</strong>.</p>
+    </section>
+
+    <section id="slash" class="help-section">
+      <h2><span class="num">22.</span> Slash aiki</h2>
+      <p>Rubuta <kbd>/</kbd> a akwatin abken don bubuɗe slash-aiki paleta. Danna layi
+        don <em>tsara</em> aiki mauna cikin abken (editable), ko bugi
+        <kbd>Enter</kbd> a aladun layi don fito shi kai.</p>
+      <p>Abun ba cikakke jeri:</p>
+      <table>
+        <thead><tr><th>Aiki</th><th>Tasiri</th></tr></thead>
+        <tbody>
+          <tr><td><code>/help</code></td><td>Bubuɗe wannan gida</td></tr>
+          <tr><td><code>/skin</code></td><td>Pop jiki zaɓo</td></tr>
+          <tr><td><code>/push</code></td><td>Fito auto-update push (admin ne kawai)</td></tr>
+          <tr><td><code>/license</code></td><td>Nuna <code>LICENSE.TXT</code></td></tr>
+          <tr><td><code>/clear</code></td><td>Gadi jiga tarihin</td></tr>
+          <tr><td><code>/domains</code></td><td>Bubuɗe NameSilo yankunan wuri</td></tr>
+          <tr><td><code>/git</code></td><td>Bubuɗe Git wuri</td></tr>
+          <tr><td><code>/wake</code></td><td>Bubuɗe tsarewa editor</td></tr>
+          <tr><td><code>/memory</code></td><td>Bubuɗe aikace memory index</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="context-menu" class="help-section">
+      <h2><span class="num">23.</span> Kyauta dama menu</h2>
+      <p>Kyauta-danna kuma a kume a panel don wuri menu (bayyana azaman gida XML
+        string a <code>panel.js</code>). Abubuwan da suka kai Refresh (reload panel ba
+        taɓuɗe jaji host — kada ka yi amfani <code>reloadWindow</code>), Gadi
+        jiga, Bubuɗe tsaita, kuma Inspect (DevTools, debug builds kawai).</p>
+    </section>
+
+    <section id="trace" class="help-section">
+      <h2><span class="num">24.</span> Trace tashar</h2>
+      <p>Jaji yana rubuta kaifi timeline zuwa <code>debug.log</code> kusa da
+        jaji. Kome abubuwan da suka saba ya zo ciki: samarwa switches, STT lifecycle,
+        mai kula probes, NameSilo amsa codes, panel↔host bridge sauti, push/pull
+        manifest jera.</p>
+      <p>Kyauta-danna monitor batatu don kaɗai-danna bubuɗen trace tashar.</p>
+    </section>
+
+    <section id="troubleshooting" class="help-section">
+      <h2><span class="num">25.</span> Warwarewar matsala</h2>
+      <table>
+        <thead><tr><th>Alama</th><th>Mai sani</th></tr></thead>
+        <tbody>
+          <tr><td>Akwatin abken yana duba kamannu, ba monospace</td>
+              <td><code>--vscode-editor-font-family</code> ba ta amfani; duba <code>:root</code> vars</td></tr>
+          <tr><td>Auto Prompt spinner ne baba batu</td>
+              <td>Sauran SVG asset; kama <code>auto_read_spinner.svg</code> tare da drop-shadow halo</td></tr>
+          <tr><td>Karama batatu ba aiki kome</td>
+              <td>Host handler tsiya — <code>case 'compactConversation'</code> a extension.js router</td></tr>
+          <tr><td>"0 yankunan" a Yankunan wuri</td>
+              <td>NameSilo amsa.code != 300 (trace tashar yana da shi), ko saba <code>domains.txt</code></td></tr>
+          <tr><td>STT "babu iska aiki" kai</td>
+              <td>Kun tsayawa kaɗai SAPI ta ɗaura mic. Pre-warm yanzu yana toshe haka jira — tabbatar da <code>stt: using pre-warmed SAPI</code> a <code>debug.log</code></td></tr>
+          <tr><td>Push yana gazawa a hanya tare da sarari</td>
+              <td>Yana amfani <code>/command=</code> inline; kullum yi amfani <code>/script=tempfile.winscp</code></td></tr>
+          <tr><td>Supervisor baba hasken ba yana sowa</td>
+              <td>Wasaici ba yi aiki. Haragu-danna monitorBtn don nuni/farko, ko gudna <code>Start-Service CBEVSCodeSupervisor</code></td></tr>
+          <tr><td>Reload "gyara" abubuwan</td>
+              <td>Ba shi ba. Kada ka kai amfani <code>reloadWindow</code>. Yi amfani Refresh wuri menu naɗiyi.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="about" class="help-section">
+      <h2><span class="num">26.</span> Kan gida &amp; laisans</h2>
+      <p>Claude Codex — Black Edition. MIT-licensed. Source mirror:
+        <a href="https://github.com/tibberous/Claude-Codex-Back-Ed.." target="_blank" rel="noopener">github.com/tibberous/Claude-Codex-Back-Ed..</a>.
+        Ofisyal auto-update wasaici: <a href="https://trentontompkins.com/cbe/" target="_blank" rel="noopener">trentontompkins.com/cbe</a>.</p>
+      <p>Don kwatance ko aiki na kasua, tuntubar <a href="https://trentontompkins.com" target="_blank" rel="noopener">trentontompkins.com</a> · (724) 431-5207.</p>
+      <p style="margin-top:24px; color: var(--muted); font-size: 12px;">
+        <em>Wannan taimako kuma yana iframe a Help batatu a panel toolbar. Source:
+        <code>panel/help.html</code>.</em>
+      </p>
+    </section>
+
+  </main>
+</div>
+
+<script>
+/* Native smooth-scroll TOC navigation. jQuery CDN scripts are blocked by the
+   VSCode webview CSP, so this uses plain DOM APIs — scrollIntoView with
+   behavior:'smooth' gives the identical animated scroll without any external
+   dependency. Works inside the webview iframe sandbox. */
+(function () {
+  const main = document.getElementById('main');
+  const tocLinks = Array.prototype.slice.call(document.querySelectorAll('nav.toc a[href^="#"]'));
+  const sections = Array.prototype.slice.call(document.querySelectorAll('section.help-section'));
+
+  tocLinks.forEach(function (link) {
+    link.addEventListener('click', function (e) {
+      e.preventDefault();
+      const id = link.getAttribute('href');
+      const target = document.querySelector(id);
+      if (!target) return;
+      /* scrollIntoView animates within the nearest scroll container (#main,
+         which has overflow:auto). scroll-margin-top on the section handles
+         the small top offset so headings aren't flush against the edge. */
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      try { history.replaceState(null, '', id); } catch (_) {}
+    });
+  });
+
+  /* Highlight whichever section is currently scrolled into view. */
+  function syncActive() {
+    const scrollTop = main.scrollTop;
+    const threshold = 80;
+    let activeId = sections.length ? sections[0].id : '';
+    sections.forEach(function (sec) {
+      if (sec.offsetTop - threshold <= scrollTop) activeId = sec.id;
+    });
+    tocLinks.forEach(function (l) {
+      l.classList.toggle('active', l.getAttribute('href') === '#' + activeId);
+    });
+  }
+  main.addEventListener('scroll', syncActive);
+  syncActive();
+
+  /* External-link bridge. target="_blank" doesn't escape a VSCode webview
+     iframe — the click would just try to navigate the iframe itself. Instead
+     we intercept clicks on absolute http(s) links and postMessage to the
+     parent panel, which forwards to extension.js, which calls
+     vscode.env.openExternal so the user's real default browser opens. */
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    while (t && t.tagName !== 'A') t = t.parentNode;
+    if (!t || !t.getAttribute) return;
+    var href = t.getAttribute('href') || '';
+    if (!/^https?:\/\//i.test(href)) return;
+    e.preventDefault();
+    try {
+      window.parent.postMessage({ type: 'cbe.openExternal', url: href }, '*');
+    } catch (err) { /* parent missing — fall back to noop */ }
+  }, true);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<title>Claude Codex — Black Edition · मदद</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #16181d;
+    --surface: #1f2229;
+    --surface-2: #262a33;
+    --border: #353a45;
+    --text: #e7eaef;
+    --muted: #aab1bd;
+    --accent: #4ea8ff;
+    --accent-soft: rgba(78,168,255,0.12);
+    --kbd-bg: #0f1116;
+    --kbd-border: #2b313b;
+    --warn: #ffd84d;
+    --err: #ff8a8a;
+    --ok: #6fd58a;
+  }
+  * { box-sizing: border-box; }
+  /* .app is included here because CBE inlines this file's body into a <div>
+     inside the panel (no <html>/<body> wrapper) — without .app carrying the
+     dark background + text color, the panel skin's background bleeds through
+     and you get unreadable text. Standalone (real <body>) it's still fine. */
+  html, body, .app { margin: 0; padding: 0; height: 100%; background: var(--bg);
+               color: var(--text); font: 14.5px/1.55 ui-sans-serif, system-ui,
+               -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  code { background: var(--kbd-bg); padding: 1px 6px; border-radius: 4px;
+         border: 1px solid var(--kbd-border); font-size: 0.92em; }
+  kbd { background: var(--kbd-bg); padding: 1px 7px; border-radius: 4px;
+        border: 1px solid var(--kbd-border); border-bottom-width: 2px;
+        font-size: 0.85em; color: #ffd84d; }
+  pre { background: var(--kbd-bg); border: 1px solid var(--border);
+        border-radius: 6px; padding: 12px 14px; overflow-x: auto;
+        font-size: 12.5px; }
+  /* Layout: fixed TOC sidebar + scrolling content. The content scrolls
+     inside #main, which jQuery smooth-scrolls when TOC links are clicked. */
+  /* height:100% (not 100vh) so the layout fills the modal body when inlined,
+     and the full standalone window when opened as a real page. */
+  .app { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
+  nav.toc { background: var(--surface); border-right: 1px solid var(--border);
+            overflow-y: auto; padding: 18px 0 24px 0; position: sticky; top: 0;
+            height: 100%; }
+  nav.toc h2 { margin: 0 18px 8px 18px; font-size: 11px; letter-spacing: 0.08em;
+               color: var(--muted); text-transform: uppercase; }
+  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: tocnum; }
+  nav.toc ol li { counter-increment: tocnum; }
+  nav.toc ol li > a { display: block; padding: 7px 18px 7px 36px; font-size: 13.5px;
+                       color: var(--text); position: relative; line-height: 1.3;
+                       border-left: 3px solid transparent; }
+  /* Click feedback wired from panel.js: active TOC link gets an accent bar +
+     tint, the landed section flashes a soft accent glow that fades out. */
+  nav.toc ol li > a.cbe-toc-active {
+    border-left-color: var(--accent); background: var(--accent-soft);
+    color: var(--accent);
+  }
+  @keyframes cbeHelpFlash {
+    0%   { background: var(--accent-soft); }
+    100% { background: transparent; }
+  }
+  .cbe-help-flash { animation: cbeHelpFlash 1.1s ease-out 1; border-radius: 6px; }
+  nav.toc ol li > a::before { content: counter(tocnum); position: absolute;
+                              left: 14px; top: 7px; color: var(--muted);
+                              font-family: ui-monospace; font-size: 11px;
+                              min-width: 16px; text-align: right; }
+  nav.toc ol li > a:hover { background: var(--surface-2); text-decoration: none; }
+  nav.toc ol li > a.active { background: var(--accent-soft);
+                              border-left-color: var(--accent); color: var(--accent); }
+  main#main { overflow-y: auto; padding: 28px 36px 80px 36px; height: 100vh; }
+  main#main > header { margin-bottom: 26px; padding-bottom: 14px;
+                       border-bottom: 1px solid var(--border); }
+  main#main > header h1 { margin: 0 0 4px 0; font-size: 24px; font-weight: 600;
+                          letter-spacing: 0.005em; }
+  main#main > header .meta { color: var(--muted); font-size: 13px; }
+  section.help-section { scroll-margin-top: 16px; max-width: 820px;
+                          margin: 0 0 36px 0; padding-top: 6px; }
+  section.help-section h2 { font-size: 19px; margin: 0 0 10px 0; font-weight: 600;
+                            display: flex; align-items: baseline; gap: 10px; }
+  section.help-section h2 .num { color: var(--muted); font: 13px ui-monospace;
+                                  min-width: 1.5em; }
+  section.help-section h3 { font-size: 15px; margin: 18px 0 6px 0; font-weight: 600;
+                            color: var(--text); }
+  section.help-section p { margin: 0 0 10px 0; color: var(--text); }
+  section.help-section ul { margin: 0 0 12px 0; padding-left: 22px; }
+  section.help-section li { margin-bottom: 4px; }
+  section.help-section table { border-collapse: collapse; width: 100%;
+                                margin: 6px 0 14px 0; font-size: 13.5px; }
+  section.help-section th, section.help-section td { border: 1px solid var(--border);
+                                                       padding: 6px 10px; text-align: left;
+                                                       vertical-align: top; }
+  section.help-section th { background: var(--surface-2); font-weight: 600; }
+  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft);
+             padding: 10px 14px; border-radius: 0 4px 4px 0; margin: 10px 0 14px 0; }
+  .callout.warn { border-color: var(--warn); background: rgba(255,216,77,0.08); }
+  .callout.err  { border-color: var(--err);  background: rgba(255,138,138,0.08); }
+  .top-link { float: right; font-size: 12px; color: var(--muted); }
+  .top-link:hover { color: var(--accent); }
+  /* Scrollbar */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: var(--bg); }
+  *::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <nav class="toc" aria-label="विषय-सूची">
+    <h2>विषय-सूची</h2>
+    <ol id="toc-list">
+      <li><a href="#welcome">स्वागत है</a></li>
+      <li><a href="#keyboard">कीबोर्ड शॉर्टकट</a></li>
+      <li><a href="#prompt-box">प्रॉम्प्ट बॉक्स</a></li>
+      <li><a href="#toolbar">टूलबार बटन</a></li>
+      <li><a href="#providers">मॉडल और प्रदाता</a></li>
+      <li><a href="#stt">वाक् से पाठ</a></li>
+      <li><a href="#auto-prompt">स्वतः प्रॉम्प्ट</a></li>
+      <li><a href="#tts">स्वतः पढ़ना (TTS)</a></li>
+      <li><a href="#compact">कॉम्पैक्ट और संदर्भ उपयोग</a></li>
+      <li><a href="#wake-up">जागृत प्रतिक्रिया</a></li>
+      <li><a href="#attachments">फ़ाइल संलग्नताएँ</a></li>
+      <li><a href="#git">Git मोडल</a></li>
+      <li><a href="#github">GitHub भंडार</a></li>
+      <li><a href="#domains">NameSilo डोमेन</a></li>
+      <li><a href="#skins">स्किन और थीम</a></li>
+      <li><a href="#settings">सेटिंग्स</a></li>
+      <li><a href="#language">भाषा</a></li>
+      <li><a href="#monitor">VSCode निरीक्षक</a></li>
+      <li><a href="#auto-update">स्वतः अपडेट (पुल)</a></li>
+      <li><a href="#admin-push">व्यवस्थापक पुश</a></li>
+      <li><a href="#extensions">एक्सटेंशन बाजार</a></li>
+      <li><a href="#slash">स्लैश आदेश</a></li>
+      <li><a href="#context-menu">दाहिना क्लिक मेनू</a></li>
+      <li><a href="#trace">ट्रेस चैनल</a></li>
+      <li><a href="#troubleshooting">समस्या समाधान</a></li>
+      <li><a href="#about">परिचय और लाइसेंस</a></li>
+    </ol>
+  </nav>
+
+  <main id="main">
+    <header>
+      <h1>Claude Codex — Black Edition</h1>
+      <div class="meta">VSCode के लिए एक ऑफ़लाइन-प्रथम बहु-प्रदाता AI चैट पैनल।
+        टॉगल करने के लिए <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd> दबाएँ।</div>
+    </header>
+
+    <section id="welcome" class="help-section">
+      <h2><span class="num">1.</span> स्वागत है</h2>
+      <p>Claude Codex Black एक VSCode वेबव्यू है जो आपको कई AI प्रदाताओं (Claude, OpenAI, Gemini, Grok, Azure, स्थानीय Ollama) के साथ एक एकल, थीमेबल पैनल से चैट करने देता है।
+        जिस किसी भी चीज़ को कुंजी की आवश्यकता है वह एक्सटेंशन रूट पर <code>config.ini</code> से पढ़ता है —
+        कोई एक्सटेंशन सेटिंग्स UI आवश्यक नहीं है, लेकिन एक सेटिंग्स मोडल सबसे उपयोगी
+        फ़ील्ड को केवल-क्लिक संपादन के लिए दर्शाता है।</p>
+      <div class="callout">
+        नए हैं? <em>सेटिंग्स</em> (गियर आइकन) खोलकर शुरू करें, अपना प्रदाता चुनें, अपनी API कुंजी पेस्ट करें, फिर एक प्रॉम्प्ट टाइप करें और <kbd>Enter</kbd> दबाएँ। इस गाइड में प्रत्येक अन्य सुविधा वैकल्पिक है।
+      </div>
+    </section>
+
+    <section id="keyboard" class="help-section">
+      <h2><span class="num">2.</span> कीबोर्ड शॉर्टकट</h2>
+      <table>
+        <thead><tr><th>कुंजी</th><th>प्रभाव</th></tr></thead>
+        <tbody>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd></td><td>CBE पैनल को टॉगल करें</td></tr>
+          <tr><td><kbd>Enter</kbd></td><td>वर्तमान प्रॉम्प्ट भेजें</td></tr>
+          <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>प्रॉम्प्ट बॉक्स में नई पंक्ति</td></tr>
+          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>आपके पहले भेजे गए प्रॉम्प्ट्स के माध्यम से चक्र (<code>prompt_history.txt</code> से)</td></tr>
+          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>जब कैरेट टेक्सटएरिया की शुरुआत/अंत में हो तो आपकी <code>prompts.txt</code> प्रविष्टियों के माध्यम से चक्र</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>कोई भी खुले मोडल को बंद करें</td></tr>
+          <tr><td><kbd>/</kbd></td><td>स्लैश-कमांड पैलेट खोलें</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="prompt-box" class="help-section">
+      <h2><span class="num">3.</span> प्रॉम्प्ट बॉक्स</h2>
+      <p>नीचे बड़ा संपादन योग्य टेक्सटएरिया। टाइप करें, पेस्ट करें, एक फ़ाइल खींचें, क्लिप के माध्यम से संलग्न करें — आप यहाँ जो कुछ भी रखते हैं वह अगली API कॉल का उपयोगकर्ता मोड़ है।</p>
+      <p>फ़ॉन्ट आपके VSCode संपादक के monospace फ़ॉन्ट पर लॉक किया गया है (<code>--vscode-editor-font-family</code> CSS वेरिएबल के माध्यम से) ताकि पैनल संपादक के अंदर घर पर दिखे।</p>
+    </section>
+
+    <section id="toolbar" class="help-section">
+      <h2><span class="num">4.</span> टूलबार बटन</h2>
+      <p>नीचे की पंक्ति, बाएँ से दाएँ। होवर पर टिप्पणियाँ दिखाई देती हैं; पैनल उन्हें आपकी चयनित भाषा में भी पढ़ता है (<a href="#language">भाषा</a> देखें)।</p>
+      <table>
+        <thead><tr><th>आइकन</th><th>फ़ंक्शन</th></tr></thead>
+        <tbody>
+          <tr><td>🎤 माइक</td><td>वाक् से पाठ — Web Speech API SAPI फॉलबैक के साथ। <a href="#stt">§ 6</a> देखें।</td></tr>
+          <tr><td>📎 संलग्न करें</td><td>प्रॉम्प्ट में इनलाइन करने के लिए एक या अधिक फ़ाइलें चुनें</td></tr>
+          <tr><td>🔁 जागृत करें</td><td>स्वतः प्रॉम्प्ट जागृत पाठ संपादित करें (<code>wake.txt</code> में रहता है)</td></tr>
+          <tr><td>⏱ स्वतः प्रॉम्प्ट</td><td>निष्क्रियता गिनती स्वतः-अग्नि को टॉगल करें</td></tr>
+          <tr><td>📚 कॉम्पैक्ट</td><td>वार्तालाप इतिहास को पिछली कुछ पारियों तक छोटा करें। रिंग संदर्भ-विंडो उपयोग दिखाता है।</td></tr>
+          <tr><td>📁 Git</td><td>प्रोजेक्ट फ़ोल्डर में git कमांड चलाएँ</td></tr>
+          <tr><td>🌐 डोमेन</td><td>अपनी NameSilo डोमेन सूची खींचें</td></tr>
+          <tr><td>🐙 GitHub</td><td>PAT के माध्यम से अपनी GitHub भंडार सूची दिखाएँ</td></tr>
+          <tr><td>🎨 स्किन</td><td>पैनल थीम चुनें (<code>skins/</code> से लाइव खोजा गया)</td></tr>
+          <tr><td>🧩 एक्सटेंशन</td><td>बाजार iframe मोडल खोलें। <a href="#extensions">§ 21</a> देखें।</td></tr>
+          <tr><td>⚙ सेटिंग्स</td><td>सेटिंग्स मोडल खोलें</td></tr>
+          <tr><td>📜 पुस्तिका</td><td><code>handbook.txt</code> को संपादन के लिए खोलें</td></tr>
+          <tr><td>❔ मदद</td><td>यह दस्तावेज़</td></tr>
+          <tr><td>⏹ रोकें</td><td>इन-फ़्लाइट मॉडल कॉल को रद्द करें</td></tr>
+          <tr><td>📤 भेजें</td><td>प्रॉम्प्ट जमा करें (<kbd>Enter</kbd> के समान)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="providers" class="help-section">
+      <h2><span class="num">5.</span> मॉडल और प्रदाता</h2>
+      <p>CBE <code>bridges/</code> के तहत ड्रॉप-इन <code>.bridge</code> प्लगइन के रूप में <strong>11 ब्रिज</strong> के साथ आता है। प्रत्येक एक manifest.xml + bridge.py + आइकन के साथ एक स्व-निहित ज़िप है। एक नई <code>.bridge</code> फ़ाइल को ड्रॉप करें और यह कारतूस ड्रॉपडाउन में दिखाई देता है — कोई एक्सटेंशन कोड परिवर्तन की आवश्यकता नहीं।</p>
+      <h3>टेक्स्ट-चैट ब्रिज (7)</h3>
+      <ul>
+        <li><strong>ChatGPT</strong> — chatgpt.com, Plus/Pro सदस्यता</li>
+        <li><strong>Grok</strong> — grok.com, मूल xAI लॉगिन (अनाम टायर बहुत प्रतिबंधित है; पहले लॉगिन करें)</li>
+        <li><strong>Gemini</strong> — gemini.google.com, Google खाता</li>
+        <li><strong>Claude</strong> — claude.ai, जादुई-लिंक लॉगिन (<code>tools/sign_in_helper.py claude</code> एक बार चलाएँ)</li>
+        <li><strong>Copilot</strong> — copilot.microsoft.com, मुफ़्त Microsoft खाता</li>
+        <li><strong>DeepSeek</strong> — chat.deepseek.com, मूल ईमेल/पासवर्ड (Google SSO का उपयोग न करें)</li>
+        <li><strong>Ollama</strong> — स्थानीय <code>127.0.0.1:11434</code>, कोई लॉगिन आवश्यक नहीं</li>
+      </ul>
+      <h3>वीडियो-जनरेशन ब्रिज (4)</h3>
+      <ul>
+        <li><strong>Sora 2</strong> — sora.com, आपकी ChatGPT Plus/Pro लॉगिन को फिर से उपयोग करता है</li>
+        <li><strong>Google Veo</strong> — gemini.google.com (Veo मोड), Gemini Advanced सदस्यता</li>
+        <li><strong>Runway Gen-3/4</strong> — app.runwayml.com, अलग Runway सदस्यता</li>
+        <li><strong>Bing Video Creator</strong> — bing.com/videos/create, Microsoft खाते के साथ <em>मुफ़्त Sora-2</em></li>
+      </ul>
+      <p>जनरेट किए गए वीडियो <code>videos/&lt;bridge&gt;/&lt;timestamp&gt;_&lt;prompt-slug&gt;.mp4</code> को सहेजते हैं
+        और वीडियो लाइब्रेरी पैनल में स्वतः-खेलते हैं (नीचे § वीडियो लाइब्रेरी देखें)।</p>
+      <p>प्रॉम्प्ट बॉक्स के आगे कारतूस ड्रॉपडाउन से एक ब्रिज + मॉडल चुनें, या <em>सेटिंग्स → सामान्य</em> के माध्यम से। चयन प्रति-वर्कस्पेस है और workspaceState में जारी है। एक नया ब्रिज जोड़ने के लिए, <code>docs/WRITING_BRIDGES.md</code> देखें।</p>
+    </section>
+
+    <section id="video-library" class="help-section">
+      <h2><span class="num">5a.</span> वीडियो लाइब्रेरी</h2>
+      <p>वीडियो ब्रिज (Sora, Veo, Runway, Bing Video Creator) द्वारा जनरेट किए गए वीडियो को ब्राउज़ करने और देखने के लिए एक समर्पित पैनल। कमांड पैलेट के माध्यम से खोलें:
+        <em>Claude Codex Black: Open Video Library</em> या <code>codexBlackEd.openVideoPlayer</code> कमांड।</p>
+      <ul>
+        <li>साइडबार <code>videos/&lt;bridge&gt;/</code> के तहत हर <code>.mp4</code> / <code>.webm</code> / <code>.mov</code> को सूचीबद्ध करता है, ब्रिज द्वारा समूहीकृत और नवीनतम-प्रथम क्रमबद्ध।</li>
+        <li>सबसे ताज़ा वीडियो पहली बार खुलने पर स्वतः-खेलता है।</li>
+        <li>पैनल 2-सेकंड टिक पर <code>videos/</code> निर्देशिका को देखता है — कोई भी नया जनरेट किया गया वीडियो ✨ "अभी-अभी जनरेट किया गया" बैज के साथ पॉप अप होता है और स्वतः-खेलता है
+          (<em>स्वतः ▶ नया</em> के माध्यम से टॉगल बंद करें)।</li>
+        <li><em>📂 खोलें</em> पर क्लिक करें अपने OS फ़ाइल प्रबंधक में <code>videos/</code> फ़ोल्डर को प्रकट करने के लिए।</li>
+      </ul>
+    </section>
+
+    <section id="stt" class="help-section">
+      <h2><span class="num">6.</span> वाक् से पाठ</h2>
+      <p>माइक पर क्लिक करें, बोलें, फिर से क्लिक करें रोकने के लिए (या चुप्पी-समयसमाप्ति के लिए प्रतीक्षा करें)।
+        दो इंजन क्रम में आज़माए जाते हैं:</p>
+      <ol style="padding-left:22px;">
+        <li><strong>Web Speech API</strong> — Google का क्लाउड पहचानकर्ता webview में चल रहा है।
+          आपके Gmail/Google सत्र का उपयोग करता है; कोई अतिरिक्त कुंजी की आवश्यकता नहीं।</li>
+        <li><strong>Windows SAPI</strong> (फॉलबैक) — पूर्व-गरम PowerShell प्रक्रिया जब
+          webview माइक पहुंच को ब्लॉक करता है। <code>config.ini</code> में <code>[voice] listen_seconds</code> के माध्यम से कॉन्फ़िगर करने योग्य।</li>
+      </ol>
+      <div class="callout">
+        SAPI <em>एक्सटेंशन सक्रिय करने पर पूर्व-गरम है</em> ताकि पहली माइक क्लिक 2-4 सेकंड की ठंडी शुरुआत से बचे जो पहले के स्टॉप-क्लिक को निगल जाती थी।
+      </div>
+    </section>
+
+    <section id="auto-prompt" class="help-section">
+      <h2><span class="num">7.</span> स्वतः प्रॉम्प्ट</h2>
+      <p>बैज-विथ-स्पिनर बटन। जब ON है, N सेकंड की निष्क्रियता के बाद पैनल आपके कॉन्फ़िगर्ड जागृत पाठ को स्वतः-भेजता है। गिनती अंक <code>--cbe-highlight-color</code> में प्रस्तुत किया जाता है, जिसे प्रत्येक स्किन परिभाषित करता है।</p>
+      <p>🔁 जागृत बटन के माध्यम से जागृत पाठ संपादित करें — यह <code>wake.txt</code> को राउंड-ट्रिप करता है।</p>
+    </section>
+
+    <section id="tts" class="help-section">
+      <h2><span class="num">8.</span> स्वतः पढ़ना (TTS)</h2>
+      <p>मुँह आइकन। जब ON है, हर सहायक जवाब Web Speech संश्लेषक (Google) या SAPI फॉलबैक के माध्यम से बोला जाता है। नीली हेलो आइकन के चारों ओर चमकती है जबकि ऑडियो चल रहा है।</p>
+    </section>
+
+    <section id="compact" class="help-section">
+      <h2><span class="num">9.</span> कॉम्पैक्ट और संदर्भ उपयोग</h2>
+      <p>मॉडल को भेजी गई वार्तालाप सरणी हर मोड़ के साथ बढ़ती है। कॉम्पैक्ट आइकन के चारों ओर रिंग वर्तमान संदर्भ-विंडो उपयोग को एक कोनिक ग्रेडिएंट के रूप में दिखाता है — ताज़ा होने पर खाली, मॉडल की संदर्भ सीमा के करीब होने पर भरा।</p>
+      <p>इतिहास को पिछली चार पारियों तक छोटा करने के लिए कॉम्पैक्ट पर क्लिक करें। अगली API कॉल छोटी सरणी का उपयोग करता है।</p>
+    </section>
+
+    <section id="wake-up" class="help-section">
+      <h2><span class="num">10.</span> जागृत प्रतिक्रिया</h2>
+      <p>एक्सटेंशन रूट पर <code>wake.txt</code> में संग्रहीत। निष्क्रियता टाइमर आग लगने पर भेजने के लिए संदेश के रूप में स्वतः प्रॉम्प्ट द्वारा उपयोग किया जाता है। 🔁 टूलबार बटन के माध्यम से संपादित करें।</p>
+    </section>
+
+    <section id="attachments" class="help-section">
+      <h2><span class="num">11.</span> फ़ाइल संलग्नताएँ</h2>
+      <p>📎 पर क्लिक करें एक या अधिक फ़ाइलें चुनने के लिए। पिकर में <kbd>Ctrl</kbd> या <kbd>Shift</kbd> पकड़ें बहु-चयन के लिए। प्रत्येक फ़ाइल प्रॉम्प्ट में एक बंद कोड ब्लॉक के रूप में इनलाइन की जाती है
+        इसके फ़ाइलनाम और भाषा के साथ। 1 MB से बड़ी बाइनरी फ़ाइलें एक सूचना के साथ छोड़ी जाती हैं।</p>
+    </section>
+
+    <section id="git" class="help-section">
+      <h2><span class="num">12.</span> Git मोडल</h2>
+      <p>📁 Git पर क्लिक करें। यदि कोई प्रोजेक्ट फ़ोल्डर कॉन्फ़िगर नहीं है, तो आप पहले फ़ोल्डर पिकर प्राप्त करते हैं —
+        चुना गया पाथ <code>config.ini</code> में <code>[project] path</code> पर लिखा जाता है।
+        बाद की git अव्यवस्था उस पाथ पर cwd सेट के साथ चलती है।</p>
+    </section>
+
+    <section id="github" class="help-section">
+      <h2><span class="num">13.</span> GitHub भंडार</h2>
+      <p>आपके <code>[github] pat</code> के लिए सुलभ हर भंडार को सूचीबद्ध करता है। प्रॉम्प्ट में इसका क्लोन URL डालने के लिए एक पंक्ति पर क्लिक करें। सूची पृष्ठांकित है और कैश की गई है।</p>
+    </section>
+
+    <section id="domains" class="help-section">
+      <h2><span class="num">14.</span> NameSilo डोमेन</h2>
+      <p>आपके NameSilo खाते में हर डोमेन खींचता है <code>[namesilo] api_key</code> का उपयोग करके
+        (या <code>[api_keys] namesilo_api_key</code> फॉलबैक के रूप में)। पहली बार खुलने पर, परिणाम कैश किए जाते हैं <code>domains.txt</code> में; बाद के पैनल बूट्स कैश से सेवा करते हैं। <em>पुनः लोड करें</em> पर क्लिक करें मोडल में एक ताज़ी फेच को बल देने के लिए।</p>
+      <div class="callout warn">
+        यदि आप कभी "कोई डोमेन नहीं" 300 उत्तर कोड के साथ देखते हैं, तो ट्रेस चैनल जांचें — खाली कैश अब अन्य इंस्टॉल पाथ में एक पुरानी <code>domains.txt</code> हो सकती है, भविष्य के पैनल बूट्स को ज़हर न दें।
+      </div>
+    </section>
+
+    <section id="skins" class="help-section">
+      <h2><span class="num">15.</span> स्किन और थीम</h2>
+      <p>🎨 बटन एक खोज पिकर पॉप करता है जो <code>skins/</code> लाइव स्कैन करता है (स्टार्टअप पर नहीं), इसलिए रनटाइम पर एक नया फ़ोल्डर ड्रॉप करना पर्याप्त है। प्रत्येक स्किन में <code>manifest.xml</code> होता है जो इसके पैलेट को परिभाषित करता है — <strong>हाइलाइट रंग</strong> सहित, जो स्वतः प्रॉम्प्ट गिनती बैज, फोकस रिंग्स, और निरीक्षक पल्स सभी मुख्य बंद करते हैं।</p>
+      <p>अंतर्निहित स्किन में शामिल हैं: <code>gnome</code> (Adwaita ग्रे), <code>terminal</code>
+        (काला/हरा गर्म-गुलाबी उच्चारण के साथ), <code>tamagotchi</code> (अंडे-खोल पेस्टल एक स्प्राइट मस्कॉट पैनल के साथ), <code>blocky</code>, और अन्य।</p>
+    </section>
+
+    <section id="settings" class="help-section">
+      <h2><span class="num">16.</span> सेटिंग्स</h2>
+      <p>⚙ गियर से खोलें। टैब:</p>
+      <ul>
+        <li><strong>सामान्य</strong> — प्रदर्शन नाम, डिफ़ॉल्ट मॉडल, enter पर भेजें</li>
+        <li><strong>वाक्</strong> — माइक उपकरण, listen_seconds, STT इंजन पिक, TTS ऑटो-पढ़ें</li>
+        <li><strong>अपडेट</strong> — <code>is_admin</code> झंडा, WinSCP सत्र, रिमोट पाथ</li>
+        <li><strong>कुंजियाँ</strong> — हर प्रदाता की API कुंजी</li>
+        <li><strong>निरीक्षक</strong> — VSCode निरीक्षक टॉगल, पोर्ट, पोल अंतराल</li>
+        <li><strong>भाषा</strong> — 39 लोकेल से चुनें; <a href="#language">§ 17</a> देखें</li>
+      </ul>
+      <p>मोडल सत्रों के बीच अपना आकार और स्थिति याद रखता है।</p>
+    </section>
+
+    <section id="language" class="help-section">
+      <h2><span class="num">17.</span> भाषा</h2>
+      <p>पैनल 39 सबसे अधिक बोली जाने वाली भाषाओं के लिए अनुवाद के साथ आता है। स्थान फ़ाइलें <code>languages/&lt;code&gt;.xml</code> पर रहती हैं और एक्सटेंशन सक्रिय करने पर एक बार लोड होती हैं। लापता कुंजियाँ अंग्रेजी में फॉलबैक करती हैं।</p>
+      <p>अपनी भाषा <em>सेटिंग्स → भाषा</em> में चुनें। प्रत्येक विकल्प के आगे एक झंडा आइकन दिखाया जाता है (<code>assets/flags/&lt;code&gt;.svg</code> से लोड)। चयन <code>config.ini</code> में <code>[settings] language</code> पर सहेजा जाता है।</p>
+    </section>
+
+    <section id="monitor" class="help-section">
+      <h2><span class="num">18.</span> VSCode निरीक्षक</h2>
+      <p>एक Windows सेवा (<code>CBEVSCodeSupervisor</code>) <code>tools/vscode_supervisor.ps1</code> स्क्रिप्ट को NSSM के माध्यम से लपेटता है और <strong>http://127.0.0.1:3434/</strong> पर एक HttpListener बाँधता है। पैनल की निरीक्षक बटन नीली चमकती है जब निरीक्षक <code>/status</code> एंडपॉइंट 200 OK का जवाब देता है।</p>
+      <p>यदि HTTP जांच विफल हो जाती है लेकिन सेवा स्थापित है, तो पैनल की watchdog सेवा को स्वतः-रीस्टार्ट करता है (30-सेकंड शांति ताकि यह रीस्टार्ट-तूफान न हो)।</p>
+      <p>निरीक्षक बटन को बाएँ-क्लिक करें इंस्टॉल / शुरू / रोकने के लिए। दाहिना-क्लिक ट्रेस चैनल खोलने के लिए।</p>
+    </section>
+
+    <section id="auto-update" class="help-section">
+      <h2><span class="num">19.</span> स्वतः अपडेट (पुल)</h2>
+      <p>एक्सटेंशन सक्रिय होने के 4 सेकंड बाद, पैनल <code>https://trentontompkins.com/cbe/manifest.xml.php</code> को फेच करता है — नवीनतम प्रकाशित फ़ाइलों का एक MD5+size मैनिफेस्ट। प्रत्येक रिमोट फ़ाइल के लिए, स्थानीय कॉपी की MD5 तुलना की जाती है; केवल परिवर्तित/लापता फ़ाइलें HTTPS पर डाउनलोड की जाती हैं।</p>
+      <p>उपयोगकर्ता-स्थानीय स्थिति (<code>config.ini</code>, <code>debug.log</code>,
+        <code>domains.txt</code>, <code>wake.txt</code>, <code>prompt_history.txt</code>) पुल बहिष्करण सूची पर है और कभी अधिलेखित नहीं होता है।</p>
+    </section>
+
+    <section id="admin-push" class="help-section">
+      <h2><span class="num">20.</span> व्यवस्थापक पुश</h2>
+      <p>केवल <code>[updates] is_admin = true</code> वाले क्लाइंट सर्वर को कभी पुश करते हैं।
+        इसके द्वारा ट्रिगर किया गया:</p>
+      <ul>
+        <li>कमांड पैलेट → <em>Claude Codex Black: Push update</em></li>
+        <li>स्लैश कमांड <code>/push</code></li>
+      </ul>
+      <p>WinSCP सहेजे गए सत्र का उपयोग करता है <code>[updates] winscp_session</code> में नाम दिया गया (डिफ़ॉल्ट <code>vps</code>)। <code>/script=…</code> के माध्यम से सिंक्रोनाइज़ करें कमांड के साथ और
+        एक फ़ाइलमास्क जो गोपनीयता और प्रति-मशीन स्थिति को बाहर करता है।</p>
+    </section>
+
+    <section id="extensions" class="help-section">
+      <h2><span class="num">21.</span> एक्सटेंशन बाजार</h2>
+      <p>🧩 एक्सटेंशन बटन पर क्लिक करें। एक iframe मोडल <code>https://trentontompkins.com/cbe/extension/extension_marketplace.php</code> को खोलता है,
+        जो कैटलॉग को <code>extensions.xml.php</code> पर फेच करता है और प्रत्येक उपलब्ध एक्सटेंशन को
+        विवरण, टैग, संस्करण, फ़ाइल आकार, MD5, और <strong>इंस्टॉल</strong> बटन के साथ एक कार्ड के रूप में प्रस्तुत करता है।</p>
+      <p>एक एक्सटेंशन <code>&lt;id&gt;.ext</code> के रूप में पैकेज किया गया है — एक ज़िप आर्काइव <code>manifest.xml</code> के साथ
+        एक्सटेंशन कोड (आम तौर पर एक एकल <code>extension.html</code>)। जब आप इंस्टॉल पर क्लिक करते हैं, बाजार iframe पैनल को <code>postMessage</code> भेजता है; पैनल सर्वर से सीधे <code>.ext</code> फ़ाइल डाउनलोड करता है
+        और इसे <code>extensions/</code> के तहत निकालता है एक्सटेंशन फ़ोल्डर में।</p>
+      <p>तीन डेमो एक्सटेंशन लॉन्च कैटलॉग के साथ आते हैं:
+        <strong>कैलकुलेटर</strong>, <strong>माइनस्वीपर</strong>, और <strong>इमोजी
+        पिकर</strong>।</p>
+    </section>
+
+    <section id="slash" class="help-section">
+      <h2><span class="num">22.</span> स्लैश आदेश</h2>
+      <p>स्लैश-कमांड पैलेट खोलने के लिए प्रॉम्प्ट बॉक्स में <kbd>/</kbd> टाइप करें। <em>सम्मिलित</em> करने के लिए एक पंक्ति पर क्लिक करें कमांड पाठ आपके प्रॉम्प्ट में (संपादन योग्य), या <kbd>Enter</kbd> दबाएँ
+        एक चलने योग्य पंक्ति पर तुरंत इसे आग लगाने के लिए।</p>
+      <p>एक गैर-विस्तृत सूची:</p>
+      <table>
+        <thead><tr><th>कमांड</th><th>प्रभाव</th></tr></thead>
+        <tbody>
+          <tr><td><code>/help</code></td><td>यह दस्तावेज़ खोलें</td></tr>
+          <tr><td><code>/skin</code></td><td>स्किन पिकर पॉप करें</td></tr>
+          <tr><td><code>/push</code></td><td>स्वतः-अपडेट पुश को आग लगाएँ (केवल व्यवस्थापक)</td></tr>
+          <tr><td><code>/license</code></td><td><code>LICENSE.TXT</code> दिखाएँ</td></tr>
+          <tr><td><code>/clear</code></td><td>वार्तालाप इतिहास साफ करें</td></tr>
+          <tr><td><code>/domains</code></td><td>NameSilo डोमेन मोडल खोलें</td></tr>
+          <tr><td><code>/git</code></td><td>Git मोडल खोलें</td></tr>
+          <tr><td><code>/wake</code></td><td>जागृत-संपादक खोलें</td></tr>
+          <tr><td><code>/memory</code></td><td>प्रोजेक्ट मेमोरी इंडेक्स खोलें</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="context-menu" class="help-section">
+      <h2><span class="num">23.</span> दाहिना क्लिक मेनू</h2>
+      <p>संदर्भ मेनू के लिए पैनल में कहीं भी दाहिना क्लिक करें (<code>panel.js</code> में एक एकल XML स्ट्रिंग के रूप में परिभाषित)। प्रविष्टियों में शामिल हैं ताज़ा करें (पैनल को रीलोड करें एक्सटेंशन होस्ट को छुए बिना — कभी <code>reloadWindow</code> का उपयोग न करें), वार्तालाप साफ करें, सेटिंग्स खोलें, और निरीक्षण करें (DevTools, डीबग बिल्ड केवल)।</p>
+    </section>
+
+    <section id="trace" class="help-section">
+      <h2><span class="num">24.</span> ट्रेस चैनल</h2>
+      <p>एक्सटेंशन <code>debug.log</code> के लिए एक बारीक समयरेखा लिखता है एक्सटेंशन के आगे। सभी महत्वपूर्ण वहाँ जाते हैं: प्रदाता स्विच, STT जीवनचक्र, निरीक्षक जांच, NameSilo उत्तर कोड, पैनल↔होस्ट ब्रिज संदेश, पुश/पुल मैनिफेस्ट गिनती।</p>
+      <p>ट्रेस चैनल के एक-क्लिक खुले के लिए निरीक्षक बटन को दाहिना-क्लिक करें।</p>
+    </section>
+
+    <section id="troubleshooting" class="help-section">
+      <h2><span class="num">25.</span> समस्या समाधान</h2>
+      <table>
+        <thead><tr><th>लक्षण</th><th>संभावित कारण</th></tr></thead>
+        <tbody>
+          <tr><td>प्रॉम्प्ट बॉक्स आनुपातिक दिखता है, monospace नहीं</td>
+              <td><code>--vscode-editor-font-family</code> लागू नहीं; <code>:root</code> vars जांचें</td></tr>
+          <tr><td>स्वतः प्रॉम्प्ट स्पिनर एक काली बिंदु है</td>
+              <td>गलत SVG एसेट; <code>auto_read_spinner.svg</code> होना चाहिए ड्रॉप-शेडो हेलो के साथ</td></tr>
+          <tr><td>कॉम्पैक्ट बटन कुछ नहीं करता</td>
+              <td>होस्ट हैंडलर लापता — <code>case 'compactConversation'</code> extension.js router में</td></tr>
+          <tr><td>डोमेन मोडल में "0 डोमेन"</td>
+              <td>NameSilo reply.code != 300 (ट्रेस चैनल में है), या पुरानी <code>domains.txt</code></td></tr>
+          <tr><td>STT "कोई भाषण नहीं पता चला" तुरंत</td>
+              <td>आप रुकने से पहले SAPI माइक बाँधा। प्री-वार्म अब इंतज़ार छोड़ता है — <code>debug.log</code> में <code>stt: using pre-warmed SAPI</code> के साथ सत्यापित करें</td></tr>
+          <tr><td>स्पेस के साथ पाथ पर पुश विफल</td>
+              <td><code>/command=</code> इनलाइन उपयोग; हमेशा <code>/script=tempfile.winscp</code> उपयोग करें</td></tr>
+          <tr><td>निरीक्षक नीली चमक प्रकाश नहीं</td>
+              <td>सेवा नहीं चल रही। इंस्टॉल/शुरू करने के लिए monitorBtn बाएँ-क्लिक करें, या <code>Start-Service CBEVSCodeSupervisor</code> चलाएँ</td></tr>
+          <tr><td>पुनः लोड करें "कुछ ठीक करें"</td>
+              <td>यह नहीं। <code>reloadWindow</code> का कभी उपयोग न करें। इसके बजाय संदर्भ-मेनू ताज़ा प्रविष्टि का उपयोग करें।</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="about" class="help-section">
+      <h2><span class="num">26.</span> परिचय और लाइसेंस</h2>
+      <p>Claude Codex — Black Edition। MIT-लाइसेंस प्राप्त। स्रोत दर्पण:
+        <a href="https://github.com/tibberous/Claude-Codex-Back-Ed.." target="_blank" rel="noopener">github.com/tibberous/Claude-Codex-Back-Ed..</a>.
+        आधिकारिक स्वतः-अपडेट सर्वर: <a href="https://trentontompkins.com/cbe/" target="_blank" rel="noopener">trentontompkins.com/cbe</a>.</p>
+      <p>प्रतिक्रिया या वाणिज्यिक कार्य के लिए, <a href="https://trentontompkins.com" target="_blank" rel="noopener">trentontompkins.com</a> · (724) 431-5207 से संपर्क करें।</p>
+      <p style="margin-top:24px; color: var(--muted); font-size: 12px;">
+        <em>यह मदद पैनल टूलबार के मदद बटन में भी iframed है। स्रोत:
+        <code>panel/help.html</code>.</em>
+      </p>
+    </section>
+
+  </main>
+</div>
+
+<script>
+/* Native smooth-scroll TOC navigation. jQuery CDN scripts are blocked by the
+   VSCode webview CSP, so this uses plain DOM APIs — scrollIntoView with
+   behavior:'smooth' gives the identical animated scroll without any external
+   dependency. Works inside the webview iframe sandbox. */
+(function () {
+  const main = document.getElementById('main');
+  const tocLinks = Array.prototype.slice.call(document.querySelectorAll('nav.toc a[href^="#"]'));
+  const sections = Array.prototype.slice.call(document.querySelectorAll('section.help-section'));
+
+  tocLinks.forEach(function (link) {
+    link.addEventListener('click', function (e) {
+      e.preventDefault();
+      const id = link.getAttribute('href');
+      const target = document.querySelector(id);
+      if (!target) return;
+      /* scrollIntoView animates within the nearest scroll container (#main,
+         which has overflow:auto). scroll-margin-top on the section handles
+         the small top offset so headings aren't flush against the edge. */
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      try { history.replaceState(null, '', id); } catch (_) {}
+    });
+  });
+
+  /* Highlight whichever section is currently scrolled into view. */
+  function syncActive() {
+    const scrollTop = main.scrollTop;
+    const threshold = 80;
+    let activeId = sections.length ? sections[0].id : '';
+    sections.forEach(function (sec) {
+      if (sec.offsetTop - threshold <= scrollTop) activeId = sec.id;
+    });
+    tocLinks.forEach(function (l) {
+      l.classList.toggle('active', l.getAttribute('href') === '#' + activeId);
+    });
+  }
+  main.addEventListener('scroll', syncActive);
+  syncActive();
+
+  /* External-link bridge. target="_blank" doesn't escape a VSCode webview
+     iframe — the click would just try to navigate the iframe itself. Instead
+     we intercept clicks on absolute http(s) links and postMessage to the
+     parent panel, which forwards to extension.js, which calls
+     vscode.env.openExternal so the user's real default browser opens. */
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    while (t && t.tagName !== 'A') t = t.parentNode;
+    if (!t || !t.getAttribute) return;
+    var href = t.getAttribute('href') || '';
+    if (!/^https?:\/\//i.test(href)) return;
+    e.preventDefault();
+    try {
+      window.parent.postMessage({ type: 'cbe.openExternal', url: href }, '*');
+    } catch (err) { /* parent missing — fall back to noop */ }
+  }, true);
+})();
+</script>
+</body>
+</html>
