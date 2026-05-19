@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Bing Video Creator bridge — drives bing.com/videos/create via CDP.
+  Backed by Sora-2 on the Microsoft side. FREE with a Microsoft
+  account (the same one the copilot bridge uses), with daily rate
+  limits (typically 5-10 generations/day).
+
+  Key win over the sora bridge: no Plus/Pro subscription required.
+  If the user has Copilot's microsoft.com login cached, this works
+  for free.
+-->
+<bridge>
+  <name>bing-video</name>
+  <displayName>Bing Video Creator</displayName>
+  <version>1.0.0</version>
+  <author>Trent Tompkins</author>
+  <description>Free Sora-2 video generation via Bing Video Creator. Reuses Microsoft account login (same as Copilot). Async generations save to videos/bing-video/.</description>
+  <homepage>https://www.bing.com/videos/create</homepage>
+
+  <kind>web</kind>
+  <homeUrl>https://www.bing.com/videos/create</homeUrl>
+  <loginUrl>https://login.live.com/</loginUrl>
+  <bridgePort>8796</bridgePort>
+  <cdpPort>9796</cdpPort>
+  <fastPath>false</fastPath>
+
+  <aliases>
+    <alias>bing-video</alias>
+    <alias>bingvideo</alias>
+    <alias>bing-sora</alias>
+    <alias>microsoft-video</alias>
+    <alias>ms-video</alias>
+    <alias>free-sora</alias>
+  </aliases>
+
+  <models>
+    <model>sora-2-bing</model>
+  </models>
+
+  <capabilities>
+    <chat supported="false"/>
+    <videoGen supported="true" mode="async" pollMaxSeconds="600"/>
+    <fileSend supported="false"/>          <!-- text-to-video only on the free tier -->
+    <fileReceive supported="true"/>
+    <vision supported="false"/>
+    <memory supported="true"/>             <!-- creations appear in user's history -->
+  </capabilities>
+
+  <icon>icon.ico</icon>
+  <iconPng>icon.png</iconPng>
+</bridge>

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sora 2 bridge — drives sora.com via CDP. Reuses the chatgpt profile's
+  OpenAI session cookies (same Plus/Pro account auth gate as chatgpt.com),
+  so a one-time chatgpt sign-in covers sora too. Sora 2 is the model
+  selected in the site's "Model" dropdown; the bridge doesn't need to
+  pick — it just types the prompt and submits.
+-->
+<bridge>
+  <name>sora</name>
+  <displayName>Sora 2</displayName>
+  <version>1.0.0</version>
+  <author>Trent Tompkins</author>
+  <description>OpenAI Sora 2 video generation via sora.com. Reuses ChatGPT Plus/Pro login. Async generations save to videos/sora/.</description>
+  <homepage>https://sora.com/</homepage>
+
+  <kind>web</kind>
+  <homeUrl>https://sora.com/</homeUrl>
+  <loginUrl>https://sora.com/?login=true</loginUrl>
+  <bridgePort>8795</bridgePort>
+  <cdpPort>9795</cdpPort>
+  <fastPath>false</fastPath>           <!-- async job, NOT fast-path chat -->
+
+  <aliases>
+    <alias>sora</alias>
+    <alias>sora2</alias>
+    <alias>video</alias>
+    <alias>vid</alias>
+  </aliases>
+
+  <models>
+    <model>sora-2</model>
+    <model>sora-2-pro</model>
+  </models>
+
+  <capabilities>
+    <chat supported="false"/>
+    <videoGen supported="true" mode="async" pollMaxSeconds="600"/>
+    <fileSend supported="true"/>          <!-- reference image / video for img2vid + vid2vid -->
+    <fileReceive supported="true"/>
+    <vision supported="false"/>
+    <memory supported="true"/>             <!-- sora keeps generated clips in a library -->
+  </capabilities>
+
+  <icon>icon.ico</icon>
+  <iconPng>icon.png</iconPng>
+</bridge>

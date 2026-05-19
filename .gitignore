@@ -54,3 +54,11 @@ build_full.log
 port.txt
 session.log
 MonkeyPatchDetector.txt
+
+# Generated-asset output dirs. Bridges that emit non-text outputs save
+# here. Kept out of git because (a) media files are huge, and (b) they
+# are user-generated work, not source. The dirs themselves are created
+# on demand by the bridge_runner.
+videos/
+images/
+audio/

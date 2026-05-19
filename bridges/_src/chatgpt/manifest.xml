@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ChatGPT bridge plugin manifest.
+
+  This file declares everything CBE needs to load + run the bridge
+  WITHOUT looking at the python source. The bridge_runner reads this
+  on tray startup, picks a port, and hands the rest off to bridge.py.
+
+  Field reference: see docs/WRITING_BRIDGES.md (or the developer
+  whitepaper at vendor/claude/WRITING_BRIDGES_WHITEPAPER.md).
+-->
+<bridge>
+  <name>chatgpt</name>
+  <displayName>ChatGPT</displayName>
+  <version>1.0.0</version>
+  <author>Trent Tompkins</author>
+  <description>OpenAI ChatGPT (chatgpt.com) — drives the user's logged-in Plus session via CDP. Fast-path enabled (direct DOM selectors, no vision needed).</description>
+  <homepage>https://chatgpt.com/</homepage>
+  <license>MIT</license>
+
+  <!-- Runtime contract -->
+  <kind>web</kind>                    <!-- web | api -->
+  <homeUrl>https://chatgpt.com/</homeUrl>
+  <loginUrl>https://chatgpt.com/auth/login</loginUrl>
+  <bridgePort>8788</bridgePort>       <!-- can be 0 for auto-assign -->
+  <cdpPort>9788</cdpPort>             <!-- can be 0 for bridgePort+1000 -->
+  <fastPath>true</fastPath>           <!-- bypass vision pilot, use selectors -->
+
+  <!-- Declared capabilities. The runner only wires features listed
+       here as supported=true. The order matches the per-bridge code
+       audit categories (chat is universal; the rest opt-in). -->
+  <capabilities>
+    <chat supported="true"/>
+    <streaming supported="true"/>
+    <fileSend supported="true"/>
+    <fileReceive supported="true"/>
+    <toolCalls supported="true" protocol="fenced-exec"/>
+    <vision supported="true"/>
+    <memory supported="true"/>
+  </capabilities>
+
+  <!-- Aliases the CLI / extension can use to address this bridge -->
+  <aliases>
+    <alias>chatgpt</alias>
+    <alias>chatgtp</alias>
+    <alias>gtp</alias>
+    <alias>gpt</alias>
+    <alias>openai</alias>
+  </aliases>
+
+  <!-- Static model list (UI only — site is source-of-truth at runtime) -->
+  <models>
+    <model>gpt-4o</model>
+    <model>gpt-4o-mini</model>
+    <model>gpt-4.1</model>
+    <model>o1-preview</model>
+    <model>o1-mini</model>
+    <model>gpt-5.4</model>
+    <model>gpt-5.5</model>
+  </models>
+
+  <!-- Icons (relative to this manifest) -->
+  <icon>icon.ico</icon>
+  <iconPng>icon.png</iconPng>
+</bridge>
