@@ -437,15 +437,36 @@ class Bridge:
         return self._eval(mini, js)
 
     def _click(self, mini, selector) -> bool:
+        """Click the first visible element matching any selector.
+
+        Polls up to ~1 second waiting for the button to become enabled —
+        chatgpt and other React-based sites briefly mark the send button
+        `disabled=true` while their state updates after the user types,
+        and an early "skip if disabled" check meant we'd silently miss
+        the click. If it's still disabled after the poll, click anyway —
+        the browser will queue the click for when it enables, OR the
+        click hits a non-button element where `disabled` is meaningless.
+        """
         sels = self._as_list(selector)
         if not sels:
             return False
         sel = self._first_visible(mini, sels)
         if not sel:
             return False
+        # Brief poll for "not disabled" — React usually enables in <500ms.
+        import time as _t
+        deadline = _t.time() + 1.0
+        while _t.time() < deadline:
+            is_disabled = bool(self._eval(mini, f"""(function(){{
+                var el = document.querySelector('{sel}');
+                return !!(el && el.disabled);
+            }})()"""))
+            if not is_disabled:
+                break
+            _t.sleep(0.1)
         js = f"""(function(){{
             var el = document.querySelector('{sel}');
-            if (!el || el.disabled) return false;
+            if (!el) return false;
             el.click();
             return true;
         }})()"""
