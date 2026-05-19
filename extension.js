@@ -2833,9 +2833,24 @@ function bindPanel(context, panel) {
                        but not always to nested-document loads). Shipping the
                        HTML body in the init payload sidesteps that entirely:
                        openHelp() in panel.js innerHTML's it into a div. */
+                    /* Pick the help file matching the active language, fall
+                       back to English. Files live at panel/help.<code>.html
+                       (e.g. panel/help.fr.html); panel/help.html is the
+                       authoritative English source. */
                     let helpHtml = '';
                     try {
-                        helpHtml = fs.readFileSync(path.join(context.extensionPath, 'panel', 'help.html'), 'utf8');
+                        const _lang = _currentLanguageCode(context);
+                        const candidates = [
+                            path.join(context.extensionPath, 'panel', `help.${_lang}.html`),
+                            path.join(context.extensionPath, 'panel', 'help.html'),
+                        ];
+                        for (const p of candidates) {
+                            if (fs.existsSync(p)) {
+                                helpHtml = fs.readFileSync(p, 'utf8');
+                                trace(`HELP:LOAD lang=${_lang} from=${path.basename(p)}`);
+                                break;
+                            }
+                        }
                     } catch (e) { traceErr('read help.html', e); }
                     /* Pinned extensions list — shipped on init so the toolbar
                        can render its quick-launch buttons immediately. Each
@@ -3161,6 +3176,25 @@ function bindPanel(context, panel) {
                             panel.webview.postMessage({ type: 'strings', language: safeLang, strings: _languageStringsFor(context, safeLang) });
                             trace(`language changed -> ${safeLang}; pushed ${Object.keys(_languageStringsFor(context, safeLang)).length} strings to panel`);
                         } catch (e) { traceErr('push strings after language change', e); }
+                        /* Re-ship the help HTML in the new language so the
+                           next Help-button click renders the right file. */
+                        try {
+                            const helpCands = [
+                                path.join(context.extensionPath, 'panel', `help.${safeLang}.html`),
+                                path.join(context.extensionPath, 'panel', 'help.html'),
+                            ];
+                            for (const p of helpCands) {
+                                if (fs.existsSync(p)) {
+                                    panel.webview.postMessage({
+                                        type: 'helpHtml',
+                                        helpHtml: fs.readFileSync(p, 'utf8'),
+                                        language: safeLang,
+                                    });
+                                    trace(`HELP:RELOAD lang=${safeLang} from=${path.basename(p)}`);
+                                    break;
+                                }
+                            }
+                        } catch (e) { traceErr('reship help.html on language change', e); }
                     }
                     conversation = [];
                     trace(`active provider set: ${msg.provider} / ${msg.model || '(default)'} sfx=${msg.sfxEnabled}/${msg.sfxVolume} skin=${msg.skin || '(none)'} lang=${msg.language || '(unchanged)'}`);

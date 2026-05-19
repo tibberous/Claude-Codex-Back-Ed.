@@ -3207,6 +3207,26 @@ window.addEventListener('message', e => {
     /* Host hit a run-count trigger (3/6/10/20, then every 30). Random
        pick of the three support/promo cards — see CBE_NAGS. */
     openNag(m.run);
+  } else if (m.type === 'helpHtml') {
+    /* Host re-shipped help.html after a language change. Update the
+       cache so the next Help-button click renders the new locale.
+       Also re-render an already-open help modal if one is up. */
+    if (typeof m.helpHtml === 'string' && m.helpHtml) {
+      window.__cbeHelpHtml = m.helpHtml;
+      const modal = document.getElementById('cbe-help-modal');
+      if (modal) {
+        const body = modal.querySelector('#cbe-help-body');
+        if (body) {
+          body.innerHTML = '';
+          const iframe = document.createElement('iframe');
+          iframe.title = 'Help';
+          iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
+          iframe.style.cssText = 'flex:1 1 auto;width:100%;border:0;background:var(--cbe-modal-bg);';
+          iframe.srcdoc = m.helpHtml;
+          body.appendChild(iframe);
+        }
+      }
+    }
   } else if (m.type === 'init') {
     /* Cache provider state for later; don't open modal yet. */
     __cbeProviders = m.providers || [];
