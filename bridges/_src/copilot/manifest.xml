@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge>
+  <name>copilot</name>
+  <displayName>Copilot</displayName>
+  <version>1.0.0</version>
+  <author>Trent Tompkins</author>
+  <description>Microsoft Copilot via copilot.microsoft.com. Microsoft account login (same as Bing/Outlook). FREE tier.</description>
+  <homepage>https://copilot.microsoft.com/</homepage>
+
+  <kind>web</kind>
+  <homeUrl>https://copilot.microsoft.com/</homeUrl>
+  <loginUrl>https://login.live.com/</loginUrl>
+  <bridgePort>8790</bridgePort>
+  <cdpPort>9790</cdpPort>
+  <fastPath>true</fastPath>
+
+  <aliases>
+    <alias>copilot</alias>
+    <alias>ms-copilot</alias>
+    <alias>mscopilot</alias>
+    <alias>microsoft-copilot</alias>
+    <alias>bing</alias>
+    <alias>cp</alias>
+  </aliases>
+
+  <models>
+    <model>gpt-4o</model>
+    <model>gpt-4.1</model>
+    <model>o1-preview</model>
+  </models>
+
+  <capabilities>
+    <chat supported="true"/>
+    <streaming supported="true"/>
+    <fileSend supported="true"/>
+    <fileReceive supported="false"/>
+    <toolCalls supported="true" protocol="fenced-exec"/>
+    <vision supported="true"/>
+    <memory supported="true"/>
+  </capabilities>
+
+  <icon>icon.ico</icon>
+  <iconPng>icon.png</iconPng>
+</bridge>

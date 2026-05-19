@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge>
+  <name>gemini</name>
+  <displayName>Gemini</displayName>
+  <version>1.0.0</version>
+  <author>Trent Tompkins</author>
+  <description>Google Gemini via gemini.google.com/app. Google account SSO. Veo video gen is a separate bridge.</description>
+  <homepage>https://gemini.google.com/app</homepage>
+
+  <kind>web</kind>
+  <homeUrl>https://gemini.google.com/app</homeUrl>
+  <loginUrl>https://accounts.google.com/signin</loginUrl>
+  <bridgePort>8791</bridgePort>
+  <cdpPort>9791</cdpPort>
+  <fastPath>true</fastPath>
+
+  <aliases>
+    <alias>gemini</alias>
+    <alias>gem</alias>
+    <alias>google</alias>
+    <alias>googleai</alias>
+    <alias>bard</alias>
+  </aliases>
+
+  <models>
+    <model>gemini-2.5-pro</model>
+    <model>gemini-2.5-flash</model>
+    <model>gemini-2.0-pro</model>
+  </models>
+
+  <capabilities>
+    <chat supported="true"/>
+    <streaming supported="true"/>
+    <fileSend supported="true"/>
+    <fileReceive supported="true"/>
+    <toolCalls supported="true" protocol="fenced-exec"/>
+    <vision supported="true"/>
+    <memory supported="true"/>
+  </capabilities>
+
+  <icon>icon.ico</icon>
+  <iconPng>icon.png</iconPng>
+</bridge>

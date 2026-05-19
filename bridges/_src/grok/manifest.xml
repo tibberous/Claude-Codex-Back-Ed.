@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge>
+  <name>grok</name>
+  <displayName>Grok</displayName>
+  <version>1.0.0</version>
+  <author>Trent Tompkins</author>
+  <description>xAI Grok via grok.com. LOG IN FIRST — anonymous tier gates after 1-2 messages. Uses native xAI/X email login.</description>
+  <homepage>https://grok.com/</homepage>
+
+  <kind>web</kind>
+  <homeUrl>https://grok.com/</homeUrl>
+  <loginUrl>https://accounts.x.ai/sign-in</loginUrl>
+  <bridgePort>8789</bridgePort>
+  <cdpPort>9789</cdpPort>
+  <fastPath>true</fastPath>
+
+  <aliases>
+    <alias>grok</alias>
+    <alias>supergrok</alias>
+    <alias>xai</alias>
+    <alias>grok-4</alias>
+    <alias>grok-beta</alias>
+  </aliases>
+
+  <models>
+    <model>grok-2</model>
+    <model>grok-2-mini</model>
+    <model>grok-beta</model>
+  </models>
+
+  <capabilities>
+    <chat supported="true"/>
+    <streaming supported="true"/>
+    <fileSend supported="true"/>
+    <fileReceive supported="false"/>
+    <toolCalls supported="true" protocol="fenced-exec"/>
+    <vision supported="true"/>
+    <memory supported="true"/>
+  </capabilities>
+
+  <icon>icon.ico</icon>
+  <iconPng>icon.png</iconPng>
+</bridge>

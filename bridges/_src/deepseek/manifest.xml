@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge>
+  <name>deepseek</name>
+  <displayName>DeepSeek</displayName>
+  <version>1.0.0</version>
+  <author>Trent Tompkins</author>
+  <description>DeepSeek (V3 + R1 reasoner) via chat.deepseek.com. Native email/password login — DO NOT use Google SSO (CAPTCHA wall).</description>
+  <homepage>https://chat.deepseek.com/</homepage>
+
+  <kind>web</kind>
+  <homeUrl>https://chat.deepseek.com/</homeUrl>
+  <loginUrl>https://chat.deepseek.com/sign_in</loginUrl>
+  <bridgePort>8794</bridgePort>
+  <cdpPort>9794</cdpPort>
+  <fastPath>true</fastPath>
+
+  <aliases>
+    <alias>deepseek</alias>
+    <alias>deep-seek</alias>
+    <alias>deep</alias>
+    <alias>ds</alias>
+    <alias>deepseekchat</alias>
+    <alias>deepseekai</alias>
+  </aliases>
+
+  <models>
+    <model>deepseek-chat</model>
+    <model>deepseek-reasoner</model>
+    <model>deepseek-v3</model>
+  </models>
+
+  <capabilities>
+    <chat supported="true"/>
+    <streaming supported="true"/>
+    <fileSend supported="true"/>
+    <fileReceive supported="false"/>
+    <toolCalls supported="true" protocol="fenced-exec"/>
+    <vision supported="false"/>
+    <memory supported="true"/>
+  </capabilities>
+
+  <icon>icon.ico</icon>
+  <iconPng>icon.png</iconPng>
+</bridge>

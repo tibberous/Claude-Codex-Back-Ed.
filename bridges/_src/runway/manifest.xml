@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Runway Gen-3 Alpha / Gen-4 bridge — drives app.runwayml.com via CDP.
+  Requires a Runway subscription ($15-95/mo depending on tier).
+  Separate login from any of the other bridges (Runway-native account
+  or Google SSO).
+-->
+<bridge>
+  <name>runway</name>
+  <displayName>Runway Gen-3/4</displayName>
+  <version>1.0.0</version>
+  <author>Trent Tompkins</author>
+  <description>Runway Gen-3 Alpha / Gen-4 Turbo video generation via app.runwayml.com. Requires Runway subscription. Async generations save to videos/runway/.</description>
+  <homepage>https://app.runwayml.com/</homepage>
+
+  <kind>web</kind>
+  <homeUrl>https://app.runwayml.com/video-tools/teams/_/ai-tools/generate</homeUrl>
+  <loginUrl>https://app.runwayml.com/login</loginUrl>
+  <bridgePort>8798</bridgePort>
+  <cdpPort>9798</cdpPort>
+  <fastPath>false</fastPath>
+
+  <aliases>
+    <alias>runway</alias>
+    <alias>runwayml</alias>
+    <alias>gen3</alias>
+    <alias>gen4</alias>
+  </aliases>
+
+  <models>
+    <model>gen-4-turbo</model>
+    <model>gen-3-alpha-turbo</model>
+    <model>gen-3-alpha</model>
+  </models>
+
+  <capabilities>
+    <chat supported="false"/>
+    <videoGen supported="true" mode="async" pollMaxSeconds="900"/>
+    <fileSend supported="true"/>
+    <fileReceive supported="true"/>
+    <vision supported="false"/>
+    <memory supported="true"/>
+  </capabilities>
+
+  <icon>icon.ico</icon>
+  <iconPng>icon.png</iconPng>
+</bridge>

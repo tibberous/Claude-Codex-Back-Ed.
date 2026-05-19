@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Google Veo bridge — drives gemini.google.com (Veo mode) via CDP.
+  Reuses the gemini bridge's Google account login. Veo 2 is included
+  in Gemini Advanced; Veo 3 is rolling out via the same UI in 2025-26.
+  The model is selected by clicking the "Video" pill in Gemini's UI,
+  then typing the prompt in the same composer the chat bridge uses.
+-->
+<bridge>
+  <name>veo</name>
+  <displayName>Google Veo</displayName>
+  <version>1.0.0</version>
+  <author>Trent Tompkins</author>
+  <description>Google Veo 2/3 video generation via Gemini's web UI. Reuses Gemini Advanced subscription + Google account login. Async generations save to videos/veo/.</description>
+  <homepage>https://gemini.google.com/app</homepage>
+
+  <kind>web</kind>
+  <homeUrl>https://gemini.google.com/app</homeUrl>
+  <loginUrl>https://accounts.google.com/signin</loginUrl>
+  <bridgePort>8797</bridgePort>
+  <cdpPort>9797</cdpPort>
+  <fastPath>false</fastPath>
+
+  <aliases>
+    <alias>veo</alias>
+    <alias>veo2</alias>
+    <alias>veo3</alias>
+    <alias>google-video</alias>
+    <alias>gemini-video</alias>
+  </aliases>
+
+  <models>
+    <model>veo-3</model>
+    <model>veo-2</model>
+  </models>
+
+  <capabilities>
+    <chat supported="false"/>
+    <videoGen supported="true" mode="async" pollMaxSeconds="600"/>
+    <fileSend supported="true"/>
+    <fileReceive supported="true"/>
+    <vision supported="false"/>
+    <memory supported="true"/>
+  </capabilities>
+
+  <icon>icon.ico</icon>
+  <iconPng>icon.png</iconPng>
+</bridge>

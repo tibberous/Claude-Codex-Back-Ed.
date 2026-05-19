@@ -261,6 +261,106 @@ class Bridge:
                 return r
         return self.send_chat(mini, message)
 
+    # --- Async-job flow (videoGen, imageGen, audioGen, fileReceive) -----
+    def drive_async_job(self, mini, prompt: str, *,
+                        reference_files: list[str] | None = None,
+                        poll_interval_s: float = 10.0,
+                        poll_max_s: int = 600,
+                        output_root=None) -> dict:
+        """End-to-end async job: submit prompt → poll until done → download
+        the asset to <output_root>/<bridge-name>/<timestamp>_<slug>.<ext>.
+
+        Bridges with `videoGen`, `imageGen`, or `audioGen` capability MUST
+        implement custom_submitJob + custom_pollJob hooks. The runner
+        handles the polling loop, asset download, and disk save.
+
+        Returns:
+            {ok, local_path, original_url, duration_s, jobId}
+        """
+        from pathlib import Path as _P
+        import time as _t, re as _re, urllib.request as _ur
+
+        submit = getattr(self.module, "custom_submitJob", None)
+        poll = getattr(self.module, "custom_pollJob", None)
+        if not callable(submit) or not callable(poll):
+            return {"ok": False, "error": "bridge declared async capability but "
+                    "didn't define custom_submitJob/custom_pollJob"}
+
+        t0 = _t.time()
+        sub = submit(mini, prompt, reference_files or []) or {}
+        if not sub.get("ok"):
+            return sub
+        job_id = sub.get("jobId")
+        if not job_id:
+            return {"ok": False, "error": "submitJob returned no jobId"}
+
+        deadline = t0 + poll_max_s
+        result = None
+        while _t.time() < deadline:
+            r = poll(mini, job_id) or {}
+            if r.get("done"):
+                if r.get("error"):
+                    return {"ok": False, "error": r["error"], "jobId": job_id,
+                            "duration_s": _t.time() - t0}
+                if r.get("url"):
+                    result = r
+                    break
+            _t.sleep(poll_interval_s)
+        if not result:
+            return {"ok": False, "error": f"job didn't complete within {poll_max_s}s",
+                    "jobId": job_id, "duration_s": _t.time() - t0}
+
+        # Pick output dir by which media capability is declared.
+        out_subdir = self._asset_subdir()
+        if output_root is None:
+            output_root = _P(self.root).resolve().parents[2]  # repo root
+        out_dir = _P(output_root) / out_subdir / self.manifest.name
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        # Slug the prompt for a human-readable filename
+        stamp = _t.strftime("%Y%m%d-%H%M%S")
+        slug = _re.sub(r"[^A-Za-z0-9]+", "_", prompt.lower()).strip("_")[:60] or "asset"
+        url = result["url"]
+        ext = self._guess_ext(url, out_subdir)
+        out_path = out_dir / f"{stamp}_{slug}.{ext}"
+        try:
+            with _ur.urlopen(url, timeout=120) as resp, open(out_path, "wb") as f:
+                f.write(resp.read())
+        except Exception as e:
+            return {"ok": False, "error": f"download failed: {type(e).__name__}: {e}",
+                    "original_url": url, "jobId": job_id,
+                    "duration_s": _t.time() - t0}
+        return {
+            "ok": True,
+            "local_path": str(out_path),
+            "original_url": url,
+            "duration_s": round(_t.time() - t0, 1),
+            "jobId": job_id,
+        }
+
+    def _asset_subdir(self) -> str:
+        """Pick the top-level output dir based on which media capability
+        the bridge declares: video → videos, image → images, audio → audio.
+        Defaults to 'videos' for unknown async-asset bridges."""
+        if self.supports("videoGen"):
+            return "videos"
+        if self.supports("imageGen"):
+            return "images"
+        if self.supports("audioGen"):
+            return "audio"
+        return "videos"
+
+    @staticmethod
+    def _guess_ext(url: str, kind: str) -> str:
+        """Best-effort file extension from URL. Falls back to a sensible
+        default per media kind."""
+        import re as _re
+        m = _re.search(r"\.([a-zA-Z0-9]{2,5})(?:\?|$)", url)
+        if m:
+            return m.group(1).lower()
+        defaults = {"videos": "mp4", "images": "png", "audio": "mp3"}
+        return defaults.get(kind, "bin")
+
     def primer_for_new_conversation(self) -> str:
         """The startup system-prompt teaching this bridge's tool-call
         convention. Returned if the bridge declared toolCalls supported

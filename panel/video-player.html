@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{CSP_SOURCE}} https://*.vscode-cdn.net data:; script-src {{CSP_SOURCE}} 'unsafe-inline'; style-src {{CSP_SOURCE}} 'unsafe-inline'; font-src {{CSP_SOURCE}} data:; media-src {{CSP_SOURCE}} blob: data: https:;">
+<title>CBE Video Player</title>
+<style>
+  :root {
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --panel2: #2d2d30;
+    --fg: #d4d4d4;
+    --accent: #4ec9b0;
+    --accent-dim: #2d6a5a;
+    --warn: #ce9178;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100vh;
+    background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+    overflow: hidden;
+  }
+  .app {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    grid-template-rows: 36px 1fr;
+    height: 100vh;
+  }
+  .toolbar {
+    grid-column: 1 / 3; grid-row: 1;
+    display: flex; align-items: center; padding: 0 12px;
+    background: var(--panel2); border-bottom: 1px solid #3e3e42;
+    gap: 8px; font-size: 12px;
+  }
+  .toolbar .title { font-weight: 600; color: var(--accent); }
+  .toolbar .pill {
+    background: var(--accent-dim); color: var(--fg);
+    padding: 2px 8px; border-radius: 10px; font-size: 11px;
+  }
+  .toolbar .spacer { flex: 1; }
+  .toolbar button {
+    background: transparent; color: var(--fg);
+    border: 1px solid #3e3e42; border-radius: 4px;
+    padding: 4px 10px; font-size: 11px; cursor: pointer;
+  }
+  .toolbar button:hover { background: var(--panel); }
+  .toolbar button.active { background: var(--accent-dim); border-color: var(--accent); }
+
+  .sidebar {
+    grid-column: 1; grid-row: 2;
+    background: var(--panel); overflow-y: auto;
+    border-right: 1px solid #3e3e42;
+  }
+  .sidebar .group {
+    padding: 6px 12px; font-size: 11px; color: #888;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    border-bottom: 1px solid #2d2d30; background: var(--panel2);
+  }
+  .file-item {
+    padding: 8px 12px; cursor: pointer; font-size: 12px;
+    border-bottom: 1px solid #2d2d30;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .file-item:hover { background: var(--panel2); }
+  .file-item.active { background: var(--accent-dim); color: white; }
+  .file-item .meta { font-size: 10px; color: #888; margin-top: 2px; }
+
+  .main {
+    grid-column: 2; grid-row: 2;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: #000; position: relative;
+  }
+  .main video {
+    max-width: 100%; max-height: 100%;
+    background: #000;
+  }
+  .main .empty {
+    color: #666; font-size: 14px; text-align: center;
+  }
+  .main .new-badge {
+    position: absolute; top: 12px; right: 12px;
+    background: var(--accent); color: #000;
+    padding: 4px 12px; border-radius: 12px; font-size: 11px;
+    font-weight: 600; animation: pulse 1.5s ease-in-out 3;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+  }
+
+  .footer {
+    grid-column: 2; grid-row: 2;
+    position: absolute; bottom: 0; left: 280px; right: 0;
+    padding: 8px 12px; background: rgba(0,0,0,0.6); color: var(--fg);
+    font-size: 11px; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="toolbar">
+    <span class="title">📹 Video Library</span>
+    <span class="pill" id="counter">0 videos</span>
+    <div class="spacer"></div>
+    <button id="autoplayToggle" class="active" title="Autoplay newly downloaded videos">Auto ▶ new</button>
+    <button id="refreshBtn" title="Rescan /videos">↻ Refresh</button>
+    <button id="openFolderBtn" title="Open /videos folder">📂 Open</button>
+  </div>
+
+  <div class="sidebar" id="sidebar">
+    <div class="group">Loading…</div>
+  </div>
+
+  <div class="main" id="mainPane">
+    <div class="empty" id="emptyMsg">No videos yet. Generate one via the sora / veo / runway / bing-video bridge.</div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const api = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
+  const sidebar = document.getElementById('sidebar');
+  const mainPane = document.getElementById('mainPane');
+  const counter = document.getElementById('counter');
+  const emptyMsg = document.getElementById('emptyMsg');
+  const autoplayBtn = document.getElementById('autoplayToggle');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const openFolderBtn = document.getElementById('openFolderBtn');
+
+  let videos = [];          // [{name, path, uri, bridge, mtime, size}]
+  let activePath = null;
+  let autoplayNew = true;
+  let knownPaths = new Set();
+  let firstLoad = true;
+
+  autoplayBtn.addEventListener('click', () => {
+    autoplayNew = !autoplayNew;
+    autoplayBtn.classList.toggle('active', autoplayNew);
+    autoplayBtn.title = autoplayNew ? 'Autoplay ON' : 'Autoplay OFF';
+  });
+
+  refreshBtn.addEventListener('click', () => {
+    if (api) api.postMessage({ type: 'cbe-videos-rescan' });
+  });
+
+  openFolderBtn.addEventListener('click', () => {
+    if (api) api.postMessage({ type: 'cbe-videos-open-folder' });
+  });
+
+  function fmtBytes(n) {
+    if (!n) return '';
+    if (n < 1024) return n + 'B';
+    if (n < 1024*1024) return (n/1024).toFixed(0) + 'KB';
+    return (n/1024/1024).toFixed(1) + 'MB';
+  }
+  function fmtAgo(ms) {
+    const d = (Date.now() - ms) / 1000;
+    if (d < 60) return `${Math.floor(d)}s ago`;
+    if (d < 3600) return `${Math.floor(d/60)}m ago`;
+    if (d < 86400) return `${Math.floor(d/3600)}h ago`;
+    return `${Math.floor(d/86400)}d ago`;
+  }
+
+  function render() {
+    counter.textContent = `${videos.length} video${videos.length === 1 ? '' : 's'}`;
+    const byBridge = {};
+    videos.forEach(v => {
+      (byBridge[v.bridge] = byBridge[v.bridge] || []).push(v);
+    });
+    sidebar.innerHTML = '';
+    if (!videos.length) {
+      sidebar.innerHTML = '<div class="group">No videos yet</div>';
+      return;
+    }
+    Object.keys(byBridge).sort().forEach(bridge => {
+      const grp = document.createElement('div');
+      grp.className = 'group';
+      grp.textContent = `${bridge} (${byBridge[bridge].length})`;
+      sidebar.appendChild(grp);
+      byBridge[bridge].forEach(v => {
+        const item = document.createElement('div');
+        item.className = 'file-item' + (v.path === activePath ? ' active' : '');
+        item.innerHTML = `<div>${v.name}</div><div class="meta">${fmtAgo(v.mtime)} · ${fmtBytes(v.size)}</div>`;
+        item.addEventListener('click', () => playVideo(v));
+        sidebar.appendChild(item);
+      });
+    });
+  }
+
+  function playVideo(v) {
+    activePath = v.path;
+    mainPane.innerHTML = '';
+    const vid = document.createElement('video');
+    vid.src = v.uri;
+    vid.controls = true;
+    vid.autoplay = true;
+    vid.style.maxWidth = '100%';
+    vid.style.maxHeight = '100%';
+    mainPane.appendChild(vid);
+    render();
+  }
+
+  function ingest(list) {
+    videos = list || [];
+    // Detect new arrivals (paths we hadn't seen before this update)
+    const newOnes = videos.filter(v => !knownPaths.has(v.path));
+    videos.forEach(v => knownPaths.add(v.path));
+    render();
+    // Autoplay the freshest brand-new arrival
+    if (!firstLoad && autoplayNew && newOnes.length) {
+      const newest = newOnes.sort((a, b) => b.mtime - a.mtime)[0];
+      playVideo(newest);
+      // Show a "new!" badge
+      const badge = document.createElement('div');
+      badge.className = 'new-badge';
+      badge.textContent = '✨ Just generated';
+      mainPane.appendChild(badge);
+      setTimeout(() => badge.remove(), 5000);
+    } else if (firstLoad && videos.length && !activePath) {
+      // First load: auto-play the most recent
+      playVideo(videos.sort((a, b) => b.mtime - a.mtime)[0]);
+    }
+    firstLoad = false;
+  }
+
+  // Host pushes the list via 'cbe-videos-list' messages. Polled every
+  // 2 seconds by the extension so newly-downloaded videos show up live.
+  window.addEventListener('message', e => {
+    const d = e.data;
+    if (!d || typeof d !== 'object') return;
+    if (d.type === 'cbe-videos-list') ingest(d.videos);
+  });
+
+  // Initial scan
+  if (api) api.postMessage({ type: 'cbe-videos-rescan' });
+})();
+</script>
+</body>
+</html>

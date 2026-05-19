@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge>
+  <name>ollama</name>
+  <displayName>Ollama</displayName>
+  <version>1.0.0</version>
+  <author>Trent Tompkins</author>
+  <description>Local Ollama daemon at 127.0.0.1:11434. API mode — no browser, no login, no chrome process. Free; runs models locally on the user's hardware.</description>
+  <homepage>https://ollama.com/</homepage>
+
+  <kind>api</kind>
+  <homeUrl>http://127.0.0.1:11434/</homeUrl>
+  <loginUrl></loginUrl>
+  <bridgePort>8793</bridgePort>
+  <cdpPort>0</cdpPort>             <!-- no chrome -->
+  <fastPath>false</fastPath>
+
+  <aliases>
+    <alias>ollama</alias>
+    <alias>ol</alias>
+    <alias>local</alias>
+    <alias>llama</alias>
+    <alias>llama3</alias>
+    <alias>llama32</alias>
+    <alias>local-llm</alias>
+  </aliases>
+
+  <models>
+    <!-- Discovered at runtime from /api/tags; this list is fallback -->
+    <model>llama3.2:3b</model>
+    <model>gpt-oss:20b</model>
+    <model>llama2:latest</model>
+  </models>
+
+  <capabilities>
+    <chat supported="true"/>
+    <streaming supported="true"/>
+    <fileSend supported="false"/>
+    <fileReceive supported="false"/>
+    <toolCalls supported="true" protocol="fenced-exec"/>
+    <vision supported="false"/>
+    <memory supported="false"/>      <!-- bridge keeps no per-conversation state; caller passes full history -->
+  </capabilities>
+
+  <icon>icon.ico</icon>
+  <iconPng>icon.png</iconPng>
+</bridge>
