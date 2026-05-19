@@ -14,8 +14,16 @@ without touching the QtWebEngine bridge in app.py.
 
 Hard rules (from CLAUDE.md memories):
     * Persistent --user-data-dir per target so login cookies survive restart.
-    * Offscreen via --window-position=-32000,-32000 (NOT --headless: many
-      target sites detect headless and gate features).
+    * Offscreen via --headless=new (Chrome 109+, default engine since 132):
+      full browser renderer, real UA, profile cookies, NO OS window — so it
+      cannot show up minimized in the taskbar or fight the user's real
+      Chrome. (Window-position hacks were tried and failed: -32000,-32000
+      suspends rendering/input; 5000,5000 lands off a single-monitor
+      desktop. The legacy "NOT --headless" caution was about old headless,
+      a separate stripped binary with navigator.webdriver tells; =new is
+      the same browser and does not carry that detection surface.)
+    * Chrome tree bound to a kill-on-close Windows JobObject + atexit so it
+      can never outlive this process (was leaking ~56 orphans/day).
     * `suppress_origin=True` on the websocket — Chrome rejects WS handshakes
       from a missing/wrong Origin and gives 403 otherwise.
     * Per-instance websocket recv-timeout of 600s; CDP screenshots over a
@@ -26,11 +34,15 @@ Requires: `websocket-client` (already in repo deps).
 """
 from __future__ import annotations
 
+import atexit
 import base64
+import ctypes
 import json
+import os
 import subprocess
 import time
 import urllib.request
+from ctypes import wintypes
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +69,104 @@ def _findChromeExe() -> str:
     raise FileNotFoundError(
         "chrome.exe not found in standard locations. Install Chrome or pass a path."
     )
+
+
+# --- Windows JobObject: kill the whole Chrome tree when WE die -------------
+# Chrome spawns a fan-out of child procs (renderer/gpu/utility/crashpad).
+# proc.terminate() only kills the launcher. Without this, every pilot run
+# that crashes or forgets terminate() leaks a full Chrome tree — that's how
+# 56 orphans accumulated. A JobObject with KILL_ON_JOB_CLOSE means the OS
+# atomically kills every assigned process (and its children) the instant the
+# last handle to the job closes — i.e. when this Python process exits, even
+# via hard crash. Same pattern bridges_cpp/bridge_server.cpp already uses.
+_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+_JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK = 0x1000
+_JobObjectExtendedLimitInformation = 9
+_PROCESS_SET_QUOTA = 0x0100
+_PROCESS_TERMINATE = 0x0001
+
+
+class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("PerProcessUserTimeLimit", ctypes.c_int64),
+        ("PerJobUserTimeLimit", ctypes.c_int64),
+        ("LimitFlags", wintypes.DWORD),
+        ("MinimumWorkingSetSize", ctypes.c_size_t),
+        ("MaximumWorkingSetSize", ctypes.c_size_t),
+        ("ActiveProcessLimit", wintypes.DWORD),
+        ("Affinity", ctypes.POINTER(ctypes.c_ulong)),
+        ("PriorityClass", wintypes.DWORD),
+        ("SchedulingClass", wintypes.DWORD),
+    ]
+
+
+class _IO_COUNTERS(ctypes.Structure):
+    _fields_ = [
+        ("ReadOperationCount", ctypes.c_uint64),
+        ("WriteOperationCount", ctypes.c_uint64),
+        ("OtherOperationCount", ctypes.c_uint64),
+        ("ReadTransferCount", ctypes.c_uint64),
+        ("WriteTransferCount", ctypes.c_uint64),
+        ("OtherTransferCount", ctypes.c_uint64),
+    ]
+
+
+class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("BasicLimitInformation", _JOBOBJECT_BASIC_LIMIT_INFORMATION),
+        ("IoInfo", _IO_COUNTERS),
+        ("ProcessMemoryLimit", ctypes.c_size_t),
+        ("JobMemoryLimit", ctypes.c_size_t),
+        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+        ("PeakJobMemoryUsed", ctypes.c_size_t),
+    ]
+
+
+def _makeKillOnCloseJob():
+    """Create a JobObject that kills all assigned processes when its last
+    handle closes. Returns the job handle, or None on non-Windows/failure
+    (caller falls back to best-effort terminate())."""
+    if os.name != "nt":
+        return None
+    try:
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        job = k32.CreateJobObjectW(None, None)
+        if not job:
+            return None
+        info = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+        info.BasicLimitInformation.LimitFlags = (
+            _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            | _JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK
+        )
+        ok = k32.SetInformationJobObject(
+            job,
+            _JobObjectExtendedLimitInformation,
+            ctypes.byref(info),
+            ctypes.sizeof(info),
+        )
+        if not ok:
+            k32.CloseHandle(job)
+            return None
+        return job
+    except Exception:
+        return None
+
+
+def _assignProcessToJob(job, pid: int) -> None:
+    """Assign a PID (and, by inheritance, every child Chrome spawns after
+    this point) to the kill-on-close job."""
+    if not job or os.name != "nt":
+        return
+    try:
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        h = k32.OpenProcess(
+            _PROCESS_SET_QUOTA | _PROCESS_TERMINATE, False, int(pid)
+        )
+        if h:
+            k32.AssignProcessToJobObject(job, h)
+            k32.CloseHandle(h)
+    except Exception:
+        pass
 
 
 # --- Virtual-key map for Input.dispatchKeyEvent ----------------------------
@@ -109,6 +219,7 @@ class MiniComputer:
         self.offscreen = bool(offscreen)
         self.recv_timeout_s = int(recv_timeout_s)
         self.proc: subprocess.Popen | None = None
+        self._job: Any = None  # Windows JobObject handle (kill-on-close)
         self.ws: websocket.WebSocket | None = None
         self._msg_id = 0
         self._page_target_id: str = ""
@@ -285,19 +396,30 @@ class MiniComputer:
             "--disable-features=LockProfileCookieDatabase",
         ]
         if self.offscreen:
-            # 2026-05-19: was --window-position=-32000,-32000. That value triggers
-            # Chromium's "fully off-screen on all monitors" path which suspends
-            # rendering AND input-event processing — clicks/types dispatched via
-            # CDP go nowhere, screenshots stay stale. Same lesson SuperGrok app.py
-            # learned in its "round 6" invisible-window stack: position the
-            # window past the visible desktop but at a finite positive coord so
-            # Chromium still treats it as a live displayed window. 5000,5000
-            # works on a normal multi-monitor desktop; the user never sees it.
-            cmd += ["--window-position=5000,5000", "--window-size=1400,1000"]
+            # 2026-05-19 v3: window-position hacks are dead. -32000,-32000
+            # suspended rendering/input; 5000,5000 assumed a multi-monitor
+            # desktop — on a single 1080p screen it lands the window fully
+            # off the desktop and Windows surfaces it as a phantom
+            # taskbar/"minimized" Chrome that disrupts the user's real
+            # browser. --headless=new (Chrome 109+, default engine since
+            # 132) is the FULL browser renderer — real UA, WebGL, the
+            # profile's logged-in cookies, extensions — just with NO OS
+            # window at all: nothing in the taskbar, nothing to minimize,
+            # zero interference. The old "NOT --headless" rule was about
+            # legacy headless (separate stripped binary, navigator.webdriver
+            # tells); =new does not carry that detection surface. CDP
+            # Input.* dispatch and Page.captureScreenshot work unchanged.
+            cmd += ["--headless=new", "--window-size=1400,1000",
+                    "--hide-scrollbars", "--mute-audio"]
         else:
             cmd += ["--window-size=1400,1000"]
         cmd.append(self.start_url)
         self.proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Bind the whole Chrome process tree to a kill-on-close JobObject so
+        # it cannot outlive this Python process (fixes the 56-orphan leak).
+        self._job = _makeKillOnCloseJob()
+        _assignProcessToJob(self._job, self.proc.pid)
+        atexit.register(self.terminate)
         # Wait up to 30s for CDP to come up.
         deadline = time.time() + 30
         while time.time() < deadline:
@@ -666,18 +788,43 @@ class MiniComputer:
         # the caller asked via terminate().
 
     def terminate(self) -> None:
-        """Close the websocket AND kill chrome. Use on shutdown."""
+        """Close the websocket AND kill the entire Chrome process tree.
+        Idempotent (atexit may call it after an explicit caller already
+        did). proc.terminate() alone only kills the launcher and leaves
+        renderer/gpu/utility children orphaned — that was the 56-orphan
+        bug — so tree-kill via taskkill /T, then drop the JobObject handle
+        (its kill-on-close limit reaps anything still standing)."""
         self.close()
-        if self.proc is not None:
-            try:
-                self.proc.terminate()
+        proc = self.proc
+        self.proc = None
+        if proc is not None and proc.poll() is None:
+            pid = proc.pid
+            if os.name == "nt":
                 try:
-                    self.proc.wait(timeout=5)
+                    subprocess.run(
+                        ["taskkill", "/PID", str(pid), "/T", "/F"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=10,
+                    )
+                except Exception:
+                    pass
+            try:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    self.proc.kill()
+                    proc.kill()
             except Exception:
                 pass
-        self.proc = None
+        # Closing the last handle to the kill-on-close job atomically
+        # reaps any process still assigned to it.
+        if self._job is not None:
+            try:
+                ctypes.WinDLL("kernel32").CloseHandle(self._job)
+            except Exception:
+                pass
+            self._job = None
 
     # --- context manager ---------------------------------------------------
     def __enter__(self) -> "MiniComputer":

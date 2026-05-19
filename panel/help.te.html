@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="te">
+<head>
+<meta charset="utf-8">
+<title>Claude Codex — Black Edition · సహాయం</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #16181d;
+    --surface: #1f2229;
+    --surface-2: #262a33;
+    --border: #353a45;
+    --text: #e7eaef;
+    --muted: #aab1bd;
+    --accent: #4ea8ff;
+    --accent-soft: rgba(78,168,255,0.12);
+    --kbd-bg: #0f1116;
+    --kbd-border: #2b313b;
+    --warn: #ffd84d;
+    --err: #ff8a8a;
+    --ok: #6fd58a;
+  }
+  * { box-sizing: border-box; }
+  /* .app is included here because CBE inlines this file's body into a <div>
+     inside the panel (no <html>/<body> wrapper) — without .app carrying the
+     dark background + text color, the panel skin's background bleeds through
+     and you get unreadable text. Standalone (real <body>) it's still fine. */
+  html, body, .app { margin: 0; padding: 0; height: 100%; background: var(--bg);
+               color: var(--text); font: 14.5px/1.55 ui-sans-serif, system-ui,
+               -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  code { background: var(--kbd-bg); padding: 1px 6px; border-radius: 4px;
+         border: 1px solid var(--kbd-border); font-size: 0.92em; }
+  kbd { background: var(--kbd-bg); padding: 1px 7px; border-radius: 4px;
+        border: 1px solid var(--kbd-border); border-bottom-width: 2px;
+        font-size: 0.85em; color: #ffd84d; }
+  pre { background: var(--kbd-bg); border: 1px solid var(--border);
+        border-radius: 6px; padding: 12px 14px; overflow-x: auto;
+        font-size: 12.5px; }
+  /* Layout: fixed TOC sidebar + scrolling content. The content scrolls
+     inside #main, which jQuery smooth-scrolls when TOC links are clicked. */
+  /* height:100% (not 100vh) so the layout fills the modal body when inlined,
+     and the full standalone window when opened as a real page. */
+  .app { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
+  nav.toc { background: var(--surface); border-right: 1px solid var(--border);
+            overflow-y: auto; padding: 18px 0 24px 0; position: sticky; top: 0;
+            height: 100%; }
+  nav.toc h2 { margin: 0 18px 8px 18px; font-size: 11px; letter-spacing: 0.08em;
+               color: var(--muted); text-transform: uppercase; }
+  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: tocnum; }
+  nav.toc ol li { counter-increment: tocnum; }
+  nav.toc ol li > a { display: block; padding: 7px 18px 7px 36px; font-size: 13.5px;
+                       color: var(--text); position: relative; line-height: 1.3;
+                       border-left: 3px solid transparent; }
+  /* Click feedback wired from panel.js: active TOC link gets an accent bar +
+     tint, the landed section flashes a soft accent glow that fades out. */
+  nav.toc ol li > a.cbe-toc-active {
+    border-left-color: var(--accent); background: var(--accent-soft);
+    color: var(--accent);
+  }
+  @keyframes cbeHelpFlash {
+    0%   { background: var(--accent-soft); }
+    100% { background: transparent; }
+  }
+  .cbe-help-flash { animation: cbeHelpFlash 1.1s ease-out 1; border-radius: 6px; }
+  nav.toc ol li > a::before { content: counter(tocnum); position: absolute;
+                              left: 14px; top: 7px; color: var(--muted);
+                              font-family: ui-monospace; font-size: 11px;
+                              min-width: 16px; text-align: right; }
+  nav.toc ol li > a:hover { background: var(--surface-2); text-decoration: none; }
+  nav.toc ol li > a.active { background: var(--accent-soft);
+                              border-left-color: var(--accent); color: var(--accent); }
+  main#main { overflow-y: auto; padding: 28px 36px 80px 36px; height: 100vh; }
+  main#main > header { margin-bottom: 26px; padding-bottom: 14px;
+                       border-bottom: 1px solid var(--border); }
+  main#main > header h1 { margin: 0 0 4px 0; font-size: 24px; font-weight: 600;
+                          letter-spacing: 0.005em; }
+  main#main > header .meta { color: var(--muted); font-size: 13px; }
+  section.help-section { scroll-margin-top: 16px; max-width: 820px;
+                          margin: 0 0 36px 0; padding-top: 6px; }
+  section.help-section h2 { font-size: 19px; margin: 0 0 10px 0; font-weight: 600;
+                            display: flex; align-items: baseline; gap: 10px; }
+  section.help-section h2 .num { color: var(--muted); font: 13px ui-monospace;
+                                  min-width: 1.5em; }
+  section.help-section h3 { font-size: 15px; margin: 18px 0 6px 0; font-weight: 600;
+                            color: var(--text); }
+  section.help-section p { margin: 0 0 10px 0; color: var(--text); }
+  section.help-section ul { margin: 0 0 12px 0; padding-left: 22px; }
+  section.help-section li { margin-bottom: 4px; }
+  section.help-section table { border-collapse: collapse; width: 100%;
+                                margin: 6px 0 14px 0; font-size: 13.5px; }
+  section.help-section th, section.help-section td { border: 1px solid var(--border);
+                                                       padding: 6px 10px; text-align: left;
+                                                       vertical-align: top; }
+  section.help-section th { background: var(--surface-2); font-weight: 600; }
+  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft);
+             padding: 10px 14px; border-radius: 0 4px 4px 0; margin: 10px 0 14px 0; }
+  .callout.warn { border-color: var(--warn); background: rgba(255,216,77,0.08); }
+  .callout.err  { border-color: var(--err);  background: rgba(255,138,138,0.08); }
+  .top-link { float: right; font-size: 12px; color: var(--muted); }
+  .top-link:hover { color: var(--accent); }
+  /* Scrollbar */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: var(--bg); }
+  *::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <nav class="toc" aria-label="విషయపు కూची">
+    <h2>విషయాలు</h2>
+    <ol id="toc-list">
+      <li><a href="#welcome">స్వాగతం</a></li>
+      <li><a href="#keyboard">కీబోర్డ్ చుక్కలు</a></li>
+      <li><a href="#prompt-box">ప్రాంప్ట్ బాక్స్</a></li>
+      <li><a href="#toolbar">టూల్‌బార్ బటన్‌లు</a></li>
+      <li><a href="#providers">మోడళ్లు &amp; ప్రొవైడర్‌లు</a></li>
+      <li><a href="#stt">ఆడియోను టెక్స్ట్‌కు</a></li>
+      <li><a href="#auto-prompt">స్వయం ప్రాంప్ట్</a></li>
+      <li><a href="#tts">స్వయం చదువుకోవడం (TTS)</a></li>
+      <li><a href="#compact">కాంపాక్ట్ &amp; సందర్భ వినియోగం</a></li>
+      <li><a href="#wake-up">మేల్కోత ప్రతిసందటి</a></li>
+      <li><a href="#attachments">ఫైల్ జతలు</a></li>
+      <li><a href="#git">Git మోడల్</a></li>
+      <li><a href="#github">GitHub రిపోజిటరీలు</a></li>
+      <li><a href="#domains">NameSilo డొమైన్‌లు</a></li>
+      <li><a href="#skins">చర్మాలు &amp; థీమ్‌లు</a></li>
+      <li><a href="#settings">సెట్టింగ్‌లు</a></li>
+      <li><a href="#language">భాష</a></li>
+      <li><a href="#monitor">VSCode సూపర్‌విజర్</a></li>
+      <li><a href="#auto-update">స్వయం-నవీకరణ (పుల్)</a></li>
+      <li><a href="#admin-push">నిర్వాహక పుష్</a></li>
+      <li><a href="#extensions">ఎక్సటెన్షన్‌ల మార్కెట్‌ప్లేస్</a></li>
+      <li><a href="#slash">స్ల్యాష్ ఆదేశాలు</a></li>
+      <li><a href="#context-menu">కుడి-క్లిక్ మెనూ</a></li>
+      <li><a href="#trace">ట్రేస్ చానెల్</a></li>
+      <li><a href="#troubleshooting">సమస్య సమాధానం</a></li>
+      <li><a href="#about">గురించి &amp; లైసెన్సు</a></li>
+    </ol>
+  </nav>
+
+  <main id="main">
+    <header>
+      <h1>Claude Codex — Black Edition</h1>
+      <div class="meta">VSCode కోసం ఆఫ్‌లైన్-ప్రధమ బహు-ప్రొవైడర్ AI చాట్ ప్యానెల్.
+        టాగిల్ చేయడానికి <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd> నొక్కండి.</div>
+    </header>
+
+    <section id="welcome" class="help-section">
+      <h2><span class="num">1.</span> స్వాగతం</h2>
+      <p>Claude Codex Black అనేది VSCode వెబ్‌వ్యూ ఇది మీకు బహుళ AI ప్రొవైడర్‌ల (Claude, OpenAI, Gemini, Grok, Azure, స్థానిక Ollama) తో చాట్ చేయడానికి అనుమతిస్తుంది ఒక ఏకైక, థీమేబుల్ ప్యానెల్ నుండి.
+        ఒక కీని చదవడానికి అవసరమైన సబ్బంధం లోని విస్తరణ రూట్ వద్ద <code>config.ini</code> నుండి చదువుతారు —
+        విస్తరణ సెట్టింగ్‌ల UI అవసరం లేదు, కానీ సెట్టింగ్‌ల మోడల్ సব్బంధంలో చిన్న-క్లిక్ సవరణ కోసం ఉపయోగకరమైన ఖేతాలు ప్రతిబింబిస్తుంది.</p>
+      <div class="callout">
+        ఇక్కడ కొత్తమైనవారు? <em>సెట్టింగ్‌లు</em> (గేర్ చిహ్నం) తెరవడం ద్వారా ప్రారంభించండి, మీ ప్రొవైడర్‌ను ఎంచుకోండి, మీ API కీని అతికించండి, ఆపై ప్రాంప్ట్ టైప్ చేసి <kbd>Enter</kbd> నొక్కండి. ఈ ఆధారం యొక్క ఇతర విషయం సంపూర్ణ ఐచ్ఛికమైనది.
+      </div>
+    </section>
+
+    <section id="keyboard" class="help-section">
+      <h2><span class="num">2.</span> కీబోర్డ్ చుక్కలు</h2>
+      <table>
+        <thead><tr><th>కీ</th><th>ప్రభావం</th></tr></thead>
+        <tbody>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd></td><td>CBE ప్యానెల్‌ను టాగిల్ చేయండి</td></tr>
+          <tr><td><kbd>Enter</kbd></td><td>ప్రస్తుత ప్రాంప్ట్‌ను పంపండి</td></tr>
+          <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>ప్రాంప్ట్ బాక్స్ లో నవీన లైన్</td></tr>
+          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>మీ గతంలో-పంపిన ప్రాంప్ట్‌ల ద్వారా సైకిల్ చేయండి (<code>prompt_history.txt</code> నుండి)</td></tr>
+          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>మీ కుర్రీగా ఉండిన <code>prompts.txt</code> ఎంట్రీల ద్వారా సైకిల్ చేయండి కెరెట్ టెక్సిటెరియా ప్రారంభం/ముగ్గుకు ఉన్నప్పుడు</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>ఏదైనా తెరిచిన మోడల్‌ను మూసివేయండి</td></tr>
+          <tr><td><kbd>/</kbd></td><td>స్ల్యాష్-ఆదేశ ప్యాలెట్‌ను తెరవండి</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="prompt-box" class="help-section">
+      <h2><span class="num">3.</span> ప్రాంప్ట్ బాక్స్</h2>
+      <p>దిగువన పెద్ద సవరణీయ టెక్సిటెరియా. టైప్ చేయండి, పేస్ట్ చేయండి, ఫైల్‌ను డ్రాగ్ చేయండి, పేపర్‌క్లిప్ ద్వారా జత చేయండి — ఇక్కడ మీరు ఉంచేది తరువాత API కాల్ యొక్క ఉపయోగకర్త టర్న్.
+      </p>
+      <p>ఫాంట్ మీ VSCode సంపాదకుని మోనోస్పేస్ ఫాంట్‌కు (ఉపయోగ
+        <code>--vscode-editor-font-family</code> CSS వేరియబుల్ ద్వారా) లాక్ చేయబడింది కనుక ప్యానెల్ సంపాదక లో ఆనందంగా కనిపిస్తుంది.
+      </p>
+    </section>
+
+    <section id="toolbar" class="help-section">
+      <h2><span class="num">4.</span> టూల్‌బార్ బటన్‌లు</h2>
+      <p>దిగువ వరుస, ఎడమ నుండి కుడికి. టూల్‌టిప్‌లు హోవర్‌లో కనిపిస్తాయి; ప్యానెల్ కూడా మీ ఎంచుకున్న భాషలో వాటిని చదువుతారు (చూడండి <a href="#language">భాష</a>).
+      </p>
+      <table>
+        <thead><tr><th>చిహ్నం</th><th>ఫంక్షన్</th></tr></thead>
+        <tbody>
+          <tr><td>🎤 మైక్రోఫోన్</td><td>ఆడియో-టు-టెక్స్ట్ — Web Speech API SAPI ఫాల్‌బ్యాక్‌తో. చూడండి <a href="#stt">§ 6</a>.</td></tr>
+          <tr><td>📎 జత</td><td>ప్రాంప్ట్‌కు ఒక లేదా అంతకంటే ఎక్కువ ఫైల్‌లను ఎంచుకోండి</td></tr>
+          <tr><td>🔁 మేల్కోత</td><td>ఆటో ప్రాంప్ట్ మేల్కోత టెక్స్ట్‌ను సవరించండి (లో <code>wake.txt</code>)
+          </td></tr>
+          <tr><td>⏱ స్వయం ప్రాంప్ట్</td><td>నిష్క్రియాత్వం లెక్కల్ స్వయం-ఫైర్‌ను టాగిల్ చేయండి</td></tr>
+          <tr><td>📚 కాంపాక్ట్</td><td>సంభాషణ చరిత్ర చివరి కొన్ని టర్న్‌ల వరకు కుదించండి. రింగ్ సందర్భ-విండో వినియోగాన్ని చూపుతుంది.</td></tr>
+          <tr><td>📁 Git</td><td>ప్రాజెక్ట్ ఫోల్డర్‌లో git ఆదేశాలను నడుపుము</td></tr>
+          <tr><td>🌐 డొమైన్‌లు</td><td>మీ NameSilo డొమైన్ జాబితా తీసుకోండి</td></tr>
+          <tr><td>🐙 GitHub</td><td>PAT ద్వారా మీ GitHub రిపోలను జాబితా చేయండి</td></tr>
+          <tr><td>🎨 చర్మం</td><td>ప్యానెల్ థీమ్‌ను ఎంచుకోండి (<code>skins/</code> నుండి లైవ్ కనుగొన్నది)</td></tr>
+          <tr><td>🧩 విస్తరణలు</td><td>మార్కెట్‌ప్లేస్ iframe మోడల్‌ను తెరవండి. చూడండి <a href="#extensions">§ 21</a>.</td></tr>
+          <tr><td>⚙ సెట్టింగ్‌లు</td><td>సెట్టింగ్‌ల మోడల్‌ను తెరవండి</td></tr>
+          <tr><td>📜 హ్యాండ్‌బుక్</td><td><code>handbook.txt</code> సవరణ కోసం తెరవండి</td></tr>
+          <tr><td>❔ సహాయం</td><td>ఈ డాక్యుమెంట్</td></tr>
+          <tr><td>⏹ ఆపండి</td><td>ఇన-ఫ్లైట్ మోడల్ కాల్‌ను రద్దు చేయండి</td></tr>
+          <tr><td>📤 పంపండి</td><td>ప్రాంప్ట్‌ను సమర్పించండి (<kbd>Enter</kbd> ఇందులో తప్పనిసరిగా)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="providers" class="help-section">
+      <h2><span class="num">5.</span> మోడళ్లు &amp; ప్రొవైడర్‌లు</h2>
+      <p>CBE <strong>11 పుళ్ళు</strong> డ్రాప్-ఇన్ <code>.bridge</code> ప్లగ్‌ఇన్‌ల నుండి <code>bridges/</code> కోసం కూడా వస్తుంది. ప్రతిదీ నిజ స్వ-సంపూర్ణ zip manifest.xml + bridge.py + చిహ్నాలకు. ఒక కొత్త <code>.bridge</code> ఫైల్ మూపై డ్రాప్ చేయండి కనుక ఇది కెర్టిరిజ్ డ్రాప్‌డౌన్‌లో కనిపిస్తుంది — కోడ పరిమార్జన అవసరం లేదు.
+      </p>
+      <h3>టెక్స్ట్-చాట్ పుళ్ళు (7)</h3>
+      <ul>
+        <li><strong>ChatGPT</strong> — chatgpt.com, Plus/Pro సభ్యత్వం</li>
+        <li><strong>Grok</strong> — grok.com, స్థానిక xAI లాగిన్ (అనామక టియర్ బాగా గేటెడ్; ఎక్కడ లాగిన్ చేయండి)</li>
+        <li><strong>Gemini</strong> — gemini.google.com, Google ఖాతా</li>
+        <li><strong>Claude</strong> — claude.ai, మ్యాజిక్-లింక్ లాగిన్ (ఒకసారి <code>tools/sign_in_helper.py claude</code> నడుపుము)</li>
+        <li><strong>Copilot</strong> — copilot.microsoft.com, ఖాళీ Microsoft ఖాతా</li>
+        <li><strong>DeepSeek</strong> — chat.deepseek.com, స్థానిక ఇమెయిల్/పాస్‌వర్డ్ (Google SSO ఉపయోగించవద్దు)</li>
+        <li><strong>Ollama</strong> — స్థానిక <code>127.0.0.1:11434</code>, లాగిన్ అవసరం లేదు</li>
+      </ul>
+      <h3>వీడియో-ఉత్పత్తి పుళ్ళు (4)</h3>
+      <ul>
+        <li><strong>Sora 2</strong> — sora.com, మీ ChatGPT Plus/Pro లాగిన్‌ను పునర్ఉపయోగిస్తుంది</li>
+        <li><strong>Google Veo</strong> — gemini.google.com (Veo విధ), Gemini Advanced సభ్యత్వం</li>
+        <li><strong>Runway Gen-3/4</strong> — app.runwayml.com, ఆధిక Runway సభ్యత్వం</li>
+        <li><strong>Bing Video Creator</strong> — bing.com/videos/create, <em>ఖాళీ Sora-2</em> Microsoft ఖాతా</li>
+      </ul>
+      <p>రూపందిల వీడియోలు <code>videos/&lt;bridge&gt;/&lt;timestamp&gt;_&lt;prompt-slug&gt;.mp4</code> కు సేవ్ చేయడం
+        కనుక వీడియో లైబ్రరీ ప్యానెల్‌లో స్వయం-ప్లే చేయండి (చూడండి §Video Library సిబ్బంది).
+      </p>
+      <p>కెర్టిరిజ్ డ్రాప్‌డౌన్ నుండి ఒక పుళ్ళు + మోడల్‌ను ఎంచుకోండి ప్రాంప్ట్ బాక్స్ పక్కన, లేదా <em>సెట్టింగ్‌లు → సాధారణ</em> ద్వారా. ఎంపిక కార్యక్ష్యత-ప్రతిపర్సు కనుక workspaceState లో నిల్ఖించు. ఒక కొత్త పుళ్ళు జోడించటానికి, చూడండి <code>docs/WRITING_BRIDGES.md</code>.
+      </p>
+    </section>
+
+    <section id="video-library" class="help-section">
+      <h2><span class="num">5a.</span> వీడియో లైబ్రరీ</h2>
+      <p>వీడియో పుళ్ళు (Sora, Veo, Runway, Bing Video Creator) ద్వారా రూపందిల వీడియోలను సరిపోతుంది + చూడటానికి ఒక అర్హ ప్యానెల్.
+        కమాండ్ ప్యాలెట్ ద్వారా తెరవండి:
+        <em>Claude Codex Black: Open Video Library</em> లేదా <code>codexBlackEd.openVideoPlayer</code>
+        ఆదేశం.
+      </p>
+      <ul>
+        <li>సైడ్‌బార్ ప్రతిదీ సూచిస్తుంది <code>.mp4</code> / <code>.webm</code> / <code>.mov</code> <code>videos/&lt;bridge&gt;/</code> కిందిర,
+          పుళ్ళు ద్వారా సమూహీకరించిన కనుక అత్యంత-ముందంలో నిర్దేశించిన.
+        </li>
+        <li>ఆ సమీపమైన వీడియో ఉదయ ప్రారంభంలో స్వయం-ప్లే చేయండి.
+        </li>
+        <li>ప్యానెల్ ఏ <code>videos/</code> డిర్ ఉంటాయి 2-సెకండ్ టిక్‌లో పర్యవేక్షణ చేస్తాయి — ఏదైనా-కొత్త రూపందిల వీడియో ✨ "జస్ట్ జనరేటెడ్" బ్యాడ్జ్‌తో పూన్ చేస్తుంది కనుక స్వయం-ప్లే చేస్తుంది
+          (<em>Auto ▶ కొత్త</em> ద్వారా టాగిల్ ఆఫ్).
+        </li>
+        <li><em>📂 తెరువుకు</em> నొక్కండి <code>videos/</code> ఫోల్డర్‌ను మీ OS ఫైల్ నిర్వాహకంలో చూపించటానికి.
+        </li>
+      </ul>
+    </section>
+
+    <section id="stt" class="help-section">
+      <h2><span class="num">6.</span> ఆడియోను టెక్స్ట్‌కు</h2>
+      <p>మైక్ నొక్కండి, మాట్లాడండి, మళ్ళీ నొక్కండి ఆపటానికి (లేదా సైలెన్స్-టైమआఉట్‌కు వేచి ఉండండి).
+        రెండు ఇంజన్‌లు ఆదేశక్రమానికి ప్రయత్నించబడతాయి:
+      </p>
+      <ol style="padding-left:22px;">
+        <li><strong>Web Speech API</strong> — వెబ్‌వ్యూ నుండి నడుస్తున్న Google యొక్క క్లౌడ్ గుర్తించేవారు.
+          మీ Gmail/Google సెషన్ ఉపయోగిస్తారు; ఎక్కువ కీ అవసరం లేదు.
+        </li>
+        <li><strong>Windows SAPI</strong> (ఫాల్‌బ్యాక్) — వెబ్‌వ్యూ మైక్ ప్రవేశం తిరస్కరించినప్పుడు పిలిచిన ప్రీ-వార్మ్డ్ PowerShell ప్రక్రియ. కాన్ఫిగరేబుల్ విని విండో ద్వారా
+          <code>[voice] listen_seconds</code> <code>config.ini</code> లో.
+        </li>
+      </ol>
+      <div class="callout">
+        SAPI అనేది <em>విస్తరణ యాక్టివేట్‌లో ప్రీ-వార్మ్‌ చేయబడింది</em> కనుక మొదటి మైక్ క్లిక్ 2-4 సెకండ్ కోల్డ్ స్టార్ట్ నుండి ఆపటానికి ఆపటానికి పనిచేస్తుంది.
+      </div>
+    </section>
+
+    <section id="auto-prompt" class="help-section">
+      <h2><span class="num">7.</span> స్వయం ప్రాంప్ట్</h2>
+      <p>బ్యాడ్జ్-స్పిన్నర్ బటన్. చालు చేసినప్పుడు, N సెకండ్ల నిష్క్రియాత్వం తర్వాత ప్యానెల్ మీ సంరూపిత మేల్కోత టెక్స్ట్‌ను స్వయం-పంపుతుంది. లెక్కవంట్ అంకెలు 
+        <code>--cbe-highlight-color</code> లో సూచిస్తారు, ఇక్కడ ప్రతిదీ చర్మం నిర్వచిస్తుంది.
+      </p>
+      <p>🔁 Wake బటన్ ద్వారా మేల్కోత టెక్స్ట్ సవరించండి — ఇది <code>wake.txt</code> ను రౌండ్-ట్రిప్ చేస్తుంది.
+      </p>
+    </section>
+
+    <section id="tts" class="help-section">
+      <h2><span class="num">8.</span> స్వయం చదువుకోవడం (TTS)</h2>
+      <p>నోటి చిహ్నం. చేతిలో, ప్రతిదీ సహాయక సమాధానం Web Speech సింథెసిజర్ (Google) లేదా SAPI ఫాల్‌బ్యాక్‌ ద్వారా చెప్పుకోబడుతుంది. నీలం ఏలూ చిహ్నం చుట్టూ ఆడియో ప్లేలో ఉన్నప్పుడు కాంతిపరచుతుంది.
+      </p>
+    </section>
+
+    <section id="compact" class="help-section">
+      <h2><span class="num">9.</span> కాంపాక్ట్ &amp; సందర్భ వినియోగం</h2>
+      <p>మోడల్‌కు పంపిన సంభాషణ శ్రేణి ప్రతిదీ టర్న్‌తో వృద్ధి పాలిస్తుంది. కాంపాక్ట్ చిహ్నం చుట్టూ రింగ్ సందర్భ-విండో వినియోగం కోనిక్ గ్రేడియంట్‌గా చూపుతుంది — తాజాగా ఖాళీ, మోడల్ సందర్భ పరిమితికి సమీపం చేసినప్పుడు పూర్ణ.
+      </p>
+      <p>చరిత్రను తిరిగి నాలుగు టర్న్‌ల కుదించటానికి కాంపాక్ట్‌ను నొక్కండి. ఆ తర్వాత API కాల్ చిన్న శ్రేణిని ఉపయోగిస్తుంది.
+      </p>
+    </section>
+
+    <section id="wake-up" class="help-section">
+      <h2><span class="num">10.</span> మేల్కోత ప్రతిసందటి</h2>
+      <p><code>wake.txt</code> కు విస్తరణ రూట్‌లో నిల్ఖించిన. స్వయం ప్రాంప్ట్ ద్వారా నిష్క్రియాత్వ టైమర్ ఫైర్ చేసినప్పుడు పంపేవారిచ్చిన సందేశం ఉపయోగిస్తుంది. 🔁 టూల్‌బార్ బటన్ ద్వారా సవరించండి.
+      </p>
+    </section>
+
+    <section id="attachments" class="help-section">
+      <h2><span class="num">11.</span> ఫైల్ జతలు</h2>
+      <p>📎 నొక్కండి ఒక లేదా అంతకంటే ఎక్కువ ఫైల్‌లను ఎంచుకోవటానికి. <kbd>Ctrl</kbd> లేదా <kbd>Shift</kbd> పిక్‌లో పట్టుకోండి బహుళ-ఎంపిక చేయటానికి. ప్రతిదీ ఫైల్ ప్రాంప్ట్‌కు విభజన-కోడ్ బ్లాక్‌కు దాని ఫైల్‌నెం కనుక భాష. 1 MB కంటే ఎక్కువ బైనరీ ఫైల్‌లు నోటిస్‌కు దిగుపడతాయి.
+      </p>
+    </section>
+
+    <section id="git" class="help-section">
+      <h2><span class="num">12.</span> Git మోడల్</h2>
+      <p>📁 Git నొక్కండి. ఆయన ప్రాజెక్ట్ ఫోల్డర్ సంరూపిత నుండి, మీరు ఫోల్డర్ పిక్‌ను ఎదిరి పొందుతారు — ఎంచుకున్న మార్గం <code>[project] path</code> నుండి <code>config.ini</code> కు వ్రాయబడుతుంది.
+        తరువాత git ఆహ్వానాలు ఆ మార్గం నుండి cwd చేసి నడుస్తాయి.
+      </p>
+    </section>
+
+    <section id="github" class="help-section">
+      <h2><span class="num">13.</span> GitHub రిపోజిటరీలు</h2>
+      <p>మీ <code>[github] pat</code> కు ప్రవేశయోగ్యమైన ప్రతిదీ రిపో జాబితా చేస్తుంది. ఒక వరుస క్లిక్ చేసి దాని క్లోన్ URL ప్రాంప్ట్‌కు చేర్చుకుందా. జాబితా పేజీకు చేయబడిన కనుక కాచెడ్.
+      </p>
+    </section>
+
+    <section id="domains" class="help-section">
+      <h2><span class="num">14.</span> NameSilo డొమైన్‌లు</h2>
+      <p>ప్రతిదీ డొమైన్ మీ NameSilo ఖాతాలో <code>[namesilo] api_key</code> ఉపయోగించుతుంది
+        (లేదా <code>[api_keys] namesilo_api_key</code> ఫాల్‌బ్యాక్‌గా). ఎక్కడ తెరిసిన ఫలితాలు <code>domains.txt</code> కు కాచెడ్ చేయబడతాయి; ఆ తర్వాత ప్యానెల్ బూట్‌లు కాచ్‌ నుండి సేవ్ చేస్తాయి. <em>రీలోడ్</em> మోడల్‌లో నొక్కండి ఒక తీవ్రమైన పెట్టుబడిని బలవంతం చేయటానికి.
+      </p>
+      <div class="callout warn">
+        నుండిసరి "ఎక్కడ డొమైన్‌లు" 300 సమాధానం కోడ్‌తో చూస్తుంది, ట్రేస్ చానెల్‌ను చూడండి — ఖాళీ కాచెస్‌ భవిష్యత్ ప్యానెల్ బూట్‌ల్‌ను కానీ ఇతర సంస్థాపన మార్గం లో ఆనాడు <code>domains.txt</code> కోసం చేయవచ్చు.
+      </div>
+    </section>
+
+    <section id="skins" class="help-section">
+      <h2><span class="num">15.</span> చర్మాలు &amp; థీమ్‌లు</h2>
+      <p>🎨 బటన్ ఒక కనుగొనిపికర్‌ను పూపుటుంది <code>skins/</code> లైవ్ (స్టార్టअপ్‌లో కాదు) స్కాన్ చేస్తుంది, కనుక నడుస్తున్న రూన్‌లో <code>skins/</code> ఫోల్డర్ డ్రాప్ చేయటం కేవలం సరిపోతుంది. ప్రతిదీ చర్మం <code>manifest.xml</code> ను వెళ్ళదీ దాని పలేట్‌ను నిర్వచిస్తుంది — <strong>హైలైట్ రంగ్</strong> సహా, ఆ ఆటో ప్రాంప్ట్ లెక్కవంటి బ్యాడ్జ్, ఫోకస్ రింగ్‌లు, కనుక సూపర్‌విజర్ పల్స్ సరిపోతుంది.
+      </p>
+      <p>నిర్మిత చర్మాలు చేర్చుకుందా: <code>gnome</code> (Adwaita గ్రే), <code>terminal</code>
+        (నలుపు/ఆకుతో వేలిసిన-గులాబీ ఉద్‌ఘోష), <code>tamagotchi</code> (స్పెర్చ్ పేస్టెల్‌లు తో ఒక స్ప్రితే మాస్కట్ ప్యానెల్), <code>blocky</code>, కనుక ఇతర.
+      </p>
+    </section>
+
+    <section id="settings" class="help-section">
+      <h2><span class="num">16.</span> సెట్టింగ్‌లు</h2>
+      <p>⚙ గేర్ నుండి తెరవండి. ట్యాబ్‌లు:
+      </p>
+      <ul>
+        <li><strong>సాధారణ</strong> — ప్రదర్శన నెం, అప్రమేయ మోడల్, పంపే-ఆన్-ఎంటర్</li>
+        <li><strong>ఆవాజ</strong> — మైక్రోఫోన్ పరికరం, listen_seconds, STT ఇంజన్ పిక్, TTS స్వయం-చదువుకోవడం</li>
+        <li><strong>నవీకరణలు</strong> — <code>is_admin</code> ఫ్లాగ్, WinSCP సెషన్, రిమోట్ మార్గం</li>
+        <li><strong>కీలు</strong> — ప్రతిదీ ప్రొవైడర్ API కీ</li>
+        <li><strong>పర్యవేక్షణ</strong> — VSCode సూపర్‌విజర్ టాగిల్, పోర్ట్, పోల్ విరామం</li>
+        <li><strong>భాష</strong> — 39 థాటలు నుండి ఎంచుకోండి; చూడండి <a href="#language">§ 17</a></li>
+      </ul>
+      <p>మోడల్ సెషన్‌ల మధ్య దాని సంఖ్య కనుక స్థానం గుర్తుంచుకుంటుంది.
+      </p>
+    </section>
+
+    <section id="language" class="help-section">
+      <h2><span class="num">17.</span> భాష</h2>
+      <p>ప్యానెల్ 39 అత్యంత-మాట్లాడిన భాషల కోసం అనువాదాలు తో పంపుతుంది. థాట ఫైల్‌లు <code>languages/&lt;code&gt;.xml</code> లో నివసిస్తుంది కనుక విస్తరణ యాక్టివేట్‌లో లోడ్ చేయబడతాయి. కోలిపోయిన కీలు ఆంగ్లికం నుండి ఫాల్‌బ్యాక్.
+      </p>
+      <p><em>సెట్టింగ్‌లు → భాష</em> లో మీ భాష ఎంచుకోండి. ఎక్కడ ఎంపిక (నుండి <code>assets/flags/&lt;code&gt;.svg</code>) యొక్క ఫ్లాగ్ చిహ్నం చూపబడుతుంది. ఎంపిక <code>[settings] language</code> కు <code>config.ini</code> లో సేవ్ చేయబడుతుంది.
+      </p>
+    </section>
+
+    <section id="monitor" class="help-section">
+      <h2><span class="num">18.</span> VSCode సూపర్‌విజర్</h2>
+      <p>ఒక Windows సేవ (<code>CBEVSCodeSupervisor</code>) <code>tools/vscode_supervisor.ps1</code> స్క్రిప్ట్ NSSM ద్వారా విడిచిపెట్టుతుంది కనుక <strong>http://127.0.0.1:3434/</strong> లో HttpListener బందిస్తుంది. సూపర్‌విజర్ <code>/status</code> ఎండ్‌పాయింట్ సమాధానం 200 OK చేసినప్పుడు ప్యానెల్ మానిటర్ బటన్ నీలం కాంతిపరచుతుంది.
+      </p>
+      <p>HTTP జెండు విఫలమైతే కానీ సేవ సంస్థాపించబడితే, ప్యానెల్ వాచ్‌డాగ్ స్వయం-సేవ పునరారంభం చేస్తుంది (30-సెకండ్ శీతల-డౌన్‌న్ కనుక ఇది పునరారంభం-తుఫాన్ చేయదు).
+      </p>
+      <p>మానిటర్ బటన్ ఎడమ-క్లిక్ సంస్థాపన / ప్రారంభం / నిలుపుటకు. సూక్ష్మమైన ట్రేస్ చానెల్‌ను తెరవటానికి కుడి-క్లిక్.
+      </p>
+    </section>
+
+    <section id="auto-update" class="help-section">
+      <h2><span class="num">19.</span> స్వయం-నవీకరణ (పుల్)</h2>
+      <p>విస్తరణ యాక్టివేట్‌చేసిన తర్వాత 4 సెకండ్లు, ప్యానెల్ పెట్టుబడి చేస్తుంది
+        <code>https://trentontompkins.com/cbe/manifest.xml.php</code> — చేసిన ఫైల్‌ల MD5+సంఖ్య మానిఫెస్ట్. ప్రతిదీ రిమోట్ ఫైల్‌కు, స్థానిక కాపీ MD5 చేసిన తర్వాత; కేవలం మార్పు/కోల్పోయిన ఫైల్‌లు HTTPS ద్వారా డౌన్‌లోడ్ చేయబడతాయి.
+      </p>
+      <p>వినియోగకర్త-స్థానిక స్థితి (<code>config.ini</code>, <code>debug.log</code>,
+        <code>domains.txt</code>, <code>wake.txt</code>, <code>prompt_history.txt</code>) పుల్ నిషేధ జాబితాలో ఉంది కనుక ఎక్కడ ప్రతిలిఖ్యం చేయబడదు.
+      </p>
+    </section>
+
+    <section id="admin-push" class="help-section">
+      <h2><span class="num">20.</span> నిర్వాహక పుష్</h2>
+      <p>కేవలం <code>[updates] is_admin = true</code> తో ఖాతాలు సర్వర్‌కు పుష్ చేస్తారు.
+        ద్వారా ప్రేరక:
+      </p>
+      <ul>
+        <li>కమాండ్ ప్యాలెట్ → <em>Claude Codex Black: పుష్ నవీకరణ</em></li>
+        <li>స్ల్యాష్ ఆదేశం <code>/push</code></li>
+      </ul>
+      <p><code>[updates] winscp_session</code> (అప్రమేయ <code>vps</code>) నుండి నెం పట్టిన WinSCP సేవ సెషన్ ఉపయోగిస్తుంది. <code>/script=…</code> తో సమకాలీకరణ కమాండ్ కనుక ఉపయోగించిన ఫైల్‌మాస్క్‌ను సిద్ధం చేస్తుంది కనుక రహస్యాలను &amp; కు-యంత్ర స్థితిని నిషేధ చేస్తుంది.
+      </p>
+    </section>
+
+    <section id="extensions" class="help-section">
+      <h2><span class="num">21.</span> ఎక్సటెన్షన్‌ల మార్కెట్‌ప్లేస్</h2>
+      <p>🧩 ఎక్సటెన్షన్‌ల బటన్‌ను నొక్కండి. ఒక iframe మోడల్
+        <code>https://trentontompkins.com/cbe/extension/extension_marketplace.php</code> లోకి తెరవుకుంటుంది,
+        ఇది <code>extensions.xml.php</code> కు పెట్టుబడి చేస్తుంది కనుక ప్రతిదీ ఉపలబ్ధ ఎక్సటెన్షన్‌ను కార్డ్‌గా సూచిస్తుంది
+        వివరణ, ట్యాగ్‌లు, సంస్కరణ, ఫైల్ సంఖ్య, MD5, కనుక ఒక <strong>సంస్థాపన</strong> బటన్.
+      </p>
+      <p>ఒక ఎక్సటెన్షన్ <code>&lt;id&gt;.ext</code> గా పుష్పం చేయబడింది — <code>manifest.xml</code> చేర్చుకుందా ఒక zip ఆర్కైవ్ కనుక ఎక్సటెన్షన్ కోడ్ (సాధారణ ఏకైక <code>extension.html</code>). ఇన్‌స్టాల్‌ను నొక్కినప్పుడు, మార్కెట్‌ప్లేస్ iframe ప్రత్యక్ష ఉపయోగకర్త; ప్యానెల్ <code>.ext</code> సర్వర్ నుండి కూడా డౌన్‌లోడ్ చేస్తుంది కనుక
+        <code>extensions/</code> అందర్లో చెండితీయుకుందా విస్తరణ ఫోల్డర్‌లో.
+      </p>
+      <p>మూడు ప్రదర్శన ఎక్సటెన్షన్‌లు ఉదయ కేటలాగ్‌తో పంపుతుంది:
+        <strong>కాలిక్యులేటర్</strong>, <strong>Minesweeper</strong>, కనుక ఒక <strong>Emoji పిక్‌ర్</strong>.
+      </p>
+    </section>
+
+    <section id="slash" class="help-section">
+      <h2><span class="num">22.</span> స్ల్యాష్ ఆదేశాలు</h2>
+      <p>ప్రాంప్ట్ బాక్స్ లో <kbd>/</kbd> టైప్ చేసి స్ల్యాష్-ఆదేశ పలేట్‌ను తెరవటానికి. ఒక వరుస
+        ఆదేశ టెక్స్ట్‌కు ఎంపిక చేసుకుందా (<em>చేర్చుకుందా</em>) (<em>సవరణీయ</em>), లేదా
+        <kbd>Enter</kbd> ఎక్కడ నడుస్తున్న వరుసకు చేసి ఎక్కడ చేయటం పెద్దవాలు.
+      </p>
+      <p>ఒక ఖాళీ జాబితా:
+      </p>
+      <table>
+        <thead><tr><th>ఆదేశం</th><th>ప్రభావం</th></tr></thead>
+        <tbody>
+          <tr><td><code>/help</code></td><td>ఈ డాక్యుమెంట్ తెరవండి</td></tr>
+          <tr><td><code>/skin</code></td><td>చర్మం పిక్‌ను పూపుటుంది</td></tr>
+          <tr><td><code>/push</code></td><td>ఆటో-నవీకరణ పుష్‌ను చేయటం (నిర్వాహక కేవలం)</td></tr>
+          <tr><td><code>/license</code></td><td><code>LICENSE.TXT</code> చూపండి</td></tr>
+          <tr><td><code>/clear</code></td><td>సంభాషణ చరిత్ర స్పష్టం చేయండి</td></tr>
+          <tr><td><code>/domains</code></td><td>NameSilo డొమైన్‌ల మోడల్‌ను తెరవండి</td></tr>
+          <tr><td><code>/git</code></td><td>Git మోడల్‌ను తెరవండి</td></tr>
+          <tr><td><code>/wake</code></td><td>మేల్కోత సంపాదకం తెరవండి</td></tr>
+          <tr><td><code>/memory</code></td><td>ప్రాజెక్ట్ స్మృతి సూచిక తెరవండి</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="context-menu" class="help-section">
+      <h2><span class="num">23.</span> కుడి-క్లిక్ మెనూ</h2>
+      <p>ప్యానెల్‌లో ఎక్కడ కుడి-క్లిక్

@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="tl">
+<head>
+<meta charset="utf-8">
+<title>Claude Codex — Black Edition · Tulong</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #16181d;
+    --surface: #1f2229;
+    --surface-2: #262a33;
+    --border: #353a45;
+    --text: #e7eaef;
+    --muted: #aab1bd;
+    --accent: #4ea8ff;
+    --accent-soft: rgba(78,168,255,0.12);
+    --kbd-bg: #0f1116;
+    --kbd-border: #2b313b;
+    --warn: #ffd84d;
+    --err: #ff8a8a;
+    --ok: #6fd58a;
+  }
+  * { box-sizing: border-box; }
+  /* .app is included here because CBE inlines this file's body into a <div>
+     inside the panel (no <html>/<body> wrapper) — without .app carrying the
+     dark background + text color, the panel skin's background bleeds through
+     and you get unreadable text. Standalone (real <body>) it's still fine. */
+  html, body, .app { margin: 0; padding: 0; height: 100%; background: var(--bg);
+               color: var(--text); font: 14.5px/1.55 ui-sans-serif, system-ui,
+               -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  code { background: var(--kbd-bg); padding: 1px 6px; border-radius: 4px;
+         border: 1px solid var(--kbd-border); font-size: 0.92em; }
+  kbd { background: var(--kbd-bg); padding: 1px 7px; border-radius: 4px;
+        border: 1px solid var(--kbd-border); border-bottom-width: 2px;
+        font-size: 0.85em; color: #ffd84d; }
+  pre { background: var(--kbd-bg); border: 1px solid var(--border);
+        border-radius: 6px; padding: 12px 14px; overflow-x: auto;
+        font-size: 12.5px; }
+  /* Layout: fixed TOC sidebar + scrolling content. The content scrolls
+     inside #main, which jQuery smooth-scrolls when TOC links are clicked. */
+  /* height:100% (not 100vh) so the layout fills the modal body when inlined,
+     and the full standalone window when opened as a real page. */
+  .app { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
+  nav.toc { background: var(--surface); border-right: 1px solid var(--border);
+            overflow-y: auto; padding: 18px 0 24px 0; position: sticky; top: 0;
+            height: 100%; }
+  nav.toc h2 { margin: 0 18px 8px 18px; font-size: 11px; letter-spacing: 0.08em;
+               color: var(--muted); text-transform: uppercase; }
+  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: tocnum; }
+  nav.toc ol li { counter-increment: tocnum; }
+  nav.toc ol li > a { display: block; padding: 7px 18px 7px 36px; font-size: 13.5px;
+                       color: var(--text); position: relative; line-height: 1.3;
+                       border-left: 3px solid transparent; }
+  /* Click feedback wired from panel.js: active TOC link gets an accent bar +
+     tint, the landed section flashes a soft accent glow that fades out. */
+  nav.toc ol li > a.cbe-toc-active {
+    border-left-color: var(--accent); background: var(--accent-soft);
+    color: var(--accent);
+  }
+  @keyframes cbeHelpFlash {
+    0%   { background: var(--accent-soft); }
+    100% { background: transparent; }
+  }
+  .cbe-help-flash { animation: cbeHelpFlash 1.1s ease-out 1; border-radius: 6px; }
+  nav.toc ol li > a::before { content: counter(tocnum); position: absolute;
+                              left: 14px; top: 7px; color: var(--muted);
+                              font-family: ui-monospace; font-size: 11px;
+                              min-width: 16px; text-align: right; }
+  nav.toc ol li > a:hover { background: var(--surface-2); text-decoration: none; }
+  nav.toc ol li > a.active { background: var(--accent-soft);
+                              border-left-color: var(--accent); color: var(--accent); }
+  main#main { overflow-y: auto; padding: 28px 36px 80px 36px; height: 100vh; }
+  main#main > header { margin-bottom: 26px; padding-bottom: 14px;
+                       border-bottom: 1px solid var(--border); }
+  main#main > header h1 { margin: 0 0 4px 0; font-size: 24px; font-weight: 600;
+                          letter-spacing: 0.005em; }
+  main#main > header .meta { color: var(--muted); font-size: 13px; }
+  section.help-section { scroll-margin-top: 16px; max-width: 820px;
+                          margin: 0 0 36px 0; padding-top: 6px; }
+  section.help-section h2 { font-size: 19px; margin: 0 0 10px 0; font-weight: 600;
+                            display: flex; align-items: baseline; gap: 10px; }
+  section.help-section h2 .num { color: var(--muted); font: 13px ui-monospace;
+                                  min-width: 1.5em; }
+  section.help-section h3 { font-size: 15px; margin: 18px 0 6px 0; font-weight: 600;
+                            color: var(--text); }
+  section.help-section p { margin: 0 0 10px 0; color: var(--text); }
+  section.help-section ul { margin: 0 0 12px 0; padding-left: 22px; }
+  section.help-section li { margin-bottom: 4px; }
+  section.help-section table { border-collapse: collapse; width: 100%;
+                                margin: 6px 0 14px 0; font-size: 13.5px; }
+  section.help-section th, section.help-section td { border: 1px solid var(--border);
+                                                       padding: 6px 10px; text-align: left;
+                                                       vertical-align: top; }
+  section.help-section th { background: var(--surface-2); font-weight: 600; }
+  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft);
+             padding: 10px 14px; border-radius: 0 4px 4px 0; margin: 10px 0 14px 0; }
+  .callout.warn { border-color: var(--warn); background: rgba(255,216,77,0.08); }
+  .callout.err  { border-color: var(--err);  background: rgba(255,138,138,0.08); }
+  .top-link { float: right; font-size: 12px; color: var(--muted); }
+  .top-link:hover { color: var(--accent); }
+  /* Scrollbar */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: var(--bg); }
+  *::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <nav class="toc" aria-label="Talaan ng nilalaman">
+    <h2>Nilalaman</h2>
+    <ol id="toc-list">
+      <li><a href="#welcome">Maligayang pagdating</a></li>
+      <li><a href="#keyboard">Mga shortcut sa keyboard</a></li>
+      <li><a href="#prompt-box">Ang prompt box</a></li>
+      <li><a href="#toolbar">Mga button sa toolbar</a></li>
+      <li><a href="#providers">Mga modelo at provider</a></li>
+      <li><a href="#stt">Pagsasalita sa Teksto</a></li>
+      <li><a href="#auto-prompt">Auto Prompt</a></li>
+      <li><a href="#tts">Auto Read (TTS)</a></li>
+      <li><a href="#compact">Compact at context usage</a></li>
+      <li><a href="#wake-up">Wake-up response</a></li>
+      <li><a href="#attachments">Mga file attachment</a></li>
+      <li><a href="#git">Git modal</a></li>
+      <li><a href="#github">GitHub repositories</a></li>
+      <li><a href="#domains">NameSilo Domains</a></li>
+      <li><a href="#skins">Mga skins at tema</a></li>
+      <li><a href="#settings">Mga setting</a></li>
+      <li><a href="#language">Wika</a></li>
+      <li><a href="#monitor">VSCode supervisor</a></li>
+      <li><a href="#auto-update">Auto-update (pull)</a></li>
+      <li><a href="#admin-push">Admin push</a></li>
+      <li><a href="#extensions">Extensions marketplace</a></li>
+      <li><a href="#slash">Slash commands</a></li>
+      <li><a href="#context-menu">Right-click menu</a></li>
+      <li><a href="#trace">Trace channel</a></li>
+      <li><a href="#troubleshooting">Paglutas ng mga problema</a></li>
+      <li><a href="#about">Tungkol sa at lisensya</a></li>
+    </ol>
+  </nav>
+
+  <main id="main">
+    <header>
+      <h1>Claude Codex — Black Edition</h1>
+      <div class="meta">Isang offline-first multi-provider AI chat panel para sa VSCode.
+        Pindutin ang <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd> upang i-toggle.</div>
+    </header>
+
+    <section id="welcome" class="help-section">
+      <h2><span class="num">1.</span> Maligayang pagdating</h2>
+      <p>Claude Codex Black ay isang VSCode webview na nagbibigay-daan sa iyo na makipag-usap sa maraming AI provider
+        (Claude, OpenAI, Gemini, Grok, Azure, local Ollama) mula sa isang solong, themable panel.
+        Lahat ng kailangan ng isang key ay binabasa mula sa <code>config.ini</code> sa extension root —
+        walang extension settings UI na kinakailangan, ngunit ang Settings modal ay sumasalamin sa pinaka-kapaki-pakinabang na
+        mga field para sa click-only na pag-edit.</p>
+      <div class="callout">
+        Bago pa lang ba rito? Magsimula sa pamamagitan ng pagbubukas ng <em>Settings</em> (gear icon), pumili ng iyong provider, i-paste
+        ang iyong API key, pagkatapos ay mag-type ng prompt at pindutin ang <kbd>Enter</kbd>. Lahat ng ibang feature sa
+        gabay na ito ay opsyonal.
+      </div>
+    </section>
+
+    <section id="keyboard" class="help-section">
+      <h2><span class="num">2.</span> Mga shortcut sa keyboard</h2>
+      <table>
+        <thead><tr><th>Key</th><th>Epekto</th></tr></thead>
+        <tbody>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd></td><td>I-toggle ang CBE panel</td></tr>
+          <tr><td><kbd>Enter</kbd></td><td>Magpadala ng kasalukuyang prompt</td></tr>
+          <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Bagong linya sa loob ng prompt box</td></tr>
+          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Mag-cycle sa iyong dating ipinadaling mga prompt (mula sa <code>prompt_history.txt</code>)</td></tr>
+          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Mag-cycle sa iyong curated <code>prompts.txt</code> entries kapag ang caret ay nasa simula/dulo ng textarea</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>Isarado ang anumang bukas na modal</td></tr>
+          <tr><td><kbd>/</kbd></td><td>Buksan ang slash-command palette</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="prompt-box" class="help-section">
+      <h2><span class="num">3.</span> Ang prompt box</h2>
+      <p>Ang malalaking editable textarea sa ibaba. Mag-type, mag-paste, mag-drag ng file, mag-attach sa pamamagitan ng
+        paperclip — anumang inilalagay mo dito ay ang user turn ng susunod na API call.</p>
+      <p>Ang font ay nakalock sa iyong VSCode editor's monospace font (sa pamamagitan ng
+        <code>--vscode-editor-font-family</code> CSS variable) kaya ang panel ay mukhang tahanan
+        sa loob ng editor.</p>
+    </section>
+
+    <section id="toolbar" class="help-section">
+      <h2><span class="num">4.</span> Mga button sa toolbar</h2>
+      <p>Ibaba row, kaliwa hanggang kanan. Ang mga tooltip ay lilitaw sa hover; ang panel ay nag-bubuo rin ng mga ito
+        sa iyong piniling wika (tingnan ang <a href="#language">Wika</a>).</p>
+      <table>
+        <thead><tr><th>Icon</th><th>Function</th></tr></thead>
+        <tbody>
+          <tr><td>🎤 Mic</td><td>Speech-to-Text — Web Speech API na may SAPI fallback. Tingnan ang <a href="#stt">§ 6</a>.</td></tr>
+          <tr><td>📎 Attach</td><td>Pumili ng isa o higit pang file upang isama sa prompt</td></tr>
+          <tr><td>🔁 Wake</td><td>I-edit ang Auto Prompt wake-up text (nakatira sa <code>wake.txt</code>)</td></tr>
+          <tr><td>⏱ Auto Prompt</td><td>I-toggle ang inactivity countdown auto-fire</td></tr>
+          <tr><td>📚 Compact</td><td>Paggawing maikli ang conversation history sa huling ilang turn. Ang ring ay nagpapakita ng context-window usage.</td></tr>
+          <tr><td>📁 Git</td><td>Magpatakbo ng git commands sa project folder</td></tr>
+          <tr><td>🌐 Domains</td><td>Kunin ang iyong NameSilo domain list</td></tr>
+          <tr><td>🐙 GitHub</td><td>Ilista ang iyong GitHub repos gamit ang PAT</td></tr>
+          <tr><td>🎨 Skin</td><td>Pumili ng panel theme (na-discover live mula sa <code>skins/</code>)</td></tr>
+          <tr><td>🧩 Extensions</td><td>Buksan ang marketplace iframe modal. Tingnan ang <a href="#extensions">§ 21</a>.</td></tr>
+          <tr><td>⚙ Settings</td><td>Buksan ang settings modal</td></tr>
+          <tr><td>📜 Handbook</td><td>Buksan ang <code>handbook.txt</code> para sa pag-edit</td></tr>
+          <tr><td>❔ Help</td><td>Ang dokumentong ito</td></tr>
+          <tr><td>⏹ Stop</td><td>Kanselahin ang in-flight model call</td></tr>
+          <tr><td>📤 Send</td><td>Ipadala ang prompt (pareho sa <kbd>Enter</kbd>)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="providers" class="help-section">
+      <h2><span class="num">5.</span> Mga modelo at provider</h2>
+      <p>CBE ay may kasamang <strong>11 bridges</strong> bilang drop-in <code>.bridge</code> plugins sa ilalim ng
+        <code>bridges/</code>. Bawat isa ay isang self-contained zip na may manifest.xml + bridge.py
+        + icons. Maglagay ng bagong <code>.bridge</code> file at ito ay lilitaw sa cartridge
+        dropdown — walang extension code change na kailangan.</p>
+      <h3>Text-chat bridges (7)</h3>
+      <ul>
+        <li><strong>ChatGPT</strong> — chatgpt.com, Plus/Pro subscription</li>
+        <li><strong>Grok</strong> — grok.com, native xAI login (ang anonymous tier ay malaking nakagating; mag-log in muna)</li>
+        <li><strong>Gemini</strong> — gemini.google.com, Google account</li>
+        <li><strong>Claude</strong> — claude.ai, magic-link login (magpatakbo ng <code>tools/sign_in_helper.py claude</code> minsan)</li>
+        <li><strong>Copilot</strong> — copilot.microsoft.com, libreng Microsoft account</li>
+        <li><strong>DeepSeek</strong> — chat.deepseek.com, native email/password (HUWAG gamitin ang Google SSO)</li>
+        <li><strong>Ollama</strong> — local <code>127.0.0.1:11434</code>, walang login na kinakailangan</li>
+      </ul>
+      <h3>Video-generation bridges (4)</h3>
+      <ul>
+        <li><strong>Sora 2</strong> — sora.com, reusable ang iyong ChatGPT Plus/Pro login</li>
+        <li><strong>Google Veo</strong> — gemini.google.com (Veo mode), Gemini Advanced subscription</li>
+        <li><strong>Runway Gen-3/4</strong> — app.runwayml.com, hiwalay na Runway subscription</li>
+        <li><strong>Bing Video Creator</strong> — bing.com/videos/create, <em>libreng Sora-2</em> na may Microsoft account</li>
+      </ul>
+      <p>Ang mga generated na video ay nagsasave sa <code>videos/&lt;bridge&gt;/&lt;timestamp&gt;_&lt;prompt-slug&gt;.mp4</code>
+        at automatic na tumutugtog sa Video Library panel (tingnan ang §Video Library sa ibaba).</p>
+      <p>Pumili ng bridge + model mula sa cartridge dropdown sa susunod ng prompt box, o sa pamamagitan ng
+        <em>Settings → General</em>. Ang selection ay bawat workspace at nanatili sa
+        workspaceState. Upang magdagdag ng bagong bridge, tingnan ang <code>docs/WRITING_BRIDGES.md</code>.</p>
+    </section>
+
+    <section id="video-library" class="help-section">
+      <h2><span class="num">5a.</span> Video Library</h2>
+      <p>Isang dedicated panel para sa pag-browse at panoorin ng mga video na nabuo ng video bridges
+        (Sora, Veo, Runway, Bing Video Creator). Bumubukas sa pamamagitan ng Command Palette:
+        <em>Claude Codex Black: Open Video Library</em> o ang <code>codexBlackEd.openVideoPlayer</code>
+        command.</p>
+      <ul>
+        <li>Ang sidebar ay naglilista ng bawat <code>.mp4</code> / <code>.webm</code> / <code>.mov</code> sa ilalim ng
+          <code>videos/&lt;bridge&gt;/</code>, na kinabibilangan ng bridge at pinagsort ng pinakabago-una.</li>
+        <li>Ang pinakasariwang video ay automatic na tumutugtog sa unang pagbubukas.</li>
+        <li>Ang panel ay bantay ng <code>videos/</code> dir sa isang 2-segundo tick — anumang bagong
+          generated na video ay dumarating na may ✨ "Just generated" badge at automatic na tumutugtog
+          (i-toggle off sa pamamagitan ng <em>Auto ▶ new</em>).</li>
+        <li>I-click ang <em>📂 Open</em> upang ipakita ang <code>videos/</code> folder sa iyong OS file manager.</li>
+      </ul>
+    </section>
+
+    <section id="stt" class="help-section">
+      <h2><span class="num">6.</span> Pagsasalita sa Teksto</h2>
+      <p>I-click ang mic, magsalita, i-click muli upang ihinto (o maghintay para sa silence-timeout).
+        Dalawang engine ang sinubukan sa pagkakasunod-sunod:</p>
+      <ol style="padding-left:22px;">
+        <li><strong>Web Speech API</strong> — Ang Google's cloud recognizer na tumatakbo sa webview.
+          Gumagamit ng iyong Gmail/Google session; walang karagdagang key na kailangan.</li>
+        <li><strong>Windows SAPI</strong> (fallback) — pre-warmed PowerShell process na ina-invoke kapag
+          ang webview ay naghahadlang sa mic access. Configurable listen window sa pamamagitan ng
+          <code>[voice] listen_seconds</code> sa <code>config.ini</code>.</li>
+      </ol>
+      <div class="callout">
+        Ang SAPI ay <em>pre-warmed sa extension activate</em> kaya ang unang mic click ay nakakaiwas sa
+        2-4 segundo na cold start na dating gumagamit ng early stop-clicks.
+      </div>
+    </section>
+
+    <section id="auto-prompt" class="help-section">
+      <h2><span class="num">7.</span> Auto Prompt</h2>
+      <p>Ang badge-with-spinner button. Kapag ON, pagkatapos ng N segundo ng inactivity ang panel
+        ay automatic na nagpapadala ng iyong configured na wake-up text. Ang countdown digit ay ini-render sa
+        <code>--cbe-highlight-color</code>, na bawat skin ay nagtutukoy.</p>
+      <p>I-edit ang wake-up text sa pamamagitan ng 🔁 Wake button — ito ay round-trips <code>wake.txt</code>.</p>
+    </section>
+
+    <section id="tts" class="help-section">
+      <h2><span class="num">8.</span> Auto Read (TTS)</h2>
+      <p>Ang mouth icon. Kapag ON, bawat assistant reply ay sinasalita sa pamamagitan ng Web Speech
+        synthesizer (Google) o SAPI fallback. Ang isang buo na halo ay sumisilang sa paligid ng icon habang
+        ang audio ay tumutugtog.</p>
+    </section>
+
+    <section id="compact" class="help-section">
+      <h2><span class="num">9.</span> Compact at context usage</h2>
+      <p>Ang conversation array na ipinapadala sa modelo ay lumalaki sa bawat turn. Ang ring sa paligid
+        ng Compact icon ay nagpapakita ng kasalukuyang context-window usage bilang conic gradient — walang laman
+        kapag bago, puno kapag malapit sa modelo's context limit.</p>
+      <p>I-click ang Compact upang paghiwayin ang history hanggang sa huling apat na turn. Ang susunod na API call
+        ay gumagamit ng mas maliit na array.</p>
+    </section>
+
+    <section id="wake-up" class="help-section">
+      <h2><span class="num">10.</span> Wake-up response</h2>
+      <p>Nakatipid sa <code>wake.txt</code> sa extension root. Ginagamit ng Auto Prompt bilang
+        mensahe na ipadala kapag ang inactivity timer ay nag-apoy. I-edit sa pamamagitan ng 🔁 toolbar button.</p>
+    </section>
+
+    <section id="attachments" class="help-section">
+      <h2><span class="num">11.</span> Mga file attachment</h2>
+      <p>I-click ang 📎 upang pumili ng isa o higit pang file. Hawakan ang <kbd>Ctrl</kbd> o <kbd>Shift</kbd> sa
+        picker upang mag-multi-select. Bawat file ay inlined sa prompt bilang fenced code block
+        na may filename at wika. Ang binary files na higit sa 1 MB ay nilalabasan na may notice.</p>
+    </section>
+
+    <section id="git" class="help-section">
+      <h2><span class="num">12.</span> Git modal</h2>
+      <p>I-click ang 📁 Git. Kung walang project folder na configured, makakakuha ka ng folder picker muna —
+        ang piniling path ay isinulat sa <code>[project] path</code> sa <code>config.ini</code>.
+        Ang susunod na git invocations ay tumatakbo na may cwd na itakda sa path na iyon.</p>
+    </section>
+
+    <section id="github" class="help-section">
+      <h2><span class="num">13.</span> GitHub repositories</h2>
+      <p>Naglilista ng bawat repo na accessible sa iyong <code>[github] pat</code>. I-click ang isang row upang isama
+        ang clone URL nito sa prompt. Ang list ay paginated at cached.</p>
+    </section>
+
+    <section id="domains" class="help-section">
+      <h2><span class="num">14.</span> NameSilo Domains</h2>
+      <p>Kumukuha ng bawat domain sa iyong NameSilo account gamit ang <code>[namesilo] api_key</code>
+        (o <code>[api_keys] namesilo_api_key</code> bilang fallback). Sa unang pagbubukas, ang mga resulta ay
+        cached sa <code>domains.txt</code>; ang susunod na panel boots ay nagsisilbi mula sa cache. I-click
+        ang <em>Reload</em> sa modal upang pilitin ang bagong fetch.</p>
+      <div class="callout warn">
+        Kung kailanman makikita mo ang "no domains" na may 300 reply code, tiyakin ang trace channel — ang walang laman na
+        caches ay hindi na kumakamay sa hinaharap na panel boots, ngunit ang isang lumang <code>domains.txt</code> sa
+        ibang install path ay maaaring magkaroon ng problema.
+      </div>
+    </section>
+
+    <section id="skins" class="help-section">
+      <h2><span class="num">15.</span> Mga skins at tema</h2>
+      <p>Ang 🎨 button ay nagbubukas ng discovery picker na sumusubaybay sa <code>skins/</code> live (hindi sa
+        startup), kaya ang paglagay ng bagong folder sa runtime ay sapat na. Bawat skin ay may
+        <code>manifest.xml</code> na nagtutukoy sa palette — kasama ang
+        <strong>highlight color</strong>, na ang Auto Prompt countdown badge, focus rings,
+        at supervisor pulse ay lahat ay tumutugon dito.</p>
+      <p>Ang built-in skins ay kinabibilangan: <code>gnome</code> (Adwaita gray), <code>terminal</code>
+        (itim/berde na may mainit na kulay ng pink accent), <code>tamagotchi</code> (egg-shell pastels na may
+        sprite mascot panel), <code>blocky</code>, at iba pa.</p>
+    </section>
+
+    <section id="settings" class="help-section">
+      <h2><span class="num">16.</span> Mga setting</h2>
+      <p>Bumubukas mula sa ⚙ gear. Ang mga tab:</p>
+      <ul>
+        <li><strong>General</strong> — display name, default model, send-on-enter</li>
+        <li><strong>Voice</strong> — mic device, listen_seconds, STT engine pick, TTS auto-read</li>
+        <li><strong>Updates</strong> — <code>is_admin</code> flag, WinSCP session, remote path</li>
+        <li><strong>Keys</strong> — ang bawat provider's API key</li>
+        <li><strong>Monitor</strong> — VSCode supervisor toggle, port, poll interval</li>
+        <li><strong>Language</strong> — pumili mula sa 39 locales; tingnan ang <a href="#language">§ 17</a></li>
+      </ul>
+      <p>Ang modal ay naaalala ang laki at posisyon nito sa mga session.</p>
+    </section>
+
+    <section id="language" class="help-section">
+      <h2><span class="num">17.</span> Wika</h2>
+      <p>Ang panel ay may kasama ang mga pagsasalin para sa 39 pinakasinayang wika. Ang locale files
+        ay nakatira sa <code>languages/&lt;code&gt;.xml</code> at ay na-load minsan sa extension
+        activate. Ang mga missing keys ay bumabalik sa English.</p>
+      <p>Pumili ng iyong wika sa <em>Settings → Language</em>. Ang isang flag icon ay ipinapakita sa susunod ng
+        bawat opsyon (na-load mula sa <code>assets/flags/&lt;code&gt;.svg</code>). Ang selection
+        ay nakatipid sa <code>[settings] language</code> sa <code>config.ini</code>.</p>
+    </section>
+
+    <section id="monitor" class="help-section">
+      <h2><span class="num">18.</span> VSCode supervisor</h2>
+      <p>Isang Windows service (<code>CBEVSCodeSupervisor</code>) ay sumasaklaw sa
+        <code>tools/vscode_supervisor.ps1</code> script sa pamamagitan ng NSSM at sumasaklaw sa HttpListener
+        sa <strong>http://127.0.0.1:3434/</strong>. Ang monitor button ng panel ay sumisilang asul
+        kapag ang supervisor's <code>/status</code> endpoint ay sumagot ng 200 OK.</p>
+      <p>Kung ang HTTP probe ay nabigo ngunit ang service ay naka-install, ang panel's watchdog
+        ay automatic na nag-restart ng service (30-segundo cool-down kaya't hindi ito restart-storm).</p>
+      <p>Ang left-click sa monitor button ay magsasama-sama / mag-start / mag-stop. Ang right-click ay magbubukas ng
+        trace channel.</p>
+    </section>
+
+    <section id="auto-update" class="help-section">
+      <h2><span class="num">19.</span> Auto-update (pull)</h2>
+      <p>4 segundo pagkatapos ng extension activate, ang panel ay kumukuha
+        <code>https://trentontompkins.com/cbe/manifest.xml.php</code> — isang MD5+size manifest
+        ng pinakabagong published na file. Para sa bawat remote file, ang local copy's MD5 ay
+        inihambing; tanging nagbago/nawawalang file lamang ang ini-download sa HTTPS.</p>
+      <p>Ang user-local state (<code>config.ini</code>, <code>debug.log</code>,
+        <code>domains.txt</code>, <code>wake.txt</code>, <code>prompt_history.txt</code>) ay
+        nasa pull exclusion list at hindi kailanman nao-overwrite.</p>
+    </section>
+
+    <section id="admin-push" class="help-section">
+      <h2><span class="num">20.</span> Admin push</h2>
+      <p>Tanging mga kliyente na may <code>[updates] is_admin = true</code> ay nagpupush sa server.
+        Trigger sa pamamagitan ng:</p>
+      <ul>
+        <li>Command Palette → <em>Claude Codex Black: Push update</em></li>
+        <li>Slash command <code>/push</code></li>
+      </ul>
+      <p>Gumagamit ng WinSCP saved session na pinangalan sa <code>[updates] winscp_session</code> (default
+        <code>vps</code>). Nagpupush sa pamamagitan ng <code>/script=…</code> na may synchronize command at
+        filemask na naglalabas ng mga secret at per-machine state.</p>
+    </section>
+
+    <section id="extensions" class="help-section">
+      <h2><span class="num">21.</span> Extensions marketplace</h2>
+      <p>I-click ang 🧩 Extensions button. Ang iframe modal ay bumubukas sa
+        <code>https://trentontompkins.com/cbe/extension/extension_marketplace.php</code>,
+        na kumukuha ang catalog sa
+        <code>extensions.xml.php</code> at ini-render ang bawat available extension bilang isang card na may
+        description, tags, version, file size, MD5, at <strong>Install</strong> button.</p>
+      <p>Ang extension ay naka-package bilang <code>&lt;id&gt;.ext</code> — isang zip archive na naglalaman
+        <code>manifest.xml</code> kasama ang extension code (karaniwang isang solong
+        <code>extension.html</code>). Kapag i-click mo ang Install, ang marketplace iframe ay nagpapadala
+        ng <code>postMessage</code> pabalik sa panel; ang panel ay nag-download ng
+        <code>.ext</code> file direkta mula sa server at ini-extract ito sa ilalim ng
+        <code>extensions/</code> sa extension folder.</p>
+      <p>Tatlong demo extension ay kasama sa launch catalog:
+        <strong>Calculator</strong>, <strong>Minesweeper</strong>, at <strong>Emoji
+        Picker</strong>.</p>
+    </section>
+
+    <section id="slash" class="help-section">
+      <h2><span class="num">22.</span> Slash commands</h2>
+      <p>I-type ang <kbd>/</kbd> sa prompt box upang buksan ang slash-command palette. I-click ang isang row
+        upang <em>isama</em> ang command text sa iyong prompt (editable), o pindutin ang
+        <kbd>Enter</kbd> sa isang runnable row upang i-fire ito kaagad.</p>
+      <p>Ang hindi kumpleto na listahan:</p>
+      <table>
+        <thead><tr><th>Command</th><th>Epekto</th></tr></thead>
+        <tbody>
+          <tr><td><code>/help</code></td><td>Buksan ang dokumentong ito</td></tr>
+          <tr><td><code>/skin</code></td><td>Buksan ang skin picker</td></tr>
+          <tr><td><code>/push</code></td><td>I-fire ang auto-update push (admin lamang)</td></tr>
+          <tr><td><code>/license</code></td><td>Ipakita ang <code>LICENSE.TXT</code></td></tr>
+          <tr><td><code>/clear</code></td><td>I-clear ang conversation history</td></tr>
+          <tr><td><code>/domains</code></td><td>Buksan ang NameSilo domains modal</td></tr>
+          <tr><td><code>/git</code></td><td>Buksan ang Git modal</td></tr>
+          <tr><td><code>/wake</code></td><td>Buksan ang wake-up editor</td></tr>
+          <tr><td><code>/memory</code></td><td>Buksan ang project memory index</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="context-menu" class="help-section">
+      <h2><span class="num">23.</span> Right-click menu</h2>
+      <p>Right-click saanman sa panel para sa contextual menu (na tinukoy bilang isang solong XML
+        string sa <code>panel.js</code>). Ang mga entry ay kinabibilangan ng Refresh (muling i-load ang panel nang
+        hindi tinatamaan ang extension host — huwag gamitin ang <code>reloadWindow</code>), Clear
+        conversation, Open settings, at Inspect (DevTools, debug builds lamang).</p>
+    </section>
+
+    <section id="trace" class="help-section">
+      <h2><span class="num">24.</span> Trace channel</h2>
+      <p>Ang extension ay nagsusulat ng granular timeline sa <code>debug.log</code> sa susunod ng
+        extension. Lahat ng kapansin-pansin ay nakarating doon: provider switches, STT lifecycle,
+        supervisor probes, NameSilo reply codes, panel↔host bridge messages, push/pull
+        manifest counts.</p>
+      <p>Right-click ang monitor button para sa one-click open ng trace channel.</p>
+    </section>
+
+    <section id="troubleshooting" class="help-section">
+      <h2><span class="num">25.</span> Paglutas ng mga problema</h2>
+      <table>
+        <thead><tr><th>Symptom</th><th>Malamang na dahilan</th></tr></thead>
+        <tbody>
+          <tr><td>Ang prompt box ay mukhang proportional, hindi monospace</td>
+              <td><code>--vscode-editor-font-family</code> ay hindi naiapply; tiyakin ang <code>:root</code> vars</td></tr>
+          <tr><td>Ang Auto Prompt spinner ay isang itim na tuldok</td>
+              <td>Maling SVG asset; dapat ay <code>auto_read_spinner.svg</code> na may drop-shadow halo</td></tr>
+          <tr><td>Ang Compact button ay walang ginagawa</td>
+              <td>Host handler ay nawawala — <code>case 'compactConversation'</code> sa extension.js router</td></tr>
+          <tr><td>"0 domains" sa Domains modal</td>
+              <td>NameSilo reply.code != 300 (trace channel ay mayroong ito), o lumang <code>domains.txt</code></td></tr>
+          <tr><td>Ang STT "no speech detected" agad</td>
+              <td>Huminto ka bago ang SAPI ay nagsama sa mic. Ang pre-warm ay ngayon ay nag-skip ng hintay — tiyakin gamit ang <code>stt: using pre-warmed SAPI</code> sa <code>debug.log</code></td></tr>
+          <tr><td>Ang push ay nabigo sa path na may mga space</td>
+              <td>Gumagamit ng <code>/command=</code> inline; laging gamitin ang <code>/script=tempfile.winscp</code></td></tr>
+          <tr><td>Ang Supervisor blue glow ay hindi sumisilang</td>
+              <td>Service ay hindi tumatakbo. Left-click monitorBtn upang i-install/magsimula, o magpatakbo ng <code>Start-Service CBEVSCodeSupervisor</code></td></tr>
+          <tr><td>Reload ay "nag-aayos" ng something</td>
+              <td>Hindi ito. Huwag kailanman gamitin ang <code>reloadWindow</code>. Gamitin ang Refresh context-menu entry sa halip.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="about" class="help-section">
+      <h2><span class="num">26.</span> Tungkol sa at lisensya</h2>
+      <p>Claude Codex — Black Edition. MIT-licensed. Source mirror:
+        <a href="https://github.com/tibberous/Claude-Codex-Back-Ed.." target="_blank" rel="noopener">github.com/tibberous/Claude-Codex-Back-Ed..</a>.
+        Ang official auto-update server: <a href="https://trentontompkins.com/cbe/" target="_blank" rel="noopener">trentontompkins.com/cbe</a>.</p>
+      <p>Para sa feedback o commercial work, makipag-ugnayan sa <a href="https://trentontompkins.com" target="_blank" rel="noopener">trentontompkins.com</a> · (724) 431-5207.</p>
+      <p style="margin-top:24px; color: var(--muted); font-size: 12px;">
+        <em>Ang tulong na ito ay inaayat din sa Help button sa panel toolbar. Source:
+        <code>panel/help.html</code>.</em>
+      </p>
+    </section>
+
+  </main>
+</div>
+
+<script>
+/* Native smooth-scroll TOC navigation. jQuery CDN scripts are blocked by the
+   VSCode webview CSP, so this uses plain DOM APIs — scrollIntoView with
+   behavior:'smooth' gives the identical animated scroll without any external
+   dependency. Works inside the webview iframe sandbox. */
+(function () {
+  const main = document.getElementById('main');
+  const tocLinks = Array.prototype.slice.call(document.querySelectorAll('nav.toc a[href^="#"]'));
+  const sections = Array.prototype.slice.call(document.querySelectorAll('section.help-section'));
+
+  tocLinks.forEach(function (link) {
+    link.addEventListener('click', function (e) {
+      e.preventDefault();
+      const id = link.getAttribute('href');
+      const target = document.querySelector(id);
+      if (!target) return;
+      /* scrollIntoView animates within the nearest scroll container (#main,
+         which has overflow:auto). scroll-margin-top on the section handles
+         the small top offset so headings aren't flush against the edge. */
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      try { history.replaceState(null, '', id); } catch (_) {}
+    });
+  });
+
+  /* Highlight whichever section is currently scrolled into view. */
+  function syncActive() {
+    const scrollTop = main.scrollTop;
+    const threshold = 80;
+    let activeId = sections.length ? sections[0].id : '';
+    sections.forEach(function (sec) {
+      if (sec.offsetTop - threshold <= scrollTop) activeId = sec.id;
+    });
+    tocLinks.forEach(function (l) {
+      l.classList.toggle('active', l.getAttribute('href') === '#' + activeId);
+    });
+  }
+  main.addEventListener('scroll', syncActive);
+  syncActive();
+
+  /* External-link bridge. target="_blank" doesn't escape a VSCode webview
+     iframe — the click would just try to navigate the iframe itself. Instead
+     we intercept clicks on absolute http(s) links and postMessage to the
+     parent panel, which forwards to extension.js, which calls
+     vscode.env.openExternal so the user's real default browser opens. */
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    while (t && t.tagName !== 'A') t = t.parentNode;
+    if (!t || !t.getAttribute) return;
+    var href = t.getAttribute('href') || '';
+    if (!/^https?:\/\//i.test(href)) return;
+    e.preventDefault();
+    try {
+      window.parent.postMessage({ type: 'cbe.openExternal', url: href }, '*');
+    } catch (err) { /* parent missing — fall back to noop */ }
+  }, true);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<title>Claude Codex — Black Edition · Súgó</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #16181d;
+    --surface: #1f2229;
+    --surface-2: #262a33;
+    --border: #353a45;
+    --text: #e7eaef;
+    --muted: #aab1bd;
+    --accent: #4ea8ff;
+    --accent-soft: rgba(78,168,255,0.12);
+    --kbd-bg: #0f1116;
+    --kbd-border: #2b313b;
+    --warn: #ffd84d;
+    --err: #ff8a8a;
+    --ok: #6fd58a;
+  }
+  * { box-sizing: border-box; }
+  /* .app is included here because CBE inlines this file's body into a <div>
+     inside the panel (no <html>/<body> wrapper) — without .app carrying the
+     dark background + text color, the panel skin's background bleeds through
+     and you get unreadable text. Standalone (real <body>) it's still fine. */
+  html, body, .app { margin: 0; padding: 0; height: 100%; background: var(--bg);
+               color: var(--text); font: 14.5px/1.55 ui-sans-serif, system-ui,
+               -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  code { background: var(--kbd-bg); padding: 1px 6px; border-radius: 4px;
+         border: 1px solid var(--kbd-border); font-size: 0.92em; }
+  kbd { background: var(--kbd-bg); padding: 1px 7px; border-radius: 4px;
+        border: 1px solid var(--kbd-border); border-bottom-width: 2px;
+        font-size: 0.85em; color: #ffd84d; }
+  pre { background: var(--kbd-bg); border: 1px solid var(--border);
+        border-radius: 6px; padding: 12px 14px; overflow-x: auto;
+        font-size: 12.5px; }
+  /* Layout: fixed TOC sidebar + scrolling content. The content scrolls
+     inside #main, which jQuery smooth-scrolls when TOC links are clicked. */
+  /* height:100% (not 100vh) so the layout fills the modal body when inlined,
+     and the full standalone window when opened as a real page. */
+  .app { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
+  nav.toc { background: var(--surface); border-right: 1px solid var(--border);
+            overflow-y: auto; padding: 18px 0 24px 0; position: sticky; top: 0;
+            height: 100%; }
+  nav.toc h2 { margin: 0 18px 8px 18px; font-size: 11px; letter-spacing: 0.08em;
+               color: var(--muted); text-transform: uppercase; }
+  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: tocnum; }
+  nav.toc ol li { counter-increment: tocnum; }
+  nav.toc ol li > a { display: block; padding: 7px 18px 7px 36px; font-size: 13.5px;
+                       color: var(--text); position: relative; line-height: 1.3;
+                       border-left: 3px solid transparent; }
+  /* Click feedback wired from panel.js: active TOC link gets an accent bar +
+     tint, the landed section flashes a soft accent glow that fades out. */
+  nav.toc ol li > a.cbe-toc-active {
+    border-left-color: var(--accent); background: var(--accent-soft);
+    color: var(--accent);
+  }
+  @keyframes cbeHelpFlash {
+    0%   { background: var(--accent-soft); }
+    100% { background: transparent; }
+  }
+  .cbe-help-flash { animation: cbeHelpFlash 1.1s ease-out 1; border-radius: 6px; }
+  nav.toc ol li > a::before { content: counter(tocnum); position: absolute;
+                              left: 14px; top: 7px; color: var(--muted);
+                              font-family: ui-monospace; font-size: 11px;
+                              min-width: 16px; text-align: right; }
+  nav.toc ol li > a:hover { background: var(--surface-2); text-decoration: none; }
+  nav.toc ol li > a.active { background: var(--accent-soft);
+                              border-left-color: var(--accent); color: var(--accent); }
+  main#main { overflow-y: auto; padding: 28px 36px 80px 36px; height: 100vh; }
+  main#main > header { margin-bottom: 26px; padding-bottom: 14px;
+                       border-bottom: 1px solid var(--border); }
+  main#main > header h1 { margin: 0 0 4px 0; font-size: 24px; font-weight: 600;
+                          letter-spacing: 0.005em; }
+  main#main > header .meta { color: var(--muted); font-size: 13px; }
+  section.help-section { scroll-margin-top: 16px; max-width: 820px;
+                          margin: 0 0 36px 0; padding-top: 6px; }
+  section.help-section h2 { font-size: 19px; margin: 0 0 10px 0; font-weight: 600;
+                            display: flex; align-items: baseline; gap: 10px; }
+  section.help-section h2 .num { color: var(--muted); font: 13px ui-monospace;
+                                  min-width: 1.5em; }
+  section.help-section h3 { font-size: 15px; margin: 18px 0 6px 0; font-weight: 600;
+                            color: var(--text); }
+  section.help-section p { margin: 0 0 10px 0; color: var(--text); }
+  section.help-section ul { margin: 0 0 12px 0; padding-left: 22px; }
+  section.help-section li { margin-bottom: 4px; }
+  section.help-section table { border-collapse: collapse; width: 100%;
+                                margin: 6px 0 14px 0; font-size: 13.5px; }
+  section.help-section th, section.help-section td { border: 1px solid var(--border);
+                                                       padding: 6px 10px; text-align: left;
+                                                       vertical-align: top; }
+  section.help-section th { background: var(--surface-2); font-weight: 600; }
+  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft);
+             padding: 10px 14px; border-radius: 0 4px 4px 0; margin: 10px 0 14px 0; }
+  .callout.warn { border-color: var(--warn); background: rgba(255,216,77,0.08); }
+  .callout.err  { border-color: var(--err);  background: rgba(255,138,138,0.08); }
+  .top-link { float: right; font-size: 12px; color: var(--muted); }
+  .top-link:hover { color: var(--accent); }
+  /* Scrollbar */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: var(--bg); }
+  *::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <nav class="toc" aria-label="Tartalomjegyzék">
+    <h2>Tartalomjegyzék</h2>
+    <ol id="toc-list">
+      <li><a href="#welcome">Üdvözlés</a></li>
+      <li><a href="#keyboard">Billentyűparancsok</a></li>
+      <li><a href="#prompt-box">A parancsdoboz</a></li>
+      <li><a href="#toolbar">Eszköztárgombok</a></li>
+      <li><a href="#providers">Modellek és szolgáltatók</a></li>
+      <li><a href="#stt">Beszédfelismerés</a></li>
+      <li><a href="#auto-prompt">Automatikus parancs</a></li>
+      <li><a href="#tts">Automatikus olvasás (TTS)</a></li>
+      <li><a href="#compact">Kompakt és kontextushasználat</a></li>
+      <li><a href="#wake-up">Ébresztési válasz</a></li>
+      <li><a href="#attachments">Fájlmellékletek</a></li>
+      <li><a href="#git">Git modális ablak</a></li>
+      <li><a href="#github">GitHub-tárolók</a></li>
+      <li><a href="#domains">NameSilo tartományok</a></li>
+      <li><a href="#skins">Felületek és témák</a></li>
+      <li><a href="#settings">Beállítások</a></li>
+      <li><a href="#language">Nyelv</a></li>
+      <li><a href="#monitor">VSCode felügyelő</a></li>
+      <li><a href="#auto-update">Automatikus frissítés (lekérés)</a></li>
+      <li><a href="#admin-push">Adminisztrátor leküldés</a></li>
+      <li><a href="#extensions">Kiterjesztések piactere</a></li>
+      <li><a href="#slash">Perjel parancsok</a></li>
+      <li><a href="#context-menu">Jobb klikk menü</a></li>
+      <li><a href="#trace">Nyomkövetési csatorna</a></li>
+      <li><a href="#troubleshooting">Hibaelhárítás</a></li>
+      <li><a href="#about">Névjegy és licenc</a></li>
+    </ol>
+  </nav>
+
+  <main id="main">
+    <header>
+      <h1>Claude Codex — Black Edition</h1>
+      <div class="meta">Egy offline-first, többszolgáltatós AI csatchattörlesztő panel a VSCode-hoz.
+        Nyomja meg a <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd> billentyűket a váltáshoz.</div>
+    </header>
+
+    <section id="welcome" class="help-section">
+      <h2><span class="num">1.</span> Üdvözlés</h2>
+      <p>A Claude Codex Black egy VSCode webview, amely lehetővé teszi, hogy több AI-szolgáltatóval (Claude, OpenAI, Gemini, Grok, Azure, helyi Ollama) beszélgessen egyetlen, testreszabható panelről.
+        Minden olyan dolog, amely kulcsot igényel, a <code>config.ini</code>-ből olvassa be a kiterjesztés gyökerében —
+        nem szükséges kiterjesztési beállítások UI, de egy Beállítások modális ablak tükrözi a leghasználhatóbb
+        mezőket csak kattintásos szerkesztéshez.</p>
+      <div class="callout">
+        Új itt? Kezdje a <em>Beállítások</em> megnyitásával (fogaskerék ikon), válasszon szolgáltatót, illessze be
+        az API-kulcsot, majd írjon egy parancsot és nyomja meg az <kbd>Enter</kbd> billentyűt. Az útmutató összes többi funkciója opcionális.
+      </div>
+    </section>
+
+    <section id="keyboard" class="help-section">
+      <h2><span class="num">2.</span> Billentyűparancsok</h2>
+      <table>
+        <thead><tr><th>Billentyű</th><th>Hatás</th></tr></thead>
+        <tbody>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd></td><td>A CBE panel váltása</td></tr>
+          <tr><td><kbd>Enter</kbd></td><td>Az aktuális parancs elküldése</td></tr>
+          <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Új sor a parancsdobozban</td></tr>
+          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Keringés az előzőleg elküldött parancsok között (<code>prompt_history.txt</code>)</td></tr>
+          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Keringés a kiválogatott <code>prompts.txt</code> bejegyzések között, amikor a cursor a textarea elején/végén van</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>Bármilyen nyitott modális ablak bezárása</td></tr>
+          <tr><td><kbd>/</kbd></td><td>A perjel parancspaletta megnyitása</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="prompt-box" class="help-section">
+      <h2><span class="num">3.</span> A parancsdoboz</h2>
+      <p>A nagy szerkeszthető textarea az alján. Gépelj, illeszd be, húzz egy fájlt, csatolj a gemkapocs segítségével — mindaz, amit ide teszel, a következő API-hívás felhasználói fordulata.</p>
+      <p>A betűtípus a VSCode szerkesztőjének monospacebetűjéhez van rögzítve (a
+        <code>--vscode-editor-font-family</code> CSS-változón keresztül), így a panel otthonosan néz ki
+        a szerkesztőben.</p>
+    </section>
+
+    <section id="toolbar" class="help-section">
+      <h2><span class="num">4.</span> Eszköztárgombok</h2>
+      <p>Alsó sor, balról jobbra. Az elemleírások lebegéskor jelennek meg; a panel a kiválasztott
+        nyelveden olvassa fel azokat (lásd <a href="#language">Nyelv</a>).</p>
+      <table>
+        <thead><tr><th>Ikon</th><th>Funkció</th></tr></thead>
+        <tbody>
+          <tr><td>🎤 Mikrofon</td><td>Beszédfelismerés — Web Speech API SAPI tartalékkal. Lásd <a href="#stt">§ 6</a>.</td></tr>
+          <tr><td>📎 Csatolás</td><td>Egy vagy több fájl kiválasztása a parancsba való beágyazáshoz</td></tr>
+          <tr><td>🔁 Ébresztés</td><td>Az automatikus parancs ébresztési szövegének szerkesztése (<code>wake.txt</code>)</td></tr>
+          <tr><td>⏱ Automatikus parancs</td><td>Az inaktivitás számlálójának automatikus küldésének váltása</td></tr>
+          <tr><td>📚 Kompakt</td><td>A beszélgetési előzmények csonkítása az utolsó néhány fordulatra. A gyűrű a kontextusablak használatát mutatja.</td></tr>
+          <tr><td>📁 Git</td><td>Git parancsok futtatása a projektmappában</td></tr>
+          <tr><td>🌐 Tartományok</td><td>A NameSilo tartománylista lekérése</td></tr>
+          <tr><td>🐙 GitHub</td><td>GitHub-tárolók listázása PAT-on keresztül</td></tr>
+          <tr><td>🎨 Felület</td><td>Paneltéma kiválasztása (<code>skins/</code> mappaból élőben felderítve)</td></tr>
+          <tr><td>🧩 Kiterjesztések</td><td>A piactér iframe modális ablakának megnyitása. Lásd <a href="#extensions">§ 21</a>.</td></tr>
+          <tr><td>⚙ Beállítások</td><td>A beállítások modális ablakának megnyitása</td></tr>
+          <tr><td>📜 Kézikönyv</td><td>A <code>handbook.txt</code> megnyitása szerkesztéshez</td></tr>
+          <tr><td>❔ Súgó</td><td>Ez a dokumentum</td></tr>
+          <tr><td>⏹ Leállítás</td><td>A fedélzeten lévő modellhívás lemondása</td></tr>
+          <tr><td>📤 Küldés</td><td>A parancs beküldése (<kbd>Enter</kbd> billentyűvel azonos)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="providers" class="help-section">
+      <h2><span class="num">5.</span> Modellek és szolgáltatók</h2>
+      <p>A CBE <strong>11 hidakkal</strong> érkezik, mint <code>.bridge</code> beépülő modulok a
+        <code>bridges/</code> mappában. Mindegyik egy önálló zip-fájl manifest.xml-lel, bridge.py-vel
+        és ikonokkal. Dobjon egy új <code>.bridge</code> fájlt a mappába, és az megjelenik a patront legördülő listában — kiterjesztési kódmódosítás nem szükséges.</p>
+      <h3>Szöveg-chat hidak (7)</h3>
+      <ul>
+        <li><strong>ChatGPT</strong> — chatgpt.com, Plus/Pro előfizetés</li>
+        <li><strong>Grok</strong> — grok.com, natív xAI bejelentkezés (az anonim szint erősen korlátozott; előbb jelentkezzen be)</li>
+        <li><strong>Gemini</strong> — gemini.google.com, Google-fiók</li>
+        <li><strong>Claude</strong> — claude.ai, varázslatos linkkel történő bejelentkezés (futtassa a <code>tools/sign_in_helper.py claude</code> alkalommal)</li>
+        <li><strong>Copilot</strong> — copilot.microsoft.com, ingyenes Microsoft-fiók</li>
+        <li><strong>DeepSeek</strong> — chat.deepseek.com, natív e-mail/jelszó (NE használjon Google SSO-t)</li>
+        <li><strong>Ollama</strong> — helyi <code>127.0.0.1:11434</code>, nem szükséges bejelentkezés</li>
+      </ul>
+      <h3>Videógenerálás hidak (4)</h3>
+      <ul>
+        <li><strong>Sora 2</strong> — sora.com, újrafelhasználja a ChatGPT Plus/Pro bejelentkezést</li>
+        <li><strong>Google Veo</strong> — gemini.google.com (Veo mód), Gemini Advanced előfizetés</li>
+        <li><strong>Runway Gen-3/4</strong> — app.runwayml.com, külön Runway előfizetés</li>
+        <li><strong>Bing Video Creator</strong> — bing.com/videos/create, <em>ingyenes Sora-2</em> Microsoft-fiókkal</li>
+      </ul>
+      <p>A generált videók mentése a <code>videos/&lt;bridge&gt;/&lt;timestamp&gt;_&lt;prompt-slug&gt;.mp4</code>
+        helyre történik és automatikusan lejátszódnak a Videotár panelben (lásd az alábbi Videotárat).</p>
+      <p>Válasszon hidakat és modellt a parancsdoboz mellett lévő patron legördülő listából vagy a
+        <em>Beállítások → Általános</em> részből. A választás munkaterület-specifikus és megmarad
+        a workspaceState-ben. Új híd hozzáadásához lásd: <code>docs/WRITING_BRIDGES.md</code>.</p>
+    </section>
+
+    <section id="video-library" class="help-section">
+      <h2><span class="num">5a.</span> Videotár</h2>
+      <p>A videóhidak (Sora, Veo, Runway, Bing Video Creator) által generált videók böngészéséhez és megtekintéséhez dedikált panel.
+        Megnyitható a Parancskatalóguson keresztül:
+        <em>Claude Codex Black: Open Video Library</em> vagy a <code>codexBlackEd.openVideoPlayer</code>
+        parancs segítségével.</p>
+      <ul>
+        <li>Az oldalsáv felsorolja az összes <code>.mp4</code> / <code>.webm</code> / <code>.mov</code> fájlt a
+          <code>videos/&lt;bridge&gt;/</code> mappában, hidak szerint csoportosítva és legtöbbre sorrendezve.</li>
+        <li>A legfrissebb videó automatikusan lejátszódik az első megnyitáskor.</li>
+        <li>A panel 2 másodperces időközönként figyeli a <code>videos/</code> könyvtárat — bármely újonnan
+          létrehozott videó ✨ "Éppen generálva" jelvénnyel jelenik meg és automatikusan lejátszódik
+          (az <em>Auto ▶ new</em> kapcsolóval kikapcsolható).</li>
+        <li>Kattintson az <em>📂 Megnyitás</em> lehetőségre a <code>videos/</code> mappa megnyitásához az operációs rendszer fájlkezelőjében.</li>
+      </ul>
+    </section>
+
+    <section id="stt" class="help-section">
+      <h2><span class="num">6.</span> Beszédfelismerés</h2>
+      <p>Kattintson a mikrofonra, beszéljen, majd kattintson újra az останnak (vagy váradjon meg a csend-időtúllépésre).
+        Kétféle motor próbálható sorra:</p>
+      <ol style="padding-left:22px;">
+        <li><strong>Web Speech API</strong> — A Google felhő-felismerője a webview-ban fut.
+          Használja a Gmail/Google-munkamenetét; nincs szükség extra kulcsra.</li>
+        <li><strong>Windows SAPI</strong> (tartalék) — Az előmelegített PowerShell-folyamat meghívódik, amikor
+          a webview blokkolja a mikrofonhozzáférést. Konfigurálható hallgatási ablak a
+          <code>[voice] listen_seconds</code> beállításon keresztül a <code>config.ini</code>-ben.</li>
+      </ol>
+      <div class="callout">
+        Az SAPI-t <em>az aktiválásakor előmelegítik</em>, így az első mikrofonkattintás elkerüli a
+        2-4 másodperces hidegindítás, amely korábban elnyelí az újonnan leállított kattintásokat.
+      </div>
+    </section>
+
+    <section id="auto-prompt" class="help-section">
+      <h2><span class="num">7.</span> Automatikus parancs</h2>
+      <p>Az önjelölt gomb spinnerrel. Ha BE van kapcsolva, N másodperc inaktivitás után a panel automatikusan elküldi
+        a konfigurált ébresztési szöveget. A számlálóító a <code>--cbe-highlight-color</code> értékben jelenik meg,
+        amit minden felület definiál.</p>
+      <p>Az ébresztési szöveg szerkesztéséhez használja a 🔁 Ébresztés gombot — az a <code>wake.txt</code> kerekében mozog.</p>
+    </section>
+
+    <section id="tts" class="help-section">
+      <h2><span class="num">8.</span> Automatikus olvasás (TTS)</h2>
+      <p>A száj ikon. Ha BE van kapcsolva, az asszisztens minden válasza kimondódik a Web Speech
+        szintetizátor (Google) vagy az SAPI tartalék segítségével. Az ikon körül egy kék glóriusz ragyog, amíg
+        a hanglejátszás zajlik.</p>
+    </section>
+
+    <section id="compact" class="help-section">
+      <h2><span class="num">9.</span> Kompakt és kontextushasználat</h2>
+      <p>A modellnek küldött beszélgetési tömb minden fordulóval növekszik. A Kompakt ikon körüli gyűrű az aktuális
+        kontextusablak-használatot mutatja egy kúpos gradiensként — üres, ha friss, teljes, ha közel
+        a modell kontextuskorlátjához.</p>
+      <p>A Kompakt gombra kattintva csonkítsa az előzményeket az utolsó négy fordulatra. A következő API-hívás
+        a kisebb tömböt használja.</p>
+    </section>
+
+    <section id="wake-up" class="help-section">
+      <h2><span class="num">10.</span> Ébresztési válasz</h2>
+      <p>A kiterjesztés gyökeréhez tartozó <code>wake.txt</code>-ben tárolódik. Az Automatikus parancs által használt
+        üzenet, amely az inaktivitási időmérőzés kitöltésénél kerül elküldésre. Szerkesszen a 🔁 eszköztárgomb segítségével.</p>
+    </section>
+
+    <section id="attachments" class="help-section">
+      <h2><span class="num">11.</span> Fájlmellékletek</h2>
+      <p>A 📎 gombra kattintva válasszon egy vagy több fájlt. Tartsa a <kbd>Ctrl</kbd> vagy <kbd>Shift</kbd> billentyűt a
+        választóban a többszörös kiválasztásához. Minden fájl az parancsba van beágyazva, mint egy kerített kódblokk
+        a fájlnevével és nyelvével. Az 1 MB feletti bináris fájlok kihagyódnak egy értesítéssel.</p>
+    </section>
+
+    <section id="git" class="help-section">
+      <h2><span class="num">12.</span> Git modális ablak</h2>
+      <p>A 📁 Git gombra kattintva. Ha nincs projektmappa konfigurálva, először egy mappaválasztó jelenik meg —
+        a kiválasztott elérési út a <code>[project] path</code> részbe íródik a <code>config.ini</code>-ben.
+        A posteriormente git meghívásai a cwd-vel futnak, amely az adott elérési úthoz van beállítva.</p>
+    </section>
+
+    <section id="github" class="help-section">
+      <h2><span class="num">13.</span> GitHub-tárolók</h2>
+      <p>A <code>[github] pat</code> számára elérhető minden tárolót listázza. Kattintson egy sorra a klón URL-jének a parancsba való beillesztéséhez. A lista lapozható és gyorsított.</p>
+    </section>
+
+    <section id="domains" class="help-section">
+      <h2><span class="num">14.</span> NameSilo tartományok</h2>
+      <p>Minden tartományt lekér a NameSilo-fiókjábol a <code>[namesilo] api_key</code>
+        (vagy a <code>[api_keys] namesilo_api_key</code> tartalék) segítségével. Az első megnyitáskor az eredmények gyorsítva vannak a <code>domains.txt</code>-be;
+        a közvetlenül utána panelindítások a gyorsítóból szolgáltatódnak. Az <em>Újratöltés</em> gombra kattintva a modális ablakban egy friss lekérést kényszeríthet.</p>
+      <div class="callout warn">
+        Ha valaha is azt látja, hogy "nincs tartomány" egy 300-as válaszkóddal, ellenőrizze a nyomkövetési csatornát — az üres
+        gyorsítók már nem mérgezik meg a jövőbeli panelindításokat, de egy régi <code>domains.txt</code>
+        egy másik telepítési útban megteheti.
+      </div>
+    </section>
+
+    <section id="skins" class="help-section">
+      <h2><span class="num">15.</span> Felületek és témák</h2>
+      <p>A 🎨 gomb egy felderítési választót nyit meg, amely élőben pásztázza a <code>skins/</code> mappát (nem az indításon),
+        így egy új mappa futási időben történő dobása elég. Minden felülethez tartozik egy
+        <code>manifest.xml</code>, amely meghatározza a palettáját — beleértve a
+        <strong>kiemelt szín</strong>-t, amit az Automatikus parancs számlálóható jelvénye, a fókuszgyűrűk
+        és a felügyelő pulzusa mind használ.</p>
+      <p>A beépített felületek közé tartoznak: <code>gnome</code> (Adwaita szürke), <code>terminal</code>
+        (fekete/zöld forró-rózsaszín hangsúlytal), <code>tamagotchi</code> (héjhéj pasztell egy sprite
+        maskott panellel), <code>blocky</code> és mások.</p>
+    </section>
+
+    <section id="settings" class="help-section">
+      <h2><span class="num">16.</span> Beállítások</h2>
+      <p>A ⚙ fogaskerekből nyitható meg. Lapok:</p>
+      <ul>
+        <li><strong>Általános</strong> — megjelenítési név, alapértelmezett modell, küldés az enterre</li>
+        <li><strong>Hang</strong> — mikrofoneszköz, listen_seconds, STT motorválasztás, TTS olvasás automatikusan</li>
+        <li><strong>Frissítések</strong> — <code>is_admin</code> zászló, WinSCP-munkamenet, távoli elérési út</li>
+        <li><strong>Kulcsok</strong> — minden szolgáltató API-kulcsa</li>
+        <li><strong>Felügyelő</strong> — VSCode felügyelő kapcsoló, port, lekérdezési időköz</li>
+        <li><strong>Nyelv</strong> — válasszon 39 lokal közül; lásd <a href="#language">§ 17</a></li>
+      </ul>
+      <p>A modális ablak megjegyzi a méretét és helyzetét a munkamenetek között.</p>
+    </section>
+
+    <section id="language" class="help-section">
+      <h2><span class="num">17.</span> Nyelv</h2>
+      <p>A panel 39 legtöbb beszélt nyelvhez szállít fordításokat. A honosítási fájlok a <code>languages/&lt;code&gt;.xml</code>
+        helyen élnek és az aktiválásnál egyszer betöltődnek. Az hiányzó kulcsok angol nyelven esnek vissza.</p>
+      <p>Válassza ki a nyelvét a <em>Beállítások → Nyelv</em> részben. A zászló ikon megjelenik minden lehetőség mellett (a <code>assets/flags/&lt;code&gt;.svg</code> fájlból betöltve). A választás a
+        <code>[settings] language</code> részbe kerül mentésre a <code>config.ini</code>-ben.</p>
+    </section>
+
+    <section id="monitor" class="help-section">
+      <h2><span class="num">18.</span> VSCode felügyelő</h2>
+      <p>A Windows-szolgáltatás (<code>CBEVSCodeSupervisor</code>) az
+        <code>tools/vscode_supervisor.ps1</code> szkriptet NSSM-en keresztül burkolja be, és egy HttpListener-t
+        köt az <strong>http://127.0.0.1:3434/</strong> helyhez. A panel monitorője kék fénnyel világít
+        amikor a felügyelő <code>/status</code> végpontja 200 OK-val válaszol.</p>
+      <p>Ha a HTTP-lekérdezés sikertelen, de a szolgáltatás telepítve van, a panel figyelőszolgálata
+        automatikusan újraindítja a szolgáltatást (30 másodperces lehűlés, így nem indul újra vihar).</p>
+      <p>Bal kattintás a monitorya gombra a telepítéshez / indításhoz / leállításhoz. Jobb kattintás a nyomkövetési csatorna megnyitásához.</p>
+    </section>
+
+    <section id="auto-update" class="help-section">
+      <h2><span class="num">19.</span> Automatikus frissítés (lekérés)</h2>
+      <p>Az aktiválás után 4 másodperccel a panel az
+        <code>https://trentontompkins.com/cbe/manifest.xml.php</code> helyről lekérdez — egy MD5+méret-manifest
+        a legfrissebb közzétett fájlokkal. Minden távoli fájlhoz a helyi másolat MD5-e
+        összevetődik; csak a módosított/hiányzó fájlok töltődnek le HTTPS-en.</p>
+      <p>A felhasználó-helyi állapota (<code>config.ini</code>, <code>debug.log</code>,
+        <code>domains.txt</code>, <code>wake.txt</code>, <code>prompt_history.txt</code>)
+        a lekérés kizárási listáján van, és soha nem íródik felül.</p>
+    </section>
+
+    <section id="admin-push" class="help-section">
+      <h2><span class="num">20.</span> Adminisztrátor leküldés</h2>
+      <p>Csak az ügyfelek, akik <code>[updates] is_admin = true</code> értékkel rendelkeznek, küldik le
+        a szerverhez. Kiváltódott:</p>
+      <ul>
+        <li>Parancskatalógus → <em>Claude Codex Black: Push update</em></li>
+        <li>Perjel parancs <code>/push</code></li>
+      </ul>
+      <p>A <code>[updates] winscp_session</code> részben nevezett WinSCP-mentett munkamenetét használja (alapértelmezés
+        <code>vps</code>). A szinkronizálás paranccsal és egy fájlmaszk segítségével leküldi a titkos és gépenkénti állapot kizárása.</p>
+    </section>
+
+    <section id="extensions" class="help-section">
+      <h2><span class="num">21.</span> Kiterjesztések piactere</h2>
+      <p>A 🧩 Kiterjesztések gombra kattintva. Egy iframe modális ablak nyílik meg az
+        <code>https://trentontompkins.com/cbe/extension/extension_marketplace.php</code> helyhez,
+        amely az <code>extensions.xml.php</code> helyről lekérdezi a katalógust és az egyes elérhető kiterjesztéseket
+        kártyaként jeleníti meg leírással, címkékkel, verzióval, fájlmérettel, MD5-tel és egy <strong>Telepítés</strong> gombbal.</p>
+      <p>A kiterjesztés <code>&lt;id&gt;.ext</code> csomagként jelenik meg — egy zip-archívum, amely
+        <code>manifest.xml</code>-t és a kiterjesztési kódot tartalmazza (általában egy egyetlen
+        <code>extension.html</code>). A Telepítésre kattintva a piactér iframe visszaküldjön egy
+        <code>postMessage</code>-t a panelnek; a panel közvetlenül a szerverről letölti a
+        <code>.ext</code> fájlt, és kivonja azt az <code>extensions/</code> mappába a kiterjesztés mappában.</p>
+      <p>Három bemutató kiterjesztés érkezik az indítási katalógussal:
+        <strong>Számológép</strong>, <strong>Aknakereső</strong> és egy <strong>Emoji
+        Választó</strong>.</p>
+    </section>
+
+    <section id="slash" class="help-section">
+      <h2><span class="num">22.</span> Perjel parancsok</h2>
+      <p>Gépeld a <kbd>/</kbd> billentyűt a parancsdobozban a perjel-parancspaletta megnyitásához. Kattintson egy sorra a
+        <em>parancs szövegének beillesztéséhez</em> a parancsba (szerkeszthető), vagy nyomjon az
+        <kbd>Enter</kbd> billentyűt egy futtatható sorra, hogy azonnal futtassa.</p>
+      <p>A nem teljes lista:</p>
+      <table>
+        <thead><tr><th>Parancs</th><th>Hatás</th></tr></thead>
+        <tbody>
+          <tr><td><code>/help</code></td><td>Ez a dokumentum megnyitása</td></tr>
+          <tr><td><code>/skin</code></td><td>A felület választójának felugró képernyője</td></tr>
+          <tr><td><code>/push</code></td><td>Az automatikus frissítés leküldésének tüzelése (csak adminisztrált)</td></tr>
+          <tr><td><code>/license</code></td><td><code>LICENSE.TXT</code> megjelenítése</td></tr>
+          <tr><td><code>/clear</code></td><td>Beszélgetési előzmények törlése</td></tr>
+          <tr><td><code>/domains</code></td><td>A NameSilo-tartományok modális ablakának megnyitása</td></tr>
+          <tr><td><code>/git</code></td><td>A Git modális ablakának megnyitása</td></tr>
+          <tr><td><code>/wake</code></td><td>Az ébresztési szerkesztőjének megnyitása</td></tr>
+          <tr><td><code>/memory</code></td><td>A projekt memóriájának indexének megnyitása</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="context-menu" class="help-section">
+      <h2><span class="num">23.</span> Jobb klikk menü</h2>
+      <p>Jobb oldalt kattintson a panel bármely helyén a szövegfüggő menü megnyitásához (egy egyetlen XML-karakterláncként definiálva a <code>panel.js</code>-ben).
+        Az elemek közé tartozik az Frissítés (a panel átöltöztetése az aktiváló gazdahely megérintése nélkül — soha ne használjon <code>reloadWindow</code>),
+        Beszélgetés törlése, Beállítások megnyitása és Vizsgálat (DevTools, csak hibakereső buildek).</p>
+    </section>
+
+    <section id="trace" class="help-section">
+      <h2><span class="num">24.</span> Nyomkövetési csatorna</h2>
+      <p>A kiterjesztés egy részletes idővonalit ír a <code>debug.log</code>-ot a kiterjesztés mellett.
+        Minden figyelemre méltó dokumentum oda kerül: szolgáltatóváltások, STT életciklusa,
+        felügyelő szondák, NameSilo válaszkódok, panel↔host-híd-üzenetek, push/pull-manifest-számlálók.</p>
+      <p>Jobb kattintással a monitorbutton egy kattintást a nyomkövetési csatorna megnyitásához.</p>
+    </section>
+
+    <section id="troubleshooting" class="help-section">
+      <h2><span class="num">25.</span> Hibaelhárítás</h2>
+      <table>
+        <thead><tr><th>Tünet</th><th>Valószínű oka</th></tr></thead>
+        <tbody>
+          <tr><td>A parancsdoboz arányos, nem monospace</td>
+              <td><code>--vscode-editor-font-family</code> nem alkalmazott; ellenőrizze az <code>:root</code> változókat</td></tr>
+          <tr><td>Az automatikus parancs spinner egy fekete pont</td>
+              <td>Rossz SVG eszköz; a <code>auto_read_spinner.svg</code> legyen egy drop-shadow halo-val</td></tr>
+          <tr><td>A kompakt gomb nem csinál semmit</td>
+              <td>Hiányzó gazdahely kezelő — <code>case 'compactConversation'</code> az extension.js útválasztóban</td></tr>
+          <tr><td>"0 tartomány" a Tartományok modális ablakban</td>
+              <td>NameSilo válasz.code != 300 (a nyomkövetési csatorna tartalmazza), vagy régi <code>domains.txt</code></td></tr>
+          <tr><td>STT "nem beszélgetés észlelhető" azonnal</td>
+              <td>Az Ön leállított a kötés előtt az SAPI a mikrofont. Az előmelegítés most kihagyja a várakozást — ellenőrizze a <code>stt: using pre-warmed SAPI</code> értékkel a <code>debug.log</code>-ban</td></tr>
+          <tr><td>Push nem sikerül a szóközzel rendelkező elérési útban</td>
+              <td>A <code>/command=</code> beágyazott használata; mindig a <code>/script=tempfile.winscp</code> használata</td></tr>
+          <tr><td>A felügyelő kék ragyogás nem gyújtódik</td>
+              <td>A szolgáltatás nem fut. Bal kattintás a monitorBtn-re a telepítéshez/indításhoz, vagy futtassa a <code>Start-Service CBEVSCodeSupervisor</code> parancsot</td></tr>
+          <tr><td>Az Frissítés "javítottá" valamilyen</td>
+              <td>Nem járt jól. Soha ne használjon <code>reloadWindow</code>. Helyettesítsen az Frissítés kontextusmenü-bejegyzésből.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="about" class="help-section">
+      <h2><span class="num">26.</span> Névjegy és licenc</h2>
+      <p>Claude Codex — Black Edition. MIT-licenszelt. Forrás-tükörzés:
+        <a href="https://github.com/tibberous/Claude-Codex-Back-Ed.." target="_blank" rel="noopener">github.com/tibberous/Claude-Codex-Back-Ed..</a>.
+        Szekretárius auto-frissítési kiszolgáló: <a href="https://trentontompkins.com/cbe/" target="_blank" rel="noopener">trentontompkins.com/cbe</a>.</p>
+      <p>Visszajelzésért vagy kereskedelmi munkákért forduljon a <a href="https://trentontompkins.com" target="_blank" rel="noopener">trentontompkins.com</a> · (724) 431-5207-hoz.</p>
+      <p style="margin-top:24px; color: var(--muted); font-size: 12px;">
+        <em>Ez a súgó a panel eszköztárán a Súgó gombba is van iframe-elve. Forrás:
+        <code>panel/help.html</code>.</em>
+      </p>
+    </section>
+
+  </main>
+</div>
+
+<script>
+/* Native smooth-scroll TOC navigation. jQuery CDN scripts are blocked by the
+   VSCode webview CSP, so this uses plain DOM APIs — scrollIntoView with
+   behavior:'smooth' gives the identical animated scroll without any external
+   dependency. Works inside the webview iframe sandbox. */
+(function () {
+  const main = document.getElementById('main');
+  const tocLinks = Array.prototype.slice.call(document.querySelectorAll('nav.toc a[href^="#"]'));
+  const sections = Array.prototype.slice.call(document.querySelectorAll('section.help-section'));
+
+  tocLinks.forEach(function (link) {
+    link.addEventListener('click', function (e) {
+      e.preventDefault();
+      const id = link.getAttribute('href');
+      const target = document.querySelector(id);
+      if (!target) return;
+      /* scrollIntoView animates within the nearest scroll container (#main,
+         which has overflow:auto). scroll-margin-top on the section handles
+         the small top offset so headings aren't flush against the edge. */
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      try { history.replaceState(null, '', id); } catch (_) {}
+    });
+  });
+
+  /* Highlight whichever section is currently scrolled into view. */
+  function syncActive() {
+    const scrollTop = main.scrollTop;
+    const threshold = 80;
+    let activeId = sections.length ? sections[0].id : '';
+    sections.forEach(function (sec) {
+      if (sec.offsetTop - threshold <= scrollTop) activeId = sec.id;
+    });
+    tocLinks.forEach(function (l) {
+      l.classList.toggle('active', l.getAttribute('href') === '#' + activeId);
+    });
+  }
+  main.addEventListener('scroll', syncActive);
+  syncActive();
+
+  /* External-link bridge. target="_blank" doesn't escape a VSCode webview
+     iframe — the click would just try to navigate the iframe itself. Instead
+     we intercept clicks on absolute http(s) links and postMessage to the
+     parent panel, which forwards to extension.js, which calls
+     vscode.env.openExternal so the user's real default browser opens. */
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    while (t && t.tagName !== 'A') t = t.parentNode;
+    if (!t || !t.getAttribute) return;
+    var href = t.getAttribute('href') || '';
+    if (!/^https?:\/\//i.test(href)) return;
+    e.preventDefault();
+    try {
+      window.parent.postMessage({ type: 'cbe.openExternal', url: href }, '*');
+    } catch (err) { /* parent missing — fall back to noop */ }
+  }, true);
+})();
+</script>
+</body>
+</html>
+```

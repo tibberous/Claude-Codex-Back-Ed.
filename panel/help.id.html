@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>Claude Codex — Black Edition · Bantuan</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #16181d;
+    --surface: #1f2229;
+    --surface-2: #262a33;
+    --border: #353a45;
+    --text: #e7eaef;
+    --muted: #aab1bd;
+    --accent: #4ea8ff;
+    --accent-soft: rgba(78,168,255,0.12);
+    --kbd-bg: #0f1116;
+    --kbd-border: #2b313b;
+    --warn: #ffd84d;
+    --err: #ff8a8a;
+    --ok: #6fd58a;
+  }
+  * { box-sizing: border-box; }
+  /* .app is included here because CBE inlines this file's body into a <div>
+     inside the panel (no <html>/<body> wrapper) — without .app carrying the
+     dark background + text color, the panel skin's background bleeds through
+     and you get unreadable text. Standalone (real <body>) it's still fine. */
+  html, body, .app { margin: 0; padding: 0; height: 100%; background: var(--bg);
+               color: var(--text); font: 14.5px/1.55 ui-sans-serif, system-ui,
+               -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  code { background: var(--kbd-bg); padding: 1px 6px; border-radius: 4px;
+         border: 1px solid var(--kbd-border); font-size: 0.92em; }
+  kbd { background: var(--kbd-bg); padding: 1px 7px; border-radius: 4px;
+        border: 1px solid var(--kbd-border); border-bottom-width: 2px;
+        font-size: 0.85em; color: #ffd84d; }
+  pre { background: var(--kbd-bg); border: 1px solid var(--border);
+        border-radius: 6px; padding: 12px 14px; overflow-x: auto;
+        font-size: 12.5px; }
+  /* Layout: fixed TOC sidebar + scrolling content. The content scrolls
+     inside #main, which jQuery smooth-scrolls when TOC links are clicked. */
+  /* height:100% (not 100vh) so the layout fills the modal body when inlined,
+     and the full standalone window when opened as a real page. */
+  .app { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
+  nav.toc { background: var(--surface); border-right: 1px solid var(--border);
+            overflow-y: auto; padding: 18px 0 24px 0; position: sticky; top: 0;
+            height: 100%; }
+  nav.toc h2 { margin: 0 18px 8px 18px; font-size: 11px; letter-spacing: 0.08em;
+               color: var(--muted); text-transform: uppercase; }
+  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: tocnum; }
+  nav.toc ol li { counter-increment: tocnum; }
+  nav.toc ol li > a { display: block; padding: 7px 18px 7px 36px; font-size: 13.5px;
+                       color: var(--text); position: relative; line-height: 1.3;
+                       border-left: 3px solid transparent; }
+  /* Click feedback wired from panel.js: active TOC link gets an accent bar +
+     tint, the landed section flashes a soft accent glow that fades out. */
+  nav.toc ol li > a.cbe-toc-active {
+    border-left-color: var(--accent); background: var(--accent-soft);
+    color: var(--accent);
+  }
+  @keyframes cbeHelpFlash {
+    0%   { background: var(--accent-soft); }
+    100% { background: transparent; }
+  }
+  .cbe-help-flash { animation: cbeHelpFlash 1.1s ease-out 1; border-radius: 6px; }
+  nav.toc ol li > a::before { content: counter(tocnum); position: absolute;
+                              left: 14px; top: 7px; color: var(--muted);
+                              font-family: ui-monospace; font-size: 11px;
+                              min-width: 16px; text-align: right; }
+  nav.toc ol li > a:hover { background: var(--surface-2); text-decoration: none; }
+  nav.toc ol li > a.active { background: var(--accent-soft);
+                              border-left-color: var(--accent); color: var(--accent); }
+  main#main { overflow-y: auto; padding: 28px 36px 80px 36px; height: 100vh; }
+  main#main > header { margin-bottom: 26px; padding-bottom: 14px;
+                       border-bottom: 1px solid var(--border); }
+  main#main > header h1 { margin: 0 0 4px 0; font-size: 24px; font-weight: 600;
+                          letter-spacing: 0.005em; }
+  main#main > header .meta { color: var(--muted); font-size: 13px; }
+  section.help-section { scroll-margin-top: 16px; max-width: 820px;
+                          margin: 0 0 36px 0; padding-top: 6px; }
+  section.help-section h2 { font-size: 19px; margin: 0 0 10px 0; font-weight: 600;
+                            display: flex; align-items: baseline; gap: 10px; }
+  section.help-section h2 .num { color: var(--muted); font: 13px ui-monospace;
+                                  min-width: 1.5em; }
+  section.help-section h3 { font-size: 15px; margin: 18px 0 6px 0; font-weight: 600;
+                            color: var(--text); }
+  section.help-section p { margin: 0 0 10px 0; color: var(--text); }
+  section.help-section ul { margin: 0 0 12px 0; padding-left: 22px; }
+  section.help-section li { margin-bottom: 4px; }
+  section.help-section table { border-collapse: collapse; width: 100%;
+                                margin: 6px 0 14px 0; font-size: 13.5px; }
+  section.help-section th, section.help-section td { border: 1px solid var(--border);
+                                                       padding: 6px 10px; text-align: left;
+                                                       vertical-align: top; }
+  section.help-section th { background: var(--surface-2); font-weight: 600; }
+  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft);
+             padding: 10px 14px; border-radius: 0 4px 4px 0; margin: 10px 0 14px 0; }
+  .callout.warn { border-color: var(--warn); background: rgba(255,216,77,0.08); }
+  .callout.err  { border-color: var(--err);  background: rgba(255,138,138,0.08); }
+  .top-link { float: right; font-size: 12px; color: var(--muted); }
+  .top-link:hover { color: var(--accent); }
+  /* Scrollbar */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: var(--bg); }
+  *::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <nav class="toc" aria-label="Daftar isi">
+    <h2>Isi</h2>
+    <ol id="toc-list">
+      <li><a href="#welcome">Selamat datang</a></li>
+      <li><a href="#keyboard">Pintasan keyboard</a></li>
+      <li><a href="#prompt-box">Kotak prompt</a></li>
+      <li><a href="#toolbar">Tombol toolbar</a></li>
+      <li><a href="#providers">Model &amp; penyedia</a></li>
+      <li><a href="#stt">Ucapan ke Teks</a></li>
+      <li><a href="#auto-prompt">Prompt Otomatis</a></li>
+      <li><a href="#tts">Baca Otomatis (TTS)</a></li>
+      <li><a href="#compact">Ringkas &amp; penggunaan konteks</a></li>
+      <li><a href="#wake-up">Respons bangun</a></li>
+      <li><a href="#attachments">Lampiran file</a></li>
+      <li><a href="#git">Modal Git</a></li>
+      <li><a href="#github">Repositori GitHub</a></li>
+      <li><a href="#domains">Domain NameSilo</a></li>
+      <li><a href="#skins">Kulit &amp; tema</a></li>
+      <li><a href="#settings">Pengaturan</a></li>
+      <li><a href="#language">Bahasa</a></li>
+      <li><a href="#monitor">Pengawas VSCode</a></li>
+      <li><a href="#auto-update">Pembaruan otomatis (tarik)</a></li>
+      <li><a href="#admin-push">Dorong admin</a></li>
+      <li><a href="#extensions">Pasar ekstensi</a></li>
+      <li><a href="#slash">Perintah garis miring</a></li>
+      <li><a href="#context-menu">Menu klik kanan</a></li>
+      <li><a href="#trace">Saluran jejak</a></li>
+      <li><a href="#troubleshooting">Pemecahan masalah</a></li>
+      <li><a href="#about">Tentang &amp; lisensi</a></li>
+    </ol>
+  </nav>
+
+  <main id="main">
+    <header>
+      <h1>Claude Codex — Black Edition</h1>
+      <div class="meta">Panel obrolan AI multi-penyedia offline-first untuk VSCode.
+        Tekan <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd> untuk mengalihkan.</div>
+    </header>
+
+    <section id="welcome" class="help-section">
+      <h2><span class="num">1.</span> Selamat datang</h2>
+      <p>Claude Codex Black adalah webview VSCode yang memungkinkan Anda mengobrol dengan berbagai penyedia AI
+        (Claude, OpenAI, Gemini, Grok, Azure, Ollama lokal) dari satu panel yang dapat disesuaikan. Semua yang memerlukan kunci membaca dari <code>config.ini</code> di root ekstensi —
+        tidak ada UI pengaturan ekstensi yang diperlukan, tetapi modal Pengaturan mencerminkan bidang paling berguna untuk pengeditan hanya klik.</p>
+      <div class="callout">
+        Baru di sini? Mulai dengan membuka <em>Pengaturan</em> (ikon roda gigi), pilih penyedia Anda, tempel
+        kunci API Anda, lalu ketik prompt dan tekan <kbd>Enter</kbd>. Setiap fitur lain dalam
+        panduan ini bersifat opsional.
+      </div>
+    </section>
+
+    <section id="keyboard" class="help-section">
+      <h2><span class="num">2.</span> Pintasan keyboard</h2>
+      <table>
+        <thead><tr><th>Kunci</th><th>Efek</th></tr></thead>
+        <tbody>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd></td><td>Alihkan panel CBE</td></tr>
+          <tr><td><kbd>Enter</kbd></td><td>Kirim prompt saat ini</td></tr>
+          <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Baris baru di dalam kotak prompt</td></tr>
+          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Siklus melalui prompt yang dikirim sebelumnya (dari <code>prompt_history.txt</code>)</td></tr>
+          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Siklus melalui entri <code>prompts.txt</code> yang dikurasi ketika tanda sisipan berada di awal/akhir textarea</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>Tutup modal apa pun yang terbuka</td></tr>
+          <tr><td><kbd>/</kbd></td><td>Buka palet perintah garis miring</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="prompt-box" class="help-section">
+      <h2><span class="num">3.</span> Kotak prompt</h2>
+      <p>Textarea besar yang dapat diedit di bagian bawah. Ketik, tempel, seret file, lampirkan melalui klip kertas — apa pun yang Anda letakkan di sini adalah giliran pengguna dari panggilan API berikutnya.</p>
+      <p>Font terkunci ke font monospace editor VSCode Anda (melalui
+        variabel CSS <code>--vscode-editor-font-family</code>) sehingga panel terlihat di rumah
+        di dalam editor.</p>
+    </section>
+
+    <section id="toolbar" class="help-section">
+      <h2><span class="num">4.</span> Tombol toolbar</h2>
+      <p>Baris bawah, kiri ke kanan. Tooltip muncul saat mengarahkan kursor; panel juga membacanya
+        dalam bahasa pilihan Anda (lihat <a href="#language">Bahasa</a>).</p>
+      <table>
+        <thead><tr><th>Ikon</th><th>Fungsi</th></tr></thead>
+        <tbody>
+          <tr><td>🎤 Mikrofon</td><td>Ucapan ke Teks — Web Speech API dengan fallback SAPI. Lihat <a href="#stt">§ 6</a>.</td></tr>
+          <tr><td>📎 Lampirkan</td><td>Pilih satu atau lebih file untuk dimasukkan ke dalam prompt</td></tr>
+          <tr><td>🔁 Bangun</td><td>Edit teks bangun Prompt Otomatis (ada di <code>wake.txt</code>)</td></tr>
+          <tr><td>⏱ Prompt Otomatis</td><td>Alihkan hitung mundur ketidakaktifan auto-fire</td></tr>
+          <tr><td>📚 Ringkas</td><td>Potong riwayat percakapan menjadi beberapa putaran terakhir. Ring menunjukkan penggunaan jendela konteks.</td></tr>
+          <tr><td>📁 Git</td><td>Jalankan perintah git di folder proyek</td></tr>
+          <tr><td>🌐 Domain</td><td>Tarik daftar domain NameSilo Anda</td></tr>
+          <tr><td>🐙 GitHub</td><td>Daftar repo GitHub Anda melalui PAT</td></tr>
+          <tr><td>🎨 Kulit</td><td>Pilih tema panel (ditemukan langsung dari <code>skins/</code>)</td></tr>
+          <tr><td>🧩 Ekstensi</td><td>Buka modal iframe pasar. Lihat <a href="#extensions">§ 21</a>.</td></tr>
+          <tr><td>⚙ Pengaturan</td><td>Buka modal pengaturan</td></tr>
+          <tr><td>📜 Handbook</td><td>Buka <code>handbook.txt</code> untuk pengeditan</td></tr>
+          <tr><td>❔ Bantuan</td><td>Dokumen ini</td></tr>
+          <tr><td>⏹ Hentikan</td><td>Batalkan panggilan model yang sedang berlangsung</td></tr>
+          <tr><td>📤 Kirim</td><td>Kirim prompt (sama dengan <kbd>Enter</kbd>)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="providers" class="help-section">
+      <h2><span class="num">5.</span> Model &amp; penyedia</h2>
+      <p>CBE dilengkapi dengan <strong>11 jembatan</strong> sebagai plugin <code>.bridge</code> drop-in di bawah
+        <code>bridges/</code>. Masing-masing adalah zip berdiri sendiri dengan manifest.xml + bridge.py
+        + ikon. Lepaskan file <code>.bridge</code> baru dan itu akan muncul di dropdown cartridge — tidak ada perubahan kode ekstensi yang diperlukan.</p>
+      <h3>Jembatan obrolan teks (7)</h3>
+      <ul>
+        <li><strong>ChatGPT</strong> — chatgpt.com, langganan Plus/Pro</li>
+        <li><strong>Grok</strong> — grok.com, login xAI asli (tingkat anonim sangat terbatas; masuk terlebih dahulu)</li>
+        <li><strong>Gemini</strong> — gemini.google.com, akun Google</li>
+        <li><strong>Claude</strong> — claude.ai, login tautan ajaib (jalankan <code>tools/sign_in_helper.py claude</code> sekali)</li>
+        <li><strong>Copilot</strong> — copilot.microsoft.com, akun Microsoft gratis</li>
+        <li><strong>DeepSeek</strong> — chat.deepseek.com, email/password asli (JANGAN gunakan Google SSO)</li>
+        <li><strong>Ollama</strong> — lokal <code>127.0.0.1:11434</code>, tidak memerlukan login</li>
+      </ul>
+      <h3>Jembatan pembuatan video (4)</h3>
+      <ul>
+        <li><strong>Sora 2</strong> — sora.com, menggunakan kembali login ChatGPT Plus/Pro Anda</li>
+        <li><strong>Google Veo</strong> — gemini.google.com (mode Veo), langganan Gemini Advanced</li>
+        <li><strong>Runway Gen-3/4</strong> — app.runwayml.com, langganan Runway terpisah</li>
+        <li><strong>Bing Video Creator</strong> — bing.com/videos/create, <em>Sora-2 gratis</em> dengan akun Microsoft</li>
+      </ul>
+      <p>Video yang dihasilkan disimpan ke <code>videos/&lt;bridge&gt;/&lt;timestamp&gt;_&lt;prompt-slug&gt;.mp4</code>
+        dan diputar secara otomatis di panel Perpustakaan Video (lihat §Perpustakaan Video di bawah).</p>
+      <p>Pilih jembatan + model dari dropdown cartridge di sebelah kotak prompt, atau melalui
+        <em>Pengaturan → Umum</em>. Pilihan adalah per-workspace dan tetap di workspaceState. Untuk menambahkan jembatan baru, lihat <code>docs/WRITING_BRIDGES.md</code>.</p>
+    </section>
+
+    <section id="video-library" class="help-section">
+      <h2><span class="num">5a.</span> Perpustakaan Video</h2>
+      <p>Panel khusus untuk browsing + menonton video yang dihasilkan oleh jembatan video
+        (Sora, Veo, Runway, Bing Video Creator). Buka melalui Palet Perintah:
+        <em>Claude Codex Black: Buka Perpustakaan Video</em> atau perintah <code>codexBlackEd.openVideoPlayer</code>.</p>
+      <ul>
+        <li>Sidebar mencantumkan setiap <code>.mp4</code> / <code>.webm</code> / <code>.mov</code> di bawah
+          <code>videos/&lt;bridge&gt;/</code>, dikelompokkan berdasarkan jembatan dan diurutkan terbaru-dulu.</li>
+        <li>Video terbaru diputar secara otomatis saat pertama kali dibuka.</li>
+        <li>Panel memantau dir <code>videos/</code> pada tick 2 detik — video yang baru dihasilkan muncul dengan badge ✨ "Baru saja dibuat" dan diputar secara otomatis
+          (matikan melalui <em>Putar ▶ baru</em>).</li>
+        <li>Klik <em>📂 Buka</em> untuk memperlihatkan folder <code>videos/</code> di pengelola file OS Anda.</li>
+      </ul>
+    </section>
+
+    <section id="stt" class="help-section">
+      <h2><span class="num">6.</span> Ucapan ke Teks</h2>
+      <p>Klik mikrofon, bicara, klik lagi untuk berhenti (atau tunggu timeout diam).
+        Dua mesin dicoba secara berurutan:</p>
+      <ol style="padding-left:22px;">
+        <li><strong>Web Speech API</strong> — pengenalan cloud Google yang berjalan di webview.
+          Menggunakan sesi Gmail/Google Anda; tidak memerlukan kunci tambahan.</li>
+        <li><strong>Windows SAPI</strong> (fallback) — proses PowerShell yang dipanaskan sebelumnya dipanggil ketika
+          webview memblokir akses mikrofon. Jendela mendengarkan yang dapat dikonfigurasi melalui
+          <code>[voice] listen_seconds</code> di <code>config.ini</code>.</li>
+      </ol>
+      <div class="callout">
+        SAPI adalah <em>dipanaskan sebelumnya saat ekstensi aktifkan</em> sehingga klik mikrofon pertama menghindari
+        start dingin 2-4 detik yang dulu menelan klik henti awal.
+      </div>
+    </section>
+
+    <section id="auto-prompt" class="help-section">
+      <h2><span class="num">7.</span> Prompt Otomatis</h2>
+      <p>Tombol dengan lembaran-spinner. Ketika AKTIF, setelah N detik ketidakaktifan panel
+        secara otomatis mengirim teks bangun yang dikonfigurasi. Digit hitung mundur dirender dalam
+        <code>--cbe-highlight-color</code>, yang masing-masing kulit mendefinisikan.</p>
+      <p>Edit teks bangun melalui tombol 🔁 Bangun — itu round-trip <code>wake.txt</code>.</p>
+    </section>
+
+    <section id="tts" class="help-section">
+      <h2><span class="num">8.</span> Baca Otomatis (TTS)</h2>
+      <p>Ikon mulut. Ketika AKTIF, setiap balasan asisten diucapkan melalui synthesizer Web Speech
+        (Google) atau fallback SAPI. Aura biru bersinar di sekitar ikon saat audio diputar.</p>
+    </section>
+
+    <section id="compact" class="help-section">
+      <h2><span class="num">9.</span> Ringkas &amp; penggunaan konteks</h2>
+      <p>Array percakapan yang dikirim ke model tumbuh dengan setiap giliran. Ring di sekitar
+        ikon Ringkas menunjukkan penggunaan jendela konteks saat ini sebagai gradien konik — kosong
+        ketika baru, penuh ketika mendekati batas konteks model.</p>
+      <p>Klik Ringkas untuk memotong riwayat menjadi empat giliran terakhir. Panggilan API berikutnya
+        menggunakan array yang lebih kecil.</p>
+    </section>
+
+    <section id="wake-up" class="help-section">
+      <h2><span class="num">10.</span> Respons bangun</h2>
+      <p>Disimpan di <code>wake.txt</code> di root ekstensi. Digunakan oleh Prompt Otomatis sebagai
+        pesan untuk dikirim ketika timer ketidakaktifan membara. Edit melalui tombol 🔁 toolbar.</p>
+    </section>
+
+    <section id="attachments" class="help-section">
+      <h2><span class="num">11.</span> Lampiran file</h2>
+      <p>Klik 📎 untuk memilih satu atau lebih file. Tahan <kbd>Ctrl</kbd> atau <kbd>Shift</kbd> di
+        pemilih untuk multi-pilih. Setiap file dimasukkan ke dalam prompt sebagai blok kode yang dibatasi
+        dengan nama file dan bahasa. File biner di atas 1 MB dilewati dengan pemberitahuan.</p>
+    </section>
+
+    <section id="git" class="help-section">
+      <h2><span class="num">12.</span> Modal Git</h2>
+      <p>Klik 📁 Git. Jika tidak ada folder proyek yang dikonfigurasi, Anda mendapatkan pemilih folder terlebih dahulu —
+        jalur yang dipilih ditulis ke <code>[project] path</code> di <code>config.ini</code>.
+        Pemanggilan git berikutnya berjalan dengan cwd diatur ke jalur itu.</p>
+    </section>
+
+    <section id="github" class="help-section">
+      <h2><span class="num">13.</span> Repositori GitHub</h2>
+      <p>Mencantumkan setiap repo yang dapat diakses oleh <code>[github] pat</code> Anda. Klik baris untuk menyisipkan
+        URL klonnya ke dalam prompt. Daftar dipaginasi dan di-cache.</p>
+    </section>
+
+    <section id="domains" class="help-section">
+      <h2><span class="num">14.</span> Domain NameSilo</h2>
+      <p>Menarik setiap domain di akun NameSilo Anda menggunakan <code>[namesilo] api_key</code>
+        (atau <code>[api_keys] namesilo_api_key</code> sebagai fallback). Pada pembukaan pertama, hasil
+        di-cache ke <code>domains.txt</code>; boot panel berikutnya disajikan dari cache. Klik
+        <em>Muat Ulang</em> di modal untuk memaksa pengambilan segar.</p>
+      <div class="callout warn">
+        Jika Anda pernah melihat "tidak ada domain" dengan kode balasan 300, periksa saluran jejak — cache kosong
+        tidak lagi meracuni boot panel masa depan, tetapi <code>domains.txt</code> yang ketinggalan zaman
+        di jalur instalasi lain bisa.
+      </div>
+    </section>
+
+    <section id="skins" class="help-section">
+      <h2><span class="num">15.</span> Kulit &amp; tema</h2>
+      <p>Tombol 🎨 menampilkan pemilih penemuan yang memindai <code>skins/</code> secara langsung (bukan pada
+        startup), sehingga menjatuhkan folder baru saat runtime sudah cukup. Setiap kulit memiliki
+        <code>manifest.xml</code> yang mendefinisikan palet — termasuk
+        <strong>warna sorotan</strong>, yang hitung mundur Prompt Otomatis, ring fokus,
+        dan pulsa pengawas semua kunci.</p>
+      <p>Kulit bawaan termasuk: <code>gnome</code> (abu-abu Adwaita), <code>terminal</code>
+        (hitam/hijau dengan aksen panas merah muda), <code>tamagotchi</code> (pastel kulit telur dengan
+        panel sprite maskot), <code>blocky</code>, dan lainnya.</p>
+    </section>
+
+    <section id="settings" class="help-section">
+      <h2><span class="num">16.</span> Pengaturan</h2>
+      <p>Buka dari roda gigi ⚙. Tab:</p>
+      <ul>
+        <li><strong>Umum</strong> — nama tampilan, model default, kirim-on-enter</li>
+        <li><strong>Suara</strong> — perangkat mikrofon, listen_seconds, pilihan mesin STT, baca-otomatis TTS</li>
+        <li><strong>Pembaruan</strong> — flag <code>is_admin</code>, sesi WinSCP, jalur jauh</li>
+        <li><strong>Kunci</strong> — kunci API setiap penyedia</li>
+        <li><strong>Monitor</strong> — pengawas VSCode toggle, port, interval jajak</li>
+        <li><strong>Bahasa</strong> — pilih dari 39 lokal; lihat <a href="#language">§ 17</a></li>
+      </ul>
+      <p>Modal mengingat ukuran dan posisinya antar sesi.</p>
+    </section>
+
+    <section id="language" class="help-section">
+      <h2><span class="num">17.</span> Bahasa</h2>
+      <p>Panel dilengkapi dengan terjemahan untuk 39 bahasa yang paling banyak digunakan. File lokal
+        ada di <code>languages/&lt;code&gt;.xml</code> dan dimuat sekali saat aktivasi ekstensi. Kunci yang hilang
+        kembali ke Inggris.</p>
+      <p>Pilih bahasa Anda di <em>Pengaturan → Bahasa</em>. Ikon bendera ditampilkan di sebelah
+        setiap opsi (dimuat dari <code>assets/flags/&lt;code&gt;.svg</code>). Pilihan
+        disimpan ke <code>[settings] language</code> di <code>config.ini</code>.</p>
+    </section>
+
+    <section id="monitor" class="help-section">
+      <h2><span class="num">18.</span> Pengawas VSCode</h2>
+      <p>Layanan Windows (<code>CBEVSCodeSupervisor</code>) membungkus
+        skrip <code>tools/vscode_supervisor.ps1</code> melalui NSSM dan mengikat HttpListener
+        di <strong>http://127.0.0.1:3434/</strong>. Tombol monitor panel bersinar biru
+        ketika titik akhir <code>/status</code> pengawas menjawab 200 OK.</p>
+      <p>Jika probe HTTP gagal tetapi layanan terpasang, anjing pengamat panel
+        secara otomatis memulai ulang layanan (cool-down 30 detik sehingga tidak restart-storm).</p>
+      <p>Klik kiri tombol monitor untuk memasang / memulai / berhenti. Klik kanan untuk membuka
+        saluran jejak.</p>
+    </section>
+
+    <section id="auto-update" class="help-section">
+      <h2><span class="num">19.</span> Pembaruan otomatis (tarik)</h2>
+      <p>4 detik setelah aktivasi ekstensi, panel mengambil
+        <code>https://trentontompkins.com/cbe/manifest.xml.php</code> — manifesto MD5+size
+        dari file terbaru yang dipublikasikan. Untuk setiap file jarak jauh, MD5 salinan lokal adalah
+        dibandingkan; hanya file yang diubah/hilang yang diunduh melalui HTTPS.</p>
+      <p>Keadaan lokal pengguna (<code>config.ini</code>, <code>debug.log</code>,
+        <code>domains.txt</code>, <code>wake.txt</code>, <code>prompt_history.txt</code>) ada di
+        daftar pengecualian tarik dan tidak pernah ditimpa.</p>
+    </section>
+
+    <section id="admin-push" class="help-section">
+      <h2><span class="num">20.</span> Dorong admin</h2>
+      <p>Hanya klien dengan <code>[updates] is_admin = true</code> yang pernah mendorong ke server.
+        Dipicu melalui:</p>
+      <ul>
+        <li>Palet Perintah → <em>Claude Codex Black: Dorong pembaruan</em></li>
+        <li>Perintah garis miring <code>/push</code></li>
+      </ul>
+      <p>Menggunakan sesi WinSCP yang disimpan bernama dalam <code>[updates] winscp_session</code> (default
+        <code>vps</code>). Dorong melalui <code>/script=…</code> dengan perintah synchronize dan
+        filemask yang mengecualikan rahasia &amp; keadaan per-mesin.</p>
+    </section>
+
+    <section id="extensions" class="help-section">
+      <h2><span class="num">21.</span> Pasar ekstensi</h2>
+      <p>Klik tombol 🧩 Ekstensi. Modal iframe terbuka ke
+        <code>https://trentontompkins.com/cbe/extension/extension_marketplace.php</code>,
+        yang mengambil katalog di
+        <code>extensions.xml.php</code> dan merender setiap ekstensi yang tersedia sebagai kartu dengan
+        deskripsi, tag, versi, ukuran file, MD5, dan tombol <strong>Pasang</strong>.</p>
+      <p>Ekstensi dikemas sebagai <code>&lt;id&gt;.ext</code> — arsip zip yang berisi
+        <code>manifest.xml</code> ditambah kode ekstensi (biasanya satu
+        <code>extension.html</code>). Ketika Anda mengklik Pasang, iframe pasar mengirimkan
+        <code>postMessage</code> kembali ke panel; panel mengunduh
+        file <code>.ext</code> secara langsung dari server dan mengekstraknya di bawah
+        <code>extensions/</code> di folder ekstensi.</p>
+      <p>Tiga ekstensi demo dikirim dengan katalog peluncuran:
+        <strong>Kalkulator</strong>, <strong>Penyapu Ranjau</strong>, dan <strong>Pemilih
+        Emoji</strong>.</p>
+    </section>
+
+    <section id="slash" class="help-section">
+      <h2><span class="num">22.</span> Perintah garis miring</h2>
+      <p>Ketik <kbd>/</kbd> di kotak prompt untuk membuka palet perintah garis miring. Klik baris untuk
+        <em>menyisipkan</em> teks perintah ke dalam prompt Anda (dapat diedit), atau tekan
+        <kbd>Enter</kbd> di baris yang dapat dijalankan untuk membakunya segera.</p>
+      <p>Daftar yang tidak lengkap:</p>
+      <table>
+        <thead><tr><th>Perintah</th><th>Efek</th></tr></thead>
+        <tbody>
+          <tr><td><code>/help</code></td><td>Buka dokumen ini</td></tr>
+          <tr><td><code>/skin</code></td><td>Pop pemilih kulit</td></tr>
+          <tr><td><code>/push</code></td><td>Pasang dorong pembaruan otomatis (admin saja)</td></tr>
+          <tr><td><code>/license</code></td><td>Tampilkan <code>LICENSE.TXT</code></td></tr>
+          <tr><td><code>/clear</code></td><td>Hapus riwayat percakapan</td></tr>
+          <tr><td><code>/domains</code></td><td>Buka modal domain NameSilo</td></tr>
+          <tr><td><code>/git</code></td><td>Buka modal Git</td></tr>
+          <tr><td><code>/wake</code></td><td>Buka editor bangun</td></tr>
+          <tr><td><code>/memory</code></td><td>Buka indeks memori proyek</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="context-menu" class="help-section">
+      <h2><span class="num">23.</span> Menu klik kanan</h2>
+      <p>Klik kanan di mana pun di panel untuk menu kontekstual (didefinisikan sebagai string XML tunggal
+        di <code>panel.js</code>). Entri termasuk Refresh (muat ulang panel tanpa
+        menyentuh host ekstensi — jangan pernah gunakan <code>reloadWindow</code>), Hapus
+        percakapan, Buka pengaturan, dan Periksa (DevTools, hanya debug build).</p>
+    </section>
+
+    <section id="trace" class="help-section">
+      <h2><span class="num">24.</span> Saluran jejak</h2>
+      <p>Ekstensi menulis garis waktu granular ke <code>debug.log</code> di sebelah
+        ekstensi. Semua yang penting mendarat di sana: saklar penyedia, siklus STT,
+        probe pengawas, kode balasan NameSilo, pesan jembatan panel↔host, hitung dorong/tarik
+        manifesto.</p>
+      <p>Klik kanan tombol monitor untuk pembukaan saluran jejak satu klik.</p>
+    </section>
+
+    <section id="troubleshooting" class="help-section">
+      <h2><span class="num">25.</span> Pemecahan masalah</h2>
+      <table>
+        <thead><tr><th>Gejala</th><th>Kemungkinan penyebab</th></tr></thead>
+        <tbody>
+          <tr><td>Kotak prompt terlihat proporsional, bukan monospace</td>
+              <td><code>--vscode-editor-font-family</code> tidak diterapkan; periksa variabel <code>:root</code></td></tr>
+          <tr><td>Spinner Prompt Otomatis adalah titik hitam</td>
+              <td>Aset SVG salah; harus <code>auto_read_spinner.svg</code> dengan halo drop-shadow</td></tr>
+          <tr><td>Tombol Ringkas tidak melakukan apa pun</td>
+              <td>Handler host hilang — <code>case 'compactConversation'</code> di router extension.js</td></tr>
+          <tr><td>"0 domain" di modal Domain</td>
+              <td>Balasan NameSilo.code != 300 (saluran jejak memilikinya), atau <code>domains.txt</code> ketinggalan zaman</td></tr>
+          <tr><td>STT "tidak ada pidato terdeteksi" secara instan</td>
+              <td>Anda berhenti sebelum SAPI mengikat mikrofon. Pra-hang sekarang melewati tunggu itu — verifikasi dengan <code>stt: menggunakan SAPI yang dipanaskan sebelumnya</code> di <code>debug.log</code></td></tr>
+          <tr><td>Push gagal di jalur dengan spasi</td>
+              <td>Menggunakan <code>/command=</code> inline; selalu gunakan <code>/script=tempfile.winscp</code></td></tr>
+          <tr><td>Cahaya biru pengawas tidak menyala</td>
+              <td>Layanan tidak berjalan. Klik kiri monitorBtn untuk memasang/memulai, atau jalankan <code>Start-Service CBEVSCodeSupervisor</code></td></tr>
+          <tr><td>Muat ulang "memperbaiki" sesuatu</td>
+              <td>Tidak. Jangan pernah gunakan <code>reloadWindow</code>. Gunakan entri menu konteks Refresh sebagai gantinya.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="about" class="help-section">
+      <h2><span class="num">26.</span> Tentang &amp; lisensi</h2>
+      <p>Claude Codex — Black Edition. Berlisensi MIT. Sumber mirror:
+        <a href="https://github.com/tibberous/Claude-Codex-Back-Ed.." target="_blank" rel="noopener">github.com/tibberous/Claude-Codex-Back-Ed..</a>.
+        Server pembaruan otomatis resmi: <a href="https://trentontompkins.com/cbe/" target="_blank" rel="noopener">trentontompkins.com/cbe</a>.</p>
+      <p>Untuk umpan balik atau pekerjaan komersial, hubungi <a href="https://trentontompkins.com" target="_blank" rel="noopener">trentontompkins.com</a> · (724) 431-5207.</p>
+      <p style="margin-top:24px; color: var(--muted); font-size: 12px;">
+        <em>Bantuan ini juga diiframe ke dalam tombol Bantuan di toolbar panel. Sumber:
+        <code>panel/help.html</code>.</em>
+      </p>
+    </section>
+
+  </main>
+</div>
+
+<script>
+/* Native smooth-scroll TOC navigation. jQuery CDN scripts are blocked by the
+   VSCode webview CSP, so this uses plain DOM APIs — scrollIntoView with
+   behavior:'smooth' gives the identical animated scroll without any external
+   dependency. Works inside the webview iframe sandbox. */
+(function () {
+  const main = document.getElementById('main');
+  const tocLinks = Array.prototype.slice.call(document.querySelectorAll('nav.toc a[href^="#"]'));
+  const sections = Array.prototype.slice.call(document.querySelectorAll('section.help-section'));
+
+  tocLinks.forEach(function (link) {
+    link.addEventListener('click', function (e) {
+      e.preventDefault();
+      const id = link.getAttribute('href');
+      const target = document.querySelector(id);
+      if (!target) return;
+      /* scrollIntoView animates within the nearest scroll container (#main,
+         which has overflow:auto). scroll-margin-top on the section handles
+         the small top offset so headings aren't flush against the edge. */
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      try { history.replaceState(null, '', id); } catch (_) {}
+    });
+  });
+
+  /* Highlight whichever section is currently scrolled into view. */
+  function syncActive() {
+    const scrollTop = main.scrollTop;
+    const threshold = 80;
+    let activeId = sections.length ? sections[0].id : '';
+    sections.forEach(function (sec) {
+      if (sec.offsetTop - threshold <= scrollTop) activeId = sec.id;
+    });
+    tocLinks.forEach(function (l) {
+      l.classList.toggle('active', l.getAttribute('href') === '#' + activeId);
+    });
+  }
+  main.addEventListener('scroll', syncActive);
+  syncActive();
+
+  /* External-link bridge. target="_blank" doesn't escape a VSCode webview
+     iframe — the click would just try to navigate the iframe itself. Instead
+     we intercept clicks on absolute http(s) links and postMessage to the
+     parent panel, which forwards to extension.js, which calls
+     vscode.env.openExternal so the user's real default browser opens. */
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    while (t && t.tagName !== 'A') t = t.parentNode;
+    if (!t || !t.getAttribute) return;
+    var href = t.getAttribute('href') || '';
+    if (!/^https?:\/\//i.test(href)) return;
+    e.preventDefault();
+    try {
+      window.parent.postMessage({ type: 'cbe.openExternal', url: href }, '*');
+    } catch (err) { /* parent missing — fall back to noop */ }
+  }, true);
+})();
+</script>
+</body>
+</html>
