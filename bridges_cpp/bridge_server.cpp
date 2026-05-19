@@ -70,6 +70,7 @@ static int                     g_port        = DEFAULT_PORT;
 static int                     g_childPort   = 0;          // python --serve-bridge child port (g_port + 1000)
 static HANDLE                  g_childProc   = NULL;       // minicomputer chrome handle (CloseHandle on exit)
 static DWORD                   g_childPid    = 0;          // chrome PID, surfaced via tray Status / `chrome-status`
+static HANDLE                  g_killJob     = NULL;       // JobObject with KILL_ON_JOB_CLOSE — every chrome PID we spawn joins this job, so when the tray dies (even via taskkill /F) Windows nukes the entire chrome tree atomically instead of leaving 7+ orphan renderer/GPU processes behind
 static std::atomic<int>        g_connCount   { 0 };
 static SOCKET                  g_listenSock  = INVALID_SOCKET;
 static SOCKET                  g_udpSock     = INVALID_SOCKET;
@@ -651,8 +652,12 @@ static void spawnPythonBridge() {
     STARTUPINFOW si; memset(&si, 0, sizeof(si));
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi; memset(&pi, 0, sizeof(pi));
+    // CREATE_SUSPENDED so we can attach the child to our kill-job BEFORE
+    // it starts executing. If we let it run first, it'd race ahead and
+    // spawn its renderer children outside the job — defeating the whole
+    // "atomic kill on tray exit" guarantee.
     BOOL ok = CreateProcessW(NULL, cmd, NULL, NULL, FALSE,
-                             CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+                             CREATE_NO_WINDOW | CREATE_SUSPENDED, NULL, NULL, &si, &pi);
     if (!ok) {
         DWORD lastErr = GetLastError();
         wchar_t err[2048];
@@ -663,6 +668,39 @@ static void spawnPythonBridge() {
         spawnLog(err);
         return;
     }
+    // Lazily create the kill-job on first spawn. SILENT_BREAKAWAY_OK +
+    // KILL_ON_JOB_CLOSE means: every descendant chrome process inherits
+    // the job (Chrome internally sets SILENT_BREAKAWAY on its renderers,
+    // so without SILENT_BREAKAWAY_OK they'd escape; with it they stay
+    // pinned). When our tray's process handle goes away — including via
+    // taskkill /F — Windows closes our last handle to the job and atomically
+    // terminates every chrome.exe inside it.
+    if (g_killJob == NULL) {
+        g_killJob = CreateJobObjectW(NULL, NULL);
+        if (g_killJob) {
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION li = {0};
+            li.BasicLimitInformation.LimitFlags =
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
+                JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+            if (!SetInformationJobObject(g_killJob, JobObjectExtendedLimitInformation, &li, sizeof(li))) {
+                wchar_t jerr[256];
+                swprintf_s(jerr, _countof(jerr),
+                    L"[CBE-Bridge-%hs] SetInformationJobObject failed err=%lu — chrome may leak on tray crash",
+                    TARGET_NAME, GetLastError());
+                spawnLog(jerr);
+            }
+        }
+    }
+    if (g_killJob != NULL) {
+        if (!AssignProcessToJobObject(g_killJob, pi.hProcess)) {
+            wchar_t aerr[256];
+            swprintf_s(aerr, _countof(aerr),
+                L"[CBE-Bridge-%hs] AssignProcessToJobObject failed err=%lu — chrome may leak on tray crash",
+                TARGET_NAME, GetLastError());
+            spawnLog(aerr);
+        }
+    }
+    ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
     g_childProc = pi.hProcess;     // kept open so WM_DESTROY can terminate it
     g_childPid  = pi.dwProcessId;  // surfaced via tray Status / `chrome-status`
