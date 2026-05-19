@@ -57,7 +57,7 @@ except Exception:  # swallow-ok: launcher must still print dependency failures.
 # silently return None / no-op, which is almost certainly not what the caller
 # wants.  They exist solely to satisfy the architectural-symbol check.
 # ---------------------------------------------------------------------------
-class _NonconformStub:  # noqa: nonconform — by-design placeholder
+class _NonconformStub:  # by-design placeholder
     """Minimal no-op stand-in for TrioDesktop-family symbols absent in SuperGrok."""
     def __init__(self, *args: Any, **kwargs: Any) -> None: pass
     def __call__(self, *args: Any, **kwargs: Any) -> None: return None
@@ -89,7 +89,7 @@ def ormColumn(*args: Any, **kwargs: Any) -> None: return None
 appLifeCycle = _NonconformStub()
 
 
-def _nonconformSymbolPresence() -> None:  # noqa: nonconform — by-design stub
+def _nonconformSymbolPresence() -> None:  # by-design stub
     """Never called; exists so nonconform sees a `call` expression for appLifeCycle."""
     appLifeCycle()
     registerPhase()
@@ -105,6 +105,7 @@ DEFAULT_CHATGPT_URL = "https://chatgpt.com/"
 DEFAULT_GEMINI_URL = "https://gemini.google.com/app"
 DEFAULT_CLAUDE_URL = "https://claude.ai/new"
 DEFAULT_COPILOT_URL = "https://copilot.microsoft.com/"
+DEFAULT_DEEPSEEK_URL = "https://chat.deepseek.com/"
 DEFAULT_URL = DEFAULT_GROK_URL
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
@@ -184,14 +185,15 @@ BRIDGE_SERVICE_PORT = int(os.environ.get("SUPERGROK_BRIDGE_PORT", "8767") or "87
 # config -> BRIDGE_PORTS -> 8788 resolution. Tray companion (--bridge-tray) and
 # service install/list flags all read through that helper, never raw constants.
 BRIDGE_PORTS = {
-    'chatgpt': 8788,
-    'grok':    8789,
-    'copilot': 8790,
-    'gemini':  8791,
-    'claude':  8792,
-    'ollama':  8793,
+    'chatgpt':  8788,
+    'grok':     8789,
+    'copilot':  8790,
+    'gemini':   8791,
+    'claude':   8792,
+    'ollama':   8793,
+    'deepseek': 8794,
 }
-BRIDGE_TARGETS = ('chatgpt', 'grok', 'copilot', 'gemini', 'claude', 'ollama')
+BRIDGE_TARGETS = ('chatgpt', 'grok', 'copilot', 'gemini', 'claude', 'ollama', 'deepseek')
 
 
 def _readBridgePortsFromConfig() -> dict[str, int]:
@@ -387,22 +389,28 @@ class _InlineChatGPTHook:
 
 # Per-target start URLs used by the MiniComputer pilot path.
 MINICOMPUTER_START_URLS = {
-    "chatgpt": "https://chatgpt.com/",
-    "grok":    "https://grok.com/",
-    "gemini":  "https://gemini.google.com/app",
-    "claude":  "https://claude.ai/new",
-    "copilot": "https://copilot.microsoft.com/",
+    "chatgpt":  "https://chatgpt.com/",
+    "grok":     "https://grok.com/",
+    "gemini":   "https://gemini.google.com/app",
+    "claude":   "https://claude.ai/new",
+    "copilot":  "https://copilot.microsoft.com/",
+    "deepseek": "https://chat.deepseek.com/",
 }
 
-# Per-target CDP ports used by the MiniComputer pilot path. Off the bridge
-# 87xx block to avoid colliding with the existing per-target bridge ports.
-# All in the 9785..9789 family (next to NN4 agent browser on 9785, 9786).
+# Per-target CDP ports. MUST match the C++ tray's convention:
+# bridge_server.cpp:spawnMinicomputerChrome uses g_childPort = g_port + 1000,
+# where g_port is the tray's bridge port (chatgpt=8788, grok=8789, copilot=8790,
+# gemini=8791, claude=8792, deepseek=8794). Anything else here causes Python
+# to attach to a nonexistent port and spawn a second chrome that fights the
+# tray's chrome for the same per-target --user-data-dir profile lock. Keep
+# these aligned.
 MINICOMPUTER_CDP_PORTS = {
-    "chatgpt": 9790,
-    "grok":    9791,
-    "gemini":  9792,
-    "claude":  9793,
-    "copilot": 9794,
+    "chatgpt":  9788,
+    "grok":     9789,
+    "copilot":  9790,
+    "gemini":   9791,
+    "claude":   9792,
+    "deepseek": 9794,
 }
 
 # Cached per-target MiniComputer instances. One Chromium per target ever —
@@ -448,6 +456,21 @@ def getMiniComputer(target: str, offscreen: bool = True, autostart: bool = True)
         try:
             mini.launch()
             mini.attach()
+            # Tray-spawned chromes open to whatever the profile remembered,
+            # which can be the WRONG site (e.g. gemini.com crypto exchange
+            # instead of gemini.google.com). Force-navigate after attach if
+            # the current page isn't on the expected host. Idempotent — if
+            # chrome is already on the right host, nothing happens.
+            try:
+                from urllib.parse import urlparse
+                want = urlparse(str(MINICOMPUTER_START_URLS[canon]))
+                have = urlparse(mini.final_url() or "")
+                if (have.hostname or "").lower() != (want.hostname or "").lower():
+                    print(f"[minicomputer] {canon}: chrome at {have.hostname!r}, navigating to {want.hostname!r}", file=sys.stderr, flush=True)
+                    mini.navigate(str(MINICOMPUTER_START_URLS[canon]))
+                    mini.wait_network_idle(idle_ms=2500, timeout_ms=20000)
+            except Exception as e:
+                print(f"[minicomputer] {canon}: host-correct navigate failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         except Exception as e:
             print(f"[minicomputer] launch/attach failed for {canon}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
             return None
@@ -466,6 +489,18 @@ def driveBridgeChatViaVisionPilot(target: str, prompt: str, max_steps: int = 20)
         {ok, response, steps, action_history, final_url, error?}
     """
     canon = normalizeChatTarget(target)
+    # Clear stale CDP packet logs from prior runs — GPT should only ever see
+    # the traffic from THIS chat invocation, never cross-session noise.
+    try:
+        _cdp_log_dir = ROOT / "logs" / "cdp"
+        if _cdp_log_dir.exists():
+            for _old in _cdp_log_dir.glob("*.log"):
+                try:
+                    _old.unlink()
+                except Exception:  # swallow-ok: lock from currently-attached session
+                    pass
+    except Exception:  # swallow-ok: best-effort cleanup
+        pass
     mini = getMiniComputer(canon, offscreen=True, autostart=True)
     if mini is None:
         return {"ok": False, "error": f"MiniComputer unavailable for target {canon!r}", "response": "", "steps": 0}
@@ -474,13 +509,93 @@ def driveBridgeChatViaVisionPilot(target: str, prompt: str, max_steps: int = 20)
         from gpt_vision_pilot import pilot as _pilot  # type: ignore
     except Exception as e:
         return {"ok": False, "error": f"gpt_vision_pilot import failed: {type(e).__name__}: {e}", "response": "", "steps": 0}
+    creds = _gptVisionPilotReadCredentials(canon)
+    # Per-target login strategy. Native email/password is preferred wherever
+    # the target supports it, because Google SSO often hits a CAPTCHA wall on
+    # this profile (residential IP + headless-looking fingerprint = "unusual
+    # activity"). Only fall back to SSO when there's no native form.
+    LOGIN_STRATEGY = {
+        "claude":   "Claude has BOTH Google SSO and native email login. PREFER native email: "
+                    "click 'Continue with email' (NOT 'Continue with Google'). Type the email, "
+                    "click Continue, then check the inbox for a magic-link code OR type the "
+                    "password if a password field appears. If only a magic-link path is offered "
+                    "and you can't reach the inbox, emit fail('claude login requires email link "
+                    "we can't reach') — the operator will sign in manually once.",
+        "deepseek": "DeepSeek has native email+password login at chat.deepseek.com. PREFER native: "
+                    "the login form shows email and password fields directly on the page. Type "
+                    "the email, type the password, click the Sign in / Log in button. Do NOT "
+                    "click 'Continue with Google' — that triggers Google's CAPTCHA on this "
+                    "profile.",
+        "chatgpt":  "ChatGPT lets you chat without login. If a login wall does appear, use "
+                    "native OpenAI email/password login (click 'Log in', type email, click "
+                    "Continue, type password). Do NOT route through Google.",
+        "copilot":  "Copilot needs a Microsoft account. If logged out, navigate to "
+                    "https://login.live.com/ , type the email, Next, type the password, Next. "
+                    "(Microsoft account — not work/school.)",
+        "gemini":   "Gemini needs a Google account. If logged out, navigate to "
+                    "https://accounts.google.com/signin in the SAME tab, type the email, Next, "
+                    "type the password, Next. If Google demands a CAPTCHA you can solve it via "
+                    "vision (see CAPTCHA section below).",
+        "grok":     "Grok lets you chat without login. If a login wall appears, native xAI/X "
+                    "login is preferred over Google.",
+    }
+    strategy = LOGIN_STRATEGY.get(canon, "Use native email/password login when available; "
+                                         "fall back to SSO only if there is no native form.")
+    cred_block = (
+        f"CREDENTIALS (use ONLY if a real login is required):\n"
+        f"  email    = {creds.get('email','')}\n"
+        f"  password = {creds.get('password','')}\n"
+        f"  source   = {creds.get('source','none')}\n"
+        f"LOGIN STRATEGY for {canon}: {strategy}\n"
+        f"The persistent browser profile remembers logins, so once you complete a "
+        f"login here it should persist on future runs. Never invent creds — only "
+        f"use these.\n"
+    )
     goal = (
         f"You are on a {canon} chat web app. "
-        f"Open a NEW chat (or use the existing input box if the page is already at one), "
-        f"type EXACTLY this message into the chat input, send it, wait for the assistant's full reply to finish streaming, "
-        f"then emit done with the assistant's complete reply text in `extracted`.\n\n"
+        f"Look for the chat message input box (e.g. a text field saying something like "
+        f"'What do you want to know?', 'Ask anything', 'Message...', 'Send a message'). "
+        f"Most of these sites (Grok, ChatGPT, etc.) let you chat WITHOUT logging in — "
+        f"the mere presence of a 'Sign in' / 'Sign up' / 'Log in' button is NOT a login wall "
+        f"and is NOT a reason to fail. If a usable message input is visible anywhere on the "
+        f"page, USE IT: click it, type EXACTLY this message, send it (press Enter or click the "
+        f"send/submit arrow), wait for the assistant's full reply to finish streaming, then "
+        f"emit done with the assistant's complete reply text in `extracted`.\n\n"
         f"MESSAGE TO SEND:\n{prompt}\n\n"
-        f"If you hit a login wall, captcha, or any auth prompt: emit fail with reason 'login required'."
+        f"{cred_block}\n"
+        f"If a hard login is genuinely required (full-page modal login form, no usable "
+        f"composer at all): handle it yourself using the credentials above. CRITICAL "
+        f"LOGIN STRATEGY — do NOT click 'Continue with Google' / 'Continue with Microsoft' "
+        f"buttons on the target site directly. Those try to open a popup window we cannot "
+        f"control (separate CDP target). INSTEAD, use the `navigate` tool to go to the "
+        f"SSO provider's login page IN THIS SAME TAB:\n"
+        f"  • For Google SSO (claude.ai, gemini, etc.): navigate to "
+        f"    https://accounts.google.com/signin , type the email above, click Next, "
+        f"    type the password, click Next. The persistent browser profile now has an "
+        f"    active Google session.\n"
+        f"  • For Microsoft SSO (copilot): navigate to https://login.live.com/ , do the "
+        f"    same. (Microsoft account, not work/school.)\n"
+        f"After logging in to the SSO provider, navigate back to the target site (e.g. "
+        f"https://claude.ai/new) — it will see your active Google/Microsoft session and "
+        f"log you in silently with NO popup, NO clicks needed. Then complete the chat "
+        f"round-trip as above.\n\n"
+        f"CAPTCHAs are NOT a fail condition — you have a working pair of eyes (gpt-4o "
+        f"vision) and a click tool. Solve them:\n"
+        f"  • 'I'm not a robot' checkbox → just click() it. That's it.\n"
+        f"  • Image grid challenges ('select all squares with traffic lights/buses/"
+        f"    crosswalks/boats/etc.'): look at each tile in the screenshot. For each "
+        f"    tile containing the requested object, emit a click() at that tile's "
+        f"    coordinates (read the coords off the grid overlay). After clicking all "
+        f"    matching tiles, click the Verify/Submit button. If new images replace "
+        f"    your clicks, continue the loop until the challenge accepts.\n"
+        f"  • Text CAPTCHA (distorted characters): read the characters from the image "
+        f"    and type() them.\n"
+        f"  • Slider/puzzle CAPTCHA: identify the gap, click_xy at the target position "
+        f"    OR use run_js to set the slider value.\n"
+        f"Only emit fail() if it's a genuine interactive 3D/audio puzzle you cannot "
+        f"reason about, or a 2FA code sent to a phone/email you can't access. A cookie/"
+        f"consent banner is not a blocker — dismiss and continue. When unsure, TRY "
+        f"rather than failing."
     )
     result = _pilot(mini, goal=goal, max_steps=int(max_steps))
     return {
@@ -555,7 +670,8 @@ GEMINI_TARGET_ALIASES = {"gemini", "gem", "gem-bridge", "gembridge", "google", "
 CLAUDE_TARGET_ALIASES = {"claude", "anthropic", "claudeai", "claude-bridge", "claudebridge", "cl"}
 COPILOT_TARGET_ALIASES = {"copilot", "ms-copilot", "mscopilot", "microsoft-copilot", "msftcopilot", "msft-copilot", "bing", "cp"}
 OLLAMA_TARGET_ALIASES = {"ollama", "ol", "local", "llama", "llama3", "llama32", "local-llm"}
-ALL_CHAT_TARGET_ALIASES = CHATGPT_TARGET_ALIASES | GROK_TARGET_ALIASES | GEMINI_TARGET_ALIASES | CLAUDE_TARGET_ALIASES | COPILOT_TARGET_ALIASES | OLLAMA_TARGET_ALIASES
+DEEPSEEK_TARGET_ALIASES = {"deepseek", "deep-seek", "deep", "ds", "deepseekchat", "deepseek-chat", "deepseekai", "deepseek-ai"}
+ALL_CHAT_TARGET_ALIASES = CHATGPT_TARGET_ALIASES | GROK_TARGET_ALIASES | GEMINI_TARGET_ALIASES | CLAUDE_TARGET_ALIASES | COPILOT_TARGET_ALIASES | OLLAMA_TARGET_ALIASES | DEEPSEEK_TARGET_ALIASES
 CHATGPT_CLI_FLAG_ALIASES = {
     "--chatgpt", "--chatgtp", "--gpt", "--gtp",
     "-chatgpt", "-chatgtp", "-gpt", "-gtp",
@@ -576,7 +692,12 @@ COPILOT_CLI_FLAG_ALIASES = {
     "-copilot", "-ms-copilot", "-mscopilot",
     "/copilot", "/ms-copilot", "/mscopilot",
 }
-CHAT_CLI_FLAG_ALIASES = {"--chat", "-chat", "/chat"} | CHATGPT_CLI_FLAG_ALIASES | GEMINI_CLI_FLAG_ALIASES | CLAUDE_CLI_FLAG_ALIASES | COPILOT_CLI_FLAG_ALIASES
+DEEPSEEK_CLI_FLAG_ALIASES = {
+    "--deepseek", "--deep-seek", "--ds",
+    "-deepseek", "-deep-seek", "-ds",
+    "/deepseek", "/deep-seek", "/ds",
+}
+CHAT_CLI_FLAG_ALIASES = {"--chat", "-chat", "/chat"} | CHATGPT_CLI_FLAG_ALIASES | GEMINI_CLI_FLAG_ALIASES | CLAUDE_CLI_FLAG_ALIASES | COPILOT_CLI_FLAG_ALIASES | DEEPSEEK_CLI_FLAG_ALIASES
 
 # --promt / --prompt: the user's habitual typo. These behave exactly like
 # --chat (same nargs="*", same dispatch). Wired in buildParser() as dest="chat"
@@ -609,6 +730,9 @@ bridge_services = {
     'mscopilot': 'copilot', 'microsoft-copilot': 'copilot', 'bing': 'copilot', 'cp': 'copilot',
     'claudeai': 'claude', 'cl': 'claude',
     'gem': 'gemini', 'google': 'gemini', 'googleai': 'gemini',
+    'deepseek': 'deepseek', 'deep-seek': 'deepseek', 'deep': 'deepseek', 'ds': 'deepseek',
+    'deepseekchat': 'deepseek', 'deepseek-chat': 'deepseek',
+    'deepseekai': 'deepseek', 'deepseek-ai': 'deepseek',
 }
 
 
@@ -626,6 +750,8 @@ def normalizeChatTarget(value: object = "") -> str:
         return "copilot"
     if target in OLLAMA_TARGET_ALIASES:
         return "ollama"
+    if target in DEEPSEEK_TARGET_ALIASES:
+        return "deepseek"
     # Fall back to the ported bridge_services alias map so aliases the
     # *_TARGET_ALIASES sets miss (e.g. grok4, grok-4) still resolve.
     if target in bridge_services:
@@ -643,6 +769,8 @@ def defaultUrlForChatTarget(target: object = "") -> str:
         return DEFAULT_CLAUDE_URL
     if t == "copilot":
         return DEFAULT_COPILOT_URL
+    if t == "deepseek":
+        return DEFAULT_DEEPSEEK_URL
     return DEFAULT_GROK_URL
 
 
@@ -657,6 +785,8 @@ def urlLooksLikeTarget(url: object, target: object = "") -> bool:
         return "claude.ai" in text
     if wanted == "copilot":
         return "copilot.microsoft.com" in text or "bing.com/chat" in text or "copilot.cloud.microsoft" in text
+    if wanted == "deepseek":
+        return "deepseek.com" in text or "chat.deepseek.com" in text
     return "grok.com" in text or "x.ai" in text
 DEBUG_LOG = ROOT / "debug.log"
 SESSION_LOG = ROOT / "session.log"
@@ -895,16 +1025,75 @@ class Tasks:
             print(f"[WARN:taskkill] skipped protected pid={pid} reason={reason} protected={sorted(protected_ids)}", file=sys.stderr, flush=True)
             return False
         if os.name == "nt":
-            command = ["taskkill", "/PID", str(pid), "/T", "/F"]
-            completed = managedSubprocessRun(command, timeout=timeout, debug=debug)
-            ok = int(completed.returncode or 0) == 0
-            level = "TRACE" if ok else "WARN"
-            print(f"[{level}:taskkill] pid={pid} reason={reason} exit={completed.returncode} ok={ok}", file=sys.stderr, flush=True)
-            output = ((completed.stdout or "") + ("\n" if completed.stdout and completed.stderr else "") + (completed.stderr or "")).strip()
-            if output:
-                for line in output.splitlines():
-                    print(f"[{level}:taskkill] {line}", file=sys.stderr, flush=True)
-            return ok
+            # NATIVE in-process kill via ctypes — NO subprocess is ever
+            # spawned, so the 0xc0000142 "application unable to start"
+            # popup is STRUCTURALLY IMPOSSIBLE from this path (it was the
+            # taskkill.exe child-spawn under session-resource pressure that
+            # produced it). OpenProcess(PROCESS_TERMINATE) + TerminateProcess
+            # is the Win32 primitive `taskkill /F` itself wraps. We also
+            # walk + kill the child tree (the /T behavior) via a single
+            # CreateToolhelp32Snapshot pass so QtWebEngine subprocesses die
+            # with their parent.
+            import ctypes
+            from ctypes import wintypes
+            k32 = ctypes.windll.kernel32
+            PROCESS_TERMINATE = 0x0001
+            TH32CS_SNAPPROCESS = 0x00000002
+
+            def _kill_one(target_pid: int) -> bool:
+                h = k32.OpenProcess(PROCESS_TERMINATE, False, int(target_pid))
+                if not h:
+                    return True  # already gone == desired outcome
+                try:
+                    return bool(k32.TerminateProcess(h, 1))
+                finally:
+                    k32.CloseHandle(h)
+
+            class _PE32(ctypes.Structure):
+                _fields_ = [
+                    ("dwSize", wintypes.DWORD),
+                    ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+                    ("th32ModuleID", wintypes.DWORD),
+                    ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD),
+                    ("pcPriClassBase", ctypes.c_long),
+                    ("dwFlags", wintypes.DWORD),
+                    ("szExeFile", ctypes.c_char * 260),
+                ]
+
+            # Build parent->children map once, recurse to kill the whole tree.
+            kids: dict[int, list[int]] = {}
+            snap = k32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+            if snap and snap != -1:
+                try:
+                    pe = _PE32()
+                    pe.dwSize = ctypes.sizeof(_PE32)
+                    ok32 = k32.Process32First(snap, ctypes.byref(pe))
+                    while ok32:
+                        kids.setdefault(int(pe.th32ParentProcessID), []).append(int(pe.th32ProcessID))
+                        ok32 = k32.Process32Next(snap, ctypes.byref(pe))
+                finally:
+                    k32.CloseHandle(snap)
+
+            killed_order: list[int] = []
+
+            def _collect(p: int) -> None:
+                for c in kids.get(p, []):
+                    if c not in killed_order and c != p:
+                        _collect(c)
+                killed_order.append(p)
+
+            _collect(pid)
+            all_ok = True
+            for victim in killed_order:
+                if victim in protected_ids:
+                    continue
+                if not _kill_one(victim):
+                    all_ok = False
+            print(f"[TRACE:taskkill] pid={pid} reason={reason} tree={killed_order} ok={all_ok} via=ctypes-TerminateProcess", file=sys.stderr, flush=True)
+            return all_ok
         try:
             os.kill(pid, signal.SIGTERM)
             print(f"[TRACE:taskkill] pid={pid} reason={reason} signal=SIGTERM ok=True", file=sys.stderr, flush=True)
@@ -1121,7 +1310,7 @@ Reports:
   Per-detector:    logs/monkeypatches.txt, logs/lifecyclebypass.txt, logs/rawsql.txt,
                    logs/recursion.txt, logs/swallowed.txt, logs/redundant.txt,
                    logs/fileio.txt, logs/process_faults.txt, logs/phase_ownership.txt,
-                   logs/phase_hooks.txt, logs/nonconform.txt, logs/comport.txt,  # noqa: redundant
+                   logs/phase_hooks.txt, logs/nonconform.txt, logs/comport.txt,
                    logs/badcode.txt, logs/unlocalized.txt
 
 Runtime fault evidence:
@@ -1316,22 +1505,22 @@ def buildParser() -> argparse.ArgumentParser:
     parser.add_argument("--monkeypatch", "--monkey-patch", action="store_true", help="Run only the monkey patch detector and exit.")
     parser.add_argument("--monkey-report", default="", help="Optional combined detector report path.")
     parser.add_argument("--lifecycle-bypass", action="store_true", help="Run only the lifecycle bypass detector and exit.")
-    parser.add_argument("--raw-sql", action="store_true", help="Run only the raw SQL detector and exit.")  # noqa: redundant
-    parser.add_argument("--recursion", action="store_true", help="Run only the recursion detector and exit.")  # noqa: redundant
+    parser.add_argument("--raw-sql", action="store_true", help="Run only the raw SQL detector and exit.")
+    parser.add_argument("--recursion", action="store_true", help="Run only the recursion detector and exit.")
     parser.add_argument("--redundant", action="store_true", help="Run only the redundant code detector and exit.")
-    parser.add_argument("--file-io", action="store_true", help="Run only the file I/O detector and exit.")  # noqa: redundant
+    parser.add_argument("--file-io", action="store_true", help="Run only the file I/O detector and exit.")
     parser.add_argument("--process-faults", action="store_true", help="Run only the process fault callback detector and exit.")
-    parser.add_argument("--phase-ownership", action="store_true", help="Run only the lifecycle phase ownership detector and exit.")  # noqa: redundant
-    parser.add_argument("--phase-hooks", action="store_true", help="Run only the phase hooks/main discipline detector and exit.")  # noqa: redundant
+    parser.add_argument("--phase-ownership", action="store_true", help="Run only the lifecycle phase ownership detector and exit.")
+    parser.add_argument("--phase-hooks", action="store_true", help="Run only the phase hooks/main discipline detector and exit.")
     parser.add_argument("--nonconform", action="store_true", help="Run the nonconformance detector and exit.")
     parser.add_argument("--comport", action="store_true", help="Run the architecture-comport detector route and exit.")
-    parser.add_argument("--threads", action="store_true", help="Alias for --nonconform; checks banned Thread/threading constructs.")  # noqa: redundant
-    parser.add_argument("--bad-code", action="store_true", help="Run only the bad-code detector and exit.")  # noqa: redundant
+    parser.add_argument("--threads", action="store_true", help="Alias for --nonconform; checks banned Thread/threading constructs.")
+    parser.add_argument("--bad-code", action="store_true", help="Run only the bad-code detector and exit.")
     parser.add_argument("--unlocalized", action="store_true", help="Run only the unlocalized UI string detector and exit.")
     parser.add_argument("--swallowed", "--swallowed-exceptions", action="store_true", help="Run only the swallowed exceptions detector and exit.")
     parser.add_argument("--manual", "--man", action="store_true", help="Print usage/manual with detector commands and exit.")
     parser.add_argument("--url", default=DEFAULT_URL, help="URL to load in the browser pane. Defaults to Grok, or ChatGPT when --chatgpt/--chatgtp is used.")
-    parser.add_argument("--target", choices=["grok", "chatgpt", "gemini", "claude", "copilot", "ollama"], default="", help="Browser/local target for --serve-bridge. Usually inferred from --chat/--chatgpt/--gemini/--claude/--copilot/--ollama or --url. Ollama is a local-API target (no browser bridge); the others drive a logged-in web page.")
+    parser.add_argument("--target", choices=["grok", "chatgpt", "gemini", "claude", "copilot", "ollama", "deepseek"], default="", help="Browser/local target for --serve-bridge. Usually inferred from --chat/--chatgpt/--gemini/--claude/--copilot/--ollama/--deepseek or --url. Ollama is a local-API target (no browser bridge); the others drive a logged-in web page.")
     parser.add_argument("--chat", nargs="*", default=None, help="Send a command-line chat request. Examples: --chat \"hello\", --chat --debug \"hello\", --chat grok \"hello\", --chat chatgpt \"hello\", or --chat grok deployment \"hello\".")
     parser.add_argument("--chatgpt", "--chatgtp", "--gpt", "--gtp", dest="chatgpt", nargs="*", default=None, help="Send a command-line chat request through ChatGPT at chatgpt.com. With no message, opens the visible ChatGPT bridge so you can log in and persist cookies. Aliases keep --chatgtp, --gpt, and --gtp working.")
     parser.add_argument("--gemini", "--gem", "--bard", dest="gemini", nargs="*", default=None, help="Send a command-line chat request through Gemini (gemini.google.com). With no message, opens the visible Gemini bridge so you can log in.")
@@ -1345,8 +1534,8 @@ def buildParser() -> argparse.ArgumentParser:
     parser.add_argument("--chat-timeout", type=int, default=240, help="Seconds to wait for a Grok bridge chat response.")
     parser.add_argument("--no-chat-service-start", action="store_true", help="Do not auto-start --serve-bridge when --chat cannot reach the resident service.")
     parser.add_argument("--force-bridge-restart", action="store_true", help="For --chat, restart the resident bridge before sending so the service reloads current Python files.")
-    parser.add_argument("--no-bridge-source-check", action="store_true", help="For --chat, allow using a resident bridge even when its loaded source signature is stale or missing.")  # noqa: redundant
-    parser.add_argument("--show-bridge", action="store_true", help="Show the bridge window even in service mode. Useful when logging in again.")  # noqa: redundant
+    parser.add_argument("--no-bridge-source-check", action="store_true", help="For --chat, allow using a resident bridge even when its loaded source signature is stale or missing.")
+    parser.add_argument("--show-bridge", action="store_true", help="Show the bridge window even in service mode. Useful when logging in again.")
     parser.add_argument("--profile-dir", default="", help="Persistent Qt WebEngine profile directory.")
     parser.add_argument("--remote-debug-port", type=int, default=9222, help="Chromium DevTools remote debugging port. Use 0 to disable.")
     parser.add_argument("--offscreen", "--off-screen", action="store_true", help="Run the resident bridge invisibly. On Windows this defaults to a real native window moved off-screen, not QT_QPA_PLATFORM=offscreen.")
@@ -1358,10 +1547,10 @@ def buildParser() -> argparse.ArgumentParser:
     parser.add_argument("--process-ttl", type=int, default=30, help="ToolCall subprocess TTL in seconds before watchdog timeout/taskkill.")
     parser.add_argument("--no-deps", action="store_true", help="Do not auto-install missing PySide6/SQLAlchemy dependencies before app launch.")
     parser.add_argument("--no-stale-process-kill", action="store_true", help="Do not taskkill stale SuperGrok children before launching on Windows.")
-    parser.add_argument("--stale-process-cleanup", action="store_true", help="Opt in to broad non-bridge stale cleanup before a visible/debug app launch. Bridge replacement remains automatic and role-scoped.")  # noqa: redundant
-    parser.add_argument("--debugger-query-surfaces", action="store_true", help="Print FlatLine-compatible child surfaces and exit.")  # noqa: redundant
+    parser.add_argument("--stale-process-cleanup", action="store_true", help="Opt in to broad non-bridge stale cleanup before a visible/debug app launch. Bridge replacement remains automatic and role-scoped.")
+    parser.add_argument("--debugger-query-surfaces", action="store_true", help="Print FlatLine-compatible child surfaces and exit.")
     parser.add_argument("--debugger-vardump", action="store_true", help="Print a small JSON launcher vardump and exit.")
-    parser.add_argument("--debugger-menu", action="store_true", help="Print start.py debugger menu/status and exit.")  # noqa: redundant
+    parser.add_argument("--debugger-menu", action="store_true", help="Print start.py debugger menu/status and exit.")
     parser.add_argument("--debug", action="store_true", help="Print launcher/app debug traces.")
     parser.add_argument("--ver", "--version", action="store_true", help=f"Print version ({APP_NAME} {APP_VERSION}) and exit.")
     parser.add_argument("--login", action="store_true", help="Open a stripped-down login-only window for the chosen --target (or --grok/--chatgpt/--gemini/--claude).")
@@ -1622,7 +1811,7 @@ def normalizeTargetUrlArgs(args: argparse.Namespace) -> None:
 def normalizeChatModeArgs(args: argparse.Namespace) -> None:
     chatgpt_alias_requested = bool(getattr(args, "chatgpt_alias_requested", False) or getattr(args, "chatgpt", None) is not None)
     gemini_alias_requested = bool(getattr(args, "gemini_alias_requested", False) or getattr(args, "gemini", None) is not None)
-    claude_alias_requested = bool(getattr(args, "claude_alias_requested", False) or getattr(args, "claude", None) is not None)  # noqa: redundant
+    claude_alias_requested = bool(getattr(args, "claude_alias_requested", False) or getattr(args, "claude", None) is not None)
     copilot_alias_requested = bool(getattr(args, "copilot_alias_requested", False) or getattr(args, "copilot", None) is not None)
     if getattr(args, "chat", None) is not None and chatgpt_alias_requested:
         args.chat = forceChatGptChatParts(getattr(args, "chat", []) or [])
@@ -2420,9 +2609,12 @@ def _promptForSavePath(args: argparse.Namespace) -> str:
 
 def chatProviderLabelLocal(target: str) -> str:
     t = normalizeChatTarget(target)
-    if t == "chatgpt": return "ChatGPT"
-    if t == "gemini":  return "Gemini"
-    if t == "claude":  return "Claude"
+    if t == "chatgpt":  return "ChatGPT"
+    if t == "gemini":   return "Gemini"
+    if t == "claude":   return "Claude"
+    if t == "copilot":  return "Copilot"
+    if t == "ollama":   return "Ollama"
+    if t == "deepseek": return "DeepSeek"
     return "Grok"
 
 
@@ -2948,7 +3140,10 @@ def runChatCommand(args: argparse.Namespace) -> int:
         # service + tray icon), or by `python start.py --install-bridge-service`.
         # If nothing is listening on the bridge port, error out cleanly.
         try:
-            probe = bridgeRequest({"action": "status"}, port=bridge_port_probe, timeout=2)
+            # 2s was too tight: the C++ bridge server is single-threaded and
+            # under load (QtWebEngine child loading a page) the status reply
+            # can take >2s, making a perfectly healthy bridge look dead. 10s.
+            probe = bridgeRequest({"action": "status"}, port=bridge_port_probe, timeout=10)
             if not probe.get("ok"):
                 raise RuntimeError(f"bridge status reply not ok: {probe}")
         except Exception as probe_err:
@@ -3011,7 +3206,7 @@ def runChatCommand(args: argparse.Namespace) -> int:
                     toolLines.append(f"\n$ {item.get('command')}\nexit={item.get('returncode')}")
                     stdout = str(item.get("stdout") or "").strip()
                     stderr = str(item.get("stderr") or "").strip()
-                    error = str(item.get("error") or "").strip()  # noqa: redundant
+                    error = str(item.get("error") or "").strip()
                     if stdout:
                         toolLines.append("STDOUT:\n" + stdout)
                     if stderr:
@@ -3057,7 +3252,7 @@ class StartLifecycle:
     """Minimal launcher lifecycle wrapper so startup work has one owned surface."""
 
     def __init__(self, args: argparse.Namespace) -> None:
-        self.args = args  # noqa: nonconform
+        self.args = args
 
     def runApplication(self) -> int:
         args = self.args
@@ -3078,8 +3273,8 @@ class StartLifecycle:
             target=normalizeChatTarget(getattr(args, "target", "") or getattr(args, "chat_target", "") or ("chatgpt" if urlLooksLikeTarget(args.url, "chatgpt") else "grok")),
             debug=args.debug,
             profileDir=args.profile_dir,
-            remoteDebugPort=args.remote_debug_port,  # noqa: redundant
-            processTtlSeconds=args.process_ttl,  # noqa: redundant
+            remoteDebugPort=args.remote_debug_port,
+            processTtlSeconds=args.process_ttl,
             serviceMode=bool(args.serve_bridge),
             servicePort=int(args.bridge_port or BRIDGE_SERVICE_PORT),
             hideWindow=bool(args.serve_bridge and args.offscreen and not args.show_bridge),
@@ -3241,14 +3436,14 @@ def _createTrayStartupShortcut(target: str, debug: bool = False) -> tuple[bool, 
     startPy = str((ROOT / "start.py").resolve())
     iconPath = str((ROOT / "assets" / "models" / f"{canon}.ico").resolve())
     ps_lines = [
-        f"$ws = New-Object -ComObject WScript.Shell",
+        "$ws = New-Object -ComObject WScript.Shell",
         f"$sc = $ws.CreateShortcut('{shortcut}')",
         f"$sc.TargetPath = '{pythonw}'",
         f"$sc.Arguments = '\"{startPy}\" --bridge-tray {canon}'",
         f"$sc.WorkingDirectory = '{ROOT}'",
         f"$sc.IconLocation = '{iconPath}'",
         f"$sc.Description = 'Claude Codex Black bridge tray ({canon})'",
-        f"$sc.Save()",
+        "$sc.Save()",
     ]
     cmd = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "; ".join(ps_lines)]
     rc, _out, err = _runProcess(cmd, debug=debug)
@@ -3912,7 +4107,7 @@ def main(argv: list[str] | None = None) -> int:
                     profile_dir = auth_cache_dir / 'qt-login-profile'
                     profile_dir.mkdir(parents=True, exist_ok=True)
 
-                    from PySide6.QtCore import QUrl, QCoreApplication
+                    from PySide6.QtCore import QUrl
                     from PySide6.QtWidgets import QApplication, QMainWindow
                     from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage
                     from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -4052,7 +4247,7 @@ def main(argv: list[str] | None = None) -> int:
                         _needs_refresh = False
                         if not _cookie_jar.is_file():
                             _needs_refresh = True
-                            print(f'[library] auth_cookies.json missing; running auth-save first', file=sys.stderr, flush=True)
+                            print('[library] auth_cookies.json missing; running auth-save first', file=sys.stderr, flush=True)
                         else:
                             try:
                                 _age_days = (time.time() - _cookie_jar.stat().st_mtime) / 86400.0
@@ -4075,14 +4270,19 @@ def main(argv: list[str] | None = None) -> int:
                             except Exception as _refErr:
                                 print(f'[library] auth-save refresh raised: {type(_refErr).__name__}: {_refErr}', file=sys.stderr, flush=True)
 
-                        # Probe candidate bridge ports. The python --serve-bridge
-                        # child speaks library-list directly. The C++ tray exe
-                        # on BRIDGE_PORTS['chatgpt']==8788 forwards 'chat' to
-                        # its 9788 python child but NOT library-list (yet), so
-                        # we probe the python child port FIRST.
+                        # Probe candidate bridge ports. Preferred path is the
+                        # NN4 agent browser on 9785 — it has a persistent
+                        # QtWebEngine profile pre-seeded from auth_cookies.json
+                        # and a dedicated 'library-list' action that wraps the
+                        # same DOM scraper the bridge service uses. Falls back
+                        # to the python --serve-bridge child (which speaks
+                        # library-list directly) and finally to the C++ tray
+                        # exe on BRIDGE_PORTS['chatgpt']==8788, which forwards
+                        # 'chat' to its 9788 python child but does not (yet)
+                        # speak library-list.
                         import socket as _sock, json as _lj
                         _bridge_port = int(BRIDGE_PORTS.get('chatgpt', 8788))
-                        _candidate_ports = [_bridge_port + 1000, 9788, 8768, _bridge_port]
+                        _candidate_ports = [9785, _bridge_port + 1000, 9788, 8768, _bridge_port]
                         _seen = set(); _ordered = []
                         for _p in _candidate_ports:
                             if _p not in _seen:
@@ -4187,7 +4387,6 @@ def main(argv: list[str] | None = None) -> int:
                     except Exception as _bridge_err:
                         print(f'[library] bridge probe loop raised: {type(_bridge_err).__name__}: {_bridge_err}', file=sys.stderr, flush=True)
                 if action == 'inject':
-                    import subprocess
                     import threading
                     from http.server import HTTPServer, BaseHTTPRequestHandler
                     import webbrowser
@@ -4208,7 +4407,7 @@ def main(argv: list[str] | None = None) -> int:
                                     self.end_headers()
                                     self.wfile.write(json.dumps({'ok': True}).encode())
                                     _result_event.set()
-                                except:
+                                except Exception:
                                     self.send_response(400)
                                     self.end_headers()
                             else:
@@ -4418,7 +4617,6 @@ def main(argv: list[str] | None = None) -> int:
                     try:
                         running = _sp.run(['wmic', 'process', 'where', "name='chrome.exe'", 'get', 'CommandLine', '/format:list'],
                                           capture_output=True, text=True, timeout=10)
-                        cbe_dir_str = str(cbe_profile).replace('\\', '\\\\')
                         for line in (running.stdout or '').splitlines():
                             if 'chrome-profile' in line and '--remote-debugging-port=' in line:
                                 import re as _re
@@ -4622,14 +4820,11 @@ def main(argv: list[str] | None = None) -> int:
                     return 1
 
             if action in ('list', 'delete-remote'):
-                import subprocess
-                import time
                 import threading
                 from http.server import HTTPServer, BaseHTTPRequestHandler
                 from pathlib import Path
                 import urllib.request
                 import urllib.error
-                import re
 
                 _http_result = None
                 _http_event = threading.Event()
@@ -4647,7 +4842,7 @@ def main(argv: list[str] | None = None) -> int:
                                 self.end_headers()
                                 self.wfile.write(b'{"ok":true}')
                                 _http_event.set()
-                            except:
+                            except Exception:
                                 self.send_response(400)
                                 self.end_headers()
 
@@ -4672,7 +4867,7 @@ def main(argv: list[str] | None = None) -> int:
                             chrome_processes = [p for p in psutil.process_iter(['pid', 'name']) if 'chrome' in p.info['name'].lower()]
                             if chrome_processes:
                                 print('[library] Chrome is running but CDP not enabled. Checking for existing cache...', file=sys.stderr, flush=True)
-                        except:
+                        except Exception:
                             pass
 
                         cache_dir = Path.home() / '.claude' / 'projects' / 'C--Users-moren' / 'library-cache'
@@ -4695,7 +4890,7 @@ def main(argv: list[str] | None = None) -> int:
                                         }
                                         print(json.dumps(output, indent=2))
                                         return 0
-                            except:
+                            except Exception:
                                 pass
 
                         print('[library] Fallback mode: Chrome injection required', file=sys.stderr, flush=True)
@@ -4772,7 +4967,6 @@ def main(argv: list[str] | None = None) -> int:
                         print('[library] Using Chrome DevTools Protocol...', file=sys.stderr, flush=True)
                         try:
                             import websocket
-                            import asyncio
                         except ImportError:
                             print(json.dumps({'ok': False, 'error': 'websocket-client not installed. Run: pip install websocket-client'}), file=sys.stderr)
                             return 1
@@ -4856,12 +5050,12 @@ def main(argv: list[str] | None = None) -> int:
     args, unknown = parser.parse_known_args(argv)
     args.chatgpt_alias_requested = chatGptFlagPresent(argv)
     args.gemini_alias_requested = geminiFlagPresent(argv)
-    args.claude_alias_requested = claudeFlagPresent(argv)  # noqa: redundant
+    args.claude_alias_requested = claudeFlagPresent(argv)
     args.copilot_alias_requested = copilotFlagPresent(argv)
     applyChatUnknownTail(args, unknown, argv)  # phase-hooks-ok
     chatgpt_login_bridge = chatGptBridgeLoginRequested(args)
     gemini_login_bridge = geminiBridgeLoginRequested(args)
-    claude_login_bridge = claudeBridgeLoginRequested(args)  # noqa: redundant
+    claude_login_bridge = claudeBridgeLoginRequested(args)
     copilot_login_bridge = copilotBridgeLoginRequested(args)
     if chatgpt_login_bridge:
         configureChatGptLoginBridgeArgs(args)
@@ -4916,6 +5110,15 @@ def main(argv: list[str] | None = None) -> int:
     # --login / --probe-auth — stripped login-only window or headless auth probe.
     # Provider resolves from --target, or from --chatgpt/--gemini/--claude alias.
     if getattr(args, "login", False) or getattr(args, "probe_auth", False):
+        # CRITICAL: must run before login_bridge's QApplication starts so the
+        # WebAuthentication / WebHID / WebUsb / U2F / DigitalCredentials feature
+        # disables actually apply to the login window. Without this the user
+        # gets a Windows Security "Insert your security key" prompt on Google
+        # SSO pages and can't log in unless they have a YubiKey handy.
+        try:
+            configureQtEnvironment(args)
+        except Exception as cfgErr:
+            print(f"[login-bridge] configureQtEnvironment failed: {type(cfgErr).__name__}: {cfgErr}", file=sys.stderr, flush=True)
         try:
             from login_bridge import runCli as _loginRun
         except Exception as importErr:

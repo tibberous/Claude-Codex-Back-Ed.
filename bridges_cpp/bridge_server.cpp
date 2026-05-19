@@ -68,7 +68,8 @@
 
 static int                     g_port        = DEFAULT_PORT;
 static int                     g_childPort   = 0;          // python --serve-bridge child port (g_port + 1000)
-static HANDLE                  g_childProc   = NULL;       // python child handle (CloseHandle on exit)
+static HANDLE                  g_childProc   = NULL;       // minicomputer chrome handle (CloseHandle on exit)
+static DWORD                   g_childPid    = 0;          // chrome PID, surfaced via tray Status / `chrome-status`
 static std::atomic<int>        g_connCount   { 0 };
 static SOCKET                  g_listenSock  = INVALID_SOCKET;
 static SOCKET                  g_udpSock     = INVALID_SOCKET;
@@ -77,6 +78,57 @@ static NOTIFYICONDATAW         g_nid         = {0};
 static std::vector<std::string> g_models;     // populated by refreshModels()
 static std::string             g_currentModel;
 static std::mutex              g_modelsMtx;
+static std::mutex              g_chatLogMtx;     // serializes appends to logs\bridge_service.log
+/* Watchdog: respawn the QtWebEngine child if it exits. The python --serve-
+   bridge child has historically crashed on bad cookie state / Qt regressions /
+   page DOM changes — without a watchdog the bridge silently dies and the
+   tray exe keeps accepting requests it can't service. */
+static std::atomic<bool>       g_watchdogStop      { false };
+static std::atomic<int>        g_respawnCount      { 0 };
+static std::atomic<long long>  g_respawnWindowStart{ 0 };  /* GetTickCount64() of current 60s window */
+static HANDLE                  g_watchdogThread    = NULL;
+
+// Append one chat request+response pair to <repo>\logs\bridge_service.log.
+// Thread-safe via g_chatLogMtx so TCP + UDP can call concurrently without
+// interleaved lines. Lines are timestamped + tagged with target/transport;
+// request and response bodies are truncated at 2KB so a runaway LLM answer
+// doesn't blow up the log file.
+static void chatLog(const char* transport,
+                    const char* req,  int reqLen,
+                    const char* resp, int respLen) {
+    std::lock_guard<std::mutex> lock(g_chatLogMtx);
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    // exe path: <repo>\bridges_cpp\bridge_<X>.exe — go up 2 levels to <repo>.
+    wchar_t* slash = wcsrchr(exePath, L'\\'); if (slash) *slash = 0;
+    slash = wcsrchr(exePath, L'\\'); if (slash) *slash = 0;
+    std::wstring logDir = std::wstring(exePath) + L"\\logs";
+    CreateDirectoryW(logDir.c_str(), NULL);
+    std::wstring logPath = logDir + L"\\bridge_service.log";
+    HANDLE h = CreateFileW(logPath.c_str(), FILE_APPEND_DATA,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return;
+    SetFilePointer(h, 0, NULL, FILE_END);
+    SYSTEMTIME st; GetLocalTime(&st);
+    char header[256];
+    int hLen = _snprintf_s(header, sizeof(header), _TRUNCATE,
+        "[%04d-%02d-%02d %02d:%02d:%02d.%03d] target=%s port=%d transport=%s reqLen=%d respLen=%d\r\n  REQ: ",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+        TARGET_NAME, g_port, transport, reqLen, respLen);
+    DWORD wrote = 0;
+    if (hLen > 0) WriteFile(h, header, (DWORD)hLen, &wrote, NULL);
+    const int CAP = 2048;
+    int truncReq = (reqLen > CAP) ? CAP : (reqLen > 0 ? reqLen : 0);
+    if (truncReq > 0) WriteFile(h, req, (DWORD)truncReq, &wrote, NULL);
+    if (reqLen > CAP) WriteFile(h, "...[trunc]", 10, &wrote, NULL);
+    WriteFile(h, "\r\n  RESP: ", 10, &wrote, NULL);
+    int truncResp = (respLen > CAP) ? CAP : (respLen > 0 ? respLen : 0);
+    if (truncResp > 0) WriteFile(h, resp, (DWORD)truncResp, &wrote, NULL);
+    if (respLen > CAP) WriteFile(h, "...[trunc]", 10, &wrote, NULL);
+    WriteFile(h, "\r\n", 2, &wrote, NULL);
+    CloseHandle(h);
+}
 
 // ---------------------------------------------------------------- helpers ---
 
@@ -226,6 +278,7 @@ static std::vector<std::string> staticModelsFor(const std::string& target) {
     if (t == "gemini")  return { "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-pro" };
     if (t == "claude")  return { "claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5" };
     if (t == "copilot") return { "gpt-4o", "gpt-4.1", "o1-preview" };
+    if (t == "deepseek") return { "deepseek-chat", "deepseek-reasoner", "deepseek-v3" };
     return { "(no models)" };
 }
 
@@ -398,6 +451,21 @@ static std::wstring locateBridgeChatPy() {
     return p;
 }
 
+// Sibling to locateBridgeChatPy() for browser targets. bridge_pilot.py
+// drives the vision-pilot (start.driveBridgeChatViaVisionPilot) against
+// the per-target chrome the tray already spawned on g_childPort.
+static std::wstring locateBridgePilotPy() {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    wchar_t* slash = wcsrchr(exePath, L'\\');
+    if (slash) *slash = 0;     // strip exe name -> bin\
+    slash = wcsrchr(exePath, L'\\');
+    if (slash) *slash = 0;     // strip bin     -> repo root
+    std::wstring p(exePath);
+    p += L"\\bridges_cpp\\bridge_pilot.py";
+    return p;
+}
+
 // Locate start.py at the CBE repo root — same trick as locateBridgeChatPy
 // but pointing at the launcher script instead of bridge_chat.py.
 // Try stripping bin/ off the exe directory first (the production layout);
@@ -456,59 +524,134 @@ static void spawnLog(const std::wstring& line) {
     CloseHandle(h);
 }
 
+// Try the three standard Windows chrome.exe locations, in priority order
+// (mirrors tools/cdp_minicomputer.py:_findChromeExe). Returns empty string
+// if none of them exist.
+static std::wstring findChromeExe() {
+    const wchar_t* candidates[] = {
+        L"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        L"C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+        nullptr,
+    };
+    for (int i = 0; candidates[i] != nullptr; ++i) {
+        if (GetFileAttributesW(candidates[i]) != INVALID_FILE_ATTRIBUTES) {
+            return std::wstring(candidates[i]);
+        }
+    }
+    // Also try %LOCALAPPDATA%\Google\Chrome\Application\chrome.exe
+    wchar_t lad[MAX_PATH];
+    DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", lad, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) {
+        std::wstring p = std::wstring(lad) + L"\\Google\\Chrome\\Application\\chrome.exe";
+        if (GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES) return p;
+    }
+    return L"";
+}
+
 static void spawnPythonBridge() {
-    if (std::string(TARGET_NAME) == "Ollama") { spawnLog(L"skip: Ollama target"); return; }
+    // 2026-05-19: This used to launch `python start.py --serve-bridge` which
+    // drove an offscreen QtWebEngine page. That whole subsystem was retired
+    // in favor of the GPT-vision pilot (see
+    // C:\Users\moren\Desktop\claude\vendor\claude\GPT_VISION_PILOT_WHITEPAPER.md).
+    //
+    // The tray now supervises the MINICOMPUTER CHROME instead — the same
+    // chrome.exe instance tools/cdp_minicomputer.py would otherwise spawn
+    // on demand. Boot-time launch means cdp_minicomputer.attach() just
+    // reattaches to the already-running CDP port, no spawn cost on first
+    // chat. Profile dir + remote-debugging port match cdp_minicomputer
+    // exactly (data\minicomputer\<target>-profile, CDP = bridge port +1000).
+    if (std::string(TARGET_NAME) == "Ollama") { spawnLog(L"skip: Ollama target (no chrome needed)"); return; }
     if (g_childProc != NULL) { spawnLog(L"skip: g_childProc already set"); return; }
 
     g_childPort = g_port + 1000;
 
-    std::wstring py     = findPythonExe();
-    std::wstring script = locateStartPy();
-    {
-        wchar_t hdr[1024];
-        swprintf_s(hdr, _countof(hdr), L"spawn target=%hs port=%d childPort=%d py=%ls script=%ls",
-                   TARGET_NAME, g_port, g_childPort, py.c_str(), script.c_str());
-        spawnLog(hdr);
-    }
-    if (GetFileAttributesW(script.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    std::wstring chrome = findChromeExe();
+    if (chrome.empty()) {
         wchar_t err[512];
         swprintf_s(err, _countof(err),
-            L"[CBE-Bridge-%hs] spawnPythonBridge: start.py not found at %ls — child not started",
-            TARGET_NAME, script.c_str());
+            L"[CBE-Bridge-%hs] spawnMinicomputerChrome: chrome.exe not found in standard locations",
+            TARGET_NAME);
         OutputDebugStringW(err);
         spawnLog(err);
         return;
     }
 
-    // Target name on the python side is always lowercase (matches start.py's
-    // --target choices).
+    // Per-target profile dir (matches cdp_minicomputer._miniComputerProfileDir):
+    //   <repo>\data\minicomputer\<target>-profile
+    wchar_t repoRoot[MAX_PATH];
+    GetModuleFileNameW(NULL, repoRoot, MAX_PATH);
+    { wchar_t* s = wcsrchr(repoRoot, L'\\'); if (s) *s = 0; s = wcsrchr(repoRoot, L'\\'); if (s) *s = 0; }
     std::string tLower = lower(std::string(TARGET_NAME));
-
     wchar_t wTarget[64];
     MultiByteToWideChar(CP_UTF8, 0, tLower.c_str(), -1, wTarget, _countof(wTarget));
+    wchar_t profileDir[MAX_PATH * 2];
+    swprintf_s(profileDir, _countof(profileDir),
+               L"%ls\\data\\minicomputer\\%ls-profile", repoRoot, wTarget);
+    // Make sure the directory tree exists (CreateDirectoryW is per-level;
+    // do parents first).
+    {
+        wchar_t parent[MAX_PATH * 2];
+        swprintf_s(parent, _countof(parent), L"%ls\\data", repoRoot);
+        CreateDirectoryW(parent, NULL);
+        swprintf_s(parent, _countof(parent), L"%ls\\data\\minicomputer", repoRoot);
+        CreateDirectoryW(parent, NULL);
+        CreateDirectoryW(profileDir, NULL);
+    }
 
-    // Build command line for CreateProcessW. The argv0 (python) needs to be
-    // quoted because the path likely contains spaces. Same for script path.
-    // The flags are all simple ASCII so no escape gymnastics required.
-    wchar_t cmd[2048];
+    wchar_t hdr[2048];
+    swprintf_s(hdr, _countof(hdr),
+               L"spawn target=%hs trayPort=%d cdpPort=%d chrome=%ls profile=%ls",
+               TARGET_NAME, g_port, g_childPort, chrome.c_str(), profileDir);
+    spawnLog(hdr);
+
+    // Target name on the python side is always lowercase (matches start.py's
+    // --target choices).
+    // Build the chrome.exe command line. Matches what
+    // tools/cdp_minicomputer.py launches in offscreen mode, so attach()
+    // sees the same chrome it would have spawned itself.
+    //   --remote-debugging-port=<g_childPort>   per-target CDP port
+    //   --user-data-dir=<profileDir>            persistent login cookies
+    //   --window-position=5000,5000             past visible desktop, but
+    //                                            NOT -32000 (that triggers
+    //                                            Chromium's "fully off-screen"
+    //                                            render-suspend path)
+    //   --window-size=1400,1000                 viewport for vision pilot
+    //   --no-first-run --no-default-browser-check  quiet startup
+    //   --disable-extensions --disable-sync
+    //   --password-store=basic --disable-features=LockProfileCookieDatabase
+    //                                            unblock Chrome 127+ App-Bound
+    //                                            Encryption cookie reads
+    wchar_t cmd[4096];
     swprintf_s(cmd, _countof(cmd),
-        L"\"%ls\" \"%ls\" --serve-bridge --target %ls --bridge-port %d --offscreen",
-        py.c_str(), script.c_str(), wTarget, g_childPort);
+        L"\"%ls\" --remote-debugging-port=%d --user-data-dir=\"%ls\" "
+        L"--window-position=5000,5000 --window-size=1400,1000 "
+        L"--no-first-run --no-default-browser-check "
+        L"--disable-extensions --disable-sync "
+        // 2026-05-19: --disable-popup-blocking was REMOVED. SSO popups
+        // (Claude → Continue with Google) opened as separate visible
+        // chrome windows that bypassed --window-position=5000,5000 and
+        // were visible to the user. The offscreen contract beats SSO
+        // convenience. Claude becomes "one-time manual login required"
+        // — the user logs in once in a regular browser, copies cookies
+        // into the persistent profile, future runs are authenticated.
+        L"--disable-blink-features=AutomationControlled "  // hide the navigator.webdriver bot signal
+        L"--password-store=basic --disable-features=LockProfileCookieDatabase",
+        chrome.c_str(), g_childPort, profileDir);
 
+    // Launch chrome.exe. CREATE_NO_WINDOW because chrome opens its own
+    // window (positioned at 5000,5000 off-screen via --window-position),
+    // and we don't want a console flash. Chrome handles its own logging
+    // to the profile dir; no stdin/stdout redirection needed.
     STARTUPINFOW si; memset(&si, 0, sizeof(si));
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi; memset(&pi, 0, sizeof(pi));
-
-    // CREATE_NO_WINDOW: child runs invisibly; its own tray icon (if any)
-    // would collide with ours, so we want Qt to start in headless/offscreen
-    // mode (--offscreen on the cmdline) AND no console window.
     BOOL ok = CreateProcessW(NULL, cmd, NULL, NULL, FALSE,
                              CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
     if (!ok) {
         DWORD lastErr = GetLastError();
         wchar_t err[2048];
         swprintf_s(err, _countof(err),
-            L"[CBE-Bridge-%hs] spawnPythonBridge: CreateProcessW failed (err %lu) cmd=%ls",
+            L"[CBE-Bridge-%hs] spawnMinicomputerChrome: CreateProcessW failed (err %lu) cmd=%ls",
             TARGET_NAME, lastErr, cmd);
         OutputDebugStringW(err);
         spawnLog(err);
@@ -516,13 +659,87 @@ static void spawnPythonBridge() {
     }
     CloseHandle(pi.hThread);
     g_childProc = pi.hProcess;     // kept open so WM_DESTROY can terminate it
+    g_childPid  = pi.dwProcessId;  // surfaced via tray Status / `chrome-status`
 
     wchar_t info[2048];
     swprintf_s(info, _countof(info),
-        L"[CBE-Bridge-%hs] spawnPythonBridge: child pid=%lu port=%d cmd=%ls",
-        TARGET_NAME, pi.dwProcessId, g_childPort, cmd);
+        L"[CBE-Bridge-%hs] spawnMinicomputerChrome: chrome pid=%lu cdpPort=%d profile=%ls",
+        TARGET_NAME, pi.dwProcessId, g_childPort, profileDir);
     OutputDebugStringW(info);
     spawnLog(info);
+}
+
+/* Block on the current g_childProc handle. When it exits, log the exit code,
+   apply a throttled backoff, then call spawnPythonBridge() to bring up a new
+   one. Stops cleanly when g_watchdogStop flips to true (WM_DESTROY path).
+   Skip for Ollama since spawnPythonBridge() itself is a no-op there. */
+static DWORD WINAPI watchdogWorker(LPVOID) {
+    if (std::string(TARGET_NAME) == "Ollama") {
+        spawnLog(L"watchdog: skipped (Ollama target — no QtWebEngine child)");
+        return 0;
+    }
+    // HARD STOP after 3 deaths in 60s. The crash/respawn storm is what
+    // exhausted Windows session resources and made every new process
+    // (taskkill.exe, powershell.exe) fail 0xc0000142. Never loop-respawn
+    // again: if the child can't stay up 3 times in a minute it's broken,
+    // so the watchdog gives up and the tray exe goes inert (still answers
+    // status probes; chat returns a clean "bridge down" error). The user
+    // restarts the tray manually after fixing the child.
+    const int       MAX_PER_WINDOW = 3;
+    const long long WINDOW_MS      = 60LL * 1000;
+    g_respawnWindowStart.store(GetTickCount64());
+
+    while (!g_watchdogStop.load()) {
+        HANDLE child = g_childProc;
+        if (child == NULL) {
+            /* No child currently — either we never started one (CreateProcessW
+               failed at boot), or a previous respawn cycle is mid-flight.
+               Poll until something appears. */
+            Sleep(500);
+            continue;
+        }
+        DWORD wr = WaitForSingleObject(child, 5000);
+        if (wr == WAIT_TIMEOUT) continue;       /* still alive — loop */
+        if (wr != WAIT_OBJECT_0) { Sleep(500); continue; }
+
+        DWORD exitCode = 0;
+        GetExitCodeProcess(child, &exitCode);
+        CloseHandle(child);
+        g_childProc = NULL;
+        g_childPid  = 0;
+
+        wchar_t msg[512];
+        swprintf_s(msg, _countof(msg),
+            L"[CBE-Bridge-%hs] watchdog: child exited code=%lu — preparing respawn",
+            TARGET_NAME, exitCode);
+        spawnLog(msg);
+
+        /* Sliding 60s window: cap restarts so a hard-crashing child can't
+           burn CPU on infinite respawn. After MAX_PER_WINDOW we slow to 10s
+           between attempts; the counter resets when the window rolls over. */
+        long long now = GetTickCount64();
+        if (now - g_respawnWindowStart.load() > WINDOW_MS) {
+            g_respawnWindowStart.store(now);
+            g_respawnCount.store(0);
+        }
+        int n = ++g_respawnCount;
+        if (n > MAX_PER_WINDOW) {
+            wchar_t dead[320];
+            swprintf_s(dead, _countof(dead),
+                L"[CBE-Bridge-%hs] watchdog: child died %d times in 60s — GIVING UP. "
+                L"Tray stays up (status probes only); chat will error cleanly. "
+                L"Fix the child, then restart this tray exe to re-arm.",
+                TARGET_NAME, n);
+            spawnLog(dead);
+            return 0;   /* hard stop — no more spawns, ever, this session */
+        }
+        DWORD backoffMs = (n > 1) ? (2000 + (DWORD)(n * 500)) : 1000;  /* 1s, 2.5s, 3s */
+        Sleep(backoffMs);
+        if (g_watchdogStop.load()) return 0;
+
+        spawnPythonBridge();
+    }
+    return 0;
 }
 
 // Forward a JSON chat request to the python QtWebEngine bridge child running
@@ -629,10 +846,23 @@ static std::string forwardChatToBrowserBridge(const std::string& jsonRequestBlob
 
 // Run `python bridge_chat.py --target X --message Y` and capture stdout.
 // Timeout is enforced in milliseconds — provider calls can take 30-60s.
+// Append a diagnostic line about a runChatScript invocation to spawn_bridge.log.
+// Helpful when the C++ stdout-pipe capture diverges from what running
+// bridge_chat.py directly returns — we can see exit codes, byte counts, and
+// where the read loop terminated.
+static void chatScriptLog(const wchar_t* phase, DWORD exitCode, size_t bytesCaptured, DWORD elapsedMs) {
+    wchar_t line[512];
+    swprintf_s(line, _countof(line),
+        L"[CBE-Bridge-%hs] runChatScript phase=%ls exit=%lu bytes=%zu elapsed=%lums",
+        TARGET_NAME, phase, exitCode, bytesCaptured, elapsedMs);
+    spawnLog(line);
+}
+
 static std::string runChatScript(const std::string& target, const std::string& message,
-                                 const std::string& model, DWORD timeoutMs = 90000) {
+                                 const std::string& model, DWORD timeoutMs = 90000,
+                                 const std::wstring& scriptPath = L"") {
     std::wstring py     = findPythonExe();
-    std::wstring script = locateBridgeChatPy();
+    std::wstring script = scriptPath.empty() ? locateBridgeChatPy() : scriptPath;
 
     // Build a single command line. Python's argparse handles the quoting of
     // the --message value as long as we wrap it in double quotes and escape
@@ -661,7 +891,10 @@ static std::string runChatScript(const std::string& target, const std::string& m
     // Pipe for stdout capture.
     SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
     HANDLE readEnd = NULL, writeEnd = NULL;
-    if (!CreatePipe(&readEnd, &writeEnd, &sa, 0)) return "";
+    if (!CreatePipe(&readEnd, &writeEnd, &sa, 0)) {
+        chatScriptLog(L"createpipe-failed", GetLastError(), 0, 0);
+        return "";
+    }
     SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
 
     STARTUPINFOW si; memset(&si, 0, sizeof(si));
@@ -674,33 +907,115 @@ static std::string runChatScript(const std::string& target, const std::string& m
     PROCESS_INFORMATION pi; memset(&pi, 0, sizeof(pi));
     BOOL ok = CreateProcessW(NULL, &wideCmd[0], NULL, NULL, TRUE,
                              CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
-    CloseHandle(writeEnd);
-    if (!ok) { CloseHandle(readEnd); return ""; }
+    CloseHandle(writeEnd);  // parent's copy of write end — child still owns its copy
+    if (!ok) {
+        DWORD createErr = GetLastError();
+        CloseHandle(readEnd);
+        chatScriptLog(L"createprocess-failed", createErr, 0, 0);
+        return "";
+    }
 
     std::string out;
     char buf[4096];
     DWORD bytesRead = 0;
     DWORD waitStart = GetTickCount();
+    const wchar_t* exitReason = L"unknown";
     while (true) {
         DWORD elapsed = GetTickCount() - waitStart;
         if (elapsed > timeoutMs) {
             TerminateProcess(pi.hProcess, 1);
+            exitReason = L"timeout";
             break;
         }
         DWORD avail = 0;
-        if (!PeekNamedPipe(readEnd, NULL, 0, NULL, &avail, NULL)) break;
-        if (avail == 0) {
-            if (WaitForSingleObject(pi.hProcess, 100) == WAIT_OBJECT_0 && !PeekNamedPipe(readEnd, NULL, 0, NULL, &avail, NULL)) break;
-            if (avail == 0) continue;
+        // PeekNamedPipe fails (returns 0) when the pipe is broken — i.e. both
+        // write-end handles are closed AND no buffered data remains. That's
+        // our normal EOF signal once the child has exited.
+        if (!PeekNamedPipe(readEnd, NULL, 0, NULL, &avail, NULL)) {
+            exitReason = L"pipe-broken";
+            break;
         }
-        if (!ReadFile(readEnd, buf, sizeof(buf), &bytesRead, NULL) || bytesRead == 0) break;
+        if (avail == 0) {
+            // No data right now. Give the child up to 100ms more to produce
+            // some, then check whether it's exited. Critical: when the child
+            // has exited cleanly, PeekNamedPipe still returns success-with-0
+            // (not failure) — so we need to break explicitly here instead of
+            // looping forever waiting for a "broken pipe" that won't come
+            // until the OS reaps the handle. The original code did
+            //   `if (WaitForSingleObject(...) == WAIT_OBJECT_0 && !PeekNamedPipe(...))`
+            // which only broke on FAILURE of peek, not on success-with-0 —
+            // hence the empty-output bug for fast child exits.
+            DWORD wr = WaitForSingleObject(pi.hProcess, 100);
+            if (wr == WAIT_OBJECT_0) {
+                // Drain anything left in the pipe (one last peek for the
+                // race where data arrived between the previous peek and the
+                // wait), then break.
+                DWORD finalAvail = 0;
+                if (!PeekNamedPipe(readEnd, NULL, 0, NULL, &finalAvail, NULL)) {
+                    exitReason = L"pipe-broken-after-exit";
+                    break;
+                }
+                if (finalAvail == 0) {
+                    exitReason = L"child-exited-empty-pipe";
+                    break;
+                }
+                avail = finalAvail;
+                // fall through to ReadFile
+            } else {
+                continue;
+            }
+        }
+        if (!ReadFile(readEnd, buf, sizeof(buf), &bytesRead, NULL) || bytesRead == 0) {
+            exitReason = L"readfile-eof";
+            break;
+        }
         out.append(buf, buf + bytesRead);
-        if (out.size() > 1024 * 1024) break;     // sanity cap
+        if (out.size() > 1024 * 1024) {
+            exitReason = L"size-cap";
+            break;
+        }
     }
     WaitForSingleObject(pi.hProcess, 1000);
+    DWORD exitCode = 0;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
     CloseHandle(readEnd);
+    chatScriptLog(exitReason, exitCode, out.size(), GetTickCount() - waitStart);
+    /* On any non-zero exit, dump the captured bytes + the exact command line
+       to logs/chatscript_dump.log so we can see what bridge_chat.py actually
+       received and printed. Critical for the "args lost" class of bugs where
+       extractJsonString returns empty because the script never printed the
+       expected JSON. */
+    if (exitCode != 0 || out.empty()) {
+        wchar_t exePath[MAX_PATH]; GetModuleFileNameW(NULL, exePath, MAX_PATH);
+        wchar_t* sl = wcsrchr(exePath, L'\\'); if (sl) *sl = 0;
+        sl = wcsrchr(exePath, L'\\'); if (sl) *sl = 0;
+        std::wstring dumpPath = std::wstring(exePath) + L"\\logs\\chatscript_dump.log";
+        HANDLE h = CreateFileW(dumpPath.c_str(), FILE_APPEND_DATA,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                               OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (h != INVALID_HANDLE_VALUE) {
+            SetFilePointer(h, 0, NULL, FILE_END);
+            char hdr[512];
+            SYSTEMTIME st; GetLocalTime(&st);
+            int hLen = _snprintf_s(hdr, sizeof(hdr), _TRUNCATE,
+                "\r\n=== [%04d-%02d-%02d %02d:%02d:%02d] target=%s exit=%lu bytes=%zu reason=",
+                st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
+                TARGET_NAME, exitCode, out.size());
+            DWORD wrote = 0;
+            if (hLen > 0) WriteFile(h, hdr, (DWORD)hLen, &wrote, NULL);
+            char rbuf[256]; int rLen = WideCharToMultiByte(CP_UTF8, 0, exitReason, -1, rbuf, sizeof(rbuf), NULL, NULL);
+            if (rLen > 1) WriteFile(h, rbuf, (DWORD)rLen - 1, &wrote, NULL);
+            WriteFile(h, "\r\nCMD: ", 7, &wrote, NULL);
+            char cmdNarrow[8192]; int cnLen = WideCharToMultiByte(CP_UTF8, 0, wideCmd.c_str(), -1, cmdNarrow, sizeof(cmdNarrow), NULL, NULL);
+            if (cnLen > 1) WriteFile(h, cmdNarrow, (DWORD)cnLen - 1, &wrote, NULL);
+            WriteFile(h, "\r\nOUT: ", 7, &wrote, NULL);
+            if (!out.empty()) WriteFile(h, out.data(), (DWORD)out.size(), &wrote, NULL);
+            WriteFile(h, "\r\n=== end ===\r\n", 16, &wrote, NULL);
+            CloseHandle(h);
+        }
+    }
     return out;
 }
 
@@ -742,44 +1057,38 @@ static void serverWorker() {
             bool isChat   = (action && strstr(action, "\"chat\""));
             bool isChatResult = (action && strstr(action, "chat-result"));
 
-            // Browser-bridge passthrough: for chat / chat-result requests on
-            // non-Ollama targets, the python QtWebEngine child speaks the
-            // exact same protocol our caller expects (including async
-            // accepted:true/jobId/pending:true ack + chat-result polling).
-            // Forward the request verbatim and write the child's reply
-            // verbatim — no re-wrapping. This preserves the full async
-            // protocol semantics with zero translation loss.
-            bool isBrowserTarget = (std::string(TARGET_NAME) != "Ollama");
-            bool passthrough = isBrowserTarget && (isChat || isChatResult);
-
-            std::string passthroughReply;
-            if (passthrough) {
-                std::string blob(req, req + (reqLen > 0 ? reqLen : 0));
-                passthroughReply = forwardChatToBrowserBridge(blob);
-                if (passthroughReply.empty() || passthroughReply.back() != '\n')
-                    passthroughReply.push_back('\n');
-            }
+            // Routing matrix for chat / chat-result:
+            //   Ollama          → bridge_chat.py  one-shot, synchronous
+            //   any browser tgt → bridge_pilot.py one-shot, synchronous,
+            //                     drives the per-target chrome via the
+            //                     vision-pilot (GPT-4o screenshots+clicks)
+            // Both scripts emit the same JSON shape {ok, answer, ...} so
+            // the formatting below is uniform.
+            bool isOllama = (std::string(TARGET_NAME) == "Ollama");
 
             char body[8192];
             const char* outPtr = body;
             int bodyLen = 0;
 
-            if (passthrough) {
-                // Send the child's reply directly. May exceed our 8KB body
-                // buffer for large LLM replies — use the string itself.
-                outPtr  = passthroughReply.c_str();
-                bodyLen = (int)passthroughReply.size();
-            } else if (isChat) {
-                // Ollama path — bridge_chat.py one-shot.
+            if (isChat) {
                 std::string userMsg = extractJsonString(req, "message");
                 std::string answer;
-                std::string scriptOut = runChatScript("ollama", userMsg, model);
+                std::wstring scriptPath = isOllama
+                    ? locateBridgeChatPy()
+                    : locateBridgePilotPy();
+                // Vision-pilot runs can take 30-60s end-to-end; bump timeout
+                // upward of bridge_chat.py's default for browser targets.
+                DWORD timeoutMs = isOllama ? 90000 : 180000;
+                std::string scriptOut = runChatScript(
+                    isOllama ? "ollama" : std::string(TARGET_NAME),
+                    userMsg, model, timeoutMs, scriptPath);
                 std::string extracted = extractJsonString(scriptOut, "answer");
                 if (extracted.empty()) {
                     std::string err = extractJsonString(scriptOut, "error");
+                    const char* scriptName = isOllama ? "bridge_chat.py" : "bridge_pilot.py";
                     answer = err.empty()
-                        ? "[bridge_chat.py: no output — check that python + bridge_chat.py + ollama daemon are all reachable]"
-                        : (std::string("[bridge_chat.py error] ") + err);
+                        ? (std::string("[") + scriptName + ": no output — check python availability]")
+                        : (std::string("[") + scriptName + " error] " + err);
                 } else {
                     answer = extracted;
                 }
@@ -790,7 +1099,8 @@ static void serverWorker() {
                     TARGET_NAME, g_port, model.c_str(), esc.c_str(), TARGET_NAME);
                 bodyLen = (int)strlen(body);
             } else if (isChatResult) {
-                // Ollama is synchronous — there is no pending job to poll.
+                // Both bridge_chat.py and bridge_pilot.py are synchronous —
+                // there is no pending job to poll.
                 _snprintf_s(body, sizeof(body), _TRUNCATE,
                     "{\"ok\":true,\"accepted\":false,\"target\":\"%s\",\"port\":%d,"
                     "\"model\":\"%s\",\"answer\":\"\",\"server\":\"CBE-Bridge-%s/1.0\"}\n",
@@ -811,6 +1121,7 @@ static void serverWorker() {
                 if (n == SOCKET_ERROR || n == 0) break;
                 sent += n;
             }
+            chatLog("tcp-json", req, reqLen, outPtr, bodyLen);
         } else {
             // HTTP/1.1 path — same payload, with headers.
             char body[512];
@@ -828,6 +1139,7 @@ static void serverWorker() {
                 if (n == SOCKET_ERROR || n == 0) break;
                 sent += n;
             }
+            chatLog("tcp-http", req, reqLen, resp, respLen);
         }
         shutdown(client, SD_SEND);
         closesocket(client);
@@ -865,33 +1177,29 @@ static void udpWorker() {
         bool isChat       = (action && strstr(action, "\"chat\""));
         bool isChatResult = (action && strstr(action, "chat-result"));
 
-        // Same browser-bridge passthrough as TCP. UDP can't carry replies
-        // larger than ~64KB so very long browser answers get truncated —
+        // Same dispatch as TCP — bridge_chat.py for ollama,
+        // bridge_pilot.py for browser targets. UDP can't carry replies
+        // larger than ~64KB so very long browser answers may truncate;
         // clients that need long answers should use TCP.
-        bool isBrowserTarget = (std::string(TARGET_NAME) != "Ollama");
-        bool passthrough = isBrowserTarget && (isChat || isChatResult);
-
-        std::string passthroughReply;
-        if (passthrough) {
-            passthroughReply = forwardChatToBrowserBridge(req);
-            if (passthroughReply.empty() || passthroughReply.back() != '\n')
-                passthroughReply.push_back('\n');
-        }
+        bool isOllama = (std::string(TARGET_NAME) == "Ollama");
 
         char body[8192];
         const char* outPtr = body;
         int bodyLen = 0;
 
-        if (passthrough) {
-            outPtr  = passthroughReply.c_str();
-            bodyLen = (int)passthroughReply.size();
-        } else if (isChat) {
-            // Ollama (synchronous) only — see TCP handler for rationale.
+        if (isChat) {
             std::string userMsg = extractJsonString(req, "message");
-            std::string scriptOut = runChatScript("ollama", userMsg, model);
+            std::wstring scriptPath = isOllama
+                ? locateBridgeChatPy()
+                : locateBridgePilotPy();
+            DWORD timeoutMs = isOllama ? 90000 : 180000;
+            std::string scriptOut = runChatScript(
+                isOllama ? "ollama" : std::string(TARGET_NAME),
+                userMsg, model, timeoutMs, scriptPath);
             std::string extracted = extractJsonString(scriptOut, "answer");
+            const char* scriptName = isOllama ? "bridge_chat.py" : "bridge_pilot.py";
             std::string answer = extracted.empty()
-                ? "[bridge_chat.py: empty answer — is `ollama serve` running?]"
+                ? (std::string("[") + scriptName + ": empty answer]")
                 : extracted;
             std::string esc = jsonEscape(answer);
             _snprintf_s(body, sizeof(body), _TRUNCATE,
@@ -914,6 +1222,7 @@ static void udpWorker() {
         }
         if (bodyLen > 65000) bodyLen = 65000;     // UDP datagram cap
         sendto(g_udpSock, outPtr, bodyLen, 0, (sockaddr*)&src, srcLen);
+        chatLog("udp", buf, n, outPtr, bodyLen);
     }
 }
 
@@ -1184,6 +1493,18 @@ static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (g_listenSock != INVALID_SOCKET) {
             SOCKET s = g_listenSock; g_listenSock = INVALID_SOCKET; closesocket(s);
         }
+        // Stop the watchdog BEFORE killing the child — otherwise it would
+        // see the exit and immediately respawn a new one we don't want.
+        g_watchdogStop.store(true);
+        if (g_watchdogThread != NULL) {
+            // Give it a moment to notice the flag, then move on. The thread
+            // wakes at most every 5s (WaitForSingleObject timeout) plus the
+            // backoff sleep, so we can't reliably join here without blocking
+            // shutdown. CloseHandle without join is acceptable for exit.
+            WaitForSingleObject(g_watchdogThread, 200);
+            CloseHandle(g_watchdogThread);
+            g_watchdogThread = NULL;
+        }
         // Tear down the python QtWebEngine bridge child we spawned in
         // wWinMain. Without this the child keeps running headless and
         // holds g_childPort, which would block the next exe launch.
@@ -1191,6 +1512,7 @@ static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             TerminateProcess(g_childProc, 0);
             CloseHandle(g_childProc);
             g_childProc = NULL;
+            g_childPid  = 0;
         }
         PostQuitMessage(0);
         return 0;
@@ -1215,12 +1537,14 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmdLine, int) {
         return 3;
     }
 
-    // For non-Ollama targets, auto-spawn the python --serve-bridge child
-    // that drives the logged-in web page via QtWebEngine. Ollama is a local
-    // HTTP API and goes through bridge_chat.py instead. If the child fails
-    // to start, the tray exe keeps running — chat replies will surface the
-    // bridge error to the user via forwardChatToBrowserBridge().
-    spawnPythonBridge();
+    // Repurposed 2026-05-19: instead of launching the QtWebEngine python
+    // bridge child (retired in favor of the GPT-vision pilot), the tray
+    // now supervises one minicomputer chrome.exe per target. Boot-time
+    // spawn means tools/cdp_minicomputer.attach() just reattaches to the
+    // already-running CDP port — no first-chat spawn cost. Watchdog
+    // restarts chrome (with the 3-strike cap) if it dies unexpectedly.
+    spawnPythonBridge();  // (name kept for diff hygiene; launches chrome now)
+    g_watchdogThread = CreateThread(NULL, 0, watchdogWorker, NULL, 0, NULL);
 
     // Pre-fill the model list and the current pick from config.ini before
     // the first menu paints. discoverModels() can be slow for Ollama if the

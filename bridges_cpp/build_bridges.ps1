@@ -1,4 +1,4 @@
-# Build all five CBE-Bridge-<Target>.exe binaries.
+# Build all seven CBE-Bridge-<Target>.exe binaries.
 # - Loads MSVC env from vcvars64.bat
 # - Compiles bridge_server.cpp once per target with -DTARGET_NAME / -DDEFAULT_PORT
 # - Compiles the per-target .rc into a .res (embeds the icon)
@@ -19,12 +19,13 @@ $log    = Join-Path $repo 'logs\build_bridges.log'
 
 # Port table — matches BRIDGE_PORTS in start.py.
 $targets = @(
-    @{ name = 'Grok';     port = 8789; rc = 'bridge_grok.rc'    }
-    @{ name = 'Gemini';   port = 8791; rc = 'bridge_gemini.rc'  }
-    @{ name = 'ChatGPT';  port = 8788; rc = 'bridge_chatgpt.rc' }
-    @{ name = 'Claude';   port = 8792; rc = 'bridge_claude.rc'  }
-    @{ name = 'Copilot';  port = 8790; rc = 'bridge_copilot.rc' }
-    @{ name = 'Ollama';   port = 8793; rc = 'bridge_ollama.rc'  }
+    @{ name = 'Grok';     port = 8789; rc = 'bridge_grok.rc'     }
+    @{ name = 'Gemini';   port = 8791; rc = 'bridge_gemini.rc'   }
+    @{ name = 'ChatGPT';  port = 8788; rc = 'bridge_chatgpt.rc'  }
+    @{ name = 'Claude';   port = 8792; rc = 'bridge_claude.rc'   }
+    @{ name = 'Copilot';  port = 8790; rc = 'bridge_copilot.rc'  }
+    @{ name = 'Ollama';   port = 8793; rc = 'bridge_ollama.rc'   }
+    @{ name = 'DeepSeek'; port = 8794; rc = 'bridge_deepseek.rc' }
 )
 
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
@@ -39,8 +40,13 @@ if ($Clean) {
     Add-Content $log 'clean: wiped obj/ and bin\CBE-Bridge-*.exe'
 }
 
-# Locate vcvars64.bat via vswhere.
-$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+# Locate vcvars64.bat via vswhere. NOTE: do NOT use ${env:ProgramFiles(x86)}
+# — PowerShell's parser chokes on the parens inside the variable name and
+# silently expands it to an empty string, which makes vswhere unresolvable.
+# [Environment]::GetEnvironmentVariable() reads the same value robustly.
+$pf86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+if (-not $pf86) { $pf86 = 'C:\Program Files (x86)' }
+$vswhere = Join-Path $pf86 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (-not (Test-Path $vswhere)) { throw "vswhere not found at $vswhere" }
 $vsInstall = & $vswhere -latest -property installationPath
 $vcvars = Join-Path $vsInstall 'VC\Auxiliary\Build\vcvars64.bat'
@@ -66,7 +72,7 @@ $src = Join-Path $here 'bridge_server.cpp'
 if (-not (Test-Path $src)) { throw "missing $src" }
 
 $picked = if ($Target -eq 'all') { $targets } else { $targets | Where-Object { $_.name -ieq $Target } }
-if (-not $picked) { throw "unknown target '$Target' (use one of: Grok, Gemini, ChatGPT, Claude, Copilot, all)" }
+if (-not $picked) { throw "unknown target '$Target' (use one of: Grok, Gemini, ChatGPT, Claude, Copilot, Ollama, DeepSeek, all)" }
 
 $ok = @()
 $fail = @()
@@ -99,18 +105,30 @@ foreach ($t in $picked) {
     # 3) Compile + link. /std:c++17 for std::thread / std::atomic, /MT static
     # CRT so the exe runs on a clean machine, /SUBSYSTEM:WINDOWS so the tray
     # process doesn't pop a console window.
-    $clArgs = @(
-        '/nologo', '/O2', '/EHsc', '/W3', '/MT', '/std:c++17',
-        ('/FI' + $headerFile),
-        ('/Fo:' + $objDir + '\'),
-        ('/Fe:' + $exeFile),
-        $src, $resFile,
-        '/link',
-        '/SUBSYSTEM:WINDOWS',
-        'ws2_32.lib', 'user32.lib', 'shell32.lib'
-    )
-
-    $clOut = & $cl @clArgs 2>&1
+    #
+    # NOTE: cl.exe must see paths containing spaces (e.g. "Claude Codex Black")
+    # as single arguments. PowerShell's native-arg splatting (@clArgs) silently
+    # breaks on `/Fo:<path-with-spaces>` and `/Fe:<path-with-spaces>` because
+    # the equals/colon prefix prevents the auto-quoting shim. cmd /c with
+    # explicit "..." also fails because cmd strips outer quotes. cl.exe
+    # supports response files (@file) which read args verbatim from disk —
+    # no shell quoting involved — so we use that.
+    # Response file format: cl.exe treats newlines as arg separators, BUT
+    # /link MUST be followed by its linker flags on the SAME line — otherwise
+    # cl.exe treats the linker flags as compiler flags (D9002 warnings) and
+    # the link silently uses default settings (wrong subsystem → bad/empty
+    # exe). All compile flags above /link can wrap freely.
+    $rspFile = Join-Path $objDir ("bridge_{0}.rsp" -f $name.ToLower())
+    @"
+/nologo /O2 /EHsc /W3 /MT /std:c++17
+/FI"$headerFile"
+/Fo:"$objDir\\"
+/Fe:"$exeFile"
+"$src"
+"$resFile"
+/link /SUBSYSTEM:WINDOWS ws2_32.lib user32.lib shell32.lib
+"@ | Set-Content -Path $rspFile -Encoding ASCII
+    $clOut = & $cl ('@' + $rspFile) 2>&1
     Add-Content $log ($clOut | Out-String)
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exeFile)) {
         $fail += "$name (cl rc=$LASTEXITCODE)"
