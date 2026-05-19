@@ -59,6 +59,80 @@ SELECTORS = {
     "file_input":     'input[type="file"]',  # for image-paste use cases
 }
 
+
+def custom_sendChat(mini, message: str, timeout_s: int = 90) -> dict:
+    """Proven inline fast-path for chatgpt.com. Identical to the path
+    that gets "PONG" back in 1 step. Bypasses the generic runner's
+    send_chat because chatgpt's send button has subtle React timing
+    that the generic code missed — this version unconditionally
+    clicks, polls assistant count, and waits for text stability.
+    """
+    import time as _t
+    COMPOSER = "#prompt-textarea"
+    SEND_BTN = 'button[data-testid="send-button"], button[aria-label="Send prompt"]'
+    ASSISTANT = '[data-message-author-role="assistant"]'
+
+    # Start a fresh chat. A long conversation history can trip chatgpt
+    # into routing every reply through gpt-5.5 (thinking) which takes
+    # minutes — by navigating to / (the "New chat" landing), each
+    # turn starts from zero context and stays on gpt-4o-mini speed.
+    try:
+        if "/new" not in (mini.final_url() or "") and mini.final_url() != "https://chatgpt.com/":
+            mini.navigate("https://chatgpt.com/")
+            _t.sleep(2.0)
+        else:
+            # Already on a chat page — click "New chat" button via JS if visible
+            mini.eval_js("""(function(){var b=document.querySelector('a[aria-label*="New chat" i], button[aria-label*="New chat" i]');if(b)b.click();})()""")
+            _t.sleep(0.8)
+    except Exception:
+        pass
+
+    # Verify composer is visible (logged-in surface)
+    visible = mini.eval_js(
+        f"(function(){{var el=document.querySelector('{COMPOSER}');"
+        f"if(!el)return false;var r=el.getBoundingClientRect();return r.width>2&&r.height>2;}})()"
+    )
+    if not visible:
+        return {"ok": False, "error": "chatgpt composer not found — profile logged out? run "
+                "tools/sign_in_helper.py chatgpt", "final_url": mini.final_url()}
+
+    before = int(mini.eval_js(f"document.querySelectorAll('{ASSISTANT}').length") or 0)
+    mini.eval_js(f"document.querySelector('{COMPOSER}').focus();")
+    _t.sleep(0.2)
+    mini.type_text(message)
+    _t.sleep(0.3)
+    clicked = mini.eval_js(
+        f"(function(){{var b=document.querySelector('{SEND_BTN}');"
+        f"if(b){{b.click();return true;}}return false;}})()"
+    )
+    if not clicked:
+        mini.press_key("enter")
+
+    # Poll for new assistant message + text stability
+    deadline = _t.time() + timeout_s
+    last_text, stable = "", 0
+    while _t.time() < deadline:
+        after = int(mini.eval_js(f"document.querySelectorAll('{ASSISTANT}').length") or 0)
+        if after > before:
+            txt = str(mini.eval_js(
+                f"(function(){{var els=document.querySelectorAll('{ASSISTANT}');"
+                f"if(!els.length)return '';var l=els[els.length-1];"
+                f"return (l.innerText||l.textContent||'').trim();}})()"
+            ) or "").strip()
+            if txt and txt == last_text:
+                stable += 1
+                if stable >= 2:
+                    return {"ok": True, "answer": txt, "final_url": mini.final_url()}
+            else:
+                stable = 0
+            last_text = txt
+        _t.sleep(1.0)
+    if last_text:
+        return {"ok": True, "answer": last_text, "final_url": mini.final_url(),
+                "warn": "reply still streaming at timeout"}
+    return {"ok": False, "error": "no assistant reply within timeout",
+            "final_url": mini.final_url()}
+
 # Human-readable login flow description — passed verbatim to the vision
 # pilot if a chrome session loses cookies. The fast-path bridge_runner
 # doesn't need this (it uses SELECTORS), but the fallback vision pilot
