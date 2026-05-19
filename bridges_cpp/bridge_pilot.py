@@ -46,22 +46,24 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        from start import driveBridgeChatViaVisionPilot, normalizeChatTarget  # type: ignore
+        from start import driveBridgeChat, normalizeChatTarget  # type: ignore
     except Exception as exc:
         return emit({"ok": False, "target": args.target,
                      "error": f"failed to import start.py: {type(exc).__name__}: {exc}"})
 
     canon = normalizeChatTarget(args.target)
-    if canon == "ollama":
-        return emit({"ok": False, "target": canon,
-                     "error": "bridge_pilot.py only handles browser targets; "
-                              "ollama goes through bridge_chat.py"})
+    # NOTE: post bridge-plugin refactor, this handler is no longer
+    # restricted to browser targets. driveBridgeChat() routes through
+    # the plugin registry, which knows whether each bridge is api-mode
+    # (ollama: no chrome) or web-mode. The C++ tray can shell to
+    # bridge_pilot.py for EVERY target uniformly. bridge_chat.py is now
+    # legacy; kept around for compatibility but no longer needed.
 
     try:
-        result = driveBridgeChatViaVisionPilot(canon, args.message, max_steps=int(args.max_steps))
+        result = driveBridgeChat(canon, args.message, max_steps=int(args.max_steps))
     except Exception as exc:
         return emit({"ok": False, "target": canon,
-                     "error": f"pilot crashed: {type(exc).__name__}: {exc}"})
+                     "error": f"bridge dispatch crashed: {type(exc).__name__}: {exc}"})
 
     return emit({
         "ok":        bool(result.get("ok")),

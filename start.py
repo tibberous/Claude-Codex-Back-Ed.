@@ -478,6 +478,91 @@ def getMiniComputer(target: str, offscreen: bool = True, autostart: bool = True)
     return mini
 
 
+# Cached plugin registry — populated on first driveBridgeChat() call,
+# refreshed if any bridge file changes. discover_bridges() is cheap but
+# walking the dir every chat is wasteful.
+_BRIDGE_PLUGIN_CACHE: dict[str, Any] = {}
+_BRIDGE_PLUGIN_CACHE_MTIME: float = 0.0
+
+
+def _loadBridgePlugins() -> dict[str, Any]:
+    """Discover .bridge + bridges/_src/ plugins. Cached + invalidated on
+    any manifest/bridge.py file change. The caller dispatches to the
+    plugin's Bridge.drive_chat(...) when a match is found."""
+    global _BRIDGE_PLUGIN_CACHE, _BRIDGE_PLUGIN_CACHE_MTIME
+    try:
+        bridges_dir = ROOT / "bridges"
+        if not bridges_dir.exists():
+            return {}
+        # Detect changes by max mtime across all bridge files (cheap enough)
+        latest = 0.0
+        for f in bridges_dir.rglob("*"):
+            if f.is_file() and f.suffix in (".xml", ".py", ".bridge"):
+                m = f.stat().st_mtime
+                if m > latest:
+                    latest = m
+        if latest > _BRIDGE_PLUGIN_CACHE_MTIME or not _BRIDGE_PLUGIN_CACHE:
+            sys.path.insert(0, str(ROOT / "tools"))
+            from bridge_runner import discover_bridges as _disc  # type: ignore
+            _BRIDGE_PLUGIN_CACHE = _disc(bridges_dir)
+            _BRIDGE_PLUGIN_CACHE_MTIME = latest
+        return _BRIDGE_PLUGIN_CACHE
+    except Exception as e:
+        print(f"[bridge plugin loader] {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        return {}
+
+
+def driveBridgeChat(target: str, prompt: str, max_steps: int = 20) -> dict[str, Any]:
+    """Top-level entry point for any bridge chat round-trip.
+
+    Resolves `target` to a plugin via the bridges/ registry and calls
+    Bridge.drive_chat(mini, message, email, password). Falls back to the
+    legacy driveBridgeChatViaVisionPilot only when no plugin matches the
+    target — keeps backward compat during the gradual migration.
+
+    Return shape: {ok, response, final_url, summary?, error?, steps?}
+    """
+    canon = normalizeChatTarget(target)
+    plugins = _loadBridgePlugins()
+    plugin = plugins.get(canon)
+
+    if plugin is None:
+        # Try alias resolution: scan every plugin's manifest aliases
+        for name, b in plugins.items():
+            if canon in (b.manifest.aliases or []):
+                plugin = b
+                break
+
+    if plugin is None:
+        # No plugin yet — fall back to legacy path.
+        return driveBridgeChatViaVisionPilot(target, prompt, max_steps=max_steps)
+
+    # Plugin found. For api-mode bridges (ollama), mini is unused.
+    # For web-mode bridges, attach to the per-target chrome.
+    if plugin.manifest.kind == "api":
+        mini = None
+    else:
+        mini = getMiniComputer(canon, offscreen=True, autostart=True)
+        if mini is None:
+            return {"ok": False, "error": f"MiniComputer unavailable for {canon!r}",
+                    "response": "", "steps": 0}
+
+    creds = _gptVisionPilotReadCredentials(canon)
+    result = plugin.drive_chat(mini, prompt,
+                                email=creds.get("email", ""),
+                                password=creds.get("password", "")) or {}
+    # Normalize to the existing response shape callers expect.
+    return {
+        "ok": bool(result.get("ok")),
+        "response": str(result.get("answer") or result.get("response") or ""),
+        "steps": int(result.get("steps") or 1),
+        "final_url": result.get("final_url") or "",
+        "summary": result.get("summary") or f"plugin:{plugin.manifest.name}",
+        "error": result.get("error") or "",
+        "model": result.get("model") or "",
+    }
+
+
 def driveBridgeChatViaVisionPilot(target: str, prompt: str, max_steps: int = 20) -> dict[str, Any]:
     """Wire-in for bridge handlers: drive one chat round-trip via GPT-4o vision.
 
