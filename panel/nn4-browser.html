@@ -2,6 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<!-- CSP: allow Prism.js from cdnjs (view-source highlighter, loaded lazily),
+     the local proxy sidecar over http://127.0.0.1:* for the content iframe
+     and the /raw XHR, plus inline styles/scripts this single-file shell uses.
+     {{CSP_SOURCE}} is substituted by extension.js loadNn4BrowserHtml(). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{CSP_SOURCE}} https://*.vscode-cdn.net https://cdnjs.cloudflare.com http://127.0.0.1:* data: blob:; script-src {{CSP_SOURCE}} https://*.vscode-cdn.net https://cdnjs.cloudflare.com 'unsafe-inline'; style-src {{CSP_SOURCE}} https://*.vscode-cdn.net https://cdnjs.cloudflare.com 'unsafe-inline'; font-src {{CSP_SOURCE}} https://*.vscode-cdn.net data:; connect-src {{CSP_SOURCE}} http://127.0.0.1:* http://localhost:*; frame-src http://127.0.0.1:* http://localhost:* https: data: about:;" />
 <title>Netscape Navigator 4.0 — CBE</title>
 <!--
   NN4-skinned browser shell for Claude Codex Black.
@@ -88,6 +93,78 @@
     color: #ffffff;
   }
   .menu-item .u { text-decoration: underline; }
+  .menu-item.open { background: var(--nn4-blue); color: #ffffff; }
+  .menu-item { position: relative; }
+
+  /* ─── Menu dropdowns ──────────────────────────────────────────── */
+  .menu-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    min-width: 140px;
+    background: var(--nn4-chrome);
+    padding: 2px;
+    z-index: 1000;
+    display: none;
+    /* outset bevel */
+    border-top:    1px solid var(--nn4-chrome-light);
+    border-left:   1px solid var(--nn4-chrome-light);
+    border-right:  1px solid #000;
+    border-bottom: 1px solid #000;
+    box-shadow:
+      inset -1px -1px 0 var(--nn4-chrome-dark),
+      inset  1px  1px 0 #ffffff,
+      2px 2px 4px rgba(0,0,0,0.3);
+  }
+  .menu-dropdown.open { display: block; }
+  .menu-dropdown-item {
+    padding: 3px 18px 3px 22px;
+    cursor: default;
+    color: var(--nn4-text);
+    white-space: nowrap;
+  }
+  .menu-dropdown-item:hover {
+    background: var(--nn4-blue);
+    color: #ffffff;
+  }
+  .menu-dropdown-sep {
+    height: 0;
+    margin: 2px 4px;
+    border-top: 1px solid var(--nn4-chrome-dark);
+    border-bottom: 1px solid var(--nn4-chrome-light);
+  }
+
+  /* ─── About modal title bar X button ──────────────────────────── */
+  .nn4-titlebar-x {
+    float: right;
+    width: 16px;
+    height: 14px;
+    background: var(--nn4-chrome);
+    color: var(--nn4-text);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: bold;
+    line-height: 12px;
+    text-align: center;
+    cursor: default;
+    margin-top: 0;
+    border-top:    1px solid var(--nn4-chrome-light);
+    border-left:   1px solid var(--nn4-chrome-light);
+    border-right:  1px solid #000;
+    border-bottom: 1px solid #000;
+    box-shadow:
+      inset -1px -1px 0 var(--nn4-chrome-dark),
+      inset  1px  1px 0 #ffffff;
+  }
+  .nn4-titlebar-x:active {
+    border-top:    1px solid var(--nn4-chrome-dark);
+    border-left:   1px solid var(--nn4-chrome-dark);
+    border-right:  1px solid var(--nn4-chrome-light);
+    border-bottom: 1px solid var(--nn4-chrome-light);
+    box-shadow:
+      inset  1px  1px 0 #000000,
+      inset -1px -1px 0 #ffffff;
+  }
 
   /* Lighthouse "N" indicator — small bezelled square on the right edge */
   .lighthouse {
@@ -162,6 +239,14 @@
       inset  1px  1px 0 #000000,
       inset -1px -1px 0 #ffffff;
   }
+  /* Disabled state — used by Back/Forward when at history limits.
+     pointer-events:none prevents both :hover bevel and click handlers
+     from firing, so the button appears flat and unclickable. */
+  .tbtn.disabled {
+    opacity: 0.45;
+    pointer-events: none;
+    cursor: default;
+  }
   .tbtn .ico {
     font-size: 18px;
     line-height: 22px;
@@ -210,6 +295,7 @@
     display: flex;
     align-items: center;
     gap: 4px;
+    position: relative;   /* anchor for #bookmarksDropdown */
     /* outset bevel */
     border-top:    1px solid var(--nn4-chrome-light);
     border-left:   1px solid var(--nn4-chrome-light);
@@ -219,6 +305,27 @@
       inset -1px -1px 0 var(--nn4-chrome-dark),
       inset  1px  1px 0 #ffffff;
     height: 22px;
+  }
+  .bookmark-btn.open {
+    border-top:    1px solid var(--nn4-chrome-dark);
+    border-left:   1px solid var(--nn4-chrome-dark);
+    border-right:  1px solid var(--nn4-chrome-light);
+    border-bottom: 1px solid var(--nn4-chrome-light);
+    box-shadow:
+      inset  1px  1px 0 #000000,
+      inset -1px -1px 0 #ffffff;
+  }
+  /* Bookmarks dropdown — same chrome as .menu-dropdown but wider so URLs read */
+  #bookmarksDropdown {
+    min-width: 220px;
+    max-width: 360px;
+    max-height: 360px;
+    overflow-y: auto;
+  }
+  #bookmarksDropdown .menu-dropdown-item {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 340px;
   }
   .bookmark-btn:active {
     border-top:    1px solid var(--nn4-chrome-dark);
@@ -318,12 +425,61 @@
   <!-- ── MENUBAR ─────────────────────────────────────────────────── -->
   <div class="menubar" role="menubar" aria-label="Menu bar">
     <div class="menubar-items">
-      <div class="menu-item"><span class="u">F</span>ile</div>
-      <div class="menu-item"><span class="u">E</span>dit</div>
-      <div class="menu-item"><span class="u">V</span>iew</div>
-      <div class="menu-item"><span class="u">G</span>o</div>
-      <div class="menu-item"><span class="u">C</span>ommunicator</div>
-      <div class="menu-item"><span class="u">H</span>elp</div>
+      <div class="menu-item" data-menu="file" id="menuFile"><span class="u">F</span>ile
+        <div class="menu-dropdown" id="menuFileDropdown">
+          <div class="menu-dropdown-item" data-action="open">Open File…</div>
+          <div class="menu-dropdown-item" data-action="saveas">Save As…</div>
+          <div class="menu-dropdown-sep"></div>
+          <div class="menu-dropdown-item" data-action="viewsource">View Source</div>
+          <div class="menu-dropdown-item" data-action="devtools">Dev Tools</div>
+        </div>
+      </div>
+      <div class="menu-item" data-menu="edit" id="menuEdit"><span class="u">E</span>dit
+        <div class="menu-dropdown" id="menuEditDropdown">
+          <div class="menu-dropdown-item" data-action="cut">Cut</div>
+          <div class="menu-dropdown-item" data-action="copy">Copy</div>
+          <div class="menu-dropdown-item" data-action="paste">Paste</div>
+          <div class="menu-dropdown-sep"></div>
+          <div class="menu-dropdown-item" data-action="find">Find in Page&hellip;</div>
+        </div>
+      </div>
+      <div class="menu-item" data-menu="view" id="menuView"><span class="u">V</span>iew
+        <div class="menu-dropdown" id="menuViewDropdown">
+          <div class="menu-dropdown-item" data-action="stop">Stop</div>
+          <div class="menu-dropdown-item" data-action="reload">Reload</div>
+          <div class="menu-dropdown-sep"></div>
+          <div class="menu-dropdown-item" data-action="zoomin">Increase Font Size</div>
+          <div class="menu-dropdown-item" data-action="zoomout">Decrease Font Size</div>
+          <div class="menu-dropdown-item" data-action="zoomreset">Reset Zoom</div>
+          <div class="menu-dropdown-sep"></div>
+          <div class="menu-dropdown-item" data-action="viewsource">View Source</div>
+        </div>
+      </div>
+      <div class="menu-item" data-menu="go" id="menuGo"><span class="u">G</span>o
+        <div class="menu-dropdown" id="menuGoDropdown">
+          <div class="menu-dropdown-item" data-action="back">Back</div>
+          <div class="menu-dropdown-item" data-action="forward">Forward</div>
+          <div class="menu-dropdown-item" data-action="home">Home</div>
+          <div class="menu-dropdown-sep"></div>
+          <div class="menu-dropdown-item" data-action="reload">Reload</div>
+          <div class="menu-dropdown-sep"></div>
+          <div class="menu-dropdown-item" data-action="history-recent" id="goRecentSlot">Recent (none yet)</div>
+        </div>
+      </div>
+      <div class="menu-item" data-menu="communicator" id="menuCommunicator"><span class="u">C</span>ommunicator
+        <div class="menu-dropdown" id="menuCommunicatorDropdown">
+          <div class="menu-dropdown-item" data-action="webmail">Webmail</div>
+          <div class="menu-dropdown-item" data-action="calendar">Calendar</div>
+          <div class="menu-dropdown-item" data-action="composer">Composer</div>
+          <div class="menu-dropdown-sep"></div>
+          <div class="menu-dropdown-item" data-action="aboutcomm">About Communicator</div>
+        </div>
+      </div>
+      <div class="menu-item" data-menu="help" id="menuHelp"><span class="u">H</span>elp
+        <div class="menu-dropdown" id="menuHelpDropdown">
+          <div class="menu-dropdown-item" data-action="about">About CBE Browser…</div>
+        </div>
+      </div>
     </div>
     <div class="lighthouse" title="Activity indicator" aria-hidden="true">N</div>
   </div>
@@ -397,8 +553,9 @@
   <div class="toolbar-loc">
     <div class="bookmark-btn" id="bookmarksBtn" title="Bookmarks">
       <span>Bookmarks</span><span>&#x25BC;</span>
+      <div class="menu-dropdown" id="bookmarksDropdown"></div>
     </div>
-    <div class="loc-label"><span>Location:</span><span>&#x25BC;</span></div>
+    <div class="loc-label"><span>Location:</span><span id="locCaret" title="Bookmarks" style="cursor:pointer;">&#x25BC;</span></div>
     <div class="loc-input-wrap">
       <input id="locInput" class="loc-input" type="text" spellcheck="false" autocomplete="off" />
     </div>
@@ -407,15 +564,22 @@
   <!-- ── CONTENT ─────────────────────────────────────────────────── -->
   <div class="content">
     <iframe id="contentFrame"
-            src="https://chatgpt.com/"
+            src="about:blank"
             referrerpolicy="no-referrer"
             sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
             title="Browser content"></iframe>
+    <!-- In-panel debug log overlay, toggled by clicking the status text.
+         Holds the last ~30 lines of: navigate() calls, HEAD probe results,
+         iframe load/error events, and proxy responses. -->
+    <div id="dbgPanel" style="display:none;position:absolute;left:0;right:0;bottom:0;
+         max-height:45%;overflow:auto;background:#111;color:#9f9;font:11px/1.35
+         Consolas,Menlo,monospace;padding:4px 6px;border-top:2px solid #393;
+         white-space:pre-wrap;z-index:5;"></div>
   </div>
 
   <!-- ── STATUS BAR ──────────────────────────────────────────────── -->
   <div class="statusbar" aria-label="Status bar">
-    <div class="status-cell grow" id="statusText">Document: Done</div>
+    <div class="status-cell grow" id="statusText" title="Click to toggle debug log">Document: Done</div>
     <div class="status-cell"><span>&#x1F4DC;</span></div>
     <div class="status-cell"><span class="padlock" id="padlock" title="Secure">&#x1F512;</span></div>
   </div>
@@ -424,19 +588,74 @@
 (function () {
   'use strict';
 
+  // ── VSCode host bridge ────────────────────────────────────────
+  // acquireVsCodeApi exists only inside a VSCode webview. When this file
+  // is loaded standalone (manual smoke test), the bridge is a stub.
+  var vscodeApi = null;
+  try { vscodeApi = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null; }
+  catch (e) { vscodeApi = null; }
+
   var frame   = document.getElementById('contentFrame');
   var loc     = document.getElementById('locInput');
   var status  = document.getElementById('statusText');
   var padlock = document.getElementById('padlock');
+  var dbgPane = document.getElementById('dbgPanel');
 
-  var HOME_URL = 'https://chatgpt.com/';
+  /* PROXY_BASE is substituted by extension.js loadNn4BrowserHtml() with the
+     URL of the local Python sidecar (e.g. "http://127.0.0.1:48273/proxy").
+     When the placeholder is left intact (running the HTML file directly
+     for offline tinkering) the panel falls back to direct iframing — which
+     only works on permissive sites like example.com. */
+  var PROXY_BASE = '{{PROXY_BASE}}';
+  if (PROXY_BASE === '' || PROXY_BASE.indexOf('{{') === 0) PROXY_BASE = '';
+  var HOME_URL   = 'https://trentontompkins.com/';
 
-  // Initial URL → mirror src into the location input
-  loc.value = frame.getAttribute('src') || '';
-
-  function setStatus(text) {
-    status.textContent = text || '';
+  // ── Debug log (in-panel + console + extension trace channel) ──
+  var dbgLines = [];
+  var DBG_MAX = 40;
+  function dbg(level, text) {
+    var t = new Date().toISOString().substring(11, 19);
+    var line = '[' + t + '] [' + level + '] ' + text;
+    dbgLines.push(line);
+    if (dbgLines.length > DBG_MAX) dbgLines.shift();
+    if (dbgPane) dbgPane.textContent = dbgLines.join('\n');
+    if (typeof console !== 'undefined') {
+      var fn = (level === 'ERR' || level === 'WARN') ? 'error' : 'log';
+      try { console[fn]('[nn4-browser]', text); } catch (_e) {}
+    }
+    if (vscodeApi) {
+      try { vscodeApi.postMessage({ type: 'nn4BrowserLog', level: level, text: text }); }
+      catch (_e) {}
+    }
   }
+  dbg('INFO', 'panel boot — PROXY_BASE=' + (PROXY_BASE || '(none, direct mode)'));
+
+  // Click the leftmost status cell to toggle the debug overlay.
+  status.addEventListener('click', function () {
+    if (!dbgPane) return;
+    dbgPane.style.display = (dbgPane.style.display === 'none') ? 'block' : 'none';
+    dbg('INFO', 'debug pane toggled');
+  });
+  // Catch uncaught panel errors too.
+  window.addEventListener('error', function (e) {
+    dbg('ERR', 'window.onerror ' + (e && e.message) + ' @ ' + (e && e.filename) + ':' + (e && e.lineno));
+  });
+
+  function toProxy(url) {
+    if (!url || url === 'about:blank') return url;
+    if (!PROXY_BASE) return url;                           // direct mode
+    if (url.indexOf(PROXY_BASE) === 0) return url;         // already proxied
+    return PROXY_BASE + '?url=' + encodeURIComponent(url);
+  }
+  function fromProxy(url) {
+    if (!PROXY_BASE) return url;
+    var i = url.indexOf(PROXY_BASE + '?url=');
+    if (i === -1) return url;
+    try { return decodeURIComponent(url.substring(i + PROXY_BASE.length + 5)); }
+    catch (e) { return url; }
+  }
+
+  function setStatus(text) { status.textContent = text || ''; }
 
   function reflectPadlock(url) {
     try {
@@ -445,65 +664,383 @@
       padlock.title = (u.protocol === 'https:') ? 'Secure' : 'Not secure';
     } catch (e) { /* leave as-is */ }
   }
-  reflectPadlock(loc.value);
 
-  function navigate(url) {
+  // HEAD pre-flight: ping the proxy with this URL before swapping frame.src.
+  // Lets us log the upstream status BEFORE the iframe loads, so if the
+  // iframe ends up blank we know whether the fetch itself failed.
+  function preflight(targetUrl, cb) {
+    if (!PROXY_BASE) { cb(null); return; }
+    var probeUrl = PROXY_BASE + '?url=' + encodeURIComponent(targetUrl);
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('HEAD', probeUrl, true);
+      xhr.timeout = 8000;
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState !== 4) return;
+        dbg('INFO', 'preflight HEAD ' + targetUrl + ' -> HTTP ' + xhr.status);
+        cb(xhr.status);
+      };
+      xhr.onerror   = function ()  { dbg('ERR', 'preflight network error for ' + targetUrl); cb(0); };
+      xhr.ontimeout = function ()  { dbg('ERR', 'preflight timeout for ' + targetUrl);     cb(-1); };
+      xhr.send();
+    } catch (e) {
+      dbg('ERR', 'preflight throw ' + e.message);
+      cb(null);
+    }
+  }
+
+  var __navTimer = null;
+  var __lastTarget = '';
+
+  // ── Navigation history stack ──────────────────────────────────
+  // We can't use the iframe's contentWindow.history because the page is
+  // served through the local proxy on a different origin than the panel
+  // (vscode-webview:// vs http://127.0.0.1:<port>/proxy), so cross-origin
+  // protection blocks history.back()/forward() reads.
+  //
+  // Instead, maintain our own stack of REAL (non-proxied) URLs that the
+  // user requested. `cursor` is the index of the URL currently displayed.
+  //   - navigate(url, true)  -> pushes onto stack (default)
+  //   - navigate(url, false) -> swaps frame.src without touching the stack
+  //   - goBack/goForward     -> move cursor, then re-navigate without push
+  var history = [];
+  var cursor  = -1;
+
+  function refreshNavButtons() {
+    var btnB = document.getElementById('btnBack');
+    var btnF = document.getElementById('btnFwd');
+    if (btnB) btnB.classList.toggle('disabled', cursor <= 0);
+    if (btnF) btnF.classList.toggle('disabled', cursor < 0 || cursor >= history.length - 1);
+  }
+
+  function pushHistory(url) {
+    // Drop any "forward" entries when user navigates somewhere new from a back-state.
+    if (cursor < history.length - 1) history = history.slice(0, cursor + 1);
+    // No-op when the requested URL matches the current one (e.g. clicking
+    // a link to the same page, or pressing Enter on an unchanged URL).
+    if (history[cursor] === url) { refreshNavButtons(); return; }
+    history.push(url);
+    cursor = history.length - 1;
+    dbg('INFO', 'history: push -> [' + cursor + '] ' + url + ' (len=' + history.length + ')');
+    refreshNavButtons();
+  }
+
+  function goBack() {
+    if (cursor <= 0) {
+      setStatus('At start of history');
+      dbg('INFO', 'history: back blocked (cursor=' + cursor + ')');
+      return;
+    }
+    cursor -= 1;
+    var url = history[cursor];
+    dbg('INFO', 'history: back -> [' + cursor + '] ' + url);
+    setStatus('Back: ' + url);
+    navigate(url, false);
+    refreshNavButtons();
+  }
+
+  function goForward() {
+    if (cursor < 0 || cursor >= history.length - 1) {
+      setStatus('At end of history');
+      dbg('INFO', 'history: forward blocked (cursor=' + cursor + ', len=' + history.length + ')');
+      return;
+    }
+    cursor += 1;
+    var url = history[cursor];
+    dbg('INFO', 'history: forward -> [' + cursor + '] ' + url);
+    setStatus('Forward: ' + url);
+    navigate(url, false);
+    refreshNavButtons();
+  }
+
+  function navigate(url, pushToHistory) {
     if (!url) return;
+    if (pushToHistory === undefined) pushToHistory = true;
     // Light heuristic: if no scheme + no leading slash, assume https
     if (!/^[a-z]+:\/\//i.test(url) && url[0] !== '/' && url[0] !== '?') {
-      // Bare token → search via DuckDuckGo; with a dot → treat as host
       url = /\s/.test(url) || url.indexOf('.') === -1
         ? 'https://duckduckgo.com/?q=' + encodeURIComponent(url)
         : 'https://' + url;
     }
+    __lastTarget = url;
     setStatus('Connect: ' + url);
-    try { frame.src = url; } catch (e) { setStatus('Navigation error: ' + e.message); }
-    loc.value = url;
-    reflectPadlock(url);
+    dbg('INFO', 'navigate -> ' + url + (pushToHistory ? '' : ' (no-push)'));
+    if (pushToHistory) pushHistory(url);
+    preflight(url, function (code) {
+      var proxied = toProxy(url);
+      if (code === 0)       setStatus('Proxy unreachable — sidecar may not be running');
+      else if (code === -1) setStatus('Proxy timeout');
+      else if (code && code >= 400) setStatus('Upstream HTTP ' + code + ' — see debug log');
+      try { frame.src = proxied; }
+      catch (e) {
+        dbg('ERR', 'frame.src throw ' + e.message);
+        setStatus('Navigation error: ' + e.message);
+      }
+      loc.value = url;
+      reflectPadlock(url);
+      // Sites that ship X-Frame-Options *AFTER* our strip pass (e.g.
+      // JS that calls window.top.location) will end up with an empty body.
+      // Schedule a sanity check ~2s post-load.
+      if (__navTimer) clearTimeout(__navTimer);
+      __navTimer = setTimeout(checkBlank, 2500);
+    });
+  }
+
+  // If contentDocument is reachable AND body is empty after 2.5s, log a hint
+  // that the page silently refused. Cross-origin reads throw — which is the
+  // SUCCESS case (page rendered inside another origin).
+  function checkBlank() {
+    try {
+      var doc = frame.contentDocument;
+      if (doc && doc.body && doc.body.innerText.trim() === '' && doc.body.children.length === 0) {
+        dbg('WARN', 'iframe body empty 2.5s after load — likely blocked by site (refused to connect)');
+        setStatus('Blank document — site may be blocking iframes');
+      }
+    } catch (_e) {
+      // cross-origin read threw — page is rendering, this is good
+      dbg('INFO', 'iframe became cross-origin (rendered ok)');
+    }
   }
 
   // ── Toolbar button wiring ──────────────────────────────────────
-  document.getElementById('btnBack').addEventListener('click', function () {
-    try { frame.contentWindow.history.back(); setStatus('Back'); }
-    catch (e) { setStatus('Back: cross-origin (cannot read history)'); }
-  });
-  document.getElementById('btnFwd').addEventListener('click', function () {
-    try { frame.contentWindow.history.forward(); setStatus('Forward'); }
-    catch (e) { setStatus('Forward: cross-origin (cannot read history)'); }
-  });
+  // Back/Forward delegate to the panel-side history stack (cross-origin
+  // proxy iframe makes contentWindow.history unreadable). Agent A's
+  // right-click context menu reuses these same click handlers — don't
+  // rename or move them. The .disabled CSS class blocks the click via
+  // pointer-events:none, but the handler also guards inside goBack/goForward.
+  document.getElementById('btnBack').addEventListener('click', function () { goBack(); });
+  document.getElementById('btnFwd').addEventListener('click',  function () { goForward(); });
   document.getElementById('btnReload').addEventListener('click', function () {
     try {
-      // Most reliable cross-origin reload: re-assign the same src.
       var src = frame.getAttribute('src');
       frame.src = 'about:blank';
       setTimeout(function () { frame.src = src; }, 30);
       setStatus('Reloading…');
-    } catch (e) { setStatus('Reload error: ' + e.message); }
+      dbg('INFO', 'reload click');
+    } catch (e) { dbg('ERR', 'reload throw ' + e.message); setStatus('Reload error: ' + e.message); }
   });
-  document.getElementById('btnHome').addEventListener('click', function () {
-    navigate(HOME_URL);
-  });
-  document.getElementById('btnSearch').addEventListener('click', function () {
-    navigate('https://duckduckgo.com/');
-  });
-  document.getElementById('btnNetscape').addEventListener('click', function () {
-    navigate('https://en.wikipedia.org/wiki/Netscape_Navigator');
-  });
+  document.getElementById('btnHome').addEventListener('click', function () { navigate(HOME_URL); });
+  document.getElementById('btnSearch').addEventListener('click', function () { navigate('https://duckduckgo.com/'); });
+  document.getElementById('btnNetscape').addEventListener('click', function () { navigate('https://en.wikipedia.org/wiki/Netscape_Navigator'); });
   document.getElementById('btnPrint').addEventListener('click', function () {
-    try { frame.contentWindow.print(); }
-    catch (e) { setStatus('Print: cross-origin (use the page menu)'); }
+    dbg('INFO', 'print clicked');
+    setStatus('Print: opening dialog…');
+    // No page loaded yet => no injected listener exists, postMessage is a
+    // no-op. Tell the user instead of silently doing nothing.
+    var curSrc = frame.getAttribute('src') || '';
+    if (!curSrc || curSrc === 'about:blank') {
+      dbg('WARN', 'print: no page loaded (src=' + (curSrc || 'empty') + ') — nothing to print');
+      setStatus('Print: load a page first');
+      return;
+    }
+    // Approach 1: direct same-origin print(). Works only when the iframe is
+    // truly same-origin to this panel. In the VSCode webview the panel is
+    // vscode-webview://… while the iframe loads from http://127.0.0.1:<port>/
+    // (the proxy sidecar) — different origins, so this will throw
+    // SecurityError. Approach 2 (postMessage) is the real path; the direct
+    // call is kept as the fast path for standalone smoke tests where the
+    // HTML and the iframe target share an origin (e.g. file:// + file://).
+    var directOk = false;
+    try {
+      frame.contentWindow.print();
+      directOk = true;
+      dbg('INFO', 'print: direct contentWindow.print() succeeded');
+      setStatus('Print: dialog opened');
+    } catch (e) {
+      dbg('WARN', 'print: direct call threw (' + e.message + '), falling back to postMessage');
+    }
+    if (directOk) return;
+    // Approach 2: ask the iframe to print itself. The proxy sidecar injects
+    // a tiny listener (see nn4_proxy_sidecar.rewrite_html) that listens for
+    // {type:'cbe-print'} and calls window.print() inside the page's own
+    // origin — which the browser allows.
+    try {
+      frame.contentWindow.postMessage({ type: 'cbe-print' }, '*');
+      dbg('INFO', 'print: postMessage cbe-print dispatched');
+      setStatus('Print: dialog requested');
+    } catch (e2) {
+      dbg('ERR', 'print: postMessage threw ' + e2.message);
+      setStatus('Print failed: ' + e2.message);
+    }
   });
+  // Surface the page-side acks for Print / Zoom into the trace channel so
+  // a silent cross-origin failure is visible in Output -> Codex Black Ed.
+  window.addEventListener('message', function (e) {
+    var d = e && e.data;
+    if (!d || typeof d !== 'object') return;
+    if (d.type === 'cbe-print-ack') {
+      if (d.ok) { dbg('INFO', 'print: page ack ok — OS dialog opened'); setStatus('Print: dialog opened'); }
+      else      { dbg('ERR',  'print: page ack FAILED ' + (d.error || '')); setStatus('Print failed: ' + (d.error || 'see log')); }
+    } else if (d.type === 'cbe-zoom-ack') {
+      if (d.ok) dbg('INFO', 'view: page ack zoom applied factor=' + d.factor);
+      else      dbg('WARN', 'view: page ack zoom FAILED ' + (d.error || ''));
+    } else if (d.type === 'cbe-ctxmenu') {
+      // The proxied page relayed a right-click (cross-origin iframes eat the
+      // contextmenu event so the panel never sees it directly). Coords are
+      // viewport-relative to the IFRAME; offset by the iframe's position in
+      // the panel so the menu lands under the real cursor.
+      var r = frame.getBoundingClientRect();
+      var mx = (r.left || 0) + (d.x || 0);
+      var my = (r.top  || 0) + (d.y || 0);
+      dbg('INFO', 'ctxmenu: relayed from page @ ' + mx + ',' + my);
+      if (typeof buildCtxMenu === 'function') buildCtxMenu(mx, my);
+    }
+  }, false);
+
+  // ── Security popup ─────────────────────────────────────────────
+  // Small modal in the NN4 bevel-out style. Builds once, reused on every
+  // Security click. Escape / OK / clicking the backdrop dismisses it.
+  function escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function showSecPopup(htmlBody) {
+    var prev = document.getElementById('secPopupWrap');
+    if (prev) prev.parentNode.removeChild(prev);
+    var wrap = document.createElement('div');
+    wrap.id = 'secPopupWrap';
+    wrap.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.25);' +
+      'display:flex;align-items:center;justify-content:center;z-index:9999;';
+    var modal = document.createElement('div');
+    modal.className = 'bevel-out';
+    modal.style.cssText =
+      'background:var(--nn4-chrome);min-width:320px;max-width:420px;' +
+      'padding:8px 10px;font:11px "MS Sans Serif",Geneva,sans-serif;' +
+      'color:var(--nn4-text);';
+    modal.innerHTML =
+      '<div style="font-weight:bold;background:var(--nn4-blue);color:#fff;' +
+      'padding:2px 6px;margin:-8px -10px 6px -10px;">Security Info</div>' +
+      '<div id="secPopupBody" style="font:11px Consolas,Menlo,monospace;' +
+      'background:#fff;padding:6px 8px;margin-bottom:8px;" class="bevel-in">' +
+      htmlBody + '</div>' +
+      '<div style="text-align:right;">' +
+      '<button id="secPopupOk" class="bevel-out" style="background:var(--nn4-chrome);' +
+      'padding:2px 18px;font:inherit;cursor:default;">OK</button></div>';
+    wrap.appendChild(modal);
+    document.body.appendChild(wrap);
+    function close() { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); }
+    document.getElementById('secPopupOk').addEventListener('click', close);
+    wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });
+    document.addEventListener('keydown', function onKey(e) {
+      if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
+    });
+  }
+
+  // PROXY_BASE looks like 'http://127.0.0.1:<port>/proxy'. The cert endpoint
+  // is the sibling '/cert' on the same host — strip the trailing path component.
+  function certEndpoint() {
+    if (!PROXY_BASE) return '';
+    return PROXY_BASE.replace(/\/proxy$/, '/cert');
+  }
+
   document.getElementById('btnSec').addEventListener('click', function () {
-    var u = loc.value || '';
-    setStatus(u.indexOf('https://') === 0 ? 'Secured by TLS' : 'Insecure (no TLS)');
+    var u = (loc.value || '').trim();
+    dbg('INFO', 'security clicked, url=' + u);
+    if (!u) {
+      setStatus('Security: no URL');
+      showSecPopup('<i>No URL loaded.</i>');
+      return;
+    }
+    var isHttp = /^http:\/\//i.test(u);
+    var isHttps = /^https:\/\//i.test(u);
+    if (isHttp) {
+      setStatus('Security: connection not encrypted');
+      dbg('WARN', 'security: http (unencrypted) — ' + u);
+      showSecPopup('<b>This connection is not encrypted.</b><br><br>' +
+                   '<span style="color:#555;">' + escHtml(u) + '</span>');
+      return;
+    }
+    if (!isHttps) {
+      setStatus('Security: non-web scheme');
+      showSecPopup('<i>Security info only applies to http:// and https:// URLs.</i>');
+      return;
+    }
+    var ep = certEndpoint();
+    if (!ep) {
+      setStatus('Security: proxy unavailable');
+      showSecPopup('<i>The local proxy sidecar is not running, so the certificate cannot be fetched.</i>');
+      return;
+    }
+    var host = '';
+    try { host = new URL(u).hostname; } catch (e) { host = ''; }
+    if (!host) {
+      showSecPopup('<i>Could not parse the URL.</i>');
+      return;
+    }
+    setStatus('Security: fetching certificate for ' + host + '…');
+    showSecPopup('<i>Fetching certificate for ' + escHtml(host) + '…</i>');
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', ep + '?host=' + encodeURIComponent(host), true);
+    xhr.timeout = 10000;
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState !== 4) return;
+      if (xhr.status !== 200) {
+        dbg('ERR', 'security: cert endpoint HTTP ' + xhr.status);
+        setStatus('Security: cert endpoint HTTP ' + xhr.status);
+        showSecPopup('<b>Cert lookup failed.</b><br>Proxy returned HTTP ' + xhr.status + '.');
+        return;
+      }
+      var info;
+      try { info = JSON.parse(xhr.responseText); }
+      catch (e) {
+        dbg('ERR', 'security: bad JSON ' + e.message);
+        showSecPopup('<b>Malformed cert response.</b>');
+        return;
+      }
+      dbg('INFO', 'security: cert ok=' + info.ok + ' issuer=' + (info.issuer_cn || ''));
+      if (!info.ok) {
+        setStatus('Security: ' + (info.error || 'unknown error'));
+        var fallback = '<b>Certificate check failed.</b><br><br>' +
+          '<u>Host</u>: ' + escHtml(info.host || host) + '<br>' +
+          '<u>Error</u>: ' + escHtml(info.error || 'unknown') + '<br>';
+        if (info.subject_cn || info.issuer_cn || info.not_after) {
+          fallback += '<br><i>Server presented:</i><br>' +
+            (info.subject_cn ? '<u>Subject</u>: ' + escHtml(info.subject_cn) + '<br>' : '') +
+            (info.issuer_cn  ? '<u>Issuer</u>: '  + escHtml(info.issuer_cn)  + '<br>' : '') +
+            (info.not_after  ? '<u>Expires</u>: ' + escHtml(info.not_after)  + '<br>' : '');
+        }
+        showSecPopup(fallback);
+        return;
+      }
+      setStatus('Security: cert valid (' + (info.issuer_cn || 'unknown CA') + ')');
+      var sanList = (info.san && info.san.length)
+        ? info.san.slice(0, 6).map(escHtml).join(', ') +
+          (info.san.length > 6 ? ' …(+' + (info.san.length - 6) + ')' : '')
+        : '<i>(none)</i>';
+      var fp = info.fingerprint_sha256 || '';
+      if (fp.length > 60) fp = fp.substring(0, 60) + '…';
+      var html =
+        '<u>Host</u>: ' + escHtml(info.host) + ':' + escHtml(info.port) + '<br>' +
+        '<u>Subject CN</u>: ' + escHtml(info.subject_cn || '(none)') + '<br>' +
+        '<u>Issuer</u>: ' + escHtml(info.issuer_cn || '(none)') +
+        (info.issuer_o ? ' (' + escHtml(info.issuer_o) + ')' : '') + '<br>' +
+        '<u>Valid from</u>: ' + escHtml(info.not_before || '?') + '<br>' +
+        '<u>Valid until</u>: ' + escHtml(info.not_after || '?') + '<br>' +
+        '<u>Serial</u>: ' + escHtml(info.serial || '?') + '<br>' +
+        '<u>SANs</u>: ' + sanList + '<br>' +
+        '<u>SHA-256</u>: ' + escHtml(fp);
+      showSecPopup(html);
+    };
+    xhr.onerror = function () {
+      dbg('ERR', 'security: xhr network error');
+      setStatus('Security: cert endpoint unreachable');
+      showSecPopup('<b>Cert endpoint unreachable.</b><br>Is the proxy sidecar running?');
+    };
+    xhr.ontimeout = function () {
+      dbg('ERR', 'security: xhr timeout');
+      setStatus('Security: cert lookup timed out');
+      showSecPopup('<b>Cert lookup timed out.</b>');
+    };
+    xhr.send();
   });
   document.getElementById('btnStop').addEventListener('click', function () {
     try { frame.contentWindow.stop(); setStatus('Stopped'); }
     catch (e) { try { frame.src = 'about:blank'; setStatus('Stopped'); }
-                catch (er) { setStatus('Stop error: ' + er.message); } }
+                catch (er) { dbg('ERR', 'stop throw ' + er.message); setStatus('Stop error: ' + er.message); } }
   });
 
-  // ── Location bar — Enter to navigate ───────────────────────────
   loc.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -512,25 +1049,1140 @@
   });
   loc.addEventListener('focus', function () { loc.select(); });
 
-  // ── Iframe load events — update status + padlock when possible ─
+  // ── Iframe load events — update status + padlock + reachability ─
   frame.addEventListener('load', function () {
     setStatus('Document: Done');
+    dbg('INFO', 'iframe load fired (src=' + (frame.getAttribute('src') || '').substring(0, 80) + ')');
     try {
-      // Cross-origin reads throw — guarded.
       var href = frame.contentWindow.location.href;
       if (href && href !== 'about:blank') {
-        loc.value = href;
+        loc.value = fromProxy(href);
         reflectPadlock(href);
+        dbg('INFO', 'same-origin readable, href=' + href);
       }
     } catch (e) {
-      // Same-origin read blocked — fall back to the <iframe src> attr.
       var src = frame.getAttribute('src') || '';
       if (src) reflectPadlock(src);
+      dbg('INFO', 'cross-origin (expected for real pages)');
     }
   });
-  frame.addEventListener('error', function () {
+  frame.addEventListener('error', function (ev) {
+    dbg('ERR', 'iframe.onerror fired type=' + (ev && ev.type));
     setStatus('Document: error (X-Frame-Options or CSP may have blocked the page)');
   });
+
+  // ── Menubar wiring ─────────────────────────────────────────────
+  // NN4 menus: single-click to open, click outside or Escape to close.
+  // Currently only Help → About is implemented; other menus show a
+  // brief "Not implemented" toast in the status bar.
+  var __toastTimer = null;
+  function toast(msg) {
+    setStatus(msg);
+    if (__toastTimer) clearTimeout(__toastTimer);
+    __toastTimer = setTimeout(function () { setStatus('Document: Done'); }, 2000);
+  }
+
+  function closeAllMenus() {
+    var open = document.querySelectorAll('.menu-item.open, .menu-dropdown.open');
+    for (var i = 0; i < open.length; i++) open[i].classList.remove('open');
+  }
+
+  var menuItems = document.querySelectorAll('.menubar-items .menu-item');
+  for (var i = 0; i < menuItems.length; i++) {
+    (function (item) {
+      item.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var name = item.getAttribute('data-menu');
+        var dropdown = item.querySelector('.menu-dropdown');
+        var wasOpen = item.classList.contains('open');
+        closeAllMenus();
+        if (!wasOpen) {
+          if (dropdown) {
+            item.classList.add('open');
+            dropdown.classList.add('open');
+          } else {
+            // Stub menus — flash toast
+            toast(name.charAt(0).toUpperCase() + name.slice(1) + ' menu: not implemented');
+          }
+        }
+      });
+    })(menuItems[i]);
+  }
+
+  document.addEventListener('click', function () { closeAllMenus(); });
+
+  // Help → About handler
+  var aboutItem = document.querySelector('#menuHelpDropdown .menu-dropdown-item[data-action="about"]');
+  if (aboutItem) {
+    aboutItem.addEventListener('click', function (e) {
+      e.stopPropagation();
+      closeAllMenus();
+      showAboutBox();
+    });
+  }
+
+  // ── View menu handlers ────────────────────────────────────────
+  // Stop / Reload reuse the toolbar button handlers — we re-emit a
+  // click on those buttons instead of duplicating logic. Zoom acts
+  // on the iframe's CSS `zoom` property (Chromium-only, fine here
+  // since the panel runs in VSCode's Electron/Chromium webview).
+  // View Source delegates to window.cbeViewSource (defined by a
+  // separate agent's right-click context menu work).
+  var ZOOM_MIN = 0.3, ZOOM_MAX = 3.0;
+  // CSS `zoom` set on the <iframe> ELEMENT from the panel is unreliable for
+  // proxied cross-origin content (the panel can't reach into the iframe doc,
+  // and element-level zoom is inconsistently honored). The real path is the
+  // postMessage relay: the sidecar injects a listener that sets
+  // documentElement/body style.zoom INSIDE the page's own origin. We keep a
+  // panel-side __zoom var as the source of truth (cross-origin frame.style
+  // reads back nothing useful) and also set frame.style.zoom as a
+  // belt-and-suspenders fallback for direct / non-proxied loads.
+  var __zoom = 1;
+  function getZoom() { return __zoom || 1; }
+  function setZoom(z) {
+    if (!z || isNaN(z)) z = 1;
+    if (z < ZOOM_MIN) z = ZOOM_MIN;
+    if (z > ZOOM_MAX) z = ZOOM_MAX;
+    __zoom = z;
+    // Primary path: ask the page (inside its own origin) to apply the zoom.
+    try {
+      frame.contentWindow.postMessage({ type: 'cbe-zoom', factor: z }, '*');
+      dbg('INFO', 'view: zoom postMessage cbe-zoom factor=' + z.toFixed(2));
+    } catch (e) {
+      dbg('WARN', 'view: zoom postMessage threw ' + e.message);
+    }
+    // Fallback path: element-level zoom for standalone / same-origin loads.
+    try { frame.style.zoom = String(z); } catch (_e) {}
+    dbg('INFO', 'view: zoom set to ' + z.toFixed(2));
+    toast('Zoom: ' + Math.round(z * 100) + '%');
+  }
+  // Re-apply current zoom after each navigation (new page = fresh listener).
+  if (frame) {
+    frame.addEventListener('load', function () {
+      if (__zoom !== 1) {
+        try { frame.contentWindow.postMessage({ type: 'cbe-zoom', factor: __zoom }, '*'); }
+        catch (_e) {}
+      }
+    });
+  }
+  var VIEW_ACTIONS = {
+    stop: function () {
+      dbg('INFO', 'view: stop');
+      var b = document.getElementById('btnStop');
+      if (b) b.click();
+    },
+    reload: function () {
+      dbg('INFO', 'view: reload');
+      var b = document.getElementById('btnReload');
+      if (b) b.click();
+    },
+    zoomin:    function () { setZoom(getZoom() * 1.1); },
+    zoomout:   function () { setZoom(getZoom() * 0.9); },
+    zoomreset: function () { setZoom(1); },
+    viewsource: function () {
+      if (typeof window.cbeViewSource === 'function') {
+        dbg('INFO', 'view: view-source -> ' + loc.value);
+        window.cbeViewSource(loc.value);
+      } else {
+        dbg('WARN', 'view-source not ready');
+        toast('View Source: not ready yet, try again in a moment');
+      }
+    }
+  };
+  var viewDropdown = document.getElementById('menuViewDropdown');
+  if (viewDropdown) {
+    viewDropdown.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var t = e.target;
+      while (t && t !== viewDropdown && !t.getAttribute('data-action')) t = t.parentNode;
+      if (!t || t === viewDropdown) return;
+      var action = t.getAttribute('data-action');
+      closeAllMenus();
+      var fn = VIEW_ACTIONS[action];
+      if (fn) fn();
+    });
+  }
+
+  // ── Go menu handlers ─────────────────────────────────────────
+  // Routes through the same goBack / goForward / navigate / reload
+  // functions the toolbar buttons use, so behavior stays consistent.
+  // history-recent updates the "Recent (...)" label on each navigate via
+  // updateGoRecentLabel() below.
+  var GO_ACTIONS = {
+    back:    function () { var b = document.getElementById('btnBack');    if (b) b.click(); else goBack(); },
+    forward: function () { var b = document.getElementById('btnForward'); if (b) b.click(); else goForward(); },
+    home:    function () { navigate(HOME_URL); },
+    reload:  function () { var b = document.getElementById('btnReload');  if (b) b.click(); },
+    'history-recent': function () {
+      // If we have a last-visited URL in the back stack, jump to it.
+      try {
+        if (typeof history !== 'undefined' && Array.isArray(history) && history.length > 1) {
+          var prev = history[history.length - 2];
+          if (prev) navigate(prev);
+        }
+      } catch (_e) { /* ignore */ }
+    }
+  };
+  var goDropdown = document.getElementById('menuGoDropdown');
+  if (goDropdown) {
+    goDropdown.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var t = e.target;
+      while (t && t !== goDropdown && !t.getAttribute('data-action')) t = t.parentNode;
+      if (!t || t === goDropdown) return;
+      var action = t.getAttribute('data-action');
+      closeAllMenus();
+      var fn = GO_ACTIONS[action];
+      if (fn) fn();
+    });
+  }
+
+  // ── Edit menu handlers ────────────────────────────────────────
+  // execCommand is deprecated but the only cross-platform way to drive
+  // cut/copy/paste from JS without async clipboard permissions. Works
+  // on the panel's own focused inputs (the location bar); silently
+  // fails inside the iframe due to cross-origin isolation, which we log.
+  function tryExec(cmd) {
+    try {
+      var ok = document.execCommand(cmd);
+      dbg('INFO', 'edit: execCommand(' + cmd + ') -> ' + ok);
+      toast(cmd.charAt(0).toUpperCase() + cmd.slice(1) + (ok ? ': ok' : ': nothing to ' + cmd));
+    } catch (e) {
+      dbg('ERR', 'edit: execCommand(' + cmd + ') threw ' + e.message);
+      toast(cmd + ' failed: ' + e.message);
+    }
+  }
+  var EDIT_ACTIONS = {
+    cut:   function () { tryExec('cut'); },
+    copy:  function () { tryExec('copy'); },
+    paste: function () { tryExec('paste'); },
+    find:  function () { showFindDialog(); }
+  };
+  var editDropdown = document.getElementById('menuEditDropdown');
+  if (editDropdown) {
+    editDropdown.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var t = e.target;
+      while (t && t !== editDropdown && !t.getAttribute('data-action')) t = t.parentNode;
+      if (!t || t === editDropdown) return;
+      var action = t.getAttribute('data-action');
+      closeAllMenus();
+      var fn = EDIT_ACTIONS[action];
+      if (fn) fn();
+    });
+  }
+
+  // Find in Page — small NN4-styled modal. Posts {type:'cbe-find', text}
+  // to the iframe; the proxy sidecar may inject a listener that calls
+  // window.find(text) inside the page origin. Honest fallback: if no
+  // reply comes back in 1.5s, copy term to clipboard + suggest Ctrl+F.
+  var __findResultListener = null;
+  function showFindDialog() {
+    var prev = document.getElementById('findDlgWrap');
+    if (prev) prev.parentNode.removeChild(prev);
+    dbg('INFO', 'find: dialog opened');
+
+    var wrap = document.createElement('div');
+    wrap.id = 'findDlgWrap';
+    wrap.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.25);' +
+      'display:flex;align-items:center;justify-content:center;z-index:9999;';
+
+    var modal = document.createElement('div');
+    modal.className = 'bevel-out';
+    modal.style.cssText =
+      'background:var(--nn4-chrome);min-width:340px;max-width:420px;' +
+      'padding:0;font:11px "MS Sans Serif",Geneva,sans-serif;color:var(--nn4-text);';
+    modal.innerHTML =
+      '<div style="font-weight:bold;background:linear-gradient(to right,var(--nn4-blue),#1084d0);' +
+      'color:#fff;padding:3px 6px;display:flex;align-items:center;justify-content:space-between;">' +
+      '<span>Find in Page</span>' +
+      '<span class="nn4-titlebar-x" id="findDlgX" title="Close">X</span>' +
+      '</div>' +
+      '<div style="padding:10px 12px;">' +
+      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">' +
+      '<span>Find:</span>' +
+      '<div class="bevel-in" style="flex:1 1 auto;background:#fff;padding:0 3px;height:20px;display:flex;align-items:center;">' +
+      '<input id="findDlgInput" type="text" spellcheck="false" autocomplete="off" ' +
+      'style="flex:1 1 auto;border:0;outline:0;background:transparent;font:inherit;height:18px;padding:0;" />' +
+      '</div>' +
+      '</div>' +
+      '<div id="findDlgStatus" style="height:14px;margin-bottom:8px;color:#444;font-style:italic;"></div>' +
+      '<div style="text-align:right;">' +
+      '<button id="findDlgNext" class="bevel-out" style="background:var(--nn4-chrome);' +
+      'padding:3px 16px;font:inherit;cursor:default;min-width:72px;margin-right:4px;">Find Next</button>' +
+      '<button id="findDlgCancel" class="bevel-out" style="background:var(--nn4-chrome);' +
+      'padding:3px 16px;font:inherit;cursor:default;min-width:72px;">Cancel</button>' +
+      '</div>' +
+      '</div>';
+    wrap.appendChild(modal);
+    document.body.appendChild(wrap);
+
+    var input = document.getElementById('findDlgInput');
+    var statusEl = document.getElementById('findDlgStatus');
+    setTimeout(function () { try { input.focus(); } catch (_e) {} }, 30);
+
+    var __findReplyTimer = null;
+    if (__findResultListener) {
+      window.removeEventListener('message', __findResultListener);
+      __findResultListener = null;
+    }
+    __findResultListener = function (ev) {
+      var d = ev && ev.data;
+      if (!d || (d.type !== 'cbe-find-result' && d.type !== 'cbe-find-ack')) return;
+      if (__findReplyTimer) { clearTimeout(__findReplyTimer); __findReplyTimer = null; }
+      var found = !!d.found;
+      var cnt = (typeof d.count === 'number') ? d.count : (found ? 1 : 0);
+      statusEl.textContent = found
+        ? ('Found' + (cnt > 1 ? ' (' + cnt + ' on page)' : ''))
+        : 'Phrase not found';
+      dbg(found ? 'INFO' : 'WARN', 'find: reply found=' + found + ' count=' + cnt);
+    };
+    window.addEventListener('message', __findResultListener);
+
+    function doFind() {
+      var text = String(input.value || '').trim();
+      if (!text) { statusEl.textContent = 'Enter a search term.'; return; }
+      statusEl.textContent = 'Searching…';
+      dbg('INFO', 'find: searching for "' + text + '"');
+      try {
+        frame.contentWindow.postMessage(
+          { type: 'cbe-find', query: text, text: text, forward: true }, '*');
+      } catch (e) {
+        dbg('ERR', 'find: postMessage threw ' + e.message);
+        statusEl.textContent = 'Search failed: ' + e.message;
+        return;
+      }
+      if (__findReplyTimer) clearTimeout(__findReplyTimer);
+      __findReplyTimer = setTimeout(function () {
+        statusEl.textContent = 'No reply — copied term to clipboard; press Ctrl+F in the page.';
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;';
+          document.body.appendChild(ta); ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          dbg('INFO', 'find: term copied to clipboard for manual Ctrl+F fallback');
+        } catch (e2) {
+          dbg('WARN', 'find: clipboard fallback failed ' + e2.message);
+        }
+      }, 1500);
+    }
+
+    function closeFind() {
+      if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+      document.removeEventListener('keydown', onKey);
+      if (__findResultListener) {
+        window.removeEventListener('message', __findResultListener);
+        __findResultListener = null;
+      }
+      if (__findReplyTimer) { clearTimeout(__findReplyTimer); __findReplyTimer = null; }
+      dbg('INFO', 'find: dialog closed');
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') closeFind();
+      else if (e.key === 'Enter' && document.getElementById('findDlgWrap')) {
+        if (document.activeElement === input) { e.preventDefault(); doFind(); }
+      }
+    }
+
+    document.getElementById('findDlgNext').addEventListener('click', doFind);
+    document.getElementById('findDlgCancel').addEventListener('click', closeFind);
+    document.getElementById('findDlgX').addEventListener('click', closeFind);
+    wrap.addEventListener('click', function (e) { if (e.target === wrap) closeFind(); });
+    modal.addEventListener('click', function (e) { e.stopPropagation(); });
+    document.addEventListener('keydown', onKey);
+  }
+
+  // Ctrl+F / Cmd+F opens the same Find dialog. Bound at WINDOW in the
+  // CAPTURE phase and stopImmediatePropagation()'d so VSCode's webview
+  // (which also listens for Ctrl+F to drive its own native find widget)
+  // never sees the key while this NN4 panel is focused. If the dialog is
+  // already open we just refocus its input instead of re-creating it.
+  window.addEventListener('keydown', function (e) {
+    var isFind = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey &&
+                 (e.key === 'f' || e.key === 'F');
+    if (!isFind) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    var existing = document.getElementById('findDlgWrap');
+    if (existing) {
+      var inp = document.getElementById('findDlgInput');
+      if (inp) { try { inp.focus(); inp.select(); } catch (_e) {} }
+      dbg('INFO', 'find: Ctrl+F (dialog already open, refocused)');
+    } else {
+      dbg('INFO', 'find: Ctrl+F intercepted — opening Find dialog');
+      showFindDialog();
+    }
+  }, true);
+
+  // ── Communicator menu handlers ───────────────────────────────
+  // NN4's Communicator menu was the launchpad to Mail, News, Composer,
+  // Address Book, Calendar, etc. We map a few sensible modern stand-ins
+  // (Gmail / Google Calendar) and keep an "About Communicator" easter
+  // egg with the period-appropriate chrome.
+  var COMMUNICATOR_ACTIONS = {
+    webmail:   function () { dbg('INFO', 'communicator: webmail');  navigate('https://mail.google.com/'); },
+    calendar:  function () { dbg('INFO', 'communicator: calendar'); navigate('https://calendar.google.com/'); },
+    composer:  function () {
+      dbg('INFO', 'communicator: composer (stub modal)');
+      showCommModal('Page Composer',
+        'Page composer not implemented.<br><br>' +
+        'Use the <b>File</b> menu to open a local HTML file in a text editor.');
+    },
+    aboutcomm: function () {
+      dbg('INFO', 'communicator: about-communicator');
+      showCommModal('About Communicator',
+        '<div style="text-align:center;font-style:italic;margin-bottom:6px;">' +
+        '<b>Communicator</b></div>' +
+        '<div>Powered by <b>Claude Opus 4.7</b>.</div>' +
+        '<div style="margin-top:6px;color:#555;">Communication interface circa 1997.</div>');
+    }
+  };
+  var commDropdown = document.getElementById('menuCommunicatorDropdown');
+  if (commDropdown) {
+    commDropdown.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var t = e.target;
+      while (t && t !== commDropdown && !t.getAttribute('data-action')) t = t.parentNode;
+      if (!t || t === commDropdown) return;
+      var action = t.getAttribute('data-action');
+      closeAllMenus();
+      var fn = COMMUNICATOR_ACTIONS[action];
+      if (fn) fn();
+    });
+  }
+
+  // Generic small NN4-styled OK modal (used by Composer + About Communicator)
+  function showCommModal(title, htmlBody) {
+    var prev = document.getElementById('commModalWrap');
+    if (prev) prev.parentNode.removeChild(prev);
+    var wrap = document.createElement('div');
+    wrap.id = 'commModalWrap';
+    wrap.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.25);' +
+      'display:flex;align-items:center;justify-content:center;z-index:9999;';
+    var modal = document.createElement('div');
+    modal.className = 'bevel-out';
+    modal.style.cssText =
+      'background:var(--nn4-chrome);min-width:320px;max-width:420px;' +
+      'padding:0;font:11px "MS Sans Serif",Geneva,sans-serif;color:var(--nn4-text);';
+    modal.innerHTML =
+      '<div style="font-weight:bold;background:linear-gradient(to right,var(--nn4-blue),#1084d0);' +
+      'color:#fff;padding:3px 6px;display:flex;align-items:center;justify-content:space-between;">' +
+      '<span>' + escHtml(title) + '</span>' +
+      '<span class="nn4-titlebar-x" id="commModalX" title="Close">X</span>' +
+      '</div>' +
+      '<div style="padding:12px 14px;">' +
+      '<div class="bevel-in" style="background:#fff;padding:8px 10px;margin-bottom:10px;font-size:11px;line-height:1.5;">' +
+      htmlBody +
+      '</div>' +
+      '<div style="text-align:right;">' +
+      '<button id="commModalOk" class="bevel-out" style="background:var(--nn4-chrome);' +
+      'padding:3px 24px;font:inherit;cursor:default;min-width:72px;">OK</button>' +
+      '</div>' +
+      '</div>';
+    wrap.appendChild(modal);
+    document.body.appendChild(wrap);
+    function closeCm() {
+      if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+      document.removeEventListener('keydown', onKey);
+    }
+    function onKey(e) { if (e.key === 'Escape') closeCm(); }
+    document.getElementById('commModalOk').addEventListener('click', closeCm);
+    document.getElementById('commModalX').addEventListener('click', closeCm);
+    wrap.addEventListener('click', function (e) { if (e.target === wrap) closeCm(); });
+    modal.addEventListener('click', function (e) { e.stopPropagation(); });
+    document.addEventListener('keydown', onKey);
+  }
+
+  // ── About box ──────────────────────────────────────────────────
+  function showAboutBox() {
+    var prev = document.getElementById('aboutBoxWrap');
+    if (prev) { prev.parentNode.removeChild(prev); }
+    dbg('INFO', 'about: opened');
+    if (vscodeApi) {
+      try { vscodeApi.postMessage({ type: 'nn4BrowserLog', level: 'INFO', text: 'about: opened' }); }
+      catch (_e) {}
+    }
+    var wrap = document.createElement('div');
+    wrap.id = 'aboutBoxWrap';
+    wrap.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.25);' +
+      'display:flex;align-items:center;justify-content:center;z-index:9999;';
+    var modal = document.createElement('div');
+    modal.className = 'bevel-out';
+    modal.style.cssText =
+      'background:var(--nn4-chrome);min-width:360px;max-width:460px;' +
+      'padding:0;font:11px "MS Sans Serif",Geneva,sans-serif;' +
+      'color:var(--nn4-text);';
+    modal.innerHTML =
+      '<div style="font-weight:bold;background:linear-gradient(to right,var(--nn4-blue),#1084d0);' +
+      'color:#fff;padding:3px 6px;display:flex;align-items:center;justify-content:space-between;">' +
+      '<span>About CBE Browser</span>' +
+      '<span class="nn4-titlebar-x" id="aboutBoxX" title="Close">X</span>' +
+      '</div>' +
+      '<div style="padding:12px 14px;">' +
+      '<div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:10px;">' +
+      '<div style="width:48px;height:48px;background:#000080;color:#fff;display:flex;' +
+      'align-items:center;justify-content:center;font-family:\'Times New Roman\',Times,serif;' +
+      'font-style:italic;font-weight:bold;font-size:36px;line-height:1;flex:0 0 auto;" class="bevel-out">N</div>' +
+      '<div style="flex:1 1 auto;">' +
+      '<div style="font-size:13px;font-weight:bold;margin-bottom:2px;">Netscape Navigator 4.0</div>' +
+      '<div style="font-size:11px;margin-bottom:4px;">Claude Codex Black Edition</div>' +
+      '<div style="font-size:11px;color:#444;">In-panel browser shell</div>' +
+      '</div>' +
+      '</div>' +
+      '<div class="bevel-in" style="background:#fff;padding:8px 10px;margin-bottom:10px;font-size:11px;">' +
+      '<div style="margin-bottom:4px;"><b>Coded by Claude Opus 4.7</b></div>' +
+      '<div style="color:#666;font-style:italic;">Anthropic\'s most capable model</div>' +
+      '</div>' +
+      '<div class="bevel-in" style="background:#fff;padding:8px 10px;margin-bottom:12px;font-size:11px;line-height:1.5;">' +
+      '<div><b>Trenton Tompkins</b></div>' +
+      '<div>Email: <a href="mailto:trenton@tristate.digital" style="color:#000080;">trenton@tristate.digital</a></div>' +
+      '<div>Site: <a href="https://trentontompkins.com" style="color:#000080;">trentontompkins.com</a></div>' +
+      '<div>GitHub: <a href="https://github.com/tibberous" style="color:#000080;">github.com/tibberous</a></div>' +
+      '</div>' +
+      '<div style="text-align:right;">' +
+      '<button id="aboutBoxOk" class="bevel-out" style="background:var(--nn4-chrome);' +
+      'padding:3px 24px;font:inherit;cursor:default;min-width:72px;">OK</button>' +
+      '</div>' +
+      '</div>';
+    wrap.appendChild(modal);
+    document.body.appendChild(wrap);
+
+    // Links in the About box must NOT be plain <a href> that VSCode
+    // intercepts (it tries to open them inside the editor and nothing
+    // useful happens). Intercept every link, preventDefault(), and ask
+    // the extension host to open it in a real desktop browser.
+    var aboutLinks = modal.querySelectorAll('a[href]');
+    for (var li = 0; li < aboutLinks.length; li++) {
+      (function (a) {
+        var raw = a.getAttribute('href') || '';
+        var url = raw;
+        if (raw.toLowerCase().indexOf('mailto:') === 0) {
+          // Open mailto via the OS handler (still external, not in-panel).
+          url = raw;
+        }
+        a.style.cursor = 'pointer';
+        a.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          dbg('INFO', 'about: openExternal ' + url);
+          if (vscodeApi) {
+            try {
+              vscodeApi.postMessage({ type: 'nn4BrowserLog', level: 'INFO',
+                text: 'about: openExternal ' + url });
+              vscodeApi.postMessage({ type: 'nn4OpenExternal', url: url });
+            } catch (_e) {}
+          }
+        });
+      })(aboutLinks[li]);
+    }
+
+    function closeAbout() {
+      if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+      document.removeEventListener('keydown', onKey);
+      dbg('INFO', 'about: closed');
+      if (vscodeApi) {
+        try { vscodeApi.postMessage({ type: 'nn4BrowserLog', level: 'INFO', text: 'about: closed' }); }
+        catch (_e) {}
+      }
+    }
+    function onKey(e) { if (e.key === 'Escape') closeAbout(); }
+
+    document.getElementById('aboutBoxOk').addEventListener('click', closeAbout);
+    document.getElementById('aboutBoxX').addEventListener('click', closeAbout);
+    // Clicking outside the modal (on the backdrop) dismisses
+    wrap.addEventListener('click', function (e) { if (e.target === wrap) closeAbout(); });
+    // Prevent inner clicks from bubbling to the backdrop handler
+    modal.addEventListener('click', function (e) { e.stopPropagation(); });
+    document.addEventListener('keydown', onKey);
+  }
+
+  // ── Bookmarks ─────────────────────────────────────────────────
+  // Storage shape: JSON array of {name, url} objects under the key
+  // 'cbe.nn4.bookmarks'. We seed a 4-item default list on first run
+  // only — presence of the key (even if it's an empty array) means
+  // "user has touched this", so we never re-seed.
+  var BM_KEY = 'cbe.nn4.bookmarks';
+  var BM_SEEDS = [
+    { name: 'Example.com',   url: 'https://example.com/' },
+    { name: 'Hacker News',   url: 'https://news.ycombinator.com/' },
+    { name: 'Wikipedia',     url: 'https://en.wikipedia.org/' },
+    { name: 'Lobste.rs',     url: 'https://lobste.rs/' }
+  ];
+
+  // Separate "the user has deliberately managed bookmarks" flag. Earlier
+  // builds wrote an empty/garbage value to BM_KEY before the user ever
+  // interacted, which left the list permanently empty ("books dont woek").
+  // We now self-heal: re-seed whenever the store is missing/empty/invalid
+  // UNLESS this flag proves the user intentionally cleared it.
+  var BM_TOUCHED_KEY = 'cbe.nn4.bm.touched';
+  function bmTouched() {
+    try { return window.localStorage.getItem(BM_TOUCHED_KEY) === '1'; }
+    catch (_e) { return false; }
+  }
+  function markBmTouched() {
+    try { window.localStorage.setItem(BM_TOUCHED_KEY, '1'); } catch (_e) {}
+  }
+
+  function loadBookmarks() {
+    try {
+      var raw = window.localStorage.getItem(BM_KEY);
+      var arr = null;
+      if (raw !== null) {
+        try {
+          var p = JSON.parse(raw);
+          if (Array.isArray(p)) arr = p;
+        } catch (_pe) { arr = null; }
+      }
+      // Heal a missing / corrupt / empty-but-untouched store back to seeds.
+      if (arr === null || (arr.length === 0 && !bmTouched())) {
+        window.localStorage.setItem(BM_KEY, JSON.stringify(BM_SEEDS));
+        dbg('INFO', 'bookmarks: (re)seeded default list (' +
+            BM_SEEDS.length + ' entries; raw was ' +
+            (raw === null ? 'absent' : 'empty/invalid') + ')');
+        return BM_SEEDS.slice();
+      }
+      return arr;
+    } catch (e) {
+      dbg('ERR', 'bookmarks: load failed (' + e.message + '), using seeds in-memory');
+      return BM_SEEDS.slice();
+    }
+  }
+  function saveBookmarks(arr) {
+    try {
+      window.localStorage.setItem(BM_KEY, JSON.stringify(arr));
+      markBmTouched();
+    } catch (e) {
+      dbg('ERR', 'bookmarks: save failed ' + e.message);
+    }
+  }
+
+  var bookmarksBtn = document.getElementById('bookmarksBtn');
+  var bookmarksDropdown = document.getElementById('bookmarksDropdown');
+
+  function closeBookmarks() {
+    if (!bookmarksDropdown) return;
+    bookmarksDropdown.classList.remove('open');
+    bookmarksBtn.classList.remove('open');
+  }
+  // Hook into the existing closeAllMenus chain so clicking File/Edit/etc closes us too
+  var __origCloseAllMenus = closeAllMenus;
+  closeAllMenus = function () {
+    __origCloseAllMenus();
+    closeBookmarks();
+  };
+  document.addEventListener('click', function () { closeBookmarks(); });
+
+  function renderBookmarksDropdown() {
+    var bms = loadBookmarks();
+    var html = '';
+    html += '<div class="menu-dropdown-item" data-bm-action="add">Add Bookmark&hellip;</div>';
+    html += '<div class="menu-dropdown-item" data-bm-action="manage">Manage Bookmarks&hellip;</div>';
+    html += '<div class="menu-dropdown-sep"></div>';
+    if (bms.length === 0) {
+      html += '<div class="menu-dropdown-item" style="color:#888;font-style:italic;">(no bookmarks)</div>';
+    } else {
+      for (var i = 0; i < bms.length; i++) {
+        var bm = bms[i];
+        // textContent assignment below would clobber innerHTML; encode here.
+        var name = String(bm.name || bm.url || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        var url = String(bm.url || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        html += '<div class="menu-dropdown-item" data-bm-action="go" data-bm-url="' + url + '" title="' + url + '">' + name + '</div>';
+      }
+    }
+    bookmarksDropdown.innerHTML = html;
+  }
+
+  function openBookmarks() {
+    closeAllMenus();
+    renderBookmarksDropdown();
+    bookmarksDropdown.classList.add('open');
+    bookmarksBtn.classList.add('open');
+    dbg('INFO', 'bookmarks: dropdown opened (' + loadBookmarks().length + ' entries)');
+  }
+
+  if (bookmarksBtn) {
+    bookmarksBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (bookmarksDropdown.classList.contains('open')) {
+        closeBookmarks();
+      } else {
+        openBookmarks();
+      }
+    });
+  }
+
+  // The little ▼ caret next to "Location:" was inert markup. Wire it to
+  // the SAME bookmarks store/dropdown as the Bookmarks button so the
+  // classic NN4 "location bar drop-down of saved sites" works. The
+  // dropdown is anchored on #bookmarksBtn (its CSS positioning parent);
+  // toggling it from here just reuses openBookmarks/closeBookmarks.
+  var locCaret = document.getElementById('locCaret');
+  if (locCaret) {
+    locCaret.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (bookmarksDropdown && bookmarksDropdown.classList.contains('open')) {
+        closeBookmarks();
+        dbg('INFO', 'bookmarks: loc-caret toggled dropdown closed');
+      } else {
+        openBookmarks();
+        dbg('INFO', 'bookmarks: loc-caret opened dropdown');
+      }
+    });
+  }
+
+  // Delegate clicks inside the dropdown to action handlers
+  if (bookmarksDropdown) {
+    bookmarksDropdown.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var t = e.target;
+      while (t && t !== bookmarksDropdown && !t.getAttribute('data-bm-action')) t = t.parentNode;
+      if (!t || t === bookmarksDropdown) return;
+      var action = t.getAttribute('data-bm-action');
+      if (action === 'add') {
+        closeBookmarks();
+        addBookmarkInteractive();
+      } else if (action === 'manage') {
+        closeBookmarks();
+        showManageBookmarks();
+      } else if (action === 'go') {
+        var url = t.getAttribute('data-bm-url') || '';
+        closeBookmarks();
+        if (url) {
+          dbg('INFO', 'bookmarks: navigate -> ' + url);
+          navigate(url);
+        }
+      }
+    });
+  }
+
+  function addBookmarkInteractive() {
+    var currentUrl = (loc && loc.value) ? loc.value : '';
+    var defaultName = '';
+    try {
+      var doc = frame.contentDocument;
+      if (doc && doc.title) defaultName = doc.title;
+    } catch (_e) {
+      // Cross-origin — fall back to hostname
+      try { defaultName = new URL(currentUrl).hostname; } catch (_e2) { defaultName = currentUrl; }
+    }
+    if (!defaultName) {
+      try { defaultName = new URL(currentUrl).hostname; } catch (_e3) { defaultName = currentUrl; }
+    }
+    var name = window.prompt('Bookmark name:', defaultName);
+    if (name === null) {
+      dbg('INFO', 'bookmarks: add canceled');
+      return;
+    }
+    name = String(name).trim();
+    if (!name) name = defaultName || currentUrl;
+    if (!currentUrl) {
+      dbg('WARN', 'bookmarks: add aborted — no current URL');
+      return;
+    }
+    var bms = loadBookmarks();
+    bms.push({ name: name, url: currentUrl });
+    saveBookmarks(bms);
+    dbg('INFO', 'bookmarks: added "' + name + '" -> ' + currentUrl + ' (total=' + bms.length + ')');
+  }
+
+  function showManageBookmarks() {
+    var prev = document.getElementById('bmManageWrap');
+    if (prev) prev.parentNode.removeChild(prev);
+    dbg('INFO', 'bookmarks: manage opened');
+
+    var wrap = document.createElement('div');
+    wrap.id = 'bmManageWrap';
+    wrap.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.25);' +
+      'display:flex;align-items:center;justify-content:center;z-index:9999;';
+
+    var modal = document.createElement('div');
+    modal.className = 'bevel-out';
+    modal.style.cssText =
+      'background:var(--nn4-chrome);min-width:420px;max-width:560px;width:80%;' +
+      'padding:0;font:11px "MS Sans Serif",Geneva,sans-serif;color:var(--nn4-text);';
+
+    function renderRows() {
+      var bms = loadBookmarks();
+      var rowsHtml = '';
+      if (bms.length === 0) {
+        rowsHtml = '<div style="padding:14px;text-align:center;color:#666;font-style:italic;">No bookmarks yet.</div>';
+      } else {
+        for (var i = 0; i < bms.length; i++) {
+          var bm = bms[i];
+          var n = String(bm.name || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          var u = String(bm.url  || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          rowsHtml +=
+            '<div class="bm-row" data-idx="' + i + '" style="display:flex;align-items:center;gap:6px;padding:3px 4px;' +
+            (i % 2 ? 'background:#f0f0f0;' : 'background:#ffffff;') + '">' +
+              '<div style="flex:1 1 auto;min-width:0;overflow:hidden;">' +
+                '<div style="font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + n + '</div>' +
+                '<div style="color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + u + '</div>' +
+              '</div>' +
+              '<button class="bevel-out bm-up"     data-act="up"     data-idx="' + i + '" style="background:var(--nn4-chrome);padding:1px 6px;font:inherit;cursor:default;"' + (i === 0 ? ' disabled' : '') + ' title="Move up">&#x25B2;</button>' +
+              '<button class="bevel-out bm-down"   data-act="down"   data-idx="' + i + '" style="background:var(--nn4-chrome);padding:1px 6px;font:inherit;cursor:default;"' + (i === bms.length - 1 ? ' disabled' : '') + ' title="Move down">&#x25BC;</button>' +
+              '<button class="bevel-out bm-del"    data-act="delete" data-idx="' + i + '" style="background:var(--nn4-chrome);padding:1px 6px;font:inherit;cursor:default;" title="Delete">X</button>' +
+            '</div>';
+        }
+      }
+      var list = modal.querySelector('#bmRows');
+      if (list) list.innerHTML = rowsHtml;
+    }
+
+    modal.innerHTML =
+      '<div style="font-weight:bold;background:linear-gradient(to right,var(--nn4-blue),#1084d0);' +
+      'color:#fff;padding:3px 6px;display:flex;align-items:center;justify-content:space-between;">' +
+      '<span>Bookmarks</span>' +
+      '<span class="nn4-titlebar-x" id="bmManageX" title="Close">X</span>' +
+      '</div>' +
+      '<div style="padding:10px 12px;">' +
+      '<div class="bevel-in" style="background:#fff;max-height:280px;overflow-y:auto;margin-bottom:10px;" id="bmRows"></div>' +
+      '<div style="text-align:right;">' +
+      '<button id="bmManageOk" class="bevel-out" style="background:var(--nn4-chrome);' +
+      'padding:3px 24px;font:inherit;cursor:default;min-width:72px;">OK</button>' +
+      '</div>' +
+      '</div>';
+
+    wrap.appendChild(modal);
+    document.body.appendChild(wrap);
+    renderRows();
+
+    function closeManage() {
+      if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+      document.removeEventListener('keydown', onKey);
+      dbg('INFO', 'bookmarks: manage closed');
+    }
+    function onKey(e) { if (e.key === 'Escape') closeManage(); }
+
+    document.getElementById('bmManageOk').addEventListener('click', closeManage);
+    document.getElementById('bmManageX').addEventListener('click', closeManage);
+    wrap.addEventListener('click', function (e) { if (e.target === wrap) closeManage(); });
+    modal.addEventListener('click', function (e) { e.stopPropagation(); });
+
+    modal.querySelector('#bmRows').addEventListener('click', function (e) {
+      var t = e.target;
+      while (t && t !== modal && !t.getAttribute('data-act')) t = t.parentNode;
+      if (!t || t === modal) return;
+      var act = t.getAttribute('data-act');
+      var idx = parseInt(t.getAttribute('data-idx'), 10);
+      if (isNaN(idx)) return;
+      var bms = loadBookmarks();
+      if (idx < 0 || idx >= bms.length) return;
+      if (act === 'delete') {
+        var removed = bms.splice(idx, 1)[0];
+        saveBookmarks(bms);
+        dbg('INFO', 'bookmarks: deleted "' + (removed && removed.name) + '" (remaining=' + bms.length + ')');
+      } else if (act === 'up' && idx > 0) {
+        var tmp = bms[idx - 1]; bms[idx - 1] = bms[idx]; bms[idx] = tmp;
+        saveBookmarks(bms);
+        dbg('INFO', 'bookmarks: moved idx ' + idx + ' up');
+      } else if (act === 'down' && idx < bms.length - 1) {
+        var tmp2 = bms[idx + 1]; bms[idx + 1] = bms[idx]; bms[idx] = tmp2;
+        saveBookmarks(bms);
+        dbg('INFO', 'bookmarks: moved idx ' + idx + ' down');
+      } else {
+        return;
+      }
+      renderRows();
+    });
+
+    document.addEventListener('keydown', onKey);
+  }
+
+  // Surface load count at boot for tracing
+  dbg('INFO', 'bookmarks: ready (' + loadBookmarks().length + ' entries)');
+
+  // ── Iframe right-click context menu ────────────────────────────
+  // Cross-origin iframes eat contextmenu events; we listen on the .content
+  // parent (which sees the event first when the user right-clicks anywhere
+  // in the content area outside the actual frame surface in VSCode webview).
+  // Items: Back, Forward, Reload, ─, View Source, Chrome Dev Tools.
+  var __ctxMenuEl = null;
+  function closeCtxMenu() {
+    if (__ctxMenuEl && __ctxMenuEl.parentNode) __ctxMenuEl.parentNode.removeChild(__ctxMenuEl);
+    __ctxMenuEl = null;
+  }
+  function buildCtxMenu(x, y) {
+    closeCtxMenu();
+    var m = document.createElement('div');
+    m.id = 'nn4CtxMenu';
+    m.style.cssText =
+      'position:fixed;left:' + x + 'px;top:' + y + 'px;min-width:160px;' +
+      'background:var(--nn4-chrome);padding:2px;z-index:99999;' +
+      'font:11px "MS Sans Serif",Geneva,sans-serif;color:var(--nn4-text);' +
+      'border-top:1px solid var(--nn4-chrome-light);' +
+      'border-left:1px solid var(--nn4-chrome-light);' +
+      'border-right:1px solid #000;border-bottom:1px solid #000;' +
+      'box-shadow:inset -1px -1px 0 var(--nn4-chrome-dark),' +
+                 'inset  1px  1px 0 #ffffff,' +
+                 '2px 2px 4px rgba(0,0,0,0.3);user-select:none;';
+    var items = [
+      { id: 'back',    label: 'Back' },
+      { id: 'fwd',     label: 'Forward' },
+      { id: 'reload',  label: 'Reload' },
+      { sep: true },
+      { id: 'src',     label: 'View Source' },
+      { id: 'devtools',label: 'Chrome Dev Tools' }
+    ];
+    var html = '';
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (it.sep) html += '<div class="menu-dropdown-sep"></div>';
+      else        html += '<div class="menu-dropdown-item" data-ctx="' + it.id + '">' + it.label + '</div>';
+    }
+    m.innerHTML = html;
+    document.body.appendChild(m);
+    // Nudge back on-screen if it overflows the right/bottom edge.
+    var r = m.getBoundingClientRect();
+    if (r.right  > window.innerWidth)  m.style.left = Math.max(0, window.innerWidth  - r.width  - 4) + 'px';
+    if (r.bottom > window.innerHeight) m.style.top  = Math.max(0, window.innerHeight - r.height - 4) + 'px';
+    __ctxMenuEl = m;
+
+    m.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var t = e.target;
+      while (t && t !== m && !t.getAttribute('data-ctx')) t = t.parentNode;
+      if (!t || t === m) return;
+      var act = t.getAttribute('data-ctx');
+      closeCtxMenu();
+      dbg('INFO', 'ctxmenu: ' + act);
+      if (act === 'back') {
+        // Click the existing toolbar button so we inherit whatever logic the
+        // parallel Back/Fwd agent wires up — never duplicate the body.
+        document.getElementById('btnBack').click();
+      } else if (act === 'fwd') {
+        document.getElementById('btnFwd').click();
+      } else if (act === 'reload') {
+        document.getElementById('btnReload').click();
+      } else if (act === 'src') {
+        window.cbeViewSource(loc.value || '');
+      } else if (act === 'devtools') {
+        if (vscodeApi) {
+          try { vscodeApi.postMessage({ type: 'nn4BrowserDevTools' }); }
+          catch (e2) { dbg('ERR', 'ctxmenu: devtools post throw ' + e2.message); }
+        } else {
+          dbg('WARN', 'ctxmenu: devtools — no vscodeApi (standalone mode)');
+          setStatus('Dev Tools: only available inside VSCode');
+        }
+      }
+    });
+  }
+  // Right-click handling is two-pronged:
+  //  (1) PRIMARY — the proxy injects a page-side contextmenu capture that
+  //      relays coords up via postMessage 'cbe-ctxmenu' (handled above).
+  //      This is the only thing that works over a cross-origin proxied
+  //      iframe, which swallows the event before the panel can see it.
+  //  (2) FALLBACK — a transparent overlay ON TOP of the iframe with
+  //      pointer-events:none (so normal clicks/scroll pass straight through
+  //      to the iframe). It only flips pointer-events on for the duration of
+  //      a right mouse press so the panel can catch the contextmenu for
+  //      direct / non-proxied loads where no injected listener exists.
+  var contentEl = document.querySelector('.content');
+  if (contentEl) {
+    var ctxOverlay = document.createElement('div');
+    ctxOverlay.id = 'nn4CtxOverlay';
+    ctxOverlay.style.cssText =
+      'position:absolute;inset:0;z-index:4;pointer-events:none;background:transparent;';
+    contentEl.appendChild(ctxOverlay);
+    // Arm the overlay just before a right-button press so it can intercept
+    // the contextmenu, then immediately disarm so the page stays clickable.
+    contentEl.addEventListener('mousedown', function (e) {
+      if (e.button === 2) {
+        ctxOverlay.style.pointerEvents = 'auto';
+        setTimeout(function () { ctxOverlay.style.pointerEvents = 'none'; }, 50);
+      }
+    }, true);
+    ctxOverlay.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      ctxOverlay.style.pointerEvents = 'none';
+      dbg('INFO', 'ctxmenu: overlay caught (direct/non-proxied path)');
+      buildCtxMenu(e.clientX, e.clientY);
+    });
+    // Also catch right-clicks on the chrome / content padding directly.
+    contentEl.addEventListener('contextmenu', function (e) {
+      if (e.target === ctxOverlay) return;  // overlay already handled it
+      e.preventDefault();
+      buildCtxMenu(e.clientX, e.clientY);
+    });
+  }
+  // Dismiss on outside click or Escape.
+  document.addEventListener('click', function () { closeCtxMenu(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeCtxMenu();
+  });
+  // Right-clicking outside .content also closes a stray menu.
+  document.addEventListener('contextmenu', function (e) {
+    if (!contentEl || !contentEl.contains(e.target)) closeCtxMenu();
+  });
+
+  // ── View Source modal (exposed as window.cbeViewSource) ────────
+  // Prism.js is loaded lazily on first call; subsequent calls reuse the
+  // already-injected <link>/<script>. Detection uses window.Prism (defined
+  // synchronously by the core script) plus a Promise cache so concurrent
+  // calls in-flight share the same load.
+  var __prismReadyP = null;
+  function ensurePrism() {
+    if (window.Prism && typeof window.Prism.highlightElement === 'function') {
+      return Promise.resolve(window.Prism);
+    }
+    if (__prismReadyP) return __prismReadyP;
+    __prismReadyP = new Promise(function (resolve, reject) {
+      // CSS theme — id guard means subsequent calls won't re-inject.
+      if (!document.getElementById('cbe-prism-css')) {
+        var link = document.createElement('link');
+        link.id = 'cbe-prism-css';
+        link.rel = 'stylesheet';
+        link.href = 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css';
+        document.head.appendChild(link);
+      }
+      if (!document.getElementById('cbe-prism-js')) {
+        var s = document.createElement('script');
+        s.id = 'cbe-prism-js';
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js';
+        s.async = true;
+        s.onload = function () {
+          // Markup language ships in core 1.29; the explicit component is
+          // belt-and-suspenders in case the core build was customized.
+          var s2 = document.createElement('script');
+          s2.id = 'cbe-prism-markup';
+          s2.src = 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js';
+          s2.async = true;
+          s2.onload  = function () { resolve(window.Prism); };
+          s2.onerror = function () { dbg('WARN', 'view-source: prism-markup failed to load (core still loaded)'); resolve(window.Prism); };
+          document.head.appendChild(s2);
+        };
+        s.onerror = function () { reject(new Error('prism core failed to load')); };
+        document.head.appendChild(s);
+      } else {
+        // Tag exists but Prism not on window yet — poll briefly.
+        var tries = 0;
+        var iv = setInterval(function () {
+          tries++;
+          if (window.Prism) { clearInterval(iv); resolve(window.Prism); }
+          else if (tries > 40) { clearInterval(iv); reject(new Error('prism load timeout')); }
+        }, 50);
+      }
+    });
+    return __prismReadyP;
+  }
+
+  function rawEndpoint() {
+    if (!PROXY_BASE) return '';
+    return PROXY_BASE.replace(/\/proxy$/, '/raw');
+  }
+
+  window.cbeViewSource = function (url) {
+    url = String(url || '').trim();
+    if (!url) {
+      dbg('WARN', 'view-source: no url');
+      setStatus('View Source: no URL');
+      return;
+    }
+    var ep = rawEndpoint();
+    if (!ep) {
+      dbg('ERR', 'view-source: fetch failed proxy unavailable');
+      setStatus('View Source: proxy sidecar not running');
+      return;
+    }
+    // Build modal scaffold up front so the user sees a "Loading…" placeholder.
+    var prev = document.getElementById('viewSrcWrap');
+    if (prev) prev.parentNode.removeChild(prev);
+    var wrap = document.createElement('div');
+    wrap.id = 'viewSrcWrap';
+    wrap.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.25);' +
+      'display:flex;align-items:center;justify-content:center;z-index:9999;';
+    var modal = document.createElement('div');
+    modal.className = 'bevel-out';
+    modal.style.cssText =
+      'background:var(--nn4-chrome);width:80vw;height:80vh;max-width:1400px;max-height:900px;' +
+      'padding:0;font:11px "MS Sans Serif",Geneva,sans-serif;color:var(--nn4-text);' +
+      'display:flex;flex-direction:column;';
+    var titleUrl = url.length > 120 ? url.substring(0, 117) + '…' : url;
+    modal.innerHTML =
+      '<div style="font-weight:bold;background:linear-gradient(to right,var(--nn4-blue),#1084d0);' +
+      'color:#fff;padding:3px 6px;display:flex;align-items:center;justify-content:space-between;' +
+      'flex:0 0 auto;">' +
+      '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">View Source: ' + escHtml(titleUrl) + '</span>' +
+      '<span class="nn4-titlebar-x" id="viewSrcX" title="Close">X</span>' +
+      '</div>' +
+      '<div style="padding:8px 10px;flex:1 1 auto;display:flex;flex-direction:column;min-height:0;">' +
+      '<div class="bevel-in" style="background:#fff;flex:1 1 auto;overflow:auto;padding:8px;min-height:0;">' +
+      '<pre id="viewSrcPre" style="margin:0;font:12px Consolas,Menlo,monospace;white-space:pre-wrap;word-break:break-all;"><code id="viewSrcCode" class="language-markup">Loading…</code></pre>' +
+      '</div>' +
+      '<div style="text-align:right;margin-top:8px;flex:0 0 auto;">' +
+      '<button id="viewSrcOk" class="bevel-out" style="background:var(--nn4-chrome);' +
+      'padding:3px 24px;font:inherit;cursor:default;min-width:72px;">OK</button>' +
+      '</div>' +
+      '</div>';
+    wrap.appendChild(modal);
+    document.body.appendChild(wrap);
+
+    function closeViewSrc() {
+      if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+      document.removeEventListener('keydown', onKey);
+      dbg('INFO', 'view-source: closed');
+    }
+    function onKey(e) { if (e.key === 'Escape') closeViewSrc(); }
+    document.getElementById('viewSrcOk').addEventListener('click', closeViewSrc);
+    document.getElementById('viewSrcX').addEventListener('click', closeViewSrc);
+    wrap.addEventListener('click', function (e) { if (e.target === wrap) closeViewSrc(); });
+    modal.addEventListener('click', function (e) { e.stopPropagation(); });
+    document.addEventListener('keydown', onKey);
+
+    // Fetch via the /raw endpoint — pure unmodified source.
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', ep + '?url=' + encodeURIComponent(url), true);
+    xhr.timeout = 30000;
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState !== 4) return;
+      if (xhr.status !== 200) {
+        dbg('ERR', 'view-source: fetch failed HTTP ' + xhr.status);
+        setStatus('View Source: fetch failed HTTP ' + xhr.status);
+        var codeErr = document.getElementById('viewSrcCode');
+        if (codeErr) codeErr.textContent = 'Fetch failed: HTTP ' + xhr.status;
+        return;
+      }
+      var src = xhr.responseText || '';
+      var bytes = src.length;
+      dbg('INFO', 'view-source: opened url=' + url + ' bytes=' + bytes);
+      var codeEl = document.getElementById('viewSrcCode');
+      if (!codeEl) return;  // user already closed the modal
+      // textContent assignment HTML-escapes naturally; Prism then re-renders.
+      codeEl.textContent = src;
+      ensurePrism().then(function (Prism) {
+        try { Prism.highlightElement(codeEl); }
+        catch (e) { dbg('WARN', 'view-source: highlightElement threw ' + e.message); }
+      }).catch(function (e) {
+        dbg('WARN', 'view-source: prism unavailable (' + e.message + ') — showing plain text');
+      });
+    };
+    xhr.onerror = function () {
+      dbg('ERR', 'view-source: fetch failed network error');
+      setStatus('View Source: network error');
+      var c = document.getElementById('viewSrcCode');
+      if (c) c.textContent = 'Network error fetching source.';
+    };
+    xhr.ontimeout = function () {
+      dbg('ERR', 'view-source: fetch failed timeout');
+      setStatus('View Source: timeout');
+      var c = document.getElementById('viewSrcCode');
+      if (c) c.textContent = 'Timed out fetching source.';
+    };
+    xhr.send();
+  };
+
+  // ── Kick off the home page on boot ─────────────────────────────
+  // Initial location bar value
+  loc.value = HOME_URL;
+  reflectPadlock(HOME_URL);
+  navigate(HOME_URL);
 })();
 </script>
 </body>

@@ -12,7 +12,7 @@
 <!-- CSP: allow scripts/styles/images/media from the webview origin + the
      inline <script> block. {{CSP_SOURCE}} is replaced by extension.js with
      webview.cspSource. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{CSP_SOURCE}} https://*.vscode-cdn.net data:; script-src {{CSP_SOURCE}} https://*.vscode-cdn.net 'unsafe-inline'; style-src {{CSP_SOURCE}} https://*.vscode-cdn.net 'unsafe-inline'; font-src {{CSP_SOURCE}} https://*.vscode-cdn.net data:; media-src {{CSP_SOURCE}} https://*.vscode-cdn.net blob: data:; frame-src {{CSP_SOURCE}} https://*.vscode-cdn.net https://trentontompkins.com;" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{CSP_SOURCE}} https://*.vscode-cdn.net data:; script-src {{CSP_SOURCE}} https://*.vscode-cdn.net 'unsafe-inline'; style-src {{CSP_SOURCE}} https://*.vscode-cdn.net 'unsafe-inline'; font-src {{CSP_SOURCE}} https://*.vscode-cdn.net data:; media-src {{CSP_SOURCE}} https://*.vscode-cdn.net blob: data:; frame-src {{CSP_SOURCE}} https: data:;" />
 <title>Claude Codex Black</title>
 <!-- Prism CSS deferred: load with media="print" (non-blocking), then JS swaps
      to media="all" once loaded. The chat thread is rendered without code-block
@@ -842,7 +842,12 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     position: absolute;
     inset: 0;
     overflow-y: auto;
-    padding: 18px 18px 220px 18px;
+    /* Bottom padding budget for the prompt pill + dock at the panel
+       bottom. 280px was not enough for the macOS Color Dock — its
+       prompt pill + 2-row icon grid + meta row stacks to ~380-400px
+       on a wide panel; messages were getting hidden underneath the
+       composer. 420px covers every shipped skin as of 2026-05-19. */
+    padding: 18px 18px 420px 18px;
     background: var(--app-primary-background, #f3f3f3) !important;
     color: var(--app-primary-foreground, #1f1f1f) !important;
     font-family: var(--vscode-chat-font-family, var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif));
@@ -1400,7 +1405,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
             <img src="{{ASSETS_BASE}}/project_folder.svg" alt="" />
           </button>
           <button id="browserBtn" class="tool-button" type="button" data-tooltip="Browser" aria-label="Browser">
-            <img src="{{ASSETS_BASE}}/browser.svg" alt="" />
+            <img src="{{ASSETS_BASE}}/browser.png" alt="" />
           </button>
           <button id="monitorBtn" class="tool-button" type="button" data-tooltip="VSCode monitor" data-i18n-tip="tooltip.monitor" aria-label="VSCode monitor">
             <img src="{{ASSETS_BASE}}/vscode_monitor.svg" alt="" />
@@ -1479,6 +1484,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
         <button id="cbe-tama-close" type="button" aria-label="Close Tamagotchi" title="Close">×</button>
       </div>
       <div id="cbe-tama-status" role="status" aria-live="polite">
+        <span class="tama-stat" data-stat="stage"       data-tooltip="Lifecycle stage"   title="Lifecycle stage">🥚 egg</span>
         <span class="tama-stat" data-stat="hunger"      data-tooltip="Hunger"            title="Hunger">🍖 100</span>
         <span class="tama-stat" data-stat="happiness"   data-tooltip="Happiness"         title="Happiness">😀 100</span>
         <span class="tama-stat" data-stat="health"      data-tooltip="Health"            title="Health">❤️ 100</span>
@@ -1631,10 +1637,18 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     const fmt = (n) => Math.round(Math.max(0, Math.min(100, n)));
     const row = el("cbe-tama-status");
     if (row) {
+      /* Stage glyph map — small emoji cue per lifecycle phase. Dead is
+         handled via the banner; this row keeps showing the last live stage. */
+      const STAGE_GLYPHS = {
+        egg: "🥚 egg", baby: "🐣 baby", child: "🐥 child",
+        teen: "🐤 teen", adult: "🐔 adult", senior: "👴 senior",
+        dead: "💀 dead"
+      };
       row.querySelectorAll(".tama-stat").forEach((node) => {
         const stat = node.getAttribute("data-stat");
         let v;
         switch (stat) {
+          case "stage":       v = STAGE_GLYPHS[g.stage] || ("· " + g.stage); break;
           case "hunger":      v = "🍖 " + fmt(g.hunger); break;
           case "happiness":   v = "😀 " + fmt(g.happiness); break;
           case "health":      v = "❤️ " + fmt(g.health); break;
@@ -1712,10 +1726,24 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     if (shell.hidden) openShell(); else closeShell();
   }
 
-  /* Wire the toolbar button + close button + 6 action buttons + Escape. */
+  /* Wire the toolbar button + close button + 6 action buttons + Escape.
+     Toolbar button uses a DELEGATED body listener (not addEventListener
+     directly on #tamaBtn) so it survives toolbar rebuilds / panel-init
+     order races — wire() runs once; the delegated handler keeps working
+     even if the button is later replaced. The SVG icon inside the button
+     captures the click but closest("#tamaBtn") walks up to find it. */
   function wire() {
-    const tamaBtn = el("tamaBtn");
-    if (tamaBtn) tamaBtn.addEventListener("click", toggleShell);
+    document.body.addEventListener("click", (ev) => {
+      const t = ev.target;
+      if (!t || !t.closest) return;
+      if (t.closest("#tamaBtn")) {
+        console.log("[Tamagotchi] tamaBtn clicked → toggleShell()");
+        toggleShell();
+      }
+    });
+    if (!el("tamaBtn")) {
+      console.warn("[Tamagotchi] wire(): #tamaBtn not in DOM at wire time (delegated listener still active)");
+    }
 
     const closeBtn = el("cbe-tama-close");
     if (closeBtn) closeBtn.addEventListener("click", closeShell);
@@ -1737,6 +1765,20 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
       });
     }
 
+    /* Click the tombstone (the dot-matrix screen while dead) → hatch a
+       new egg. Living pets ignore canvas clicks — actions go through
+       the labeled buttons below. */
+    const screen = el("cbe-tama-screen");
+    if (screen) {
+      screen.style.cursor = "pointer";
+      screen.addEventListener("click", () => {
+        const g = ensureGame();
+        if (!g || g.isAlive) return;
+        try { g.reset(); } catch (e) { console.warn("[Tamagotchi] respawn error:", e); }
+        refreshStats(g);
+      });
+    }
+
     document.addEventListener("keydown", (ev) => {
       const shell = el("cbe-tama-shell");
       if (!shell || shell.hidden) return;
@@ -1750,10 +1792,39 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   window.closeTamagotchi = closeShell;
   window.toggleTamagotchi = toggleShell;
 
+  /* Auto-open / auto-close the pet shell when the tamagotchi skin is
+     applied/removed. Watches <body data-skin> via MutationObserver so
+     it reacts to both the boot-time skin apply (set by panel.js init)
+     and runtime swaps via Settings → Skin dropdown.
+
+     The skin's CSS pins #cbe-tama-shell display:block regardless of the
+     [hidden] attribute, but the game's tick loop is gated by start()/
+     stop() — so we still need this hook to keep the simulation running. */
+  function syncSkinAutoOpen() {
+    const isTama = document.body && document.body.getAttribute("data-skin") === "tamagotchi";
+    if (isTama) {
+      openShell();
+    } else if (game) {
+      /* Don't HIDE the shell on skin removal (user may have opened it via
+         the toolbar button on a different skin); just leave whatever
+         visibility state was there. The game loop keeps running. */
+    }
+  }
+  function watchSkinChanges() {
+    try {
+      const obs = new MutationObserver(syncSkinAutoOpen);
+      obs.observe(document.body, { attributes: true, attributeFilter: ["data-skin"] });
+      syncSkinAutoOpen();
+    } catch (e) {
+      console.warn("[Tamagotchi] skin observer failed:", e && e.message);
+    }
+  }
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", wire, { once: true });
+    document.addEventListener("DOMContentLoaded", () => { wire(); watchSkinChanges(); }, { once: true });
   } else {
     wire();
+    watchSkinChanges();
   }
 })();
 </script>

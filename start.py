@@ -504,6 +504,54 @@ def driveBridgeChatViaVisionPilot(target: str, prompt: str, max_steps: int = 20)
     mini = getMiniComputer(canon, offscreen=True, autostart=True)
     if mini is None:
         return {"ok": False, "error": f"MiniComputer unavailable for target {canon!r}", "response": "", "steps": 0}
+
+    # FAST PATH: chatgpt-as-target. Don't pilot it at all. Just type the
+    # message into chatgpt.com's composer and scrape the reply. Avoids the
+    # circular "use chatgpt to drive chatgpt" recursion AND saves all the
+    # vision overhead since chatgpt's DOM is well-known.
+    if canon == "chatgpt":
+        try:
+            sys.path.insert(0, str(ROOT / "tools"))
+            from web_vision_driver import _waitForSelector, _eval, CHATGPT_COMPOSER, CHATGPT_SEND_BUTTON  # type: ignore
+            import time as _t
+            if not _waitForSelector(mini, CHATGPT_COMPOSER, timeout_s=15.0):
+                return {"ok": False, "error": "chatgpt composer not found — profile logged out? run tools/sign_in_helper.py chatgpt",
+                        "response": "", "steps": 0, "final_url": mini.final_url()}
+            before = int(_eval(mini, "document.querySelectorAll('[data-message-author-role=\"assistant\"]').length") or 0)
+            _eval(mini, f"document.querySelector('{CHATGPT_COMPOSER}').focus();")
+            _t.sleep(0.2)
+            mini.type_text(prompt)
+            _t.sleep(0.3)
+            clicked = _eval(mini, f"(function(){{var b=document.querySelector('{CHATGPT_SEND_BUTTON}');if(b){{b.click();return true;}}return false;}})()")
+            if not clicked:
+                mini.press_key("enter")
+            deadline = _t.time() + 90
+            last_text, stable = "", 0
+            while _t.time() < deadline:
+                after = int(_eval(mini, "document.querySelectorAll('[data-message-author-role=\"assistant\"]').length") or 0)
+                if after > before:
+                    txt = str(_eval(mini,
+                        "(function(){var els=document.querySelectorAll('[data-message-author-role=\"assistant\"]');"
+                        "if(!els.length)return '';var l=els[els.length-1];"
+                        "return (l.innerText||l.textContent||'').trim();})()") or "").strip()
+                    if txt and txt == last_text:
+                        stable += 1
+                        if stable >= 2:
+                            return {"ok": True, "response": txt, "steps": 1, "action_history": [],
+                                    "final_url": mini.final_url(), "summary": "chatgpt fast-path (no vision)"}
+                    else:
+                        stable = 0
+                    last_text = txt
+                _t.sleep(1.0)
+            if last_text:
+                return {"ok": True, "response": last_text, "steps": 1, "action_history": [],
+                        "final_url": mini.final_url(), "summary": "chatgpt fast-path (timeout, partial)"}
+            return {"ok": False, "error": "chatgpt reply never appeared", "response": "",
+                    "steps": 0, "final_url": mini.final_url()}
+        except Exception as fast_err:
+            # Fall through to the full vision-pilot path below.
+            print(f"[chatgpt fast-path] {type(fast_err).__name__}: {fast_err}", file=sys.stderr, flush=True)
+
     try:
         sys.path.insert(0, str(ROOT / "tools"))
         from gpt_vision_pilot import pilot as _pilot  # type: ignore
@@ -515,32 +563,39 @@ def driveBridgeChatViaVisionPilot(target: str, prompt: str, max_steps: int = 20)
     # this profile (residential IP + headless-looking fingerprint = "unusual
     # activity"). Only fall back to SSO when there's no native form.
     LOGIN_STRATEGY = {
-        "claude":   "Claude has BOTH Google SSO and native email login. PREFER native email: "
-                    "click 'Continue with email' (NOT 'Continue with Google'). Type the email, "
-                    "click Continue, then check the inbox for a magic-link code OR type the "
-                    "password if a password field appears. If only a magic-link path is offered "
-                    "and you can't reach the inbox, emit fail('claude login requires email link "
-                    "we can't reach') — the operator will sign in manually once.",
-        "deepseek": "DeepSeek has native email+password login at chat.deepseek.com. PREFER native: "
-                    "the login form shows email and password fields directly on the page. Type "
-                    "the email, type the password, click the Sign in / Log in button. Do NOT "
-                    "click 'Continue with Google' — that triggers Google's CAPTCHA on this "
-                    "profile.",
-        "chatgpt":  "ChatGPT lets you chat without login. If a login wall does appear, use "
-                    "native OpenAI email/password login (click 'Log in', type email, click "
-                    "Continue, type password). Do NOT route through Google.",
+        "claude":   "Claude is magic-link OR Google-SSO login (no native password). "
+                    "Click 'Continue with email', type the email, click Continue. If a "
+                    "password field appears, type the password. If only the magic-link "
+                    "path is offered and you can't reach the inbox, emit "
+                    "fail('claude login requires email link we can't reach') — the "
+                    "operator will sign in manually once via tools/sign_in_helper.py.",
+        "deepseek": "DeepSeek has native email+password login. The login form shows email "
+                    "and password fields directly on chat.deepseek.com/sign_in. Type the "
+                    "email, type the password, click the Sign in / Log in button. Do NOT "
+                    "click 'Continue with Google' — that triggers Google's CAPTCHA.",
+        "chatgpt":  "ChatGPT — LOG IN FIRST. Anonymous chatgpt.com has aggressive rate "
+                    "limits AND won't let you chat past 1-2 messages. Click 'Log in' "
+                    "(top right), enter the email, click Continue, enter the password, "
+                    "click Continue. Use native OpenAI email login — do NOT route through "
+                    "Google/Microsoft/Apple. Only START chatting once the login completes "
+                    "and the composer appears on a logged-in surface.",
         "copilot":  "Copilot needs a Microsoft account. If logged out, navigate to "
-                    "https://login.live.com/ , type the email, Next, type the password, Next. "
-                    "(Microsoft account — not work/school.)",
-        "gemini":   "Gemini needs a Google account. If logged out, navigate to "
-                    "https://accounts.google.com/signin in the SAME tab, type the email, Next, "
-                    "type the password, Next. If Google demands a CAPTCHA you can solve it via "
-                    "vision (see CAPTCHA section below).",
-        "grok":     "Grok lets you chat without login. If a login wall appears, native xAI/X "
-                    "login is preferred over Google.",
+                    "https://login.live.com/ , type the email, Next, type the password, "
+                    "Next. (Microsoft account — not work/school.) Only start chatting "
+                    "after you land back on copilot.microsoft.com logged in.",
+        "gemini":   "Gemini needs a Google account. If the page isn't already logged in, "
+                    "navigate to https://accounts.google.com/signin in the SAME tab, type "
+                    "the email, Next, type the password, Next. Then navigate back to "
+                    "https://gemini.google.com/app — it will pick up the active session.",
+        "grok":     "Grok — LOG IN FIRST. Anonymous grok.com gates after a couple of "
+                    "messages with 'Sign up to keep chatting'. Click 'Sign in' (top "
+                    "right), use the native xAI/X email+password flow — type email, "
+                    "Continue, type password, Continue. Do NOT use Google SSO. Only "
+                    "start chatting after the login completes.",
     }
     strategy = LOGIN_STRATEGY.get(canon, "Use native email/password login when available; "
-                                         "fall back to SSO only if there is no native form.")
+                                         "fall back to SSO only if there is no native form. "
+                                         "LOG IN FIRST before sending any chat message.")
     cred_block = (
         f"CREDENTIALS (use ONLY if a real login is required):\n"
         f"  email    = {creds.get('email','')}\n"

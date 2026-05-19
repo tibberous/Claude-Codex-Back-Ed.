@@ -10,8 +10,6 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { BrowserBridge } = require('./bridge/browser-bridge');
-const { SuperGrokBridge } = require('./bridge/supergrok-bridge');
 
 const SECRET_KEY_PREFIX = 'codexBlackEd.';   /* per-provider secret = `${PREFIX}${id}.apiKey` */
 const STATE_PROVIDER = 'codexBlackEd.activeProvider';
@@ -55,6 +53,13 @@ const PROVIDERS = {
         defaultModel: 'gemini-2.5-pro',
         models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'],
     },
+    deepseek: {
+        label: 'DeepSeek (direct API)',
+        keyField:   'deepseek_api_key',
+        modelField: 'deepseek_model_choice',
+        defaultModel: 'deepseek-chat',
+        models: ['deepseek-chat', 'deepseek-reasoner'],
+    },
     azure: {
         label: 'Azure OpenAI',
         /* Azure reads from [azure] section, not [api_keys]. Model = deployment name. */
@@ -62,92 +67,22 @@ const PROVIDERS = {
         defaultModel: '',
         models: [],
     },
-    grokWeb: {
-        /* Grok via SuperGrok's resident TCP bridge service. The previous
-           BrowserBridge implementation (spawn Chrome with --remote-debugging-
-           port from CBE) was unreliable on Windows — profile-lock single-
-           instance handoffs, stale Chrome processes, and policy quirks kept
-           breaking the spawn. SuperGrok's start.py --serve-bridge already
-           solves all of that (it owns the QWebEngine session, has a stable
-           TCP API, and auto-respawns), so route through it instead. Requires
-           C:\SuperGrok\ + a one-time `python start.py --chat` login. */
-        label: 'Grok (SuperGrok)',
-        icon: 'grok-bridge.svg',
-        superGrok: true,
-        target: 'grok',
-        superGrokRoot: 'C:\\SuperGrok',
-        defaultModel: '(web)',
-        models: ['(web)'],
-    },
-    chatgptWeb: {
-        /* ChatGPT via SuperGrok's CLI (start.py --chatgpt "message"). Same
-           pattern as grokWeb — the old webBridge:true spawn-Chrome path was
-           unreliable; SuperGrok already owns a working QWebEngine session
-           for chatgpt.com. CBE just shells out to its CLI per turn.
-           Requires C:\SuperGrok\ + a one-time `python start.py --chatgpt`
-           login to plant cookies in the profile. */
-        label: 'ChatGPT (SuperGrok)',
-        icon: 'chatgpt-bridge.svg',
-        superGrok: true,
-        target: 'chatgpt',
-        superGrokRoot: 'C:\\SuperGrok',
-        url: 'https://chatgpt.com/',
-        defaultModel: '(web)',
-        models: ['(web)'],
-    },
-    geminiBridge: {
-        /* Gemini via SuperGrok's resident bridge service (TCP). Requires
-           C:\SuperGrok\ + a one-time `python start.py --gemini` login. */
-        label: 'Gemini (SuperGrok)',
-        superGrok: true,
-        target: 'gemini',
-        superGrokRoot: 'C:\\SuperGrok',
-        defaultModel: '(web)',
-        models: ['(web)'],
-    },
-    copilotBridge: {
-        /* Microsoft Copilot (copilot.microsoft.com) via SuperGrok's resident
-           bridge service (TCP). Requires C:\SuperGrok\ + a one-time
-           `python start.py --copilot` login (Microsoft account / Entra ID
-           SSO). The panel's "Open Copilot login" button is wired in
-           panel.js: switching the Settings provider to Copilot triggers it. */
-        label: 'Copilot (SuperGrok)',
-        icon: 'copilot-bridge.svg',
-        superGrok: true,
-        target: 'copilot',
-        superGrokRoot: 'C:\\SuperGrok',
-        url: 'https://copilot.microsoft.com/',
-        defaultModel: '(web)',
-        models: ['(web)'],
-    },
-    chatgptLibrary: {
-        /* ChatGPT Library: list, download, delete files from the user's
-           ChatGPT account. Uses SuperGrok's browser layer (gtp.py or start.py)
-           to login and navigate. Not a chat provider — exposed as a tool/panel
-           command to manage library files. Requires ChatGPT login cookies in
-           SuperGrok's profile. */
-        label: 'ChatGPT Library',
-        icon: 'library.svg',
-        isTool: true,
-        superGrok: true,
-        target: 'chatgpt',
-        superGrokRoot: 'C:\\SuperGrok',
-    },
+    /* ── Native C++ tray bridges (bridges_cpp/CBE-Bridge-<Target>.exe) ───
+       Each entry routes chat through a single TCP JSON line to the tray
+       exe on its fixed BRIDGE_PORTS_DEFAULT port. No API key — auth lives
+       in the QtWebEngine profile (browser cookies) or, for Ollama, the
+       local daemon. Models are hints only: the actual model is picked in
+       the tray exe's Settings → Models menu and persisted to config.ini
+       under [<target>] model. */
+    chatgptBridge: { label: 'ChatGPT (browser bridge)', bridge: true, bridgeTarget: 'chatgpt', defaultModel: 'gpt-4o',         models: ['gpt-4o', 'gpt-4.1', 'gpt-5', 'o3', 'o3-mini'] },
+    grokBridge:    { label: 'Grok (browser bridge)',    bridge: true, bridgeTarget: 'grok',    defaultModel: 'grok-4',         models: ['grok-4', 'grok-4-fast', 'grok-3'] },
+    copilotBridge: { label: 'Copilot (browser bridge)', bridge: true, bridgeTarget: 'copilot', defaultModel: 'gpt-4',          models: ['gpt-4'] },
+    geminiBridge:  { label: 'Gemini (browser bridge)',  bridge: true, bridgeTarget: 'gemini',  defaultModel: 'gemini-2.5-pro', models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
+    claudeBridge:  { label: 'Claude (browser bridge)',  bridge: true, bridgeTarget: 'claude',  defaultModel: 'sonnet-4.6',     models: ['opus-4.7', 'sonnet-4.6'] },
+    ollamaBridge:  { label: 'Ollama (local)',           bridge: true, bridgeTarget: 'ollama',  defaultModel: 'llama3.2:3b',    models: ['llama3.2:3b', 'llama3.2', 'qwen2.5', 'mistral'] },
 };
 
 const DEFAULT_PROVIDER = 'anthropic';
-
-/* Fixed CDP ports for the NSSM-managed Chrome services. When a service is
-   installed for a provider, Chrome runs at boot as a Windows service with
-   --remote-debugging-port=<port>. BrowserBridge.ensureRunning() first tries
-   to attach to this port; if alive, it skips spawning its own Chrome. The
-   ports are chosen above the ephemeral-port range to avoid collision and
-   are stable across reboots so CBE always knows where to connect. */
-const BRIDGE_SERVICE_PORTS = {
-    grokWeb:    9277,
-    chatgptWeb: 9278,
-};
-const BRIDGE_SERVICE_PREFIX = 'CBE-Bridge-';   /* nssm service name = prefix + providerId */
 
 /* ── Config singleton ─────────────────────────────────────────────────────
    `config.ini` is parsed ONCE per activation and stored in `Config`. Every
@@ -757,10 +692,11 @@ function getActiveModel(context, providerId) {
 function getProviderKey(context, providerId) {
     const provider = PROVIDERS[providerId];
     if (!provider) return null;
-    /* Web-bridge / SuperGrok providers don't use API keys at all; auth lives
-       in the browser-profile cookies on the bridge side. Return a sentinel
-       so the "(no key)" badge in the settings modal doesn't fire. */
-    if (provider.webBridge || provider.superGrok) return '<web-session>';
+    /* Native C++ bridges: no API key — auth lives in the tray exe's
+       QtWebEngine profile (cloud targets) or in the local ollama daemon.
+       Return a sentinel so the "(no key)" badge in the settings modal
+       stays quiet. */
+    if (provider.bridge) return '<bridge>';
     /* 1. Cached secret (set via Set API Key command) */
     if (secretsCache[providerId]) return secretsCache[providerId];
     /* 2. config.ini lookup */
@@ -776,6 +712,7 @@ function getProviderKey(context, providerId) {
         openai:    'OPENAI_API_KEY',
         grok:      'XAI_API_KEY',
         gemini:    'GEMINI_API_KEY',
+        deepseek:  'DEEPSEEK_API_KEY',
     })[providerId];
     return envName ? (process.env[envName] || null) : null;
 }
@@ -832,6 +769,187 @@ let activePanel;
    on the first 'openNN4Browser' message; revealed on subsequent clicks;
    nulled out by onDidDispose so the next click rebuilds it. */
 let _nn4BrowserPanel = null;
+/* Local Python sidecar that proxies arbitrary HTTPS pages with X-Frame-Options
+   / CSP frame-ancestors / HSTS / Set-Cookie stripped, so they will render
+   inside the NN4 iframe.  Spawned on first browser open, kept alive until
+   the panel disposes (or extension deactivates).  Port is ephemeral and
+   read back from the child's first stdout line ("PORT=<n>"). */
+let _nn4ProxyProc  = null;
+let _nn4ProxyPort  = 0;
+let _nn4ProxyReady = null;        /* Promise<int port> resolved when the child prints PORT= */
+
+function ensureNn4ProxySidecar(context) {
+    if (_nn4ProxyProc && _nn4ProxyPort) return Promise.resolve(_nn4ProxyPort);
+    if (_nn4ProxyReady) return _nn4ProxyReady;
+    const script = path.join(context.extensionPath, 'tools', 'nn4_proxy_sidecar.py');
+    if (!fs.existsSync(script)) {
+        const err = new Error('nn4_proxy_sidecar.py missing at ' + script);
+        traceErr('nn4-proxy spawn', err);
+        return Promise.reject(err);
+    }
+    // Prefer the Windows py launcher (always present on Python installs); fall
+    // back to plain 'python' if py.exe isn't on PATH.
+    const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
+    _nn4ProxyReady = new Promise((resolve, reject) => {
+        let resolved = false;
+        let proc;
+        try {
+            proc = spawn(pyCmd, ['-3', script, '--port', '0'], {
+                cwd: context.extensionPath,
+                stdio: ['ignore', 'pipe', 'pipe'],
+                windowsHide: true,
+            });
+        } catch (e) {
+            traceErr('nn4-proxy spawn-exception', e);
+            return reject(e);
+        }
+        _nn4ProxyProc = proc;
+        let stdoutBuf = '';
+        proc.stdout.on('data', (chunk) => {
+            stdoutBuf += chunk.toString('utf8');
+            const m = stdoutBuf.match(/PORT=(\d+)/);
+            if (m && !resolved) {
+                resolved = true;
+                _nn4ProxyPort = parseInt(m[1], 10);
+                trace(`NN4:PROXY ready port=${_nn4ProxyPort} pid=${proc.pid}`);
+                resolve(_nn4ProxyPort);
+            }
+        });
+        proc.stderr.on('data', (chunk) => {
+            // Every sidecar log line goes into the trace channel so the user
+            // can open Output -> Codex Black Ed. and see every proxied URL +
+            // its upstream HTTP status, response size, and elapsed ms.
+            chunk.toString('utf8').split(/\r?\n/).forEach(line => {
+                if (line.trim()) trace('NN4:PROXY ' + line);
+            });
+        });
+        proc.on('error', (e) => {
+            traceErr('nn4-proxy proc-error', e);
+            if (!resolved) { resolved = true; reject(e); }
+        });
+        proc.on('exit', (code, sig) => {
+            trace(`NN4:PROXY exit code=${code} sig=${sig}`);
+            _nn4ProxyProc = null;
+            _nn4ProxyPort = 0;
+            _nn4ProxyReady = null;
+        });
+        // Boot timeout — fail fast if the child never prints PORT=.
+        setTimeout(() => {
+            if (!resolved) {
+                resolved = true;
+                try { proc.kill(); } catch (_) {}
+                reject(new Error('nn4-proxy did not announce PORT= within 5s'));
+            }
+        }, 5000);
+    });
+    return _nn4ProxyReady;
+}
+
+function stopNn4ProxySidecar() {
+    if (_nn4ProxyProc) {
+        try { _nn4ProxyProc.kill(); } catch (_) {}
+        _nn4ProxyProc = null;
+        _nn4ProxyPort = 0;
+        _nn4ProxyReady = null;
+        trace('NN4:PROXY killed');
+    }
+}
+
+/* Wire up an already-created _nn4BrowserPanel: spawn (or attach to) the local
+   proxy sidecar, substitute {{PROXY_BASE}} in nn4-browser.html with the
+   sidecar's URL, install a webviewMessage handler so panel-side console logs
+   land in the trace channel, and write the resulting HTML into the webview.
+   Errors land in trace() AND in a fallback HTML body that names the file. */
+async function loadNn4BrowserHtml(context, panel) {
+    let html;
+    try {
+        html = fs.readFileSync(path.join(context.extensionPath, 'panel', 'nn4-browser.html'), 'utf8');
+    } catch (e) {
+        traceErr('read nn4-browser.html', e);
+        panel.webview.html =
+            '<html><body style="font-family:sans-serif;padding:1em;">' +
+            '<h3>NN4 Browser failed to load</h3><pre>' +
+            String(e && e.message || e) + '</pre></body></html>';
+        return;
+    }
+    let proxyBase = '';
+    try {
+        const port = await ensureNn4ProxySidecar(context);
+        proxyBase = `http://127.0.0.1:${port}/proxy`;
+        trace('NN4:BROWSER using proxyBase=' + proxyBase);
+    } catch (e) {
+        traceErr('NN4:BROWSER sidecar spawn', e);
+        // Still load the HTML — the panel's own logging will surface
+        // "proxy unreachable" status the moment the user hits Go.
+    }
+    html = html
+        .replace(/\{\{PROXY_BASE\}\}/g, proxyBase)
+        .replace(/\{\{CSP_SOURCE\}\}/g, panel.webview.cspSource || '');
+    panel.webview.html = html;
+
+    // Pipe panel console logs -> output channel.
+    panel.webview.onDidReceiveMessage((msg) => {
+        if (!msg) return;
+        if (msg.type === 'nn4BrowserLog') {
+            const lvl = (msg.level || 'log').toUpperCase();
+            trace(`NN4:WEBVIEW [${lvl}] ${msg.text || ''}`);
+            return;
+        }
+        if (msg.type === 'nn4OpenExternal') {
+            const url = (msg.url || '').toString();
+            const low = url.toLowerCase();
+            if (!(low.startsWith('http://') || low.startsWith('https://'))) {
+                trace('nn4OpenExternal -> refused non-http(s): ' + url);
+                return;
+            }
+            const helper = path.join(context.extensionPath, 'tools', 'open_external.py');
+            if (!fs.existsSync(helper)) {
+                trace('nn4OpenExternal -> helper missing at ' + helper);
+                return;
+            }
+            const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
+            const pyArgs = process.platform === 'win32'
+                ? ['-3', helper, url]
+                : [helper, url];
+            trace('nn4OpenExternal -> launching ' + url);
+            try {
+                const child = spawn(pyCmd, pyArgs, {
+                    cwd: context.extensionPath,
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                    windowsHide: true,
+                });
+                let out = '';
+                let errOut = '';
+                child.stdout.on('data', (c) => { out += c.toString(); });
+                child.stderr.on('data', (c) => { errOut += c.toString(); });
+                child.on('error', (e) => {
+                    traceErr('nn4OpenExternal spawn', e);
+                });
+                child.on('close', (code) => {
+                    const used = out.trim();
+                    if (code === 0 && used) {
+                        trace('nn4OpenExternal -> ' + used);
+                    } else {
+                        trace('nn4OpenExternal -> no browser found (code=' +
+                            code + ') ' + (errOut.trim() || '').slice(0, 200));
+                    }
+                });
+            } catch (e) {
+                traceErr('nn4OpenExternal spawn-exception', e);
+            }
+            return;
+        }
+        if (msg.type === 'nn4BrowserDevTools') {
+            trace('NN4:WEBVIEW [INFO] dev-tools requested');
+            try {
+                vscode.commands.executeCommand('workbench.action.webview.openDeveloperTools');
+            } catch (e) {
+                trace('NN4:WEBVIEW [ERR] openDeveloperTools threw ' + (e && e.message));
+            }
+            return;
+        }
+    });
+}
 let conversation = [];
 let outChan;
 /* Our owned terminal — recreated on click if the user closed it. Kept here
@@ -840,8 +958,6 @@ let outChan;
 let cbeTerm = null;
 let statusBar;
 let anthropicClient;
-const browserBridges = {};   /* providerId -> BrowserBridge (lazy, persists across sends) */
-const superGrokBridges = {}; /* providerId -> SuperGrokBridge (TCP shim over SuperGrok's service) */
 let extensionContext = null; /* captured during activate so commands can resolve globalStorageUri */
 
 /* ── Speech-to-Text (SAPI fallback) ────────────────────────────────────────
@@ -1385,26 +1501,6 @@ async function activate(context) {
             if (activePanel) activePanel.webview.postMessage({ type: 'info', text: 'Conversation reset.' });
         }),
         vscode.commands.registerCommand('codexBlackEd.showTrace', () => outChan.show(true)),
-        vscode.commands.registerCommand('codexBlackEd.openWebLogin', () => openWebLogin(context)),
-        vscode.commands.registerCommand('codexBlackEd.disposeWebBridge', () => disposeAllBridges()),
-        /* NSSM-managed Chrome service per web-bridge provider — see
-           tools/install_bridge_service.ps1 and BRIDGE_SERVICE_PORTS. */
-        vscode.commands.registerCommand('codexBlackEd.installBridgeService', async () => {
-            const ids = Object.keys(BRIDGE_SERVICE_PORTS);
-            const pick = await vscode.window.showQuickPick(
-                ids.map(id => ({ label: PROVIDERS[id].label, description: `port ${BRIDGE_SERVICE_PORTS[id]}`, id })),
-                { placeHolder: 'Install Chrome-as-service for which web-bridge provider?' }
-            );
-            if (pick) installBridgeServiceFor(pick.id);
-        }),
-        vscode.commands.registerCommand('codexBlackEd.uninstallBridgeService', async () => {
-            const ids = Object.keys(BRIDGE_SERVICE_PORTS);
-            const pick = await vscode.window.showQuickPick(
-                ids.map(id => ({ label: PROVIDERS[id].label, description: `port ${BRIDGE_SERVICE_PORTS[id]}`, id })),
-                { placeHolder: 'Remove the Chrome service for which web-bridge provider?' }
-            );
-            if (pick) uninstallBridgeServiceFor(pick.id);
-        }),
         /* Web Browser command — opens (or reveals) the NN4-skinned browser
            webview panel directly, without needing to first open the chat
            panel + click the Browser button. Mirrors the openNN4Browser
@@ -1419,19 +1515,12 @@ async function activate(context) {
                         { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
                         { enableScripts: true, retainContextWhenHidden: true }
                     );
-                    try {
-                        _nn4BrowserPanel.webview.html = fs.readFileSync(
-                            path.join(context.extensionPath, 'panel', 'nn4-browser.html'),
-                            'utf8'
-                        );
-                    } catch (e) {
-                        traceErr('read nn4-browser.html (command)', e);
-                        _nn4BrowserPanel.webview.html =
-                            '<html><body style="font-family:sans-serif;padding:1em;">' +
-                            '<h3>NN4 Browser failed to load</h3><pre>' +
-                            String(e && e.message || e) + '</pre></body></html>';
-                    }
-                    _nn4BrowserPanel.onDidDispose(() => { _nn4BrowserPanel = null; });
+                    loadNn4BrowserHtml(context, _nn4BrowserPanel).catch(e =>
+                        traceErr('loadNn4BrowserHtml (command)', e));
+                    _nn4BrowserPanel.onDidDispose(() => {
+                        _nn4BrowserPanel = null;
+                        stopNn4ProxySidecar();
+                    });
                 } else {
                     _nn4BrowserPanel.reveal(vscode.ViewColumn.Active);
                 }
@@ -1531,53 +1620,6 @@ function deactivate() {
             }
         }
     } catch (_) {}
-    disposeAllBridges();
-}
-
-function disposeAllBridges() {
-    for (const id of Object.keys(browserBridges)) {
-        try { browserBridges[id].dispose(); } catch (e) { traceErr(`disposeAllBridges(${id})`, e); }
-        delete browserBridges[id];
-    }
-}
-
-/* Open the browser-bridge tab(s) so the user can sign in. Asks which provider
-   when there are multiple webBridge OR superGrok providers configured. Does
-   not send any prompt — pure auth bootstrap. */
-async function openWebLogin(context) {
-    const ids = Object.keys(PROVIDERS).filter(id => PROVIDERS[id].webBridge || PROVIDERS[id].superGrok);
-    if (!ids.length) { vscode.window.showInformationMessage('No web-bridge providers configured.'); return; }
-    let id;
-    if (ids.length === 1) id = ids[0];
-    else {
-        const pick = await vscode.window.showQuickPick(
-            ids.map(i => ({ label: PROVIDERS[i].label, id: i })),
-            { title: 'Open web login for which provider?', ignoreFocusOut: true }
-        );
-        if (!pick) return;
-        id = pick.id;
-    }
-    const p = PROVIDERS[id];
-    try {
-        if (p.superGrok) {
-            const bridge = getSuperGrokBridge(id);
-            const r = await bridge.openLoginWindow();
-            vscode.window.showInformationMessage(
-                `CBE: ${p.label} login window opened (pid ${r.pid}). Sign in to Google, then close the window.`
-            );
-            return;
-        }
-        const bridge = getBrowserBridge(id);
-        await bridge.ensureRunning();
-        await bridge.navigateHome();
-        const probe = await bridge.ping();
-        vscode.window.showInformationMessage(
-            `CBE: ${p.label} window opened at ${probe.url}. Sign in there; the session is saved.`
-        );
-    } catch (e) {
-        traceErr('openWebLogin', e);
-        vscode.window.showErrorMessage('CBE: web login failed — ' + (e.message || e));
-    }
 }
 
 /* ── Settings payload (sent to webview to populate the settings modal) ── */
@@ -2014,6 +2056,7 @@ function _modelMaxContext(providerId) {
         grok:      256000,
         gemini:    1000000,
         azure:     128000,
+        deepseek:  65536,     // DeepSeek V3 / R1 context window
     })[providerId] || 128000;
 }
 
@@ -2556,7 +2599,7 @@ function buildSettingsPayload(context) {
         }
         const currentModel = getActiveModel(context, id);
         if (currentModel && !models.includes(currentModel)) models.unshift(currentModel);
-        return { id, label: p.label, models, current: currentModel, haveKey, webBridge: !!p.webBridge, superGrok: !!p.superGrok };
+        return { id, label: p.label, models, current: currentModel, haveKey, bridge: !!p.bridge, bridgeTarget: p.bridgeTarget || null };
     });
     /* SFX prefs are persisted in workspaceState. Booleans + a 0..1 number;
        defaults match the panel's window.SFX_* defaults so a fresh install
@@ -2947,19 +2990,12 @@ function bindPanel(context, panel) {
                             { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
                             { enableScripts: true, retainContextWhenHidden: true }
                         );
-                        try {
-                            _nn4BrowserPanel.webview.html = fs.readFileSync(
-                                path.join(context.extensionPath, 'panel', 'nn4-browser.html'),
-                                'utf8'
-                            );
-                        } catch (e) {
-                            traceErr('read nn4-browser.html', e);
-                            _nn4BrowserPanel.webview.html =
-                                '<html><body style="font-family:sans-serif;padding:1em;">' +
-                                '<h3>NN4 Browser failed to load</h3><pre>' +
-                                String(e && e.message || e) + '</pre></body></html>';
-                        }
-                        _nn4BrowserPanel.onDidDispose(() => { _nn4BrowserPanel = null; });
+                        loadNn4BrowserHtml(context, _nn4BrowserPanel).catch(e =>
+                            traceErr('loadNn4BrowserHtml (msg)', e));
+                        _nn4BrowserPanel.onDidDispose(() => {
+                            _nn4BrowserPanel = null;
+                            stopNn4ProxySidecar();
+                        });
                     } else {
                         _nn4BrowserPanel.reveal(vscode.ViewColumn.Active);
                     }
@@ -3012,35 +3048,6 @@ function bindPanel(context, panel) {
                     trace(`active provider set: ${msg.provider} / ${msg.model || '(default)'} sfx=${msg.sfxEnabled}/${msg.sfxVolume} skin=${msg.skin || '(none)'} lang=${msg.language || '(unchanged)'}`);
                     setStatus('idle', false, msg.provider);
                     panel.webview.postMessage({ type: 'info', text: `Provider → ${PROVIDERS[msg.provider].label} · ${msg.model || getActiveModel(context, msg.provider)}` });
-                    /* Bridge service management: web-bridge providers (grokWeb /
-                       chatgptWeb / copilotBridge / geminiBridge) need a Windows
-                       service that runs a Chrome instance with the bridge profile.
-                       Non-web-bridge providers (direct API key, Azure) don't.
-                       When the user switches providers in Settings:
-                         - uninstall the previously-active bridge service (if any)
-                         - install the new one (if the new provider is a web bridge)
-                         - persist which service is currently active so we know
-                           what to uninstall next switch
-                       Both installBridgeServiceFor and uninstallBridgeServiceFor
-                       are async-spawn (powershell elevated), so this never blocks
-                       the panel; the user sees progress via vscode info toasts. */
-                    try {
-                        const _prevBridgeSvc = context.workspaceState.get('codexBlackEd.activeBridgeService') || '';
-                        const _newIsBridge = !!(PROVIDERS[msg.provider] && PROVIDERS[msg.provider].webBridge);
-                        if (_prevBridgeSvc && _prevBridgeSvc !== msg.provider) {
-                            trace(`bridge-svc switch: uninstalling old=${_prevBridgeSvc}`);
-                            try { uninstallBridgeServiceFor(_prevBridgeSvc); } catch (e) { traceErr('bridge uninstall (switch)', e); }
-                        }
-                        if (_newIsBridge && _prevBridgeSvc !== msg.provider) {
-                            trace(`bridge-svc switch: installing new=${msg.provider}`);
-                            try { installBridgeServiceFor(msg.provider); } catch (e) { traceErr('bridge install (switch)', e); }
-                            await context.workspaceState.update('codexBlackEd.activeBridgeService', msg.provider);
-                        } else if (!_newIsBridge && _prevBridgeSvc) {
-                            await context.workspaceState.update('codexBlackEd.activeBridgeService', '');
-                        }
-                    } catch (svcErr) {
-                        traceErr('setProvider bridge svc orchestration', svcErr);
-                    }
                     break;
                 case 'listSkins': {
                     /* Lazy scan: discover skins on-demand each time the webview
@@ -3611,37 +3618,6 @@ function bindPanel(context, panel) {
                     }
                     break;
                 }
-                case 'openWebLogin':
-                    /* Triggered by the modal's "Open login" button. msg.provider
-                       names a specific webBridge OR superGrok provider; we route
-                       to the right login path. openWebLogin() (the command) handles
-                       the "ambiguous" case by asking the user. */
-                    {
-                        const p = msg.provider && PROVIDERS[msg.provider];
-                        if (p && p.webBridge) {
-                            try {
-                                const bridge = getBrowserBridge(msg.provider);
-                                await bridge.ensureRunning();
-                                await bridge.navigateHome();
-                                panel.webview.postMessage({ type: 'info', text: `${p.label} window opened — sign in there.` });
-                            } catch (e) {
-                                traceErr('panel openWebLogin (web)', e);
-                                panel.webview.postMessage({ type: 'error', message: 'web login: ' + (e.message || e) });
-                            }
-                        } else if (p && p.superGrok) {
-                            try {
-                                const bridge = getSuperGrokBridge(msg.provider);
-                                const r = await bridge.openLoginWindow();
-                                panel.webview.postMessage({ type: 'info', text: `${p.label} login window opened (pid ${r.pid}). Sign in to Google, then close that window.` });
-                            } catch (e) {
-                                traceErr('panel openWebLogin (supergrok)', e);
-                                panel.webview.postMessage({ type: 'error', message: 'SuperGrok login: ' + (e.message || e) });
-                            }
-                        } else {
-                            await openWebLogin(context);
-                        }
-                    }
-                    break;
                 case 'openDevTools':
                     try { await vscode.commands.executeCommand('workbench.action.webview.openDeveloperTools'); }
                     catch (e) { traceErr('openDevTools', e); panel.webview.postMessage({ type: 'error', message: 'DevTools: ' + (e.message || e) }); }
@@ -3687,32 +3663,6 @@ function bindPanel(context, panel) {
                 case 'sttStop':
                     stopSapiStt();
                     break;
-                case 'fetchChatGPTLibrary': {
-                    /* Fetch file list from ChatGPT Library via SuperGrok bridge.
-                       SuperGrok's gtp.py or start.py --library navigates the
-                       ChatGPT.com Library interface and returns a JSON list of
-                       {name, size, date, downloadUrl, deleteUrl} objects. */
-                    (async () => {
-                        try {
-                            const bridge = getSuperGrokBridge('chatgptWeb');
-                            const result = await bridge.chat('__library_list__', { timeoutMs: 120000 });
-                            const files = JSON.parse(result || '[]');
-                            panel.webview.postMessage({
-                                type: 'cbe.chatgptLibrary',
-                                files,
-                                status: `Found ${files.length} files in ChatGPT Library.`,
-                            });
-                            trace(`LIBRARY:LIST ok=${files.length} files`);
-                        } catch (e) {
-                            traceErr('LIBRARY:LIST', e);
-                            panel.webview.postMessage({
-                                type: 'error',
-                                message: `ChatGPT Library: ${e.message || e}`
-                            });
-                        }
-                    })();
-                    break;
-                }
                 default:
                     trace('  unhandled type: ' + msg.type);
             }
@@ -4145,6 +4095,19 @@ function getAnthropicClient(apiKey) {
 
 /* SSE reader for OpenAI-format endpoints (OAI / Grok / Azure).
    Yields delta text strings. Stops on [DONE]. */
+/* Streams an OpenAI-compatible chat-completions endpoint.
+
+   Yields:
+     - string chunks for normal assistant text (back-compat)
+     - one final `{ __toolCalls: [...] }` sentinel if the assistant turn ended
+       with `finish_reason: 'tool_calls'`. `toolCalls[]` shape mirrors OpenAI:
+       `{ id, type:'function', function:{ name, arguments:<JSON-string> } }`.
+
+   The caller (handleSendText / chatStreamWithTools) inspects each yielded
+   value: if it's an object with `__toolCalls`, run the tool-calls loop;
+   otherwise treat it as a text delta. The sentinel keeps the generator's
+   string-yield contract intact for every existing call site that doesn't pass
+   `tools` (Anthropic, Gemini, web bridges, and OAI/Azure without tools). */
 async function* streamOpenAIFormat(url, headers, body) {
     const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
     if (!res.ok) {
@@ -4154,6 +4117,11 @@ async function* streamOpenAIFormat(url, headers, body) {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
+    /* Tool-call assembly: stream chunks deliver `tool_calls[]` deltas keyed by
+       `index`. We accumulate name + arguments (the arguments field is a JSON
+       STRING that arrives in fragments) and emit the full array once. */
+    const toolCallsByIdx = {};
+    let finishReason = null;
     while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -4165,14 +4133,159 @@ async function* streamOpenAIFormat(url, headers, body) {
             buf = buf.slice(idx + 1);
             if (!line.startsWith('data:')) continue;
             const payload = line.slice(5).trim();
-            if (payload === '[DONE]') return;
+            if (payload === '[DONE]') {
+                const calls = Object.keys(toolCallsByIdx).sort((a,b)=>(+a)-(+b)).map(k => toolCallsByIdx[k]);
+                if (calls.length) yield { __toolCalls: calls, __finishReason: finishReason || 'tool_calls' };
+                return;
+            }
             try {
                 const j = JSON.parse(payload);
-                const delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
-                if (delta) yield delta;
+                const ch = j.choices && j.choices[0];
+                if (!ch) continue;
+                if (ch.finish_reason) finishReason = ch.finish_reason;
+                const delta = ch.delta || {};
+                if (typeof delta.content === 'string' && delta.content) yield delta.content;
+                if (Array.isArray(delta.tool_calls)) {
+                    for (const tc of delta.tool_calls) {
+                        const ix = typeof tc.index === 'number' ? tc.index : 0;
+                        const slot = toolCallsByIdx[ix] = toolCallsByIdx[ix] || {
+                            id: '', type: 'function', function: { name: '', arguments: '' },
+                        };
+                        if (tc.id) slot.id = tc.id;
+                        if (tc.type) slot.type = tc.type;
+                        if (tc.function) {
+                            if (tc.function.name) slot.function.name += tc.function.name;
+                            if (typeof tc.function.arguments === 'string') slot.function.arguments += tc.function.arguments;
+                        }
+                    }
+                }
             } catch (e) { /* ignore parse hiccups on partial chunks */ }
         }
     }
+    /* Stream ended without explicit [DONE] — still flush any tool-calls. */
+    const calls = Object.keys(toolCallsByIdx).sort((a,b)=>(+a)-(+b)).map(k => toolCallsByIdx[k]);
+    if (calls.length) yield { __toolCalls: calls, __finishReason: finishReason || 'tool_calls' };
+}
+
+/* ── Native API tool-calls (Grok / xAI) ──────────────────────────────────
+   These are the OpenAI-compatible function tools we expose to Grok via the
+   `tools` request parameter. Distinct from the fenced-code `# !exec` tools
+   (parseToolCalls / executeToolCall above), which work for ANY provider by
+   pattern-matching the assistant's plain-text output. The native tools below
+   only fire when the provider actually emits a structured `tool_calls[]`
+   message — currently wired for `grok` in chatStream(). Each tool's schema is
+   sent to the model so it knows the function signature. */
+const NATIVE_TOOL_SCHEMAS = [
+    {
+        type: 'function',
+        function: {
+            name: 'bash',
+            description: 'Run a shell command on the user\'s Windows machine and return stdout/stderr/exit. Use this to inspect files, run scripts, open apps, or do anything you would normally do at a command prompt. The user must approve every call before it runs.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    command: { type: 'string', description: 'The command to execute. Runs through cmd.exe /d /c by default.' },
+                    shell: { type: 'string', enum: ['cmd', 'powershell', 'bash'], description: 'Optional shell to use. Defaults to cmd.' },
+                },
+                required: ['command'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'read_file',
+            description: 'Read a UTF-8 text file from disk and return its contents. Returns at most 50 KB; longer files are truncated with a marker. Use absolute paths.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Absolute path to the file.' },
+                },
+                required: ['path'],
+            },
+        },
+    },
+];
+
+/* Execute a native tool call (the OpenAI-compatible `tool_calls[]` shape).
+   `tc.function.name` selects the handler; `tc.function.arguments` is a JSON
+   string. Returns a plain string ready to be stuffed into a `role:'tool'`
+   message's `content` field. */
+async function executeNativeToolCall(tc, opts = {}) {
+    const name = (tc.function && tc.function.name) || '';
+    let args = {};
+    try { args = JSON.parse(tc.function && tc.function.arguments || '{}'); }
+    catch (e) { return JSON.stringify({ error: 'invalid JSON arguments: ' + (e.message || e), raw: tc.function && tc.function.arguments }); }
+    if (name === 'bash') {
+        const cmd = String(args.command || '').trim();
+        if (!cmd) return JSON.stringify({ error: 'empty command' });
+        const shellSel = String(args.shell || 'cmd').toLowerCase();
+        const langMap = { cmd: 'cmd', powershell: 'pwsh', pwsh: 'pwsh', bash: 'bash', sh: 'bash' };
+        const lang = langMap[shellSel] || 'cmd';
+        const r = await executeToolCall({ lang, command: cmd, raw: cmd }, { cwd: opts.cwd, timeoutMs: 30000 });
+        return JSON.stringify({
+            exit: r.rc, signal: r.signal || null,
+            stdout: (r.stdout || '').slice(0, 16000),
+            stderr: (r.stderr || '').slice(0, 8000),
+            truncated: !!r.truncated, durationMs: r.durationMs,
+        });
+    }
+    if (name === 'read_file') {
+        const p = String(args.path || '').trim();
+        if (!p) return JSON.stringify({ error: 'empty path' });
+        try {
+            const stat = fs.statSync(p);
+            if (!stat.isFile()) return JSON.stringify({ error: 'not a file', path: p });
+            const MAX = 50 * 1024;
+            const buf = fs.readFileSync(p);
+            const truncated = buf.length > MAX;
+            const text = (truncated ? buf.slice(0, MAX) : buf).toString('utf8');
+            return JSON.stringify({ path: p, bytes: stat.size, truncated, content: text + (truncated ? '\n…[truncated at 50 KB]' : '') });
+        } catch (e) {
+            return JSON.stringify({ error: e.message || String(e), path: p });
+        }
+    }
+    return JSON.stringify({ error: 'unknown tool: ' + name });
+}
+
+/* ── Tool-approval gate ──────────────────────────────────────────────────
+   The panel UI is the source of truth for user consent. We post a
+   `toolApprovalRequest` with the call's id + name + args, render Allow/Deny
+   buttons inline, and wait (via a per-call Promise) for the matching
+   `toolApprovalResponse` that the panel posts back. */
+const _pendingToolApprovals = new Map();   /* call_id -> { resolve(approved) } */
+
+function _requestToolApproval(panel, tc) {
+    return new Promise((resolve) => {
+        const id = tc.id || ('call_' + Math.random().toString(36).slice(2, 10));
+        _pendingToolApprovals.set(id, { resolve });
+        try {
+            panel.webview.postMessage({
+                type: 'toolApprovalRequest',
+                id,
+                name: tc.function && tc.function.name,
+                arguments: tc.function && tc.function.arguments,
+            });
+        } catch (e) {
+            _pendingToolApprovals.delete(id);
+            resolve(false);
+        }
+        /* Auto-deny after 5 min to avoid leaking pending promises. */
+        setTimeout(() => {
+            if (_pendingToolApprovals.has(id)) {
+                _pendingToolApprovals.delete(id);
+                resolve(false);
+            }
+        }, 5 * 60 * 1000);
+    });
+}
+
+function _resolveToolApproval(id, approved) {
+    const slot = _pendingToolApprovals.get(id);
+    if (!slot) return false;
+    _pendingToolApprovals.delete(id);
+    slot.resolve(!!approved);
+    return true;
 }
 
 /* Mirrors triodesktop start.py:_chatAzureDeploymentPrefersResponses (line 9086).
@@ -4205,8 +4318,13 @@ function _azureErrorLooksOperationUnsupported(text) {
    `input` field — the Responses API accepts the same {role, content} shape.
    Reasoning models burn output tokens on hidden reasoning before answering, so
    we floor max_output_tokens at 4096. */
-async function* streamAzureResponses(endpoint, apiKey, deployment, messages, maxTokens) {
-    const url = `${String(endpoint).replace(/\/+$/, '')}/openai/v1/responses`;
+async function* streamAzureResponses(endpoint, apiKey, deployment, messages, maxTokens, apiVersion) {
+    /* Triodesktop's working _chatAzureExecuteResponsesOnce hits this URL with
+       NO api-version query param — adding one returns "API version not
+       supported" on cognitiveservices.azure.com endpoints. apiVersion is
+       still accepted (kept for forward-compat) but only appended when set. */
+    let url = `${String(endpoint).replace(/\/+$/, '')}/openai/v1/responses`;
+    if (apiVersion) url += `?api-version=${encodeURIComponent(apiVersion)}`;
     const body = {
         model: deployment,
         input: messages.map(m => ({ role: m.role, content: m.content })),
@@ -4291,174 +4409,76 @@ async function* streamGemini(apiKey, model, messages, maxTokens) {
     }
 }
 
-/* ── Web-bridge streaming ─────────────────────────────────────────────── */
-
-function browserProfileDir(providerId) {
-    /* Persistent per-provider browser profile under globalStorage so cookies
-       (and therefore login state) survive across VS Code sessions. */
-    const root = extensionContext.globalStorageUri.fsPath;
-    return path.join(root, 'web-profiles', providerId);
-}
-
-function getBrowserBridge(providerId) {
+/* ── Native C++ bridge chat (via start.py --chat CLI) ────────────────────
+   Delegates to `python start.py --chat <target> "<message>"`. That CLI is
+   the single source of truth for everything bridge-related:
+     • per-target port resolution from BRIDGE_PORTS + [bridge] config.ini
+     • bridge-running probe with the "no bridge running" hint
+     • async jobId polling + progress traces
+     • 240 s default timeout (--chat-timeout)
+     • stale LISTEN-socket diagnostics
+     • logged-out detection
+   We pass --no-auto-login because CBE is non-interactive — if the session
+   has logged out, surface the error rather than popping a Qt window. On
+   success the CLI prints the answer to stdout; on failure it writes a
+   JSON error blob to stderr and exits non-zero. */
+async function* streamBridge(context, providerId, messages, onProgress) {
+    const { spawn } = require('child_process');
     const provider = PROVIDERS[providerId];
-    if (!provider || !provider.webBridge) throw new Error('not a web-bridge provider: ' + providerId);
-    if (browserBridges[providerId]) return browserBridges[providerId];
-    fs.mkdirSync(path.dirname(browserProfileDir(providerId)), { recursive: true });
-    const bridge = new BrowserBridge({
-        profileDir: browserProfileDir(providerId),
-        startUrl: provider.url,
-        target: provider.target,
-        log: (m) => trace(`bridge[${providerId}] ${m}`),
-        /* If the user has run "Install Bridge Service" for this provider,
-           Chrome is already running at boot on this port. BrowserBridge will
-           CDP-attach to it instead of spawning a new Chrome each session. */
-        servicePort: BRIDGE_SERVICE_PORTS[providerId] || 0,
-    });
-    browserBridges[providerId] = bridge;
-    return bridge;
-}
+    if (!provider || !provider.bridge) throw new Error('not a bridge provider: ' + providerId);
+    const target = provider.bridgeTarget;
 
-/* ── Bridge service install/uninstall ────────────────────────────────────
-   Wraps tools/install_bridge_service.ps1 + tools/uninstall_bridge_service.ps1.
-   Both scripts need elevation (NSSM service registration), so we invoke them
-   via Start-Process -Verb RunAs which raises a UAC prompt. The user accepts
-   once and the service persists across reboots. */
-function installBridgeServiceFor(providerId) {
-    const provider = PROVIDERS[providerId];
-    if (!provider || !provider.webBridge) {
-        vscode.window.showErrorMessage(`CBE: ${providerId} is not a web-bridge provider; service install only applies to grokWeb / chatgptWeb.`);
-        return;
-    }
-    const port = BRIDGE_SERVICE_PORTS[providerId];
-    if (!port) {
-        vscode.window.showErrorMessage(`CBE: no bridge service port assigned for ${providerId}; add it to BRIDGE_SERVICE_PORTS.`);
-        return;
-    }
-    const nssm = path.join(extensionContext.extensionPath, 'tools', 'nssm.exe');
-    const script = path.join(extensionContext.extensionPath, 'tools', 'install_bridge_service.ps1');
-    if (!fs.existsSync(nssm))   { vscode.window.showErrorMessage(`CBE: missing tools/nssm.exe — reinstall the extension.`); return; }
-    if (!fs.existsSync(script)) { vscode.window.showErrorMessage(`CBE: missing tools/install_bridge_service.ps1 — reinstall the extension.`); return; }
-    let chromeExe;
-    try { chromeExe = findBrowserPath(); }
-    catch (e) { vscode.window.showErrorMessage(`CBE: no Chrome/Edge found — ${e.message}`); return; }
-    const profileDir = browserProfileDir(providerId);
-    fs.mkdirSync(profileDir, { recursive: true });
-
-    /* The PS1 needs the args quoted because some paths contain spaces. We
-       launch elevated via Start-Process -Verb RunAs so the UAC prompt fires
-       once and the service install proceeds with admin rights. */
-    const psBody =
-        `Start-Process -Verb RunAs -Wait powershell.exe -ArgumentList ` +
-        `'-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',` +
-        `'${script.replace(/'/g, "''")}',` +
-        `'-Provider','${providerId}',` +
-        `'-Port','${port}',` +
-        `'-ProfileDir','${profileDir.replace(/'/g, "''")}',` +
-        `'-ChromeExe','${chromeExe.replace(/'/g, "''")}',` +
-        `'-NssmExe','${nssm.replace(/'/g, "''")}'`;
-
-    trace(`bridge service install: provider=${providerId} port=${port} chrome=${chromeExe} profile=${profileDir}`);
-    cp.spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psBody], {
-        windowsHide: true, stdio: 'ignore', detached: false,
-    }).on('exit', (code) => {
-        trace(`bridge service install exit code=${code} provider=${providerId}`);
-        if (code === 0) {
-            vscode.window.showInformationMessage(`CBE: bridge service installed for ${providerId} (port ${port}). Chrome runs at boot; CBE will CDP-attach.`);
-        } else {
-            vscode.window.showWarningMessage(`CBE: bridge service install for ${providerId} returned code ${code}. Check the trace.`);
-        }
-    });
-}
-
-function uninstallBridgeServiceFor(providerId) {
-    const nssm = path.join(extensionContext.extensionPath, 'tools', 'nssm.exe');
-    const script = path.join(extensionContext.extensionPath, 'tools', 'uninstall_bridge_service.ps1');
-    if (!fs.existsSync(nssm))   { vscode.window.showErrorMessage(`CBE: missing tools/nssm.exe`); return; }
-    if (!fs.existsSync(script)) { vscode.window.showErrorMessage(`CBE: missing tools/uninstall_bridge_service.ps1`); return; }
-    const psBody =
-        `Start-Process -Verb RunAs -Wait powershell.exe -ArgumentList ` +
-        `'-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',` +
-        `'${script.replace(/'/g, "''")}',` +
-        `'-Provider','${providerId}',` +
-        `'-NssmExe','${nssm.replace(/'/g, "''")}'`;
-    trace(`bridge service uninstall: provider=${providerId}`);
-    cp.spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psBody], {
-        windowsHide: true, stdio: 'ignore', detached: false,
-    }).on('exit', (code) => {
-        trace(`bridge service uninstall exit code=${code} provider=${providerId}`);
-        if (code === 0) {
-            vscode.window.showInformationMessage(`CBE: bridge service for ${providerId} removed.`);
-        } else {
-            vscode.window.showWarningMessage(`CBE: bridge service uninstall for ${providerId} returned code ${code}.`);
-        }
-    });
-}
-
-/** Resolve the Chrome/Edge exe path the SAME way BrowserBridge does, so the
-    installer registers the binary the bridge will later attach to. */
-function findBrowserPath() {
-    const { findBrowser } = require('./bridge/browser-bridge');
-    return findBrowser();
-}
-
-/* Web-bridge "streaming": send the latest user turn into the page, then poll
-   the assistant DOM. We only push the latest turn — the live page already has
-   the prior conversation in its own DOM history.
-
-   Settings-only policy: do NOT auto-spawn the bridge here. The bridge must
-   already be running via the Settings provider dropdown (which calls
-   installBridgeServiceFor). If we land here with no bridge, throw a clear
-   error so the chat panel shows a real "pick a provider in Settings"
-   message instead of silently popping a window. */
-async function* streamWebBridge(providerId, messages) {
-    const bridge = getBrowserBridge(providerId);
-    const _alive = typeof bridge.ping === 'function'
-        ? await bridge.ping().then(p => !!(p && (p.ok || p.url))).catch(() => false)
-        : false;
-    if (!_alive) {
-        const p = PROVIDERS[providerId];
-        const label = (p && p.label) || providerId;
-        throw new Error(`No ${label} bridge running. Open CBE Settings, pick ${label} from the provider dropdown — that installs and starts the Windows service. The bridge stays running until you click Close in its tray icon.`);
-    }
-    /* Only send the latest user message — the page's own thread has context. */
     const lastUser = [...messages].reverse().find(m => m.role === 'user');
-    if (!lastUser) throw new Error('no user message to send');
-    await bridge.sendPrompt(lastUser.content);
-    yield* bridge.streamResponse();
-}
+    const message = (lastUser && lastUser.content) || '';
+    if (!message) throw new Error('no user message to send');
 
-/* SuperGrok-backed providers: send the latest turn via TCP to SuperGrok's
-   resident service. SuperGrok handles the offscreen browser, DOM injection,
-   and response capture. We yield the full answer as one chunk because the
-   TCP protocol doesn't stream. */
-function getSuperGrokBridge(providerId) {
-    const provider = PROVIDERS[providerId];
-    if (!provider || !provider.superGrok) throw new Error('not a supergrok provider: ' + providerId);
-    if (superGrokBridges[providerId]) return superGrokBridges[providerId];
-    const bridge = new SuperGrokBridge({
-        superGrokRoot: provider.superGrokRoot,
-        target: provider.target,
-        log: (m) => trace(`supergrok[${providerId}] ${m}`),
-    });
-    superGrokBridges[providerId] = bridge;
-    return bridge;
-}
+    const pythonExe = process.env.CBE_PYTHON || 'python';
+    const cliArgs = ['start.py', '--chat', target, '--no-auto-login', message];
+    if (onProgress) onProgress(`bridge → ${target} (start.py --chat)`);
 
-async function* streamSuperGrok(providerId, messages, onProgress) {
-    const bridge = getSuperGrokBridge(providerId);
-    const lastUser = [...messages].reverse().find(m => m.role === 'user');
-    if (!lastUser) throw new Error('no user message to send');
-    /* chatStreamWithProgress yields {progress} objects during cold-start /
-       waiting, then a final {text} object. Route progress out-of-band via
-       onProgress so it shows as a status line, not as answer text. */
-    for await (const evt of bridge.chatStreamWithProgress(lastUser.content)) {
-        if (evt && typeof evt.progress === 'string') {
-            if (onProgress) onProgress(evt.progress);
-        } else if (evt && typeof evt.text === 'string') {
-            yield evt.text;
+    const answer = await new Promise((resolve, reject) => {
+        let proc;
+        try {
+            proc = spawn(pythonExe, cliArgs, {
+                cwd: context.extensionPath,
+                windowsHide: true,
+                stdio: ['ignore', 'pipe', 'pipe'],
+            });
+        } catch (e) {
+            reject(new Error(`failed to spawn ${pythonExe}: ${e.message}. Set env var CBE_PYTHON to the python.exe path, or add python to PATH.`));
+            return;
         }
-    }
+        let stdout = '';
+        let stderr = '';
+        proc.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+        proc.stderr.on('data', (chunk) => {
+            const txt = chunk.toString('utf8');
+            stderr += txt;
+            /* Surface CLI progress lines as panel status — they look like
+               "[TRACE:bridge-client] waiting for chat job=... elapsed=...". */
+            if (onProgress) {
+                for (const ln of txt.split(/\r?\n/)) {
+                    const t = ln.trim();
+                    if (t.startsWith('[TRACE:bridge-client]') && t.includes('elapsed=')) {
+                        onProgress(t.slice(0, 200));
+                    }
+                }
+            }
+        });
+        proc.on('error', (e) => reject(new Error(`failed to spawn ${pythonExe}: ${e.message}. Set env var CBE_PYTHON to the python.exe path, or add python to PATH.`)));
+        proc.on('close', (code) => {
+            const out = stdout.replace(/\r\n/g, '\n').replace(/\n+$/, '');
+            if (code === 0) {
+                resolve(out);
+            } else if (code === 2) {
+                reject(new Error(`bridge ${target} not running. Pick the ${target} bridge provider in CBE Settings — that starts bridges_cpp/CBE-Bridge-${target.charAt(0).toUpperCase() + target.slice(1)}.exe.`));
+            } else {
+                const tail = stderr.trim().split(/\r?\n/).slice(-8).join('\n');
+                reject(new Error(`bridge ${target} chat failed (exit ${code}): ${tail || out || '(no output)'}`));
+            }
+        });
+    });
+    if (answer) yield answer;
 }
 
 /* Anthropic via SDK — wrap stream events as async generator. */
@@ -4486,18 +4506,13 @@ async function* streamAnthropic(apiKey, model, messages, maxTokens) {
 
 /* Dispatch by provider id. Returns async iterator yielding text chunks.
    `onProgress(step)` (optional) receives human-readable status strings for
-   slow providers (SuperGrok cold-start) so the panel can show progress. */
+   slow providers so the panel can show progress. */
 async function* chatStream(context, providerId, model, messages, maxTokens, onProgress) {
     const cfg = readConfigIni(context.extensionPath) || {};
     const provider = PROVIDERS[providerId];
 
-    if (provider && provider.webBridge) {
-        yield* streamWebBridge(providerId, messages);
-        return;
-    }
-
-    if (provider && provider.superGrok) {
-        yield* streamSuperGrok(providerId, messages, onProgress);
+    if (provider && provider.bridge) {
+        yield* streamBridge(context, providerId, messages, onProgress);
         return;
     }
 
@@ -4518,14 +4533,33 @@ async function* chatStream(context, providerId, model, messages, maxTokens, onPr
        deployment but `max_tokens` is the safer default across api-versions. */
     let url, headers;
     const body = { model, messages, stream: true };
+    /* Native tool-calls wiring: ALL three OpenAI-compatible providers
+       (openai / grok / deepseek) get the same NATIVE_TOOL_SCHEMAS so the
+       model can emit structured `tool_calls[]` messages instead of (or in
+       addition to) the # !exec fenced-code pattern. handleSendText() picks
+       up the streamOpenAIFormat sentinel and runs the daisy-chain loop:
+       executeNativeToolCall → push role:'tool' message → re-stream. */
     if (providerId === 'openai') {
         url = 'https://api.openai.com/v1/chat/completions';
         headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key };
         body.max_completion_tokens = maxTokens;
+        body.tools = NATIVE_TOOL_SCHEMAS;
+        body.tool_choice = 'auto';
     } else if (providerId === 'grok') {
         url = 'https://api.x.ai/v1/chat/completions';
         headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key };
         body.max_tokens = maxTokens;
+        body.tools = NATIVE_TOOL_SCHEMAS;
+        body.tool_choice = 'auto';
+    } else if (providerId === 'deepseek') {
+        /* DeepSeek ships an OpenAI-compatible chat-completions endpoint, so
+           streamOpenAIFormat handles it unchanged. deepseek-chat = V3,
+           deepseek-reasoner = R1. Bearer auth, same as OpenAI/xAI. */
+        url = 'https://api.deepseek.com/chat/completions';
+        headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key };
+        body.max_tokens = maxTokens;
+        body.tools = NATIVE_TOOL_SCHEMAS;
+        body.tool_choice = 'auto';
     } else if (providerId === 'azure') {
         const endpoint = (cfg.azure && cfg.azure.endpoint || '').replace(/\/+$/, '');
         if (!endpoint) throw new Error('Azure endpoint missing in config.ini [azure] section.');
@@ -4536,12 +4570,13 @@ async function* chatStream(context, providerId, model, messages, maxTokens, onPr
            legacy /openai/deployments/<name>/chat/completions path. If /chat
            returns "operation unsupported" we fall back to /responses, since
            Azure occasionally re-routes deployments without warning. */
+        const apiVersion = (cfg.azure && cfg.azure.api_version) || '2025-01-01-preview';
         if (_azureDeploymentPrefersResponses(model)) {
+            /* Responses endpoint takes NO api-version on this resource; pass empty. */
             trace(`AZURE:CHAT route=responses deployment=${model}`);
-            yield* streamAzureResponses(endpoint, key, model, messages, maxTokens);
+            yield* streamAzureResponses(endpoint, key, model, messages, maxTokens, '');
             return;
         }
-        const apiVersion = (cfg.azure && cfg.azure.api_version) || '2025-01-01-preview';
         url = `${endpoint}/openai/deployments/${encodeURIComponent(model)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
         headers = { 'Content-Type': 'application/json', 'api-key': key };
         delete body.model; /* Azure uses deployment in URL */
@@ -4557,7 +4592,7 @@ async function* chatStream(context, providerId, model, messages, maxTokens, onPr
         } catch (e) {
             if (_azureErrorLooksOperationUnsupported(e && e.message)) {
                 trace(`AZURE:CHAT fallback chat→responses deployment=${model} reason=${String(e && e.message || '').slice(0, 200)}`);
-                yield* streamAzureResponses(endpoint, key, model, messages, maxTokens);
+                yield* streamAzureResponses(endpoint, key, model, messages, maxTokens, '');
                 return;
             }
             throw e;
@@ -4579,11 +4614,11 @@ async function handleSendText(context, panel, text) {
     const model = getActiveModel(context, providerId);
     const maxTokens = getMaxTokens();
 
-    /* If no key for this provider, prompt up-front and store it. Web-bridge
-       and SuperGrok providers skip this — they authenticate via the browser
-       session, not an API key. */
+    /* If no key for this provider, prompt up-front and store it. Native
+       bridge providers skip this — they authenticate via the tray exe's
+       QtWebEngine profile (or local ollama daemon), not an API key. */
     const _pInfo = PROVIDERS[providerId] || {};
-    if (!_pInfo.webBridge && !_pInfo.superGrok && !getProviderKey(context, providerId)) {
+    if (!_pInfo.bridge && !getProviderKey(context, providerId)) {
         const got = await promptForKey(context, providerId);
         if (!got) {
             panel.webview.postMessage({ type: 'error', message: `${providerId}: API key required to send.` });
@@ -4608,17 +4643,63 @@ async function handleSendText(context, panel, text) {
            no executable blocks, or we hit MAX_TOOL_ITERATIONS as a safety. */
         for (;;) {
             let assembled = '';
-            /* onProgress surfaces SuperGrok cold-start steps ("Starting
-               SuperGrok server…", "Waiting for grok to respond… (6s)") as
-               transient status lines so a slow bridge doesn't look hung. */
+            /* nativeToolCalls collects the {__toolCalls, __finishReason}
+               sentinel that streamOpenAIFormat yields when the model emits a
+               structured tool_calls[] turn instead of (or alongside) text.
+               We DON'T string-coerce this object into `assembled` — that's
+               what was destroying the data before. Captured here, then
+               executed after the stream loop ends. */
+            let nativeToolCalls = null;
+            /* onProgress surfaces slow-bridge cold-start steps as transient
+               status lines so a slow bridge doesn't look hung. */
             const onProgress = (step) => {
                 panel.webview.postMessage({ type: 'status', text: step });
             };
             for await (const delta of chatStream(context, providerId, model, conversation, maxTokens, onProgress)) {
+                if (delta && typeof delta === 'object' && Array.isArray(delta.__toolCalls)) {
+                    nativeToolCalls = delta.__toolCalls;
+                    continue;
+                }
                 assembled += delta;
                 panel.webview.postMessage({ type: 'chunk', text: delta });
             }
-            trace(`stream done provider=${providerId} chars=${assembled.length} ms=${Date.now() - t0} toolIter=${toolIterations}`);
+            trace(`stream done provider=${providerId} chars=${assembled.length} ms=${Date.now() - t0} toolIter=${toolIterations} nativeToolCalls=${nativeToolCalls ? nativeToolCalls.length : 0}`);
+
+            /* Native OpenAI/Grok/DeepSeek tool-calls daisy-chain. When the
+               model emitted a structured tool_calls[] turn, the assistant
+               message we push must carry the SAME tool_calls array — the
+               API enforces that role:'tool' result messages cite a
+               tool_call_id that appears in the immediately-preceding
+               assistant turn. Otherwise the model 400s. */
+            if (nativeToolCalls && nativeToolCalls.length && toolIterations < MAX_TOOL_ITERATIONS) {
+                toolIterations++;
+                conversation.push({
+                    role: 'assistant',
+                    content: assembled || null,
+                    tool_calls: nativeToolCalls,
+                });
+                const projectFolder = context.workspaceState.get('codexBlackEd.projectFolder', '') || os.homedir();
+                for (const tc of nativeToolCalls) {
+                    const fname = (tc.function && tc.function.name) || '(unknown)';
+                    panel.webview.postMessage({ type: 'info', text: `▶ native-tool ${fname}` });
+                    let resultStr;
+                    try {
+                        resultStr = await executeNativeToolCall(tc, { cwd: projectFolder });
+                    } catch (e) {
+                        resultStr = `[executeNativeToolCall error: ${(e && e.message) || e}]`;
+                    }
+                    panel.webview.postMessage({ type: 'info', text: `◀ native-tool ${fname} done (${(resultStr || '').length}B)` });
+                    conversation.push({
+                        role: 'tool',
+                        tool_call_id: tc.id,
+                        content: String(resultStr || ''),
+                    });
+                }
+                panel.webview.postMessage({ type: 'assistantDone', text: assembled });
+                panel.webview.postMessage({ type: 'assistantStart' });
+                continue;
+            }
+
             conversation.push({ role: 'assistant', content: assembled });
 
             const calls = parseToolCalls(assembled);
@@ -4644,15 +4725,54 @@ async function handleSendText(context, panel, text) {
                model emitted, so it can read its own output. */
             const toolReply = resultParts.join('\n\n');
             conversation.push({ role: 'user', content: toolReply });
-            /* For web-bridge / SuperGrok providers, the bridge page already
-               saw the assistant reply; we need to type the tool result so
-               the bridge picks it up as a fresh user turn on its next stream. */
+            /* For web-bridge providers, the bridge page already saw the
+               assistant reply; we need to type the tool result so the bridge
+               picks it up as a fresh user turn on its next stream. */
             panel.webview.postMessage({ type: 'assistantDone', text: assembled });
             panel.webview.postMessage({ type: 'assistantStart' });
         }
     } catch (e) {
         traceErr(`stream failed (provider=${providerId})`, e);
-        panel.webview.postMessage({ type: 'error', message: `${providerId}: ${e.message || e}` });
+        /* Auth-failure detector. The streamX functions throw errors of the
+           shape `HTTP <status> <statusText>: <body excerpt>`. We pattern-match
+           on the status + provider error vocabulary to decide whether to pop
+           an API-key modal and retry — the user just has to paste a fresh
+           key instead of digging through config.ini or running a CLI.
+           Native bridge providers (chatgpt/grok/copilot/gemini/claude/
+           ollama via the tray exes) skip this — their failures aren't
+           API-key related. */
+        const msg = String(e && e.message || e || '');
+        const _info = PROVIDERS[providerId] || {};
+        const looksLikeAuthErr = !_info.bridge && (
+            /HTTP\s+401\b/i.test(msg) ||
+            /HTTP\s+403\b/i.test(msg) ||
+            /\binvalid_api_key\b/i.test(msg) ||
+            /\bauthentication_error\b/i.test(msg) ||
+            /\binvalid x-api-key\b/i.test(msg) ||
+            /\bUNAUTHENTICATED\b/.test(msg) ||
+            /\bPERMISSION_DENIED\b/.test(msg) ||
+            /Incorrect API key/i.test(msg) ||
+            /Invalid authentication/i.test(msg) ||
+            /API key not valid/i.test(msg) ||
+            /\bunauthorized\b/i.test(msg)
+        );
+        if (looksLikeAuthErr && !text.__cbeAuthRetry) {
+            trace(`AUTH:DETECT provider=${providerId} popping key modal`);
+            panel.webview.postMessage({ type: 'info', text: `${PROVIDERS[providerId].label} key was rejected — paste a new one.` });
+            const got = await promptForKey(context, providerId);
+            if (got) {
+                /* Pop the user message we just appended so the retry doesn't
+                   stack two of them in conversation history. */
+                if (conversation[conversation.length - 1] && conversation[conversation.length - 1].role === 'user') conversation.pop();
+                /* Mark the text so a second auth-failure doesn't loop. */
+                const retryText = new String(text); retryText.__cbeAuthRetry = true;
+                panel.webview.postMessage({ type: 'info', text: `${PROVIDERS[providerId].label} key stored — retrying.` });
+                return handleSendText(context, panel, retryText.toString());
+            }
+            panel.webview.postMessage({ type: 'error', message: `${providerId}: auth failed and no new key supplied.` });
+        } else {
+            panel.webview.postMessage({ type: 'error', message: `${providerId}: ${msg}` });
+        }
         setStatus('error', false, providerId);
         if (conversation[conversation.length - 1] && conversation[conversation.length - 1].role === 'user') conversation.pop();
     }
