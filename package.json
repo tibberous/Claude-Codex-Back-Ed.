@@ -76,6 +76,14 @@
           "light": "assets/icon-light.png",
           "dark": "resources/icon-dark.png"
         }
+      },
+      {
+        "command": "codexBlackEd.openVideoPlayer",
+        "title": "Claude Codex Black: Open Video Library",
+        "icon": {
+          "light": "resources/browser.png",
+          "dark": "resources/browser.png"
+        }
       }
     ],
     "menus": {

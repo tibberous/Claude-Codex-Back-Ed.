@@ -436,8 +436,27 @@ def getMiniComputer(target: str, offscreen: bool = True, autostart: bool = True)
         return _MINICOMPUTER_CACHE[canon]
     if canon == "ollama":
         return None  # Ollama is a local API, no browser needed.
-    if canon not in MINICOMPUTER_START_URLS:
+
+    # Look up start_url + cdp_port from EITHER the legacy hardcoded
+    # dicts (chatgpt/grok/etc.) OR the plugin registry (sora/veo/runway/
+    # bing-video/anything-new). Plugin manifests provide everything needed
+    # to spawn a chrome without touching start.py at all.
+    start_url = MINICOMPUTER_START_URLS.get(canon, "")
+    cdp_port = MINICOMPUTER_CDP_PORTS.get(canon, 0)
+    if not start_url or not cdp_port:
+        plugins = _loadBridgePlugins()
+        plugin = plugins.get(canon)
+        if plugin is None:
+            for name, b in plugins.items():
+                if canon in (b.manifest.aliases or []):
+                    plugin = b
+                    break
+        if plugin is not None and plugin.manifest.kind == "web":
+            start_url = start_url or plugin.manifest.home_url
+            cdp_port = cdp_port or plugin.manifest.cdp_port or (plugin.manifest.bridge_port + 1000)
+    if not start_url or not cdp_port:
         return None
+
     # Lazy import — keeps start.py importable without websocket-client.
     try:
         sys.path.insert(0, str(ROOT / "tools"))
@@ -448,8 +467,8 @@ def getMiniComputer(target: str, offscreen: bool = True, autostart: bool = True)
     mini = _MC(
         target=canon,
         profile_dir=_miniComputerProfileDir(canon),
-        cdp_port=int(MINICOMPUTER_CDP_PORTS[canon]),
-        start_url=str(MINICOMPUTER_START_URLS[canon]),
+        cdp_port=int(cdp_port),
+        start_url=str(start_url),
         offscreen=bool(offscreen),
     )
     if autostart:
@@ -463,11 +482,13 @@ def getMiniComputer(target: str, offscreen: bool = True, autostart: bool = True)
             # chrome is already on the right host, nothing happens.
             try:
                 from urllib.parse import urlparse
-                want = urlparse(str(MINICOMPUTER_START_URLS[canon]))
+                # Use the start_url resolved above (works for both legacy
+                # targets AND plugin targets).
+                want = urlparse(str(start_url))
                 have = urlparse(mini.final_url() or "")
                 if (have.hostname or "").lower() != (want.hostname or "").lower():
                     print(f"[minicomputer] {canon}: chrome at {have.hostname!r}, navigating to {want.hostname!r}", file=sys.stderr, flush=True)
-                    mini.navigate(str(MINICOMPUTER_START_URLS[canon]))
+                    mini.navigate(str(start_url))
                     mini.wait_network_idle(idle_ms=2500, timeout_ms=20000)
             except Exception as e:
                 print(f"[minicomputer] {canon}: host-correct navigate failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)

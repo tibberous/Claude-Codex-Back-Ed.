@@ -769,6 +769,12 @@ let activePanel;
    on the first 'openNN4Browser' message; revealed on subsequent clicks;
    nulled out by onDidDispose so the next click rebuilds it. */
 let _nn4BrowserPanel = null;
+/* Video library panel — autoplays newly generated videos from videos/.
+   See loadVideoPlayerHtml below + the codexBlackEd.openVideoPlayer
+   command. Posts cbe-videos-list to the webview on a 2s tick so files
+   that land in videos/<bridge>/ show up live. */
+let _videoPlayerPanel = null;
+let _videoPlayerWatcher = null;
 /* Local Python sidecar that proxies arbitrary HTTPS pages with X-Frame-Options
    / CSP frame-ancestors / HSTS / Set-Cookie stripped, so they will render
    inside the NN4 iframe.  Spawned on first browser open, kept alive until
@@ -853,6 +859,79 @@ function stopNn4ProxySidecar() {
         _nn4ProxyReady = null;
         trace('NN4:PROXY killed');
     }
+}
+
+/* Wire up an already-created _videoPlayerPanel: load panel/video-player.html,
+   convert local file:// paths to webview-safe URIs, push the videos/ scan to
+   the webview every 2 seconds so newly-generated files show up live with
+   autoplay. */
+function _scanVideos(context) {
+    const videosRoot = path.join(context.extensionPath, 'videos');
+    const out = [];
+    try {
+        if (!fs.existsSync(videosRoot)) return out;
+        const bridges = fs.readdirSync(videosRoot, { withFileTypes: true });
+        for (const b of bridges) {
+            if (!b.isDirectory()) continue;
+            const bridgeDir = path.join(videosRoot, b.name);
+            for (const f of fs.readdirSync(bridgeDir)) {
+                if (!/\.(mp4|webm|mov)$/i.test(f)) continue;
+                const fp = path.join(bridgeDir, f);
+                const st = fs.statSync(fp);
+                out.push({ name: f, bridge: b.name, path: fp, size: st.size, mtime: st.mtimeMs });
+            }
+        }
+    } catch (e) {
+        traceErr('videoPlayer scan', e);
+    }
+    return out.sort((a, b) => b.mtime - a.mtime);
+}
+
+async function loadVideoPlayerHtml(context, panel) {
+    let html;
+    try {
+        html = fs.readFileSync(path.join(context.extensionPath, 'panel', 'video-player.html'), 'utf8');
+    } catch (e) {
+        traceErr('read video-player.html', e);
+        panel.webview.html = '<html><body style="color:#d4d4d4;background:#1e1e1e;font-family:sans-serif;padding:1em;">' +
+            '<h3>Video player failed to load</h3><pre>' + String(e && e.message || e) + '</pre></body></html>';
+        return;
+    }
+    html = html.replace(/\{\{CSP_SOURCE\}\}/g, panel.webview.cspSource || '');
+    panel.webview.html = html;
+
+    /* Push the videos[] list with webview-safe URIs. Re-fired on
+       cbe-videos-rescan + every 2s from the watcher tick. */
+    const pushList = () => {
+        if (!panel || !panel.webview) return;
+        const items = _scanVideos(context).map(v => ({
+            name:   v.name,
+            bridge: v.bridge,
+            path:   v.path,
+            size:   v.size,
+            mtime:  v.mtime,
+            uri:    panel.webview.asWebviewUri(vscode.Uri.file(v.path)).toString(),
+        }));
+        panel.webview.postMessage({ type: 'cbe-videos-list', videos: items });
+    };
+
+    panel.webview.onDidReceiveMessage((msg) => {
+        if (!msg || typeof msg !== 'object') return;
+        if (msg.type === 'cbe-videos-rescan') { pushList(); return; }
+        if (msg.type === 'cbe-videos-open-folder') {
+            try {
+                const videosRoot = path.join(context.extensionPath, 'videos');
+                if (!fs.existsSync(videosRoot)) fs.mkdirSync(videosRoot, { recursive: true });
+                vscode.env.openExternal(vscode.Uri.file(videosRoot));
+            } catch (e) { traceErr('cbe-videos-open-folder', e); }
+            return;
+        }
+    });
+
+    // 2s tick — cheap because _scanVideos is just a directory walk.
+    if (_videoPlayerWatcher) clearInterval(_videoPlayerWatcher);
+    _videoPlayerWatcher = setInterval(pushList, 2000);
+    pushList();
 }
 
 /* Wire up an already-created _nn4BrowserPanel: spawn (or attach to) the local
@@ -1506,6 +1585,45 @@ async function activate(context) {
            panel + click the Browser button. Mirrors the openNN4Browser
            message handler. Reachable via Ctrl+Alt+N, the editor title bar,
            the command palette, and the status-bar button below. */
+        /* Video library — opens panel/video-player.html in a new webview
+           panel rooted at videos/. Auto-plays newly generated files; the
+           2s watcher tick keeps the list live so a sora/veo/runway/
+           bing-video generation that completes mid-session pops up in
+           the player without a manual refresh. */
+        vscode.commands.registerCommand('codexBlackEd.openVideoPlayer', () => {
+            try {
+                if (!_videoPlayerPanel) {
+                    const videosRoot = path.join(context.extensionPath, 'videos');
+                    if (!fs.existsSync(videosRoot)) fs.mkdirSync(videosRoot, { recursive: true });
+                    _videoPlayerPanel = vscode.window.createWebviewPanel(
+                        'codexBlackEd.videoPlayer',
+                        'CBE Video Library',
+                        { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
+                        {
+                            enableScripts: true,
+                            retainContextWhenHidden: true,
+                            // Crucial: webviews can only load files under listed roots.
+                            // The videos/ dir is where the bridge runner saves outputs.
+                            localResourceRoots: [vscode.Uri.file(videosRoot)],
+                        }
+                    );
+                    loadVideoPlayerHtml(context, _videoPlayerPanel).catch(e =>
+                        traceErr('loadVideoPlayerHtml', e));
+                    _videoPlayerPanel.onDidDispose(() => {
+                        _videoPlayerPanel = null;
+                        if (_videoPlayerWatcher) {
+                            clearInterval(_videoPlayerWatcher);
+                            _videoPlayerWatcher = null;
+                        }
+                    });
+                } else {
+                    _videoPlayerPanel.reveal(vscode.ViewColumn.Active);
+                }
+            } catch (e) {
+                traceErr('openVideoPlayer command', e);
+                vscode.window.showErrorMessage('Failed to open Video Library: ' + (e && e.message || String(e)));
+            }
+        }),
         vscode.commands.registerCommand('codexBlackEd.openBrowser', () => {
             try {
                 if (!_nn4BrowserPanel) {
