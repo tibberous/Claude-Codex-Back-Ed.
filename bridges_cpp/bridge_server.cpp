@@ -439,31 +439,37 @@ static std::wstring findPythonExe() {
 }
 
 // Locate bridge_chat.py — sibling of this exe's directory (../bridges_cpp/).
-static std::wstring locateBridgeChatPy() {
+// Returns the CBE repo root (the directory CONTAINING `bin`). Uses
+// std::wstring::find_last_of so behavior is unambiguous — earlier
+// wcsrchr-based code produced `...\bin\bridges_cpp\bridge_chat.py` on
+// some Windows configs where the path included an unexpected separator.
+static std::wstring locateRepoRoot() {
     wchar_t exePath[MAX_PATH];
     GetModuleFileNameW(NULL, exePath, MAX_PATH);
-    wchar_t* slash = wcsrchr(exePath, L'\\');
-    if (slash) *slash = 0;     // strip exe name -> bin\
-    slash = wcsrchr(exePath, L'\\');
-    if (slash) *slash = 0;     // strip bin     -> repo root
     std::wstring p(exePath);
-    p += L"\\bridges_cpp\\bridge_chat.py";
+    // Strip exe filename: drop everything after the last separator.
+    size_t pos = p.find_last_of(L"\\/");
+    if (pos != std::wstring::npos) p.resize(pos);
+    // Strip "bin" if present at the end.
+    pos = p.find_last_of(L"\\/");
+    if (pos != std::wstring::npos) {
+        std::wstring tail = p.substr(pos + 1);
+        if (tail == L"bin" || tail == L"BIN" || tail == L"Bin") {
+            p.resize(pos);
+        }
+    }
     return p;
+}
+
+static std::wstring locateBridgeChatPy() {
+    return locateRepoRoot() + L"\\bridges_cpp\\bridge_chat.py";
 }
 
 // Sibling to locateBridgeChatPy() for browser targets. bridge_pilot.py
 // drives the vision-pilot (start.driveBridgeChatViaVisionPilot) against
 // the per-target chrome the tray already spawned on g_childPort.
 static std::wstring locateBridgePilotPy() {
-    wchar_t exePath[MAX_PATH];
-    GetModuleFileNameW(NULL, exePath, MAX_PATH);
-    wchar_t* slash = wcsrchr(exePath, L'\\');
-    if (slash) *slash = 0;     // strip exe name -> bin\
-    slash = wcsrchr(exePath, L'\\');
-    if (slash) *slash = 0;     // strip bin     -> repo root
-    std::wstring p(exePath);
-    p += L"\\bridges_cpp\\bridge_pilot.py";
-    return p;
+    return locateRepoRoot() + L"\\bridges_cpp\\bridge_pilot.py";
 }
 
 // Locate start.py at the CBE repo root — same trick as locateBridgeChatPy
