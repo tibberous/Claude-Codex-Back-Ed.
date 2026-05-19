@@ -62,3 +62,7 @@ MonkeyPatchDetector.txt
 videos/
 images/
 audio/
+
+# bridge_runner.load_bridge_from_archive extracts .bridge zips into
+# sibling .unpacked_<name>/ dirs as a runtime cache. Pure artifact.
+bridges/.unpacked_*/
