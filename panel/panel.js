@@ -847,6 +847,95 @@ const tts = (function() {
 /* ── Settings modal ──────────────────────────────────────────────────── */
 let __cbeProviders = [];   /* {id,label,models[],current,haveKey} */
 let __cbeActive = null;
+/* Which provider the Accounts section in the open Settings modal is showing.
+   Set by renderModels() when the provider dropdown changes. */
+let __cbeAccountsProvider = null;
+
+/* HTML-escape for masked-key / label text injected into the accounts list. */
+function _acctEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* Friendly relative-ish timestamp for lastUsed / reset cells. */
+function _acctWhen(iso) {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '';
+  try { return new Date(t).toLocaleString(); } catch (_) { return iso; }
+}
+
+function _hideAccountForm() {
+  const form = document.querySelector('#cbe-acct-form');
+  if (!form) return;
+  form.style.display = 'none';
+  const lbl = document.querySelector('#cbe-acct-label');
+  const key = document.querySelector('#cbe-acct-key');
+  const err = document.querySelector('#cbe-acct-err');
+  if (lbl) lbl.value = '';
+  if (key) key.value = '';
+  if (err) { err.style.display = 'none'; err.textContent = ''; }
+}
+
+function _showAccountFormError(text) {
+  const err = document.querySelector('#cbe-acct-err');
+  const form = document.querySelector('#cbe-acct-form');
+  if (form) form.style.display = '';
+  if (err) { err.textContent = text; err.style.display = ''; }
+}
+
+/* Render the per-provider account rows from a host accountsState payload.
+   Each row: label, masked key, active dot, last-used, [Use]/[Disable]/[Delete].
+   Keys arrive ALREADY MASKED from the host — the webview never sees a raw key. */
+function renderAccountsList(payload) {
+  const wrap = document.querySelector('#cbe-accounts-wrap');
+  const list = document.querySelector('#cbe-acct-list');
+  if (!wrap || !list) return;
+  /* Ignore stale replies for a provider we're no longer viewing. */
+  if (payload && payload.provider && __cbeAccountsProvider && payload.provider !== __cbeAccountsProvider) return;
+  if (payload && payload.bridge) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  /* A successful state push means any pending add succeeded — close the form. */
+  _hideAccountForm();
+  const accounts = (payload && payload.accounts) || [];
+  const countEl = document.querySelector('#cbe-acct-count');
+  if (countEl) countEl.textContent = accounts.length ? `(${accounts.length})` : '(none yet)';
+  list.innerHTML = '';
+  if (!accounts.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'opacity:.6;font-size:12px;padding:4px 2px;';
+    empty.textContent = 'No accounts yet — add one to start rotating on rate-limit.';
+    list.appendChild(empty);
+    return;
+  }
+  accounts.forEach((a) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 7px;border:1px solid var(--cbe-modal-border,#3a3a3a);border-radius:4px;background:var(--cbe-modal-bg,#1a1a1a);'
+      + (a.disabled ? 'opacity:.5;' : '');
+    const dot = a.active ? '<span title="active" style="color:#4ade80;">●</span>' : '<span style="color:#555;">○</span>';
+    const dis = a.disabled ? ` · <span style="color:#ff6b6b;">limited${a.disabledUntil ? ' until ' + _acctEsc(_acctWhen(a.disabledUntil)) : ''}</span>` : '';
+    const used = a.lastUsedAt ? ` · used ${_acctEsc(_acctWhen(a.lastUsedAt))}` : '';
+    const info = document.createElement('div');
+    info.style.cssText = 'flex:1;min-width:0;font-size:12px;line-height:1.35;';
+    info.innerHTML = `${dot} <b>${_acctEsc(a.label)}</b><br><code style="opacity:.8;">${_acctEsc(a.maskedKey)}</code>${used}${dis}`;
+    row.appendChild(info);
+    const mkBtn = (txt, type, extra) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = txt;
+      b.style.cssText = 'padding:2px 8px;font-size:11px;background:var(--cbe-modal-accent,#2563eb);color:#fff;border:0;border-radius:3px;cursor:pointer;font-family:inherit;flex-shrink:0;';
+      if (extra) b.style.cssText += extra;
+      b.addEventListener('click', () => {
+        if (api) api.postMessage(Object.assign({ type, provider: __cbeAccountsProvider, accountId: a.id }, type === 'disableAccount' && a.disabled ? { enable: true } : {}));
+      });
+      return b;
+    };
+    if (!a.active) row.appendChild(mkBtn('Use', 'useAccount'));
+    row.appendChild(mkBtn(a.disabled ? 'Enable' : 'Disable', 'disableAccount', 'background:#555;'));
+    row.appendChild(mkBtn('Delete', 'deleteAccount', 'background:#7a2222;'));
+    list.appendChild(row);
+  });
+}
 let __cbeActiveSkin = '';  /* bare filename, e.g. 'noir.css'. '' = no skin */
 let __cbeSkinsList  = null;/* null = not yet discovered for this session; [] = scanned, empty */
 
@@ -1537,6 +1626,22 @@ function openSettings(payload) {
     +     '<div><label>Provider</label><select id="cbe-set-provider"></select></div>'
     +     '<div><label>Model</label><select id="cbe-set-model"></select></div>'
     +     '<div class="cbe-warn" id="cbe-set-warn">No API key configured for this provider in config.ini.</div>'
+    +     '<div id="cbe-accounts-wrap" style="margin:6px 0 2px;">'
+    +       '<div style="display:flex;align-items:center;gap:8px;">'
+    +         '<label style="margin:0;flex:1;">Accounts <span id="cbe-acct-count" style="opacity:.6;font-weight:400;"></span></label>'
+    +         '<button type="button" id="cbe-acct-add-btn" class="cbe-btn" style="padding:4px 12px;font-size:12px;">+ Add Account</button>'
+    +       '</div>'
+    +       '<div id="cbe-acct-list" style="margin-top:6px;display:flex;flex-direction:column;gap:4px;"></div>'
+    +       '<div id="cbe-acct-form" style="display:none;margin-top:8px;padding:8px;border:1px solid var(--cbe-modal-border,#444);border-radius:5px;background:var(--cbe-modal-bg,#181818);">'
+    +         '<input type="text" id="cbe-acct-label" placeholder="Label (e.g. work, alt-2)" style="width:100%;margin-bottom:6px;padding:6px 8px;background:var(--cbe-modal-bg,#1c1c1c);color:var(--cbe-modal-fg,#eee);border:1px solid var(--cbe-modal-border,#444);border-radius:4px;font:inherit;box-sizing:border-box;">'
+    +         '<input type="password" id="cbe-acct-key" placeholder="API key" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:6px;padding:6px 8px;background:var(--cbe-modal-bg,#1c1c1c);color:var(--cbe-modal-fg,#eee);border:1px solid var(--cbe-modal-border,#444);border-radius:4px;font:inherit;box-sizing:border-box;">'
+    +         '<div id="cbe-acct-err" style="display:none;color:#ff6b6b;font-size:12px;margin-bottom:6px;"></div>'
+    +         '<div style="display:flex;gap:6px;justify-content:flex-end;">'
+    +           '<button type="button" id="cbe-acct-cancel-btn" class="cbe-btn cbe-cancel" style="padding:4px 12px;font-size:12px;">Cancel</button>'
+    +           '<button type="button" id="cbe-acct-save-btn" class="cbe-btn cbe-save" style="padding:4px 12px;font-size:12px;">Add</button>'
+    +         '</div>'
+    +       '</div>'
+    +     '</div>'
     +     '<div><label>Skin</label><select id="cbe-set-skin"><option value="">Loading skins…</option></select></div>'
     +     '<div><label>Language</label><div id="cbe-set-language-wrap" style="position:relative;"></div></div>'
     +     '<div style="display:flex;align-items:center;gap:10px;margin-top:4px;">'
@@ -1595,9 +1700,40 @@ function openSettings(payload) {
       ms.disabled = false;
       warn.classList.toggle('show', !prov.haveKey);
     }
+    /* Refresh the multi-account section for the newly-selected provider.
+       Hidden entirely for bridge providers (no API keys to manage). */
+    const acctWrap = overlay.querySelector('#cbe-accounts-wrap');
+    if (acctWrap) {
+      acctWrap.style.display = prov.bridge ? 'none' : '';
+      if (!prov.bridge) {
+        __cbeAccountsProvider = prov.id;
+        _hideAccountForm();
+        if (api) api.postMessage({ type: 'getAccounts', provider: prov.id });
+      }
+    }
   };
   sel.addEventListener('change', renderModels);
   renderModels();
+
+  /* ── Accounts section wiring ──────────────────────────────────────────
+     The list itself is rendered by renderAccountsList() when the host
+     answers getAccounts with an accountsState message. Here we wire the
+     Add-Account form's open/cancel/submit buttons. */
+  const acctAddBtn    = overlay.querySelector('#cbe-acct-add-btn');
+  const acctSaveBtn   = overlay.querySelector('#cbe-acct-save-btn');
+  const acctCancelBtn = overlay.querySelector('#cbe-acct-cancel-btn');
+  if (acctAddBtn) acctAddBtn.addEventListener('click', () => {
+    const form = overlay.querySelector('#cbe-acct-form');
+    if (form) { form.style.display = ''; const lbl = overlay.querySelector('#cbe-acct-label'); if (lbl) lbl.focus(); }
+  });
+  if (acctCancelBtn) acctCancelBtn.addEventListener('click', _hideAccountForm);
+  if (acctSaveBtn) acctSaveBtn.addEventListener('click', () => {
+    const label = (overlay.querySelector('#cbe-acct-label') || {}).value || '';
+    const key   = (overlay.querySelector('#cbe-acct-key') || {}).value || '';
+    if (!key.trim()) { _showAccountFormError('Enter an API key.'); return; }
+    if (api) api.postMessage({ type: 'addAccount', provider: __cbeAccountsProvider, label: label.trim(), apiKey: key.trim() });
+    /* The host replies with accountsState (re-render) or accountError. */
+  });
 
   /* Language dropdown — custom widget (a native <select> can't render <img>,
      and on Windows the regional-indicator emoji shows as plain letters, so
@@ -3203,6 +3339,41 @@ window.addEventListener('message', e => {
     setBusy(false);
   } else if (m.type === 'info') {
     addMsg(m.text || '', 'info');
+  } else if (m.type === 'bridgeStatus') {
+    /* Bridge auto-start telemetry from extension.js. Renders a one-line
+       banner in #thread; if the EXE is missing we render an explicit
+       error so the user knows to build it from bridges_cpp/. */
+    const label = (m.target || 'bridge') + ' bridge';
+    if (m.exeMissing) {
+      addMsg(`⚠ ${label}: EXE missing on disk (${m.reason || 'no path'}). Build it via build_bridges.ps1.`, 'error');
+    } else if (m.ok) {
+      if (m.spawned) addMsg(`${label} started on :${m.port}`, 'info');
+      /* If it was already running, stay quiet — no log spam. */
+    } else {
+      addMsg(`⚠ ${label}: ${m.reason || 'could not reach port ' + (m.port || '?')}`, 'error');
+    }
+  } else if (m.type === 'accountsState') {
+    /* Host answered getAccounts / a mutating account command. Re-render the
+       Accounts list in the open Settings modal (no-op if it's closed). */
+    renderAccountsList(m);
+  } else if (m.type === 'accountError') {
+    /* Add/validate failure — show it inline in the Add-Account form. */
+    _showAccountFormError(m.message || 'Account error.');
+  } else if (m.type === 'accountToast') {
+    /* Rotation fired — surface a small toast so the user knows we switched
+       accounts mid-request. addMsg renders an info line in the thread. */
+    addMsg(`↻ Account ${m.from} hit its limit — switched to ${m.to}`, 'info');
+    if (typeof playSfx === 'function') { try { playSfx('popup'); } catch (_) {} }
+  } else if (m.type === 'ollamaStatus') {
+    /* Render the persistent Ollama provision banner (install button +
+       model dropdown). Replaces any previous banner so we never stack
+       duplicates. State comes straight from ensureOllamaReady(): 'ready',
+       'missing', 'daemonFailed'. */
+    renderOllamaStatusBanner(m);
+  } else if (m.type === 'ollamaInstallStatus') {
+    updateOllamaInstallProgress(m);
+  } else if (m.type === 'ollamaPullStatus') {
+    updateOllamaPullProgress(m);
   } else if (m.type === 'nag') {
     /* Host hit a run-count trigger (3/6/10/20, then every 30). Random
        pick of the three support/promo cards — see CBE_NAGS. */
@@ -4124,4 +4295,176 @@ window.addEventListener('resize', fitProjectPath);
     if (m && m.type === 'setupValues') open(m.values || {});
   });
 })();
+
+/* ── Ollama provision banner ─────────────────────────────────────────────
+   Persistent panel widget that surfaces the host-side ensureOllamaReady()
+   state machine. Renders one of three modes:
+     • ready          — quiet info pill ("Ollama ready · llama3.2:3b")
+     • missing        — big Install button (kicks installOllama msg)
+     • daemonFailed   — Retry button (re-runs ollamaProbe)
+   Plus, when the daemon is up but has zero models, a model picker with a
+   Pull button that streams ollama pull stdout into the banner. */
+const RECOMMENDED_OLLAMA_MODELS = ['llama3.2:3b', 'qwen2.5:7b', 'phi3:mini'];
+
+function _ollamaBannerEl() {
+  let el = document.getElementById('cbe-ollama-banner');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'cbe-ollama-banner';
+  el.className = 'msg info';
+  el.style.cssText = [
+    'border:1px solid #e8621a',
+    'background:linear-gradient(180deg, #1a1a1a, #0f0f0f)',
+    'color:#e8e8e8',
+    'padding:10px 14px',
+    'margin:8px 0',
+    'border-radius:6px',
+    'font-family:Consolas,Menlo,monospace',
+    'font-size:13px',
+    'line-height:1.45',
+  ].join(';');
+  const thread = document.getElementById('thread');
+  if (thread) thread.appendChild(el);
+  return el;
+}
+
+function renderOllamaStatusBanner(m) {
+  const el = _ollamaBannerEl();
+  const state = m && m.state;
+  if (state === 'ready') {
+    const models = (m.models || []);
+    const first = models[0] || '(no models pulled)';
+    el.innerHTML = '';
+    const header = document.createElement('div');
+    header.innerHTML = `<b style="color:#ffd166">Ollama ready</b> · daemon on :11434 · ${models.length} model${models.length === 1 ? '' : 's'}${models.length ? ' (active: <code>' + _ollamaEscape(first) + '</code>)' : ''}`;
+    el.appendChild(header);
+    if (!models.length) {
+      el.appendChild(_buildOllamaPullPicker());
+    } else {
+      /* Hide the banner after 6s once it's truly ready (less chrome). */
+      setTimeout(() => { try { el.remove(); } catch (_) {} }, 6000);
+    }
+    return;
+  }
+  if (state === 'missing') {
+    el.innerHTML = '';
+    const msg = document.createElement('div');
+    msg.style.marginBottom = '8px';
+    msg.innerHTML = `<b style="color:#ff6b6b">Ollama not installed.</b> Click below to download + install the latest Windows build silently — no manual steps needed.`;
+    el.appendChild(msg);
+    const btn = document.createElement('button');
+    btn.id = 'ollamaInstallBtn';
+    btn.textContent = 'Install Ollama';
+    btn.style.cssText = 'padding:8px 18px;background:#e8621a;color:#fff;border:0;border-radius:5px;cursor:pointer;font-weight:600;font-family:inherit;';
+    btn.addEventListener('click', () => {
+      btn.disabled = true;
+      btn.textContent = 'Starting…';
+      if (api) api.postMessage({ type: 'installOllama' });
+    });
+    el.appendChild(btn);
+    const progress = document.createElement('div');
+    progress.id = 'cbe-ollama-install-progress';
+    progress.style.cssText = 'margin-top:10px;color:#9da3a6;font-size:12px;min-height:1.2em;';
+    el.appendChild(progress);
+    return;
+  }
+  if (state === 'daemonFailed') {
+    el.innerHTML = '';
+    const msg = document.createElement('div');
+    msg.style.marginBottom = '8px';
+    msg.innerHTML = `<b style="color:#ff6b6b">Ollama daemon didn't start.</b> Found exe at <code>${_ollamaEscape(m.exe || '(unknown)')}</code> but /api/tags timed out.`;
+    el.appendChild(msg);
+    const btn = document.createElement('button');
+    btn.textContent = 'Retry';
+    btn.style.cssText = 'padding:6px 14px;background:#444;color:#fff;border:0;border-radius:5px;cursor:pointer;font-family:inherit;';
+    btn.addEventListener('click', () => {
+      btn.disabled = true;
+      btn.textContent = 'Probing…';
+      if (api) api.postMessage({ type: 'ollamaProbe' });
+    });
+    el.appendChild(btn);
+    return;
+  }
+  /* unknown state — fall back to silent removal */
+  try { el.remove(); } catch (_) {}
+}
+
+function updateOllamaInstallProgress(m) {
+  const el = document.getElementById('cbe-ollama-install-progress');
+  if (!el) return;
+  const text = (m && m.text) || '';
+  el.textContent = text;
+  if (m && m.step === 'fail') {
+    el.style.color = '#ff6b6b';
+    /* Re-enable the install button so the user can retry. */
+    const btn = document.getElementById('ollamaInstallBtn');
+    if (btn) { btn.disabled = false; btn.textContent = 'Install Ollama'; }
+  } else if (m && m.step === 'done') {
+    el.style.color = '#9aff9a';
+  } else {
+    el.style.color = '#ffd166';
+  }
+}
+
+function _buildOllamaPullPicker() {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
+  const label = document.createElement('span');
+  label.textContent = 'Pull a starter model:';
+  label.style.color = '#9da3a6';
+  wrap.appendChild(label);
+  const sel = document.createElement('select');
+  sel.id = 'cbe-ollama-model-pick';
+  sel.style.cssText = 'background:#0a0a0a;color:#e8e8e8;border:1px solid #444;border-radius:4px;padding:4px 8px;font-family:inherit;';
+  for (const n of RECOMMENDED_OLLAMA_MODELS) {
+    const opt = document.createElement('option');
+    opt.value = n;
+    opt.textContent = n;
+    sel.appendChild(opt);
+  }
+  wrap.appendChild(sel);
+  const btn = document.createElement('button');
+  btn.textContent = 'Pull';
+  btn.style.cssText = 'padding:5px 14px;background:#e8621a;color:#fff;border:0;border-radius:4px;cursor:pointer;font-family:inherit;';
+  btn.addEventListener('click', () => {
+    btn.disabled = true;
+    btn.textContent = 'Pulling…';
+    if (api) api.postMessage({ type: 'pullOllamaModel', model: sel.value });
+  });
+  wrap.appendChild(btn);
+  const log = document.createElement('div');
+  log.id = 'cbe-ollama-pull-log';
+  log.style.cssText = 'flex-basis:100%;color:#9da3a6;font-size:12px;margin-top:6px;white-space:pre-wrap;max-height:140px;overflow:auto;font-family:Consolas,Menlo,monospace;';
+  wrap.appendChild(log);
+  return wrap;
+}
+
+function updateOllamaPullProgress(m) {
+  const log = document.getElementById('cbe-ollama-pull-log');
+  if (!log) return;
+  const t = (m && m.text) || '';
+  /* Most pull lines are "pulling <sha>... 38%" — replace last line if it
+     looks like a progress redraw (ends with %), else append. */
+  if (/%\s*$/.test(t)) {
+    const lines = log.textContent.split('\n');
+    if (lines.length && /%\s*$/.test(lines[lines.length - 1])) lines[lines.length - 1] = t;
+    else lines.push(t);
+    log.textContent = lines.join('\n');
+  } else {
+    log.textContent += (log.textContent ? '\n' : '') + t;
+  }
+  log.scrollTop = log.scrollHeight;
+  if (m && (m.step === 'done' || m.step === 'fail')) {
+    const btn = log.parentElement && log.parentElement.querySelector('button');
+    if (btn) { btn.disabled = false; btn.textContent = 'Pull'; }
+  }
+}
+
+function _ollamaEscape(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 

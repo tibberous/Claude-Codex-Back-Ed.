@@ -73,8 +73,8 @@
         "command": "codexBlackEd.openBrowser",
         "title": "Claude Codex Black: Open Web Browser (NN4)",
         "icon": {
-          "light": "assets/icon-light.png",
-          "dark": "resources/icon-dark.png"
+          "light": "resources/browser.png",
+          "dark": "resources/browser.png"
         }
       },
       {

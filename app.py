@@ -5820,7 +5820,7 @@ class SuperGrokBridgeWindow(QMainWindow):
         if not QSystemTrayIcon.isSystemTrayAvailable():
             self.debugPane.append("tray", "system tray not available; skipping indicator")
             return
-        iconPath = Path(__file__).resolve().parent / "assets" / "supergrok_icon.svg"
+        iconPath = Path(__file__).resolve().parent / "assets" / "browser.png"
         icon = QIcon(str(iconPath)) if iconPath.exists() else self.windowIcon()
         tray = QSystemTrayIcon(icon, self)
         provider = chatProviderLabel(getattr(self.config, "target", "grok"))

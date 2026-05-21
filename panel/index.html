@@ -93,7 +93,11 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  padding: 14px 100px 22px;
+  /* Horizontal padding shrinks aggressively below 1280px so the prompt-shell
+     can render at the panel's true usable width on narrow VSCode sidebars.
+     Was a flat `14px 100px 22px` which ate 200px of horizontal space, pushing
+     the toolbar contents off-screen on panels under ~700px wide. */
+  padding: 14px 24px 22px;
   z-index: 10;
   pointer-events: none;
   background: transparent;
@@ -139,6 +143,15 @@ body {
     0 1px 0 rgba(0, 0, 0, 0.25),
     0 3px 10px rgba(0, 0, 0, 0.12);
   padding: 14px 90px 14px 23px;
+  /* Force the input-wrap into its own block, never sized larger than the
+     shell interior. min-width:0 lets long unbreakable strings inside the
+     textarea (URLs etc.) stay inside the wrap instead of pushing the wrap
+     wider than its parent. width:100% pins the wrap to the shell width so
+     skins that try to use width:auto can't accidentally let it expand past
+     the toolbar row below. */
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .prompt-input {
@@ -212,6 +225,12 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   border: 0;
   background: transparent url('{{ASSETS_BASE}}/send.png') center/contain no-repeat;
   cursor: pointer;
+  /* Guarantee the send button paints above the textarea and above the
+     prompt-input-wrap's inset shadow pseudo regardless of stacking-context
+     quirks introduced by skins. Without an explicit z-index here, skins that
+     set `position: relative` on `.prompt-input` (terminal/xfce) can cause the
+     textarea to win the stacking-order tie at z-index:auto. */
+  z-index: 2;
 }
 .send-button:hover,
 .send-button.is-hover { background-image: url('{{ASSETS_BASE}}/send_over.png'); }
@@ -308,13 +327,43 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   flex-direction: column;
   gap: 10px;
   min-height: 60px;
+  /* Establish a stacking context BELOW the prompt-input-wrap's send button
+     but ABOVE the prompt-shell's ::before glow pseudo. Combined with
+     position:relative this guarantees that nothing in the toolbar can be
+     painted over by a stray absolute-positioned sibling. */
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-width: 0;
 }
+/* macOS-dock styled toolbar row. The .toolbar-tools element is now the
+   translucent dock STRIP — one rounded frosted-glass panel that all the
+   icons sit on directly (no per-icon button container). Wraps to multiple
+   rows when there isn't enough horizontal room, so we never lose buttons
+   off-screen the way overflow-x:auto did. */
 .toolbar-tools {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 10px;
+  gap: 4px;
+  row-gap: 14px;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 10px 16px 18px 16px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+    0 10px 32px rgba(0, 0, 0, 0.42),
+    0 2px 6px rgba(0, 0, 0, 0.25);
+  overflow: visible;
 }
 .toolbar-meta {
   display: flex;
@@ -416,74 +465,96 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   background: transparent;
 }
 
+/* macOS-dock icon. No button container, no border, no gradient — just an
+   icon sitting on the dock glass with a soft mirror reflection beneath it
+   and classic Mac scale-up magnification on hover. */
 .tool-button {
   width: 48px;
   height: 48px;
-  border-radius: var(--button-radius);
-  border: 2px solid rgba(255, 160, 30, 0.96);
-  background:
-    linear-gradient(180deg, rgba(255, 145, 0, 1) 0%, rgba(255, 112, 0, 0.98) 25%, rgba(242, 71, 0, 0.98) 100%);
-  box-shadow:
-    inset 0 2px 0 rgba(255, 209, 100, 0.75),
-    inset 0 -3px 0 rgba(150, 27, 0, 0.38),
-    0 0 0 1px rgba(130, 30, 0, 0.5),
-    0 5px 10px rgba(0, 0, 0, 0.22),
-    0 0 14px rgba(255, 94, 0, 0.38);
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* Explicit rest transform — without this the button has NO declared
-     transform in the base rest state, so when a skin like mint-dock applies
-     translateY(-3px) on :active and the cursor leaves mid-press, the button
-     can stay "slid down" because no rule reasserts the home position.
-     translateY(0) scale(1) gives transitions a defined origin to return to. */
-  transform: translateY(0) scale(1);
-  /* Explicit transition-property (not "all") so future declarations
-     (background, border-color) don't accidentally animate and look laggy. */
-  transition-property: transform, box-shadow, filter, background, border-color;
-  transition-duration: .14s;
-  transition-timing-function: ease;
+  position: relative;
+  /* Origin at bottom-center so the magnify grows UP off the dock floor,
+     the way real macOS does it. */
+  transform-origin: 50% 100%;
+  transform: scale(1);
+  transition-property: transform, filter;
+  transition-duration: .15s;
+  transition-timing-function: cubic-bezier(.2, .8, .2, 1);
 }
 
-/* Defensive home-state reset — when the button is NEITHER hovered NOR
-   pressed NOR in a state class, force transform to home. This rule has
-   the same specificity as the base .tool-button so it is overridden by
-   :hover, :active, .is-active, .autoread, .is-recording, etc. — but the
-   instant the cursor leaves and no state class is set, the home position
-   is reasserted, killing any "stuck slid down" artifact across all skins. */
+/* Defensive home-state reset — keeps the icon snapping back to rest when
+   no state class is active (matches the prior :not() reset pattern that
+   protects against "stuck pressed" artifacts on skin swaps). */
 .tool-button:not(:hover):not(:active):not(.is-active):not(.autoread):not(.is-recording):not(.is-monitoring):not(.is-autoprompting) {
-  transform: translateY(0) scale(1);
+  transform: scale(1);
 }
 
 .tool-button:hover {
-  transform: translateY(-2px) scale(1.06);
-  background:
-    linear-gradient(180deg, rgba(255, 195, 60, 1) 0%, rgba(255, 145, 0, 1) 25%, rgba(255, 95, 0, 1) 100%);
-  border-color: rgba(255, 220, 100, 0.95);
-  box-shadow:
-    inset 0 2px 0 rgba(255, 240, 175, 0.95),
-    inset 0 -2px 0 rgba(170, 33, 0, 0.5),
-    0 0 0 2px rgba(255, 200, 50, 0.5),
-    0 10px 22px rgba(0, 0, 0, 0.45),
-    0 0 30px rgba(255, 150, 30, 0.85);
-  filter: brightness(1.10);
+  transform: scale(1.28);
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.45));
+  z-index: 2;
 }
 
 .tool-button:active,
 .tool-button.is-active {
-  transform: translateY(1px) scale(0.96);
-  filter: brightness(.86);
-  box-shadow:
-    inset 0 3px 6px rgba(0, 0, 0, 0.35),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.3),
-    0 1px 3px rgba(0, 0, 0, 0.2);
+  transform: scale(1.12);
+  filter: brightness(.92) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
 }
 
 .tool-button img {
-  width: 24px;
-  height: 24px;
+  width: 40px;
+  height: 40px;
   display: block;
-  filter: brightness(0) invert(1);
+  /* Render icons in full color (no white-out tint). Slight drop-shadow gives
+     them depth on the glass. image-rendering keeps PNG icons crisp at the
+     larger dock size. */
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55))
+          drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+  image-rendering: -webkit-optimize-contrast;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* Mirror-flipped icon reflection beneath each dock icon. Uses the same
+   <img> the button already contains, cloned via ::after's content:''
+   trick: we paint an inverted, faded copy positioned just below the icon
+   with a mask-gradient so it dissolves into transparent at the bottom.
+   We use background-image inheritance from the parent button via a CSS
+   custom property set by JS would be ideal, but we don't have that hook —
+   instead we use a subtle generic reflection by mirroring the icon's
+   own drop-shadow with `transform: scaleY(-1)` on a clone. Since the
+   actual <img> is the only icon source we have, the cleanest pure-CSS
+   reflection is to duplicate the icon visually using the button's
+   `::after` with a hard-coded ratio. As a fallback that always works,
+   we use a soft elliptical glow as the "reflection" — matches how the
+   reference Mac dock fades the icon glow into the glass. */
+.tool-button::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -10px;
+  width: 36px;
+  height: 6px;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at center,
+              rgba(255, 255, 255, 0.35) 0%,
+              rgba(255, 255, 255, 0.12) 45%,
+              rgba(255, 255, 255, 0) 75%);
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0.9;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.tool-button:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) scale(1.28);
 }
 
 /* Monitor "working" overlay — when the panel is busy (in-flight request),
@@ -794,15 +865,28 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 @media (max-width: 1280px) {
   .demo-stage { padding: 20px 40px 40px 40px; }
   .label-button { width: 220px; }
+  /* Tighten the prompt-area gutter on mid-width panels so the toolbar buttons
+     have more room to lay out before wrap kicks in. */
+  .prompt-area { padding: 14px 18px 18px; }
 }
 
 @media (max-width: 880px) {
   .demo-stage { padding: 16px 20px 20px 20px; }
   .prompt-input { font-size: 16px; }
+  /* Narrow panels: keep the macOS-dock icon size slightly smaller but
+     never shrink to the 22px "tiny chip" look — the dock should still
+     read as a row of full-color app icons on translucent glass. */
   .tool-button { width: 42px; height: 42px; }
-  .tool-button img { width: 22px; height: 22px; }
+  .tool-button img { width: 34px; height: 34px; }
+  .tool-button:hover { transform: scale(1.22); }
+  .toolbar-tools { padding: 8px 12px 14px 12px; border-radius: 18px; gap: 2px; }
   .stop-button { height: 34px; font-size: 13px; }
   .label-button { width: 180px; height: 34px; }
+  /* Narrow VSCode sidebars get an even tighter gutter + shell padding so
+     the toolbar can still fit ~6 buttons per row at 42px before wrapping. */
+  .prompt-area { padding: 10px 10px 14px; }
+  .prompt-shell { padding: 12px 14px 18px; }
+  .prompt-input-wrap { padding: 12px 76px 12px 16px; }
 }
 
   /* CBE extension hooks added to GPT's design */
@@ -1590,6 +1674,225 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
       margin-top: 6px; font-size: 10px; color: #99a883; text-align: center;
       opacity: 0.85;
     }
+
+  /* === DOCK ICON SWAP (Mac+Mint glass redesign) === */
+  /* Strip per-icon button chrome in both dock skins */
+  .skin-macos-color-dock .tool-button,
+  .skin-mint-dock .tool-button {
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    padding: 4px !important;
+    border-radius: 0 !important;
+  }
+  .skin-macos-color-dock .tool-button:hover,
+  .skin-mint-dock .tool-button:hover {
+    transform: translateY(-3px) scale(1.18) !important;
+    transition: transform 150ms ease !important;
+    background: transparent !important;
+  }
+  .skin-macos-color-dock .tool-button img,
+  .skin-mint-dock .tool-button img {
+    width: 44px !important;
+    height: 44px !important;
+    filter: none !important;
+  }
+
+  /* Alpha-glass dock body — macOS color variant (light frosted) */
+  .skin-macos-color-dock .toolbar-tools {
+    background: linear-gradient(180deg,
+        rgba(255, 255, 255, 0.20) 0%,
+        rgba(255, 255, 255, 0.08) 100%) !important;
+    backdrop-filter: blur(20px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+    border-radius: 22px !important;
+    border: 1px solid rgba(255, 255, 255, 0.30) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.35),
+        0 8px 32px rgba(0, 0, 0, 0.30) !important;
+    padding: 8px 14px !important;
+    flex-wrap: wrap !important;
+    overflow: visible !important;
+    margin: 8px auto !important;
+    width: max-content !important;
+    max-width: calc(100% - 32px) !important;
+    gap: 6px !important;
+  }
+
+  /* Alpha-glass dock body — Mint variant (dark frosted) */
+  .skin-mint-dock .toolbar-tools {
+    background: linear-gradient(180deg,
+        rgba(30, 30, 30, 0.65) 0%,
+        rgba(10, 10, 10, 0.80) 100%) !important;
+    backdrop-filter: blur(20px) saturate(140%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
+    border-radius: 22px !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.25) !important;
+    border-left: 1px solid rgba(255, 255, 255, 0.10) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.10) !important;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.40) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.20),
+        0 6px 20px rgba(0, 0, 0, 0.50) !important;
+    padding: 8px 14px !important;
+    flex-wrap: wrap !important;
+    overflow: visible !important;
+    margin: 8px auto !important;
+    width: max-content !important;
+    max-width: calc(100% - 32px) !important;
+    gap: 6px !important;
+  }
+
+  /* macOS skin — per-button icon swap (24 rules). Spinner-bearing
+     buttons (tts/stt/autoReply/monitor/compact) target :first-of-type
+     so the spinner overlay is left alone. */
+  .skin-macos-color-dock #addBtn > img {
+    content: url("assets/dock_icons/macos/add.svg") !important;
+  }
+  .skin-macos-color-dock #storedPromptsBtn > img {
+    content: url("assets/dock_icons/macos/storedPrompts.svg") !important;
+  }
+  .skin-macos-color-dock #chatHistoryBtn > img {
+    content: url("assets/dock_icons/macos/chatHistory.svg") !important;
+  }
+  .skin-macos-color-dock #attachFileBtn > img {
+    content: url("assets/dock_icons/macos/attachFile.svg") !important;
+  }
+  .skin-macos-color-dock #ttsBtn > img:first-of-type {
+    content: url("assets/dock_icons/macos/tts.svg") !important;
+  }
+  .skin-macos-color-dock #sttBtn > img:first-of-type {
+    content: url("assets/dock_icons/macos/stt.svg") !important;
+  }
+  .skin-macos-color-dock #autoReplyBtn > img:first-of-type {
+    content: url("assets/dock_icons/macos/autoReply.svg") !important;
+  }
+  .skin-macos-color-dock #wakeUpBtn > img {
+    content: url("assets/dock_icons/macos/wakeUp.svg") !important;
+  }
+  .skin-macos-color-dock #showCommandsBtn > img {
+    content: url("assets/dock_icons/macos/showCommands.svg") !important;
+  }
+  .skin-macos-color-dock #compactBtn > img:first-of-type {
+    content: url("assets/dock_icons/macos/compact.svg") !important;
+  }
+  .skin-macos-color-dock #handbookBtn > img {
+    content: url("assets/dock_icons/macos/handbook.svg") !important;
+  }
+  .skin-macos-color-dock #settingsBtn > img {
+    content: url("assets/dock_icons/macos/settings.svg") !important;
+  }
+  .skin-macos-color-dock #extensionsBtn > img {
+    content: url("assets/dock_icons/macos/extensions.svg") !important;
+  }
+  .skin-macos-color-dock #projectFolderBtn > img {
+    content: url("assets/dock_icons/macos/projectFolder.svg") !important;
+  }
+  .skin-macos-color-dock #browserBtn > img {
+    content: url("assets/dock_icons/macos/browser.svg") !important;
+  }
+  .skin-macos-color-dock #monitorBtn > img:first-of-type {
+    content: url("assets/dock_icons/macos/monitor.svg") !important;
+  }
+  .skin-macos-color-dock #terminalBtn > img {
+    content: url("assets/dock_icons/macos/terminal.svg") !important;
+  }
+  .skin-macos-color-dock #setupBtn > img {
+    content: url("assets/dock_icons/macos/setup.svg") !important;
+  }
+  .skin-macos-color-dock #gitBtn > img {
+    content: url("assets/dock_icons/macos/git.svg") !important;
+  }
+  .skin-macos-color-dock #githubBtn > img {
+    content: url("assets/dock_icons/macos/github.svg") !important;
+  }
+  .skin-macos-color-dock #domainsBtn > img {
+    content: url("assets/dock_icons/macos/domains.svg") !important;
+  }
+  .skin-macos-color-dock #fontSizeBtn > img {
+    content: url("assets/dock_icons/macos/fontSize.svg") !important;
+  }
+  .skin-macos-color-dock #helpBtn > img {
+    content: url("assets/dock_icons/macos/help.svg") !important;
+  }
+  .skin-macos-color-dock #tamaBtn > img {
+    content: url("assets/dock_icons/macos/tama.svg") !important;
+  }
+
+  /* Mint skin — per-button icon swap (24 rules) */
+  .skin-mint-dock #addBtn > img {
+    content: url("assets/dock_icons/mint/add.svg") !important;
+  }
+  .skin-mint-dock #storedPromptsBtn > img {
+    content: url("assets/dock_icons/mint/storedPrompts.svg") !important;
+  }
+  .skin-mint-dock #chatHistoryBtn > img {
+    content: url("assets/dock_icons/mint/chatHistory.svg") !important;
+  }
+  .skin-mint-dock #attachFileBtn > img {
+    content: url("assets/dock_icons/mint/attachFile.svg") !important;
+  }
+  .skin-mint-dock #ttsBtn > img:first-of-type {
+    content: url("assets/dock_icons/mint/tts.svg") !important;
+  }
+  .skin-mint-dock #sttBtn > img:first-of-type {
+    content: url("assets/dock_icons/mint/stt.svg") !important;
+  }
+  .skin-mint-dock #autoReplyBtn > img:first-of-type {
+    content: url("assets/dock_icons/mint/autoReply.svg") !important;
+  }
+  .skin-mint-dock #wakeUpBtn > img {
+    content: url("assets/dock_icons/mint/wakeUp.svg") !important;
+  }
+  .skin-mint-dock #showCommandsBtn > img {
+    content: url("assets/dock_icons/mint/showCommands.svg") !important;
+  }
+  .skin-mint-dock #compactBtn > img:first-of-type {
+    content: url("assets/dock_icons/mint/compact.svg") !important;
+  }
+  .skin-mint-dock #handbookBtn > img {
+    content: url("assets/dock_icons/mint/handbook.svg") !important;
+  }
+  .skin-mint-dock #settingsBtn > img {
+    content: url("assets/dock_icons/mint/settings.svg") !important;
+  }
+  .skin-mint-dock #extensionsBtn > img {
+    content: url("assets/dock_icons/mint/extensions.svg") !important;
+  }
+  .skin-mint-dock #projectFolderBtn > img {
+    content: url("assets/dock_icons/mint/projectFolder.svg") !important;
+  }
+  .skin-mint-dock #browserBtn > img {
+    content: url("assets/dock_icons/mint/browser.svg") !important;
+  }
+  .skin-mint-dock #monitorBtn > img:first-of-type {
+    content: url("assets/dock_icons/mint/monitor.svg") !important;
+  }
+  .skin-mint-dock #terminalBtn > img {
+    content: url("assets/dock_icons/mint/terminal.svg") !important;
+  }
+  .skin-mint-dock #setupBtn > img {
+    content: url("assets/dock_icons/mint/setup.svg") !important;
+  }
+  .skin-mint-dock #gitBtn > img {
+    content: url("assets/dock_icons/mint/git.svg") !important;
+  }
+  .skin-mint-dock #githubBtn > img {
+    content: url("assets/dock_icons/mint/github.svg") !important;
+  }
+  .skin-mint-dock #domainsBtn > img {
+    content: url("assets/dock_icons/mint/domains.svg") !important;
+  }
+  .skin-mint-dock #fontSizeBtn > img {
+    content: url("assets/dock_icons/mint/fontSize.svg") !important;
+  }
+  .skin-mint-dock #helpBtn > img {
+    content: url("assets/dock_icons/mint/help.svg") !important;
+  }
+  .skin-mint-dock #tamaBtn > img {
+    content: url("assets/dock_icons/mint/tama.svg") !important;
+  }
+  /* === END DOCK ICON SWAP === */
   </style>
 
 <!-- Webview URI map — tiny inline script. Keep small; this is the only

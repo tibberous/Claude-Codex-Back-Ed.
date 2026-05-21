@@ -1,0 +1,9 @@
+Go through the last 2 days of convos, find where I describe that (it's basically just a combobox in a modal) and anything else you missed. Spin up an agent to go through the logs, make a sprint, then check what is and isn't done.
+
+Useful starting points:
+
+    explorer "$env:USERPROFILE\.claude"
+    explorer "$env:USERPROFILE\.vscode"
+    python C:\Users\moren\claude-tools\extract_logs.py --range 2 0 --out C:\Users\moren\claude-tools\last2days.txt
+
+Then grep last2days.txt for every ask, build a sprint with ✅ / 🟡 / ❌, and verify each item against the actual code on disk (cite file:line) instead of trusting "done" claims.

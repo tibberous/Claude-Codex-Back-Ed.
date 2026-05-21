@@ -84,6 +84,35 @@ const PROVIDERS = {
 
 const DEFAULT_PROVIDER = 'anthropic';
 
+/* ── Bridge port registry (mirrors start.py BRIDGE_PORTS at start.py:187) ──
+   Single source of truth for the JS side. Used by ensureBridge() to TCP-probe
+   each tray exe before deciding whether to spawn it. If start.py's dict ever
+   moves, update both — they MUST stay in sync. */
+const BRIDGE_PORTS = {
+    chatgpt:  8788,
+    grok:     8789,
+    copilot:  8790,
+    gemini:   8791,
+    claude:   8792,
+    ollama:   8793,
+    deepseek: 8794,
+};
+
+/* Pretty exe filename per bridge target — bin/CBE-Bridge-<Pretty>.exe. */
+const BRIDGE_EXE_NAME = {
+    chatgpt:  'CBE-Bridge-ChatGPT.exe',
+    grok:     'CBE-Bridge-Grok.exe',
+    copilot:  'CBE-Bridge-Copilot.exe',
+    gemini:   'CBE-Bridge-Gemini.exe',
+    claude:   'CBE-Bridge-Claude.exe',
+    ollama:   'CBE-Bridge-Ollama.exe',
+    deepseek: 'CBE-Bridge-DeepSeek.exe',
+};
+
+/* Track which bridges THIS extension instance has already spawned so we
+   don't re-fork them on every chat. Map of target -> { pid, startedAt }. */
+const _runningBridges = new Map();
+
 /* ── Config singleton ─────────────────────────────────────────────────────
    `config.ini` is parsed ONCE per activation and stored in `Config`. Every
    caller that previously did `readConfigIni(extensionPath)` now reads
@@ -697,6 +726,14 @@ function getProviderKey(context, providerId) {
        Return a sentinel so the "(no key)" badge in the settings modal
        stays quiet. */
     if (provider.bridge) return '<bridge>';
+    /* 0. Active account from the multi-account list. This is the key the
+       request path actually sends. It already migrates the legacy single
+       key in as accounts[0], so a one-key user transparently resolves here.
+       Skipped only if every account is disabled (rate-limited) — in that
+       case we fall through to the secret/ini/env legacy chain so a manual
+       Set-API-Key still works. */
+    const activeAcc = getActiveAccount(context, providerId);
+    if (activeAcc && !_accountDisabled(activeAcc) && activeAcc.apiKey) return activeAcc.apiKey;
     /* 1. Cached secret (set via Set API Key command) */
     if (secretsCache[providerId]) return secretsCache[providerId];
     /* 2. config.ini lookup */
@@ -762,6 +799,237 @@ async function promptForKey(context, providerId) {
 function getMaxTokens() {
     const v = vscode.workspace.getConfiguration('codexBlackEd').get('maxTokens');
     return Number.isInteger(v) && v >= 256 && v <= 16384 ? v : 4096;
+}
+
+/* ── Multi-account management ──────────────────────────────────────────────
+   The user runs ~10 Anthropic accounts (and may stack accounts on other
+   providers) each on a weekly token cap that does NOT roll over. Instead of a
+   single key per provider we keep a LIST of accounts and rotate through them
+   when one hits its cap.
+
+   Persistence: config.ini gets a new [accounts] section. One key per provider
+   id whose VALUE is a JSON-encoded array of account objects:
+
+       [accounts]
+       anthropic = [{"id":"acc_...","label":"main","apiKey":"sk-ant-...","addedAt":"2026-05-21T...","lastUsedAt":null,"disabledUntil":null}, ...]
+       openai    = [ ... ]
+
+   The active-account index per provider lives in workspaceState (per-window),
+   keyed STATE_ACTIVE_ACCOUNT + ':' + providerId. The legacy single key under
+   [api_keys].<keyField> is preserved and migrated into accounts[0] on first
+   read (see getProviderAccounts). NEVER log a full apiKey — always maskKey().
+*/
+const STATE_ACTIVE_ACCOUNT = 'codexBlackEd.activeAccount';   /* + ':' + providerId -> account id */
+const ACCOUNTS_SECTION = 'accounts';
+
+/* Mask a key to `prefix…last4` for any log/UI surface. Never echo a full key.
+   The prefix keeps the recognizable provider tag (e.g. `sk-ant-`, `sk-proj-`,
+   `xai-`) so the user can tell accounts apart, then elides the secret middle.
+   For an unstructured/short key we just show last4 (or **** if very short). */
+function maskKey(k) {
+    const s = String(k || '');
+    if (!s) return '(empty)';
+    if (s.length <= 8) return '****';
+    /* Keep up to the 2nd hyphen group (sk-ant-, sk-proj-) or the 1st (xai-),
+       capped at 8 chars so we never leak a meaningful slice of the secret. */
+    let cut = 4;
+    const h1 = s.indexOf('-');
+    if (h1 > 0 && h1 < 6) {
+        const h2 = s.indexOf('-', h1 + 1);
+        cut = (h2 > 0 && h2 <= 8) ? h2 + 1 : h1 + 1;
+    }
+    const head = s.slice(0, Math.min(cut, 8));
+    return `${head}…${s.slice(-4)}`;
+}
+
+/* Cheap unique-ish id for an account row. */
+function _newAccountId() {
+    return 'acc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+/* Validate a key's *shape* (not its validity) against the provider. Returns
+   { ok, reason }. Bridge/azure providers have no shape requirement. */
+function validateKeyShape(providerId, key) {
+    const k = String(key || '').trim();
+    if (!k) return { ok: false, reason: 'empty key' };
+    const p = PROVIDERS[providerId] || {};
+    if (p.bridge) return { ok: true };
+    const expect = ({
+        anthropic: /^sk-ant-/,
+        openai:    /^sk-/,
+        deepseek:  /^sk-/,
+        grok:      /^xai-/,
+    })[providerId];
+    if (expect && !expect.test(k)) {
+        const hint = ({ anthropic: 'sk-ant-', openai: 'sk-', deepseek: 'sk-', grok: 'xai-' })[providerId];
+        return { ok: false, reason: `key for ${providerId} should start with "${hint}"` };
+    }
+    return { ok: true };
+}
+
+/* Read the raw [accounts] JSON array for a provider, with one-time migration
+   of the legacy [api_keys].<keyField> single key into accounts[0]. Returns a
+   normalized array (never null). Does NOT persist the migration here — the
+   caller persists when it makes a change; a read-only call just sees the
+   migrated-in legacy account at the head. */
+function getProviderAccounts(context, providerId) {
+    const p = PROVIDERS[providerId];
+    if (!p || p.bridge) return [];
+    const cfg = readConfigIni(context.extensionPath) || {};
+    let list = [];
+    const rawSection = cfg[ACCOUNTS_SECTION] || {};
+    const raw = rawSection[providerId];
+    if (raw) {
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) list = parsed.filter(a => a && a.apiKey);
+        } catch (e) {
+            traceErr(`accounts JSON parse failed for ${providerId}`, e);
+        }
+    }
+    /* Migrate the legacy single key into the list if it isn't represented. */
+    let legacyKey = null;
+    if (p.azureSection) {
+        legacyKey = (cfg.azure && (cfg.azure.api_key || cfg.azure.api_key1)) || null;
+    } else if (p.keyField) {
+        legacyKey = (cfg.api_keys && cfg.api_keys[p.keyField]) || null;
+    }
+    legacyKey = legacyKey ? String(legacyKey).trim() : null;
+    if (legacyKey && !list.some(a => a.apiKey === legacyKey)) {
+        list.unshift({
+            id: _newAccountId(),
+            label: 'config.ini',
+            apiKey: legacyKey,
+            addedAt: new Date().toISOString(),
+            lastUsedAt: null,
+            disabledUntil: null,
+        });
+    }
+    /* Normalize shape so downstream code never trips on undefined fields. */
+    return list.map(a => ({
+        id: a.id || _newAccountId(),
+        label: a.label || maskKey(a.apiKey),
+        apiKey: String(a.apiKey || ''),
+        addedAt: a.addedAt || new Date().toISOString(),
+        lastUsedAt: a.lastUsedAt || null,
+        disabledUntil: a.disabledUntil || null,
+    }));
+}
+
+/* Persist a provider's full account array back into config.ini [accounts]. */
+function setProviderAccounts(context, providerId, accounts) {
+    const filePath = path.join(context.extensionPath, CONFIG_INI_NAME);
+    const patch = {};
+    patch[`${ACCOUNTS_SECTION}.${providerId}`] = JSON.stringify(accounts || []);
+    writeConfigPatch(filePath, patch);
+    Config.reload(context.extensionPath);
+    trace(`ACCOUNTS:SAVE provider=${providerId} count=${(accounts || []).length}`);
+}
+
+/* True when an account is currently disabled (disabledUntil in the future). */
+function _accountDisabled(acc) {
+    if (!acc || !acc.disabledUntil) return false;
+    const t = Date.parse(acc.disabledUntil);
+    return Number.isFinite(t) && t > Date.now();
+}
+
+/* Resolve the active account for a provider. Falls back to the first
+   non-disabled account, then the first account. Returns the account object or
+   null. */
+function getActiveAccount(context, providerId) {
+    const accounts = getProviderAccounts(context, providerId);
+    if (!accounts.length) return null;
+    const wantId = context.workspaceState.get(STATE_ACTIVE_ACCOUNT + ':' + providerId);
+    if (wantId) {
+        const hit = accounts.find(a => a.id === wantId);
+        if (hit && !_accountDisabled(hit)) return hit;
+    }
+    const firstEnabled = accounts.find(a => !_accountDisabled(a));
+    return firstEnabled || accounts[0];
+}
+
+/* Set which account id is active for a provider (workspaceState only). */
+async function setActiveAccount(context, providerId, accountId) {
+    await context.workspaceState.update(STATE_ACTIVE_ACCOUNT + ':' + providerId, accountId || '');
+    trace(`ACCOUNTS:USE provider=${providerId} account=${accountId}`);
+}
+
+/* Stamp lastUsedAt on the active account at request time. Fire-and-forget;
+   a write failure must not block a send. No-op for bridge providers. */
+function touchActiveAccount(context, providerId) {
+    try {
+        const p = PROVIDERS[providerId];
+        if (!p || p.bridge) return;
+        const accounts = getProviderAccounts(context, providerId);
+        const active = getActiveAccount(context, providerId);
+        if (!active) return;
+        let changed = false;
+        for (const a of accounts) {
+            if (a.id === active.id) { a.lastUsedAt = new Date().toISOString(); changed = true; break; }
+        }
+        if (changed) setProviderAccounts(context, providerId, accounts);
+    } catch (e) {
+        traceErr('touchActiveAccount', e);
+    }
+}
+
+/* Compute the next weekly-reset boundary as an ISO string. Anthropic weekly
+   caps reset on a rolling 7-day window; without the exact reset time from the
+   API we approximate "+7 days from now". Callers that know better (e.g. a
+   Retry-After header) can pass an explicit Date. */
+function nextWeeklyReset(fromDate) {
+    const base = fromDate instanceof Date ? fromDate.getTime() : Date.now();
+    return new Date(base + 7 * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/* Mark the active account for a provider as rate-limited and advance to the
+   next non-disabled account. Returns { rotated, from, to, allDisabled,
+   soonest } where from/to are account objects (or null) and soonest is the
+   earliest disabledUntil ISO when allDisabled. disableMs lets a Retry-After
+   header set a precise window; absent it we use the weekly reset, or +1h if
+   the reset is genuinely unknown for non-weekly providers. */
+async function rotateOnRateLimit(context, providerId, opts) {
+    opts = opts || {};
+    const accounts = getProviderAccounts(context, providerId);
+    if (!accounts.length) return { rotated: false, allDisabled: true, soonest: null };
+    const cur = getActiveAccount(context, providerId);
+    /* Decide the disable window for the account that just failed. */
+    let disabledUntil;
+    if (Number.isFinite(opts.disableMs)) {
+        disabledUntil = new Date(Date.now() + opts.disableMs).toISOString();
+    } else if (providerId === 'anthropic' || opts.weekly) {
+        disabledUntil = nextWeeklyReset();
+    } else {
+        disabledUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString();  /* +1h */
+    }
+    if (cur) {
+        for (const a of accounts) {
+            if (a.id === cur.id) { a.disabledUntil = disabledUntil; break; }
+        }
+    }
+    /* Find the next non-disabled account after the current one (round-robin). */
+    const startIdx = cur ? accounts.findIndex(a => a.id === cur.id) : -1;
+    let next = null;
+    for (let step = 1; step <= accounts.length; step++) {
+        const cand = accounts[(startIdx + step + accounts.length) % accounts.length];
+        if (cand && !_accountDisabled(cand)) { next = cand; break; }
+    }
+    setProviderAccounts(context, providerId, accounts);
+    if (!next) {
+        /* All disabled — surface the soonest reset. */
+        let soonest = null;
+        for (const a of accounts) {
+            const t = a.disabledUntil ? Date.parse(a.disabledUntil) : null;
+            if (Number.isFinite(t) && (soonest === null || t < soonest)) soonest = t;
+        }
+        trace(`ACCOUNTS:ROTATE provider=${providerId} ALL_DISABLED soonest=${soonest ? new Date(soonest).toISOString() : 'n/a'}`);
+        return { rotated: false, from: cur || null, to: null, allDisabled: true, soonest: soonest ? new Date(soonest).toISOString() : null };
+    }
+    await setActiveAccount(context, providerId, next.id);
+    /* Bust the cached Anthropic client so the next call uses the new key. */
+    if (anthropicClient) anthropicClient = null;
+    trace(`ACCOUNTS:ROTATE provider=${providerId} from=${cur ? cur.label : '?'} to=${next.label} disabledUntil=${disabledUntil}`);
+    return { rotated: true, from: cur || null, to: next, allDisabled: false, soonest: null };
 }
 
 let activePanel;
@@ -1715,6 +1983,40 @@ async function activate(context) {
         }
     } catch (e) { traceErr('stale-panel-sweep', e); }
     endSweep(`scanned=${sweepCount} closed=${closedCount}`);
+
+    /* ── Bridge auto-start + Ollama discovery ─────────────────────────────
+       If the active provider is a bridge (claudeBridge, chatgptBridge, etc),
+       spawn its tray exe NOW so the first chat doesn't pay a cold-start.
+       Mirrors the same ensureBridge() call that streamBridge() makes, but
+       runs in the background so activation isn't blocked by an 8s probe.
+       Same for Ollama: if the active provider is "ollamaBridge" or the
+       new "ollama" registry entry, discover + daemon-start in the bg. */
+    setTimeout(() => {
+        try {
+            const activeId = getActiveProvider(context);
+            const provider = PROVIDERS[activeId];
+            if (provider && provider.bridge && provider.bridgeTarget) {
+                const target = provider.bridgeTarget;
+                trace(`BRIDGE:AUTOSTART target=${target} (active provider=${activeId})`);
+                ensureBridge(context, target, { timeoutMs: 8000 })
+                    .then((r) => trace(`BRIDGE:AUTOSTART target=${target} result=${r.ok ? 'ok' : 'fail'} ${r.reason || ''}`))
+                    .catch((e) => traceErr(`BRIDGE:AUTOSTART target=${target}`, e));
+            }
+            /* Ollama: any time the user has the local provider selected,
+               make sure the daemon is breathing. Doesn't auto-install — that
+               requires a click on the panel install button. */
+            if (activeId === 'ollamaBridge' || activeId === 'ollama') {
+                ensureOllamaReady({ timeoutMs: 8000 })
+                    .then((r) => {
+                        trace(`OLLAMA:AUTOSTART state=${r.state} models=${(r.models || []).length}`);
+                        if (activePanel) {
+                            activePanel.webview.postMessage({ type: 'ollamaStatus', ...r });
+                        }
+                    })
+                    .catch((e) => traceErr('OLLAMA:AUTOSTART', e));
+            }
+        } catch (e) { traceErr('activate bridge-autostart block', e); }
+    }, 200);
 
     endActivate();
     trace('=== activate complete ===');
@@ -2743,6 +3045,34 @@ function buildSettingsPayload(context) {
     };
 }
 
+/* Build the accounts payload for a single provider, masked for the webview.
+   The webview NEVER receives raw apiKey values — only masked previews + the
+   account id (used by [Use]/[Disable]/[Delete]). disabled is computed live so
+   the UI can grey rate-limited rows. */
+function buildAccountsPayload(context, providerId) {
+    const p = PROVIDERS[providerId] || {};
+    const isBridge = !!p.bridge;
+    const accounts = isBridge ? [] : getProviderAccounts(context, providerId);
+    const active = getActiveAccount(context, providerId);
+    const activeId = active ? active.id : null;
+    return {
+        provider: providerId,
+        providerLabel: p.label || providerId,
+        bridge: isBridge,
+        activeId,
+        accounts: accounts.map(a => ({
+            id: a.id,
+            label: a.label,
+            maskedKey: maskKey(a.apiKey),
+            addedAt: a.addedAt,
+            lastUsedAt: a.lastUsedAt,
+            disabledUntil: a.disabledUntil,
+            disabled: _accountDisabled(a),
+            active: a.id === activeId,
+        })),
+    };
+}
+
 /* ── Panel lifecycle ──────────────────────────────────────────────────── */
 
 function openPanel(context) {
@@ -3200,7 +3530,240 @@ function bindPanel(context, panel) {
                     trace(`active provider set: ${msg.provider} / ${msg.model || '(default)'} sfx=${msg.sfxEnabled}/${msg.sfxVolume} skin=${msg.skin || '(none)'} lang=${msg.language || '(unchanged)'}`);
                     setStatus('idle', false, msg.provider);
                     panel.webview.postMessage({ type: 'info', text: `Provider → ${PROVIDERS[msg.provider].label} · ${msg.model || getActiveModel(context, msg.provider)}` });
+                    /* Auto-start the matching tray bridge on provider switch.
+                       Idempotent — already-running bridges are a no-op. Runs
+                       in the background so the panel doesn't freeze if the
+                       exe takes a second to bind its port. Posts bridgeStatus
+                       to the panel so the user sees "Claude bridge ready" /
+                       "Bridge exe missing" instead of the old stale warning. */
+                    const _provider = PROVIDERS[msg.provider];
+                    if (_provider && _provider.bridge && _provider.bridgeTarget) {
+                        const _target = _provider.bridgeTarget;
+                        ensureBridge(context, _target, { timeoutMs: 8000 })
+                            .then((r) => {
+                                trace(`BRIDGE:PROVIDER-SWITCH target=${_target} ok=${r.ok} ${r.reason || ''}`);
+                                if (activePanel) {
+                                    activePanel.webview.postMessage({
+                                        type: 'bridgeStatus',
+                                        target: _target,
+                                        ok: !!r.ok,
+                                        spawned: !!r.spawned,
+                                        exeMissing: !!r.exeMissing,
+                                        port: r.port,
+                                        reason: r.reason || '',
+                                    });
+                                }
+                            })
+                            .catch((e) => traceErr(`BRIDGE:PROVIDER-SWITCH target=${_target}`, e));
+                    }
+                    /* Ollama discovery on provider switch — if the user picked
+                       Ollama and we can't reach the local daemon, post the
+                       missing-state so the panel can render the Install button. */
+                    if (msg.provider === 'ollamaBridge' || msg.provider === 'ollama') {
+                        ensureOllamaReady({ timeoutMs: 8000 })
+                            .then((r) => {
+                                trace(`OLLAMA:PROVIDER-SWITCH state=${r.state}`);
+                                if (activePanel) activePanel.webview.postMessage({ type: 'ollamaStatus', ...r });
+                            })
+                            .catch((e) => traceErr('OLLAMA:PROVIDER-SWITCH', e));
+                    }
                     break;
+                /* ── Multi-account management ──────────────────────────────
+                   The panel's Settings → Accounts UI drives these. Every
+                   reply ships a fresh masked accountsState so the list
+                   re-renders. Keys are NEVER echoed back — only maskedKey. */
+                case 'getAccounts': {
+                    const pid = PROVIDERS[msg.provider] ? msg.provider : getActiveProvider(context);
+                    panel.webview.postMessage({ type: 'accountsState', ...buildAccountsPayload(context, pid) });
+                    break;
+                }
+                case 'addAccount': {
+                    const pid = PROVIDERS[msg.provider] ? msg.provider : getActiveProvider(context);
+                    const p = PROVIDERS[pid] || {};
+                    if (p.bridge) {
+                        panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'Bridge providers authenticate in the browser — no API key to add.' });
+                        break;
+                    }
+                    const key = String(msg.apiKey || '').trim();
+                    const shape = validateKeyShape(pid, key);
+                    if (!shape.ok) {
+                        panel.webview.postMessage({ type: 'accountError', provider: pid, message: `Invalid key: ${shape.reason}.` });
+                        break;
+                    }
+                    const accounts = getProviderAccounts(context, pid);
+                    if (accounts.some(a => a.apiKey === key)) {
+                        panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'That key is already in the list.' });
+                        break;
+                    }
+                    const label = String(msg.label || '').trim() || `account ${accounts.length + 1}`;
+                    const acc = {
+                        id: _newAccountId(),
+                        label,
+                        apiKey: key,
+                        addedAt: new Date().toISOString(),
+                        lastUsedAt: null,
+                        disabledUntil: null,
+                    };
+                    accounts.push(acc);
+                    setProviderAccounts(context, pid, accounts);
+                    /* First account added becomes active automatically. */
+                    if (accounts.length === 1) await setActiveAccount(context, pid, acc.id);
+                    trace(`ACCOUNTS:ADD provider=${pid} label=${label} key=${maskKey(key)} total=${accounts.length}`);
+                    panel.webview.postMessage({ type: 'accountsState', ...buildAccountsPayload(context, pid) });
+                    /* Refresh the provider settings payload too (haveKey may flip). */
+                    panel.webview.postMessage({ type: 'init', ...buildSettingsPayload(context) });
+                    break;
+                }
+                case 'useAccount': {
+                    const pid = PROVIDERS[msg.provider] ? msg.provider : getActiveProvider(context);
+                    const accounts = getProviderAccounts(context, pid);
+                    const hit = accounts.find(a => a.id === msg.accountId);
+                    if (hit) {
+                        /* Picking a row clears its disabled flag — the user is
+                           explicitly choosing it, overriding the rotation skip. */
+                        if (hit.disabledUntil) {
+                            for (const a of accounts) if (a.id === hit.id) a.disabledUntil = null;
+                            setProviderAccounts(context, pid, accounts);
+                        }
+                        hit.lastUsedAt = new Date().toISOString();
+                        for (const a of accounts) if (a.id === hit.id) a.lastUsedAt = hit.lastUsedAt;
+                        setProviderAccounts(context, pid, accounts);
+                        if (anthropicClient && pid === 'anthropic') anthropicClient = null;
+                        await setActiveAccount(context, pid, hit.id);
+                    }
+                    panel.webview.postMessage({ type: 'accountsState', ...buildAccountsPayload(context, pid) });
+                    break;
+                }
+                case 'disableAccount': {
+                    const pid = PROVIDERS[msg.provider] ? msg.provider : getActiveProvider(context);
+                    const accounts = getProviderAccounts(context, pid);
+                    const hit = accounts.find(a => a.id === msg.accountId);
+                    if (hit) {
+                        /* Manual disable = skip in rotation until the user
+                           re-enables. Use a far-future marker so it stays out
+                           until [Use]/[Enable] clears it. */
+                        for (const a of accounts) if (a.id === hit.id) a.disabledUntil = msg.enable ? null : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+                        setProviderAccounts(context, pid, accounts);
+                        /* If we just disabled the active account, advance active. */
+                        const stillActive = getActiveAccount(context, pid);
+                        if (stillActive && stillActive.id !== hit.id && anthropicClient && pid === 'anthropic') anthropicClient = null;
+                    }
+                    panel.webview.postMessage({ type: 'accountsState', ...buildAccountsPayload(context, pid) });
+                    break;
+                }
+                case 'deleteAccount': {
+                    const pid = PROVIDERS[msg.provider] ? msg.provider : getActiveProvider(context);
+                    let accounts = getProviderAccounts(context, pid);
+                    const wasActive = (getActiveAccount(context, pid) || {}).id === msg.accountId;
+                    accounts = accounts.filter(a => a.id !== msg.accountId);
+                    setProviderAccounts(context, pid, accounts);
+                    if (wasActive) {
+                        const next = accounts.find(a => !_accountDisabled(a)) || accounts[0] || null;
+                        await setActiveAccount(context, pid, next ? next.id : '');
+                        if (anthropicClient && pid === 'anthropic') anthropicClient = null;
+                    }
+                    trace(`ACCOUNTS:DELETE provider=${pid} id=${msg.accountId} remaining=${accounts.length}`);
+                    panel.webview.postMessage({ type: 'accountsState', ...buildAccountsPayload(context, pid) });
+                    panel.webview.postMessage({ type: 'init', ...buildSettingsPayload(context) });
+                    break;
+                }
+                case 'ollamaProbe': {
+                    /* Panel asked us to re-check Ollama state — used after the
+                       user manually starts the daemon themselves, or to refresh
+                       the model list after a `pullOllamaModel`. */
+                    ensureOllamaReady({ timeoutMs: 8000 })
+                        .then((r) => {
+                            if (activePanel) activePanel.webview.postMessage({ type: 'ollamaStatus', ...r });
+                        })
+                        .catch((e) => traceErr('ollamaProbe', e));
+                    break;
+                }
+                case 'installOllama': {
+                    /* User clicked the Install button. Runs the full silent-
+                       install flow, streaming progress to the panel as a
+                       sequence of ollamaInstallStatus messages. After install
+                       lands, we re-probe and post the final ollamaStatus. */
+                    if (_ollamaInstallInProgress) {
+                        panel.webview.postMessage({ type: 'ollamaInstallStatus', step: 'busy', text: 'Install already in progress…' });
+                        break;
+                    }
+                    panel.webview.postMessage({ type: 'ollamaInstallStatus', step: 'start', text: 'Starting Ollama install…' });
+                    installOllama((step) => {
+                        if (activePanel) activePanel.webview.postMessage({ type: 'ollamaInstallStatus', step: 'progress', text: step });
+                    })
+                        .then((r) => {
+                            if (activePanel) {
+                                activePanel.webview.postMessage({
+                                    type: 'ollamaInstallStatus',
+                                    step: r.ok ? 'done' : 'fail',
+                                    text: r.ok
+                                        ? `Ollama ready (${(r.models || []).length} model${(r.models || []).length === 1 ? '' : 's'})`
+                                        : 'Install failed: ' + (r.reason || 'unknown'),
+                                });
+                                /* Refresh canonical state so the install button
+                                   hides + the model dropdown renders. */
+                                activePanel.webview.postMessage({
+                                    type: 'ollamaStatus',
+                                    state: r.ok ? 'ready' : 'missing',
+                                    models: r.models || [],
+                                });
+                            }
+                        })
+                        .catch((e) => {
+                            traceErr('installOllama', e);
+                            if (activePanel) activePanel.webview.postMessage({ type: 'ollamaInstallStatus', step: 'fail', text: 'Install crashed: ' + (e.message || e) });
+                        });
+                    break;
+                }
+                case 'pullOllamaModel': {
+                    const name = String((msg.model || '')).trim();
+                    if (!name) {
+                        panel.webview.postMessage({ type: 'ollamaPullStatus', step: 'fail', text: 'No model name supplied.' });
+                        break;
+                    }
+                    panel.webview.postMessage({ type: 'ollamaPullStatus', step: 'start', model: name, text: `Pulling ${name}…` });
+                    pullOllamaModel(name, (line) => {
+                        if (activePanel) activePanel.webview.postMessage({ type: 'ollamaPullStatus', step: 'progress', model: name, text: line });
+                    }).then((r) => {
+                        if (activePanel) {
+                            activePanel.webview.postMessage({
+                                type: 'ollamaPullStatus',
+                                step: r.ok ? 'done' : 'fail',
+                                model: name,
+                                text: r.ok ? `Pulled ${name}` : `Pull failed (exit ${r.code})`,
+                            });
+                            /* Re-probe so the available-models list updates. */
+                            ensureOllamaReady({ timeoutMs: 4000 })
+                                .then((s) => activePanel.webview.postMessage({ type: 'ollamaStatus', ...s }))
+                                .catch(() => {});
+                        }
+                    }).catch((e) => traceErr('pullOllamaModel', e));
+                    break;
+                }
+                case 'ensureBridge': {
+                    /* Panel-initiated bridge check (e.g. user clicked "retry"
+                       on a bridgeStatus banner). target is a key from
+                       BRIDGE_PORTS. */
+                    const t = String(msg.target || '').toLowerCase();
+                    if (!BRIDGE_PORTS[t]) {
+                        panel.webview.postMessage({ type: 'bridgeStatus', target: t, ok: false, reason: 'unknown bridge target' });
+                        break;
+                    }
+                    ensureBridge(context, t, { timeoutMs: 8000 })
+                        .then((r) => {
+                            if (activePanel) activePanel.webview.postMessage({
+                                type: 'bridgeStatus',
+                                target: t,
+                                ok: !!r.ok,
+                                spawned: !!r.spawned,
+                                exeMissing: !!r.exeMissing,
+                                port: r.port,
+                                reason: r.reason || '',
+                            });
+                        })
+                        .catch((e) => traceErr('ensureBridge msg', e));
+                    break;
+                }
                 case 'listSkins': {
                     /* Lazy scan: discover skins on-demand each time the webview
                        asks, so a user can drop a new .css into /skins and have
@@ -4561,6 +5124,302 @@ async function* streamGemini(apiKey, model, messages, maxTokens) {
     }
 }
 
+/* ── Bridge lifecycle helpers ────────────────────────────────────────────
+   ensureBridge(context, target) is the canonical entry point: it resolves
+   bin/CBE-Bridge-<Pretty>.exe, TCP-probes its BRIDGE_PORTS port, and spawns
+   the tray exe (windowsHide + detached + unref) if no daemon is up. Returns
+   { ok, port, pid, reason }. All bridge spawning anywhere in this file
+   funnels through here — never spawn a bridge exe directly. */
+function _bridgeExePath(extPath, target) {
+    const name = BRIDGE_EXE_NAME[target];
+    if (!name) return null;
+    /* Canonical location is bin/ next to extension.js. bridges_cpp/ holds
+       sources only — exes were moved out per the build_bridges.ps1 layout. */
+    return path.join(extPath, 'bin', name);
+}
+
+/* TCP-probe a port — resolves true if something is listening, false on
+   refused/timeout. Used to detect a running bridge (or Ollama daemon). */
+function _probeTcpPort(host, port, timeoutMs) {
+    return new Promise((resolve) => {
+        const net = require('net');
+        const sock = new net.Socket();
+        let done = false;
+        const finish = (ok) => {
+            if (done) return;
+            done = true;
+            try { sock.destroy(); } catch (_) {}
+            resolve(ok);
+        };
+        sock.setTimeout(timeoutMs || 700);
+        sock.once('connect', () => finish(true));
+        sock.once('timeout', () => finish(false));
+        sock.once('error',   () => finish(false));
+        try { sock.connect(port, host || '127.0.0.1'); } catch (_) { finish(false); }
+    });
+}
+
+/* Spawn a bridge exe detached + hidden. Tracks it in _runningBridges so we
+   don't double-spawn. Returns the child handle (already unref'd). */
+function _spawnBridge(target, exePath) {
+    const cp = require('child_process');
+    const child = cp.spawn(exePath, [], {
+        cwd: path.dirname(exePath),
+        stdio: 'ignore',
+        windowsHide: true,
+        detached: true,
+    });
+    child.on('error', (e) => trace(`BRIDGE:SPAWN error target=${target} ${e && e.message}`));
+    child.on('exit', (code, signal) => {
+        trace(`BRIDGE:EXIT target=${target} code=${code} signal=${signal || 'none'}`);
+        _runningBridges.delete(target);
+    });
+    child.unref();
+    _runningBridges.set(target, { pid: child.pid, startedAt: Date.now() });
+    return child;
+}
+
+/* Wait up to timeoutMs for `port` to become reachable. Polls every 250ms. */
+async function _waitForPort(host, port, timeoutMs) {
+    const deadline = Date.now() + (timeoutMs || 8000);
+    while (Date.now() < deadline) {
+        if (await _probeTcpPort(host, port, 400)) return true;
+        await new Promise(r => setTimeout(r, 250));
+    }
+    return false;
+}
+
+/* Ensure the tray-exe bridge for `target` is running. If not, spawn it +
+   wait for its TCP port. Returns { ok, port, pid?, reason? }. Idempotent —
+   safe to call from activate(), setProvider, and the chat dispatch path. */
+async function ensureBridge(context, target, opts) {
+    opts = opts || {};
+    const port = BRIDGE_PORTS[target];
+    if (!port) return { ok: false, reason: `unknown bridge target: ${target}` };
+    /* 1. Already responding? Done. */
+    if (await _probeTcpPort('127.0.0.1', port, 500)) {
+        return { ok: true, port, alreadyRunning: true };
+    }
+    /* 2. Find the exe. */
+    const exePath = _bridgeExePath(context.extensionPath, target);
+    if (!exePath || !fs.existsSync(exePath)) {
+        const msg = `bridge exe missing: bin/${BRIDGE_EXE_NAME[target] || target}`;
+        trace(`BRIDGE:MISSING target=${target} expected=${exePath}`);
+        return { ok: false, reason: msg, exeMissing: true };
+    }
+    /* 3. Spawn + wait. */
+    trace(`BRIDGE:SPAWN target=${target} exe=${exePath} port=${port}`);
+    const child = _spawnBridge(target, exePath);
+    const ok = await _waitForPort('127.0.0.1', port, opts.timeoutMs || 8000);
+    if (!ok) {
+        trace(`BRIDGE:TIMEOUT target=${target} port=${port} pid=${child && child.pid} — exe spawned but never bound`);
+        return { ok: false, port, pid: child && child.pid, reason: `bridge ${target} spawned (pid ${child && child.pid}) but did not bind port ${port} within ${opts.timeoutMs || 8000}ms` };
+    }
+    trace(`BRIDGE:READY target=${target} port=${port} pid=${child && child.pid}`);
+    return { ok: true, port, pid: child && child.pid, spawned: true };
+}
+
+/* ── Ollama lifecycle ────────────────────────────────────────────────────
+   Discovery cascade → daemon-start → install fallback. Wired into the
+   provider switch + chat path so picking "ollamaBridge" or "ollama"
+   provider auto-resolves the local daemon without user intervention. */
+const OLLAMA_PORT = 11434;
+const OLLAMA_HOST = '127.0.0.1';
+const OLLAMA_PATHS = [
+    path.join(process.env.LOCALAPPDATA || (os.homedir() + '\\AppData\\Local'), 'Programs', 'Ollama', 'ollama.exe'),
+    'C:\\Program Files\\Ollama\\ollama.exe',
+];
+let _ollamaInstallInProgress = false;
+let _ollamaDaemonChild = null;
+
+function _resolveOllamaExe() {
+    /* PATH lookup first — `where ollama.exe`. Synchronous, cheap. */
+    try {
+        const cp = require('child_process');
+        const out = cp.execFileSync('where', ['ollama.exe'], { encoding: 'utf8', windowsHide: true, timeout: 2000 });
+        const first = (out || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0];
+        if (first && fs.existsSync(first)) return first;
+    } catch (_) { /* not on PATH */ }
+    for (const p of OLLAMA_PATHS) {
+        if (p && fs.existsSync(p)) return p;
+    }
+    return null;
+}
+
+/* GET http://127.0.0.1:11434/api/tags. Resolves { ok, models: [...] } or
+   { ok:false }. No throw — caller branches on .ok. */
+function _probeOllamaDaemon(timeoutMs) {
+    return new Promise((resolve) => {
+        const http = require('http');
+        const req = http.request({
+            host: OLLAMA_HOST,
+            port: OLLAMA_PORT,
+            path: '/api/tags',
+            method: 'GET',
+            timeout: timeoutMs || 1200,
+        }, (res) => {
+            let body = '';
+            res.setEncoding('utf8');
+            res.on('data', (c) => { body += c; });
+            res.on('end', () => {
+                try {
+                    const j = JSON.parse(body);
+                    const models = Array.isArray(j.models) ? j.models : [];
+                    resolve({ ok: true, models: models.map(m => m.name || m.model).filter(Boolean) });
+                } catch (e) {
+                    resolve({ ok: true, models: [] });
+                }
+            });
+        });
+        req.on('error', () => resolve({ ok: false }));
+        req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve({ ok: false }); });
+        req.end();
+    });
+}
+
+/* Start `ollama serve` detached. Returns child or null if spawn failed. */
+function _startOllamaDaemon(exePath) {
+    if (_ollamaDaemonChild) return _ollamaDaemonChild;
+    try {
+        const cp = require('child_process');
+        const child = cp.spawn(exePath, ['serve'], {
+            cwd: path.dirname(exePath),
+            stdio: 'ignore',
+            windowsHide: true,
+            detached: true,
+            env: process.env,
+        });
+        child.on('exit', (code, signal) => {
+            trace(`OLLAMA:DAEMON exit code=${code} signal=${signal || 'none'}`);
+            _ollamaDaemonChild = null;
+        });
+        child.unref();
+        _ollamaDaemonChild = child;
+        trace(`OLLAMA:DAEMON spawned pid=${child.pid} exe=${exePath}`);
+        return child;
+    } catch (e) {
+        traceErr('OLLAMA:DAEMON spawn', e);
+        return null;
+    }
+}
+
+/* Discovery → daemon-start state machine. Returns one of:
+     { state:'ready',      models:[...] }
+     { state:'missing'                    }   – binary not on disk
+     { state:'daemonFailed', exe:'…'      }   – binary present, /api/tags timed out
+   Idempotent + cheap if daemon already responds. */
+async function ensureOllamaReady(opts) {
+    opts = opts || {};
+    /* 1. Already up? */
+    const first = await _probeOllamaDaemon(800);
+    if (first.ok) return { state: 'ready', models: first.models };
+    /* 2. Find binary. */
+    const exe = _resolveOllamaExe();
+    if (!exe) return { state: 'missing' };
+    /* 3. Spawn daemon + wait up to 8s. */
+    trace(`OLLAMA:STARTING daemon via ${exe}`);
+    _startOllamaDaemon(exe);
+    const deadline = Date.now() + (opts.timeoutMs || 8000);
+    while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 400));
+        const probe = await _probeOllamaDaemon(800);
+        if (probe.ok) return { state: 'ready', models: probe.models, exe };
+    }
+    return { state: 'daemonFailed', exe };
+}
+
+/* Install Ollama silently via PowerShell. Downloads the installer to
+   %TEMP%\OllamaSetup.exe, then Start-Process -Wait with Inno-Setup
+   silent flags. Progress is reported via the onProgress callback as
+   strings ("Downloading…" / "Installing…" / "Starting daemon…"). */
+async function installOllama(onProgress) {
+    if (_ollamaInstallInProgress) {
+        if (onProgress) onProgress('Install already in progress…');
+        return { ok: false, reason: 'already in progress' };
+    }
+    _ollamaInstallInProgress = true;
+    try {
+        const cp = require('child_process');
+        const tmp = path.join(os.tmpdir(), 'OllamaSetup.exe');
+        const url = 'https://ollama.com/download/OllamaSetup.exe';
+        const psDownload = [
+            '$ProgressPreference="SilentlyContinue";',
+            '[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;',
+            `Invoke-WebRequest -Uri '${url}' -OutFile '${tmp}' -UseBasicParsing;`,
+            `if (-not (Test-Path '${tmp}')) { exit 5 }`,
+            `if ((Get-Item '${tmp}').Length -lt 1000000) { exit 6 }`,
+            'exit 0',
+        ].join(' ');
+        if (onProgress) onProgress('Downloading Ollama installer…');
+        trace(`OLLAMA:INSTALL download → ${tmp}`);
+        await new Promise((resolve, reject) => {
+            const p = cp.spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psDownload], {
+                windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+            });
+            let err = '';
+            p.stderr.on('data', (c) => { err += c.toString('utf8'); });
+            p.on('error', reject);
+            p.on('exit', (code) => {
+                if (code === 0) resolve();
+                else reject(new Error(`installer download failed (exit ${code}): ${err.slice(0, 400)}`));
+            });
+        });
+        if (onProgress) onProgress('Installing Ollama (silent)…');
+        trace(`OLLAMA:INSTALL run silent installer ${tmp}`);
+        await new Promise((resolve, reject) => {
+            const psRun = `Start-Process -FilePath '${tmp}' -ArgumentList '/SILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait`;
+            const p = cp.spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psRun], {
+                windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+            });
+            let err = '';
+            p.stderr.on('data', (c) => { err += c.toString('utf8'); });
+            p.on('error', reject);
+            p.on('exit', (code) => {
+                if (code === 0) resolve();
+                else reject(new Error(`silent install exited ${code}: ${err.slice(0, 400)}`));
+            });
+        });
+        if (onProgress) onProgress('Starting Ollama daemon…');
+        const ready = await ensureOllamaReady({ timeoutMs: 10000 });
+        if (ready.state === 'ready') {
+            if (onProgress) onProgress(`Ollama ready (${ready.models.length} model${ready.models.length === 1 ? '' : 's'})`);
+            return { ok: true, models: ready.models };
+        }
+        return { ok: false, reason: `installed but daemon didn't start: state=${ready.state}` };
+    } catch (e) {
+        traceErr('OLLAMA:INSTALL', e);
+        return { ok: false, reason: e && e.message || String(e) };
+    } finally {
+        _ollamaInstallInProgress = false;
+    }
+}
+
+/* Spawn `ollama pull <name>` and stream stdout/stderr lines via onLine.
+   Resolves { ok, code } when the child exits. */
+function pullOllamaModel(modelName, onLine) {
+    return new Promise((resolve) => {
+        const exe = _resolveOllamaExe();
+        if (!exe) {
+            if (onLine) onLine('ollama binary not found — install it first');
+            resolve({ ok: false, reason: 'no-exe' });
+            return;
+        }
+        const cp = require('child_process');
+        const child = cp.spawn(exe, ['pull', modelName], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+        const onChunk = (c) => {
+            const s = c.toString('utf8');
+            for (const ln of s.split(/\r?\n/)) {
+                const t = ln.trim();
+                if (t && onLine) onLine(t);
+            }
+        };
+        child.stdout.on('data', onChunk);
+        child.stderr.on('data', onChunk);
+        child.on('error', (e) => { if (onLine) onLine('error: ' + e.message); resolve({ ok: false, reason: e.message }); });
+        child.on('exit', (code) => resolve({ ok: code === 0, code }));
+    });
+}
+
 /* ── Native C++ bridge chat (via start.py --chat CLI) ────────────────────
    Delegates to `python start.py --chat <target> "<message>"`. That CLI is
    the single source of truth for everything bridge-related:
@@ -4587,6 +5446,28 @@ async function* streamBridge(context, providerId, messages, onProgress) {
     const pythonExe = process.env.CBE_PYTHON || 'python';
     const cliArgs = ['start.py', '--chat', target, '--no-auto-login', message];
     if (onProgress) onProgress(`bridge → ${target} (start.py --chat)`);
+
+    /* AUTO-START the tray bridge BEFORE invoking start.py --chat. Without
+       this, --chat exits 2 ("bridge ${target} not running") whenever the
+       user hasn't manually picked the provider in Settings yet. ensureBridge
+       is idempotent — if the daemon is already up, this is one TCP probe.
+       If the exe is missing on disk, surface that as a clean error instead
+       of letting --chat exit 2 with the stale "pick the provider" hint. */
+    try {
+        const bridge = await ensureBridge(context, target, { timeoutMs: 8000 });
+        if (!bridge.ok) {
+            if (bridge.exeMissing) {
+                throw new Error(`bridge ${target} exe missing: bin/${BRIDGE_EXE_NAME[target] || target}. Build it from bridges_cpp/ via build_bridges.ps1.`);
+            }
+            /* spawned but never bound — fall through to start.py and let it
+               do its own LISTEN-socket diagnostics. */
+            if (onProgress) onProgress(`bridge ${target} spawning…`);
+        } else if (bridge.spawned) {
+            if (onProgress) onProgress(`bridge ${target} started (pid ${bridge.pid})`);
+        }
+    } catch (e) {
+        throw e;
+    }
 
     const answer = await new Promise((resolve, reject) => {
         let proc;
@@ -4623,7 +5504,12 @@ async function* streamBridge(context, providerId, messages, onProgress) {
             if (code === 0) {
                 resolve(out);
             } else if (code === 2) {
-                reject(new Error(`bridge ${target} not running. Pick the ${target} bridge provider in CBE Settings — that starts bridges_cpp/CBE-Bridge-${target.charAt(0).toUpperCase() + target.slice(1)}.exe.`));
+                /* ensureBridge() above already tried to spawn the tray exe.
+                   If start.py still couldn't reach the port, the EXE either
+                   (a) isn't on disk (handled separately above) or (b) crashed
+                   on launch / is held by a zombie. Surface a useful hint. */
+                const port = BRIDGE_PORTS[target] || '?';
+                reject(new Error(`bridge ${target} not reachable on port ${port}. CBE tried to auto-start bin/${BRIDGE_EXE_NAME[target] || target} — check Task Manager for a stuck CBE-Bridge-* process, or netstat -ano | findstr ${port}.`));
             } else {
                 const tail = stderr.trim().split(/\r?\n/).slice(-8).join('\n');
                 reject(new Error(`bridge ${target} chat failed (exit ${code}): ${tail || out || '(no output)'}`));
@@ -4758,7 +5644,45 @@ async function* chatStream(context, providerId, model, messages, maxTokens, onPr
 
 /* ── Chat dispatch ────────────────────────────────────────────────────── */
 
+/* Classify a thrown stream error as a rate-limit / weekly-cap hit. The
+   fetch-based streamers throw `HTTP 429 ...`; the Anthropic SDK throws an
+   error carrying .status === 429. We also pattern-match the error vocabulary
+   ("rate limit", "weekly limit", "usage limit", "quota") because some
+   providers wrap 429s in a 200 SSE error frame or a 400 with that text.
+   Returns { isRateLimit, weekly, disableMs } — disableMs is parsed from a
+   Retry-After-style hint when present (NaN otherwise). */
+function classifyRateLimit(err) {
+    const msg = String((err && err.message) || err || '');
+    const status = err && (err.status || err.statusCode);
+    const is429 = status === 429 || /HTTP\s+429\b/i.test(msg) || /\b429\b/.test(msg);
+    const vocab =
+        /rate[_\s-]?limit/i.test(msg) ||
+        /\bweekly\b/i.test(msg) ||
+        /usage limit/i.test(msg) ||
+        /\bquota\b/i.test(msg) ||
+        /too many requests/i.test(msg) ||
+        /\boverloaded\b/i.test(msg) ||
+        /\binsufficient_quota\b/i.test(msg);
+    const isRateLimit = is429 || vocab;
+    const weekly = /\bweek/i.test(msg);  /* "weekly limit", "this week" */
+    /* Retry-After can be seconds or an explicit header echoed in the body. */
+    let disableMs = NaN;
+    const retryHeaderObj = err && err.headers && (err.headers['retry-after'] || err.headers['Retry-After']);
+    const m = String(retryHeaderObj || '').match(/^(\d+)/) || msg.match(/retry[-\s]?after[":=\s]+(\d+)/i);
+    if (m) {
+        const secs = parseInt(m[1], 10);
+        if (Number.isFinite(secs) && secs > 0) disableMs = secs * 1000;
+    }
+    return { isRateLimit, weekly, disableMs };
+}
+
 async function handleSendText(context, panel, text) {
+    /* Capture retry markers off the (possibly boxed-String) argument BEFORE
+       trimming coerces it to a primitive and drops them. __cbeRotateCount
+       counts rate-limit rotations this turn; __cbeAuthRetry guards the
+       single auth-key retry. */
+    const _rotateCount = (text && typeof text === 'object' && Number(text.__cbeRotateCount)) || 0;
+    const _authRetried = !!(text && typeof text === 'object' && text.__cbeAuthRetry);
     text = (text || '').trim();
     if (!text) return;
 
@@ -4780,6 +5704,10 @@ async function handleSendText(context, panel, text) {
     }
 
     conversation.push({ role: 'user', content: text });
+
+    /* Stamp the active account's lastUsedAt so the Accounts UI shows which
+       account is doing the work. Fire-and-forget; never blocks the send. */
+    touchActiveAccount(context, providerId);
 
     setStatus('streaming', true, providerId);
     panel.webview.postMessage({ type: 'assistantStart' });
@@ -4895,6 +5823,44 @@ async function handleSendText(context, panel, text) {
            API-key related. */
         const msg = String(e && e.message || e || '');
         const _info = PROVIDERS[providerId] || {};
+        /* ── Rate-limit auto-rotation (the multi-account key feature) ──────
+           When the active account hits its weekly cap / 429, disable it
+           until its reset, advance to the next non-disabled account, and
+           retry transparently. Bridge providers don't have API keys, so
+           they skip this. We bound rotations with __cbeRotateCount so a
+           run of all-limited accounts can't loop forever. */
+        const rl = !_info.bridge ? classifyRateLimit(e) : { isRateLimit: false };
+        const rotateCount = _rotateCount;
+        if (rl.isRateLimit && rotateCount < 12) {
+            const accounts = getProviderAccounts(context, providerId);
+            if (accounts.length >= 1) {
+                const res = await rotateOnRateLimit(context, providerId, {
+                    weekly: rl.weekly,
+                    disableMs: rl.disableMs,
+                });
+                /* Refresh the panel's account/provider state either way. */
+                if (activePanel) activePanel.webview.postMessage({ type: 'accountsState', ...buildAccountsPayload(context, providerId) });
+                if (res.rotated) {
+                    const fromLabel = res.from ? res.from.label : '(unknown)';
+                    panel.webview.postMessage({ type: 'info', text: `Account ${fromLabel} hit its limit — switched to ${res.to.label}` });
+                    panel.webview.postMessage({ type: 'accountToast', from: fromLabel, to: res.to.label });
+                    /* Pop the user turn we appended so the retry doesn't double it. */
+                    if (conversation[conversation.length - 1] && conversation[conversation.length - 1].role === 'user') conversation.pop();
+                    /* Pass a boxed String so the rotation-count marker survives
+                       into the recursive call (a primitive can't carry props). */
+                    const retryText = new String(text);
+                    retryText.__cbeRotateCount = rotateCount + 1;
+                    if (_authRetried) retryText.__cbeAuthRetry = true;
+                    return handleSendText(context, panel, retryText);
+                }
+                /* No account left — surface the soonest reset and stop. */
+                const when = res.soonest ? new Date(res.soonest).toLocaleString() : 'unknown';
+                panel.webview.postMessage({ type: 'error', message: `All ${PROVIDERS[providerId].label} accounts are rate-limited. Soonest reset: ${when}. Add another account or wait.` });
+                setStatus('error', false, providerId);
+                if (conversation[conversation.length - 1] && conversation[conversation.length - 1].role === 'user') conversation.pop();
+                return;
+            }
+        }
         const looksLikeAuthErr = !_info.bridge && (
             /HTTP\s+401\b/i.test(msg) ||
             /HTTP\s+403\b/i.test(msg) ||
@@ -4908,7 +5874,7 @@ async function handleSendText(context, panel, text) {
             /API key not valid/i.test(msg) ||
             /\bunauthorized\b/i.test(msg)
         );
-        if (looksLikeAuthErr && !text.__cbeAuthRetry) {
+        if (looksLikeAuthErr && !_authRetried) {
             trace(`AUTH:DETECT provider=${providerId} popping key modal`);
             panel.webview.postMessage({ type: 'info', text: `${PROVIDERS[providerId].label} key was rejected — paste a new one.` });
             const got = await promptForKey(context, providerId);
@@ -4916,10 +5882,16 @@ async function handleSendText(context, panel, text) {
                 /* Pop the user message we just appended so the retry doesn't
                    stack two of them in conversation history. */
                 if (conversation[conversation.length - 1] && conversation[conversation.length - 1].role === 'user') conversation.pop();
-                /* Mark the text so a second auth-failure doesn't loop. */
-                const retryText = new String(text); retryText.__cbeAuthRetry = true;
+                /* Box the text so the auth-retry marker survives the recursive
+                   call (a primitive can't carry props; .trim() at the top reads
+                   the marker off the object before coercing). Carry the rotate
+                   count forward too so the two retry paths don't reset each
+                   other's loop guard. */
+                const retryText = new String(text);
+                retryText.__cbeAuthRetry = true;
+                retryText.__cbeRotateCount = _rotateCount;
                 panel.webview.postMessage({ type: 'info', text: `${PROVIDERS[providerId].label} key stored — retrying.` });
-                return handleSendText(context, panel, retryText.toString());
+                return handleSendText(context, panel, retryText);
             }
             panel.webview.postMessage({ type: 'error', message: `${providerId}: auth failed and no new key supplied.` });
         } else {
