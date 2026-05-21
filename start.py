@@ -196,6 +196,36 @@ BRIDGE_PORTS = {
 BRIDGE_TARGETS = ('chatgpt', 'grok', 'copilot', 'gemini', 'claude', 'ollama', 'deepseek')
 
 
+def _ensureConfigIni() -> None:
+    """Create a blank config.ini template if one does not exist.
+
+    config.ini is gitignored (it holds API keys), so a fresh clone has none.
+    Write a commented template with empty [api_keys] + [bridge] sections so the
+    app boots and the user has an obvious place to paste keys. Never overwrites
+    an existing file."""
+    path = ROOT / "config.ini"
+    if path.exists():
+        return
+    template = (
+        "; Claude Codex Black configuration.\n"
+        "; This file is gitignored — keys never leave your machine.\n"
+        "; Paste your API keys below, then restart.\n"
+        "\n"
+        "[api_keys]\n"
+        "openai_api_key =\n"
+        "anthropic_api_key =\n"
+        "gemini_api_key =\n"
+        "grok_api_key =\n"
+        "\n"
+        "[bridge]\n"
+        "; Optional per-target port overrides, e.g. chatgpt_port = 8788\n"
+    )
+    try:
+        path.write_text(template, encoding="utf-8")
+    except Exception:  # swallow-ok: never block boot on config creation
+        pass
+
+
 def _readBridgePortsFromConfig() -> dict[str, int]:
     """Read [bridge] <target>_port overrides from config.ini. Silent on missing
     file/section/key — BRIDGE_PORTS keeps its built-in defaults. Returns a
