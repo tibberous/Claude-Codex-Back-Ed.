@@ -66,3 +66,18 @@ audio/
 # bridge_runner.load_bridge_from_archive extracts .bridge zips into
 # sibling .unpacked_<name>/ dirs as a runtime cache. Pure artifact.
 bridges/.unpacked_*/
+
+# --- Comprehensive: ALL runtime/generated files (added 2026-05-20) ---
+CLAUDE.md
+**/CLAUDE.md
+logs/
+*.log
+*.log.err
+session.log
+build_full.log
+data/*.db
+data/*.sqlite3*
+*.bak
+*.post-pivot.bak
+prompt_history.txt
+prompts.txt
