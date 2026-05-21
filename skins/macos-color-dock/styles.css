@@ -165,7 +165,7 @@ body {
 }
 .toolbar-tools {
   display: flex !important;
-  flex-wrap: nowrap !important;
+  flex-wrap: wrap !important;
   justify-content: center;
   align-items: flex-end;
   gap: 6px;

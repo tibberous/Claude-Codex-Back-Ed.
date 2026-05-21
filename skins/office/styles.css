@@ -98,7 +98,7 @@ body {
 
 .toolbar-tools {
   gap: 4px !important;
-  flex-wrap: nowrap !important;
+  flex-wrap: wrap !important;
   justify-content: flex-start !important;
   overflow-x: visible !important;
 }

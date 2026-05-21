@@ -111,7 +111,7 @@ body {
    row never scroll-clips; prompt-shell padding absorbs minor spill. */
 .toolbar-tools {
   gap: 4px !important;
-  flex-wrap: nowrap !important;
+  flex-wrap: wrap !important;
   /* Center the button row in the tamagotchi toolbar instead of flushing it
      left — the cartridge image on the left makes a centered button row
      visually balanced. */
