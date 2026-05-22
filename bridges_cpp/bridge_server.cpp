@@ -711,6 +711,62 @@ static void spawnPythonBridge() {
         TARGET_NAME, pi.dwProcessId, g_childPort, profileDir);
     OutputDebugStringW(info);
     spawnLog(info);
+
+    // ------------------------------------------------------------------
+    // Taskbar hide: chrome's top-level window(s) get WS_EX_TOOLWINDOW
+    // (no taskbar entry, no alt-tab) + WS_EX_NOACTIVATE (don't steal focus),
+    // and we clear WS_EX_APPWINDOW (otherwise Explorer still shows it).
+    //
+    // We can't use --headless=new because the bridge's vision-pilot grabs
+    // pixels via QWidget.grab() through the cmd server (:8795). CDP
+    // Page.captureScreenshot hangs under offscreen mode.
+    //
+    // Why poll: Chrome's main HWND isn't created until well after
+    // CreateProcessW returns. Poll up to ~3s for the first visible
+    // top-level window owned by our PID.
+    //
+    // SetWindowLongPtrW(GWL_EXSTYLE) requires a follow-up SetWindowPos
+    // with SWP_FRAMECHANGED for the new extended style to actually take
+    // effect (frame caches the old style otherwise).
+    // ------------------------------------------------------------------
+    struct PidHwndCtx { DWORD pid; std::vector<HWND> hwnds; };
+    PidHwndCtx ctx; ctx.pid = pi.dwProcessId;
+    auto enumProc = [](HWND hwnd, LPARAM lp) -> BOOL {
+        auto* c = reinterpret_cast<PidHwndCtx*>(lp);
+        DWORD wpid = 0;
+        GetWindowThreadProcessId(hwnd, &wpid);
+        if (wpid == c->pid && IsWindowVisible(hwnd)) {
+            c->hwnds.push_back(hwnd);
+        }
+        return TRUE;
+    };
+    for (int tries = 0; tries < 30; ++tries) {
+        ctx.hwnds.clear();
+        EnumWindows(enumProc, reinterpret_cast<LPARAM>(&ctx));
+        if (!ctx.hwnds.empty()) break;
+        Sleep(100);
+    }
+    if (ctx.hwnds.empty()) {
+        wchar_t miss[256];
+        swprintf_s(miss, _countof(miss),
+            L"[CBE-Bridge-%hs] taskbar-hide: no top-level hwnd found for chrome pid=%lu after 3s — taskbar entry may remain",
+            TARGET_NAME, pi.dwProcessId);
+        spawnLog(miss);
+    }
+    for (HWND hwnd : ctx.hwnds) {
+        LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        ex = (ex | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) & ~WS_EX_APPWINDOW;
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+        SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        SetWindowPos(hwnd, NULL, 5000, 5000, 1400, 1000,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+        wchar_t msg[256];
+        swprintf_s(msg, _countof(msg),
+            L"[CBE-Bridge-%hs] taskbar-hide: hwnd=%p restyled tool-window + off-screen pinned (pid=%lu)",
+            TARGET_NAME, hwnd, pi.dwProcessId);
+        spawnLog(msg);
+    }
 }
 
 /* Block on the current g_childProc handle. When it exits, log the exit code,
