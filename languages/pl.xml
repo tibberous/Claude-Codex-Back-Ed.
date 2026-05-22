@@ -98,4 +98,10 @@
   <s id="voice.nospeech">Głos: nie wykryto mowy.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">Konta — zarządzaj kluczami API</s>
+  <s id="tooltip.browser">Przeglądarka</s>
+  <s id="tooltip.tamagotchi">Pupil Tamagotchi</s>
+  <s id="ext.calculator">Kalkulator</s>
+  <s id="ext.minesweeper">Saper</s>
+  <s id="ext.emoji-picker">Wybór emoji</s>
 </strings>

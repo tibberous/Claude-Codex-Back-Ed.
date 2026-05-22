@@ -3160,9 +3160,22 @@ function renderPinnedExtensionButtons() {
        layout automatically — no per-skin re-styling needed. */
     btn.className = 'tool-button cbe-pinned-ext';
     btn.dataset.extId = ent.id;
-    btn.title = ent.name || ent.id;
-    btn.setAttribute('data-tooltip', ent.name || ent.id);
-    btn.setAttribute('aria-label', 'Open ' + (ent.name || ent.id));
+    /* Translate the built-in demo extensions (calculator / minesweeper /
+       emoji-picker) via the i18n table under the `ext.<id>` key. Setting
+       data-i18n-tip lets applyI18n() re-translate the tooltip + aria-label
+       whenever the language changes. User-installed extensions have no
+       `ext.<id>` string, so they fall back to the extension's own name and
+       get NO data-i18n-tip (nothing to translate). Previously the tooltip was
+       hardcoded to ent.name, so these stayed English in every locale
+       (user 2026-05-22: emoji/minesweeper/calculator/etc. "arent translating"). */
+    const extKey = 'ext.' + ent.id;
+    const i18nName = Object.prototype.hasOwnProperty.call(__cbeStrings, extKey)
+      ? __cbeStrings[extKey] : null;
+    const extName = i18nName || ent.name || ent.id;
+    btn.title = extName;
+    btn.setAttribute('data-tooltip', extName);
+    btn.setAttribute('aria-label', 'Open ' + extName);
+    if (i18nName != null) btn.setAttribute('data-i18n-tip', extKey);
     /* Prefer inline SVG — emoji rendering in the VSCode webview depends on
        system fonts (Segoe UI Emoji) which may not be available, causing
        tofu-box rendering. SVG glyphs are always crisp. Fall back to emoji
@@ -3572,7 +3585,24 @@ window.addEventListener('message', e => {
     if (!__cbeStatusEl || !__cbeStatusEl.isConnected) {
       __cbeStatusEl = addMsg('', 'info cbe-progress');
     }
-    __cbeStatusEl.textContent = '⏳ ' + (m.text || '');
+    /* Use the loading_blue.svg spinner instead of a ⏳ emoji prefix. Consolas
+       (and the webview's monospace stack) has no glyph for U+23F3, so it
+       rendered as a tofu box — user 2026-05-22: "magic boxing" / "see that
+       square under yo?". An SVG icon + the existing .cbe-spinner animation
+       renders crisply with zero font dependency, like the toolbar icons. */
+    __cbeStatusEl.textContent = '';
+    const __ab = String(window.__cbeAssetsBase || '').replace(/\/$/, '');
+    if (__ab) {
+      const __sp = document.createElement('img');
+      __sp.src = __ab + '/loading_blue.svg';
+      __sp.alt = '';
+      __sp.className = 'cbe-spinner';
+      __sp.style.cssText = 'width:13px;height:13px;vertical-align:-2px;margin-right:6px;';
+      __cbeStatusEl.appendChild(__sp);
+    } else {
+      __cbeStatusEl.appendChild(document.createTextNode('… '));
+    }
+    __cbeStatusEl.appendChild(document.createTextNode(m.text || ''));
     thread.scrollTop = thread.scrollHeight;
   } else if (m.type === 'chunk') {
     if (__cbeStatusEl) { try { __cbeStatusEl.remove(); } catch (e) {} __cbeStatusEl = null; }

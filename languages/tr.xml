@@ -98,4 +98,10 @@
   <s id="voice.nospeech">Ses: konuşma algılanmadı.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">Hesaplar — API anahtarlarını yönet</s>
+  <s id="tooltip.browser">Tarayıcı</s>
+  <s id="tooltip.tamagotchi">Tamagotchi evcil hayvanı</s>
+  <s id="ext.calculator">Hesap makinesi</s>
+  <s id="ext.minesweeper">Mayın tarlası</s>
+  <s id="ext.emoji-picker">Emoji seçici</s>
 </strings>

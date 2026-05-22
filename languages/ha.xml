@@ -98,4 +98,10 @@
   <s id="voice.nospeech">Murya: babu maganar da aka gano.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">Asusu — sarrafa makullan API</s>
+  <s id="tooltip.browser">Birawsa</s>
+  <s id="tooltip.tamagotchi">Dabbar Tamagotchi</s>
+  <s id="ext.calculator">Na'urar lissafi</s>
+  <s id="ext.minesweeper">Minesweeper</s>
+  <s id="ext.emoji-picker">Mai zaɓen emoji</s>
 </strings>

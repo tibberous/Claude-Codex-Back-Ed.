@@ -181,7 +181,9 @@ class Bridge:
             if self.is_logged_in(mini):
                 return {"ok": True}
             time.sleep(0.5)
-        return {"ok": False, "error": "post-login composer never appeared (CAPTCHA / 2FA?)"}
+        return {"ok": False, "error": "post-login composer never appeared (CAPTCHA / 2FA?) - "
+                "sign in once by hand: python tools/sign_in_helper.py <target> "
+                "(stop the target's tray exe first so it doesn't lock the profile)"}
 
     # --- Send chat --------------------------------------------------------
     def send_chat(self, mini, message: str, timeout_s: int = 90) -> dict:

@@ -1,568 +1,591 @@
 <!doctype html>
 <html lang="sv">
 <head>
+<base href="about:srcdoc">
 <meta charset="utf-8">
 <title>Claude Codex — Black Edition · Hjälp</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
+  /* Smooth-scroll for the TOC anchor jumps. */
+  html { scroll-behavior: smooth; }
+
   :root {
-    --bg: #16181d;
-    --surface: #1f2229;
-    --surface-2: #262a33;
-    --border: #353a45;
-    --text: #e7eaef;
-    --muted: #aab1bd;
-    --accent: #4ea8ff;
-    --accent-soft: rgba(78,168,255,0.12);
-    --kbd-bg: #0f1116;
-    --kbd-border: #2b313b;
-    --warn: #ffd84d;
-    --err: #ff8a8a;
-    --ok: #6fd58a;
+    /* Defaults — overridden by panel.js applySkinColors() when a skin is
+       active so the help reads natively under any skin (lime tamagotchi,
+       cream macOS, dark codex-black, etc). */
+    --bg:           var(--cbe-modal-bg,           #16181d);
+    --surface:      var(--cbe-modal-foot-bg,      #1f2229);
+    --surface-2:    var(--cbe-modal-title-bg-1,   #262a33);
+    --border:       var(--cbe-modal-border,       #353a45);
+    --text:         var(--cbe-modal-fg,           #e7eaef);
+    --muted:                                      #aab1bd;
+    --accent:       var(--cbe-modal-accent,       #4ea8ff);
+    --accent-soft:                                rgba(78,168,255,0.12);
+    --kbd-bg:                                     #0f1116;
+    --kbd-border:                                 #2b313b;
+    --warn:                                       #ffd84d;
+    --err:                                        #ff8a8a;
   }
-  * { box-sizing: border-box; }
-  /* .app is included here because CBE inlines this file's body into a <div>
-     inside the panel (no <html>/<body> wrapper) — without .app carrying the
-     dark background + text color, the panel skin's background bleeds through
-     and you get unreadable text. Standalone (real <body>) it's still fine. */
-  html, body, .app { margin: 0; padding: 0; height: 100%; background: var(--bg);
-               color: var(--text); font: 14.5px/1.55 ui-sans-serif, system-ui,
-               -apple-system, "Segoe UI", sans-serif; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  code, kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-  code { background: var(--kbd-bg); padding: 1px 6px; border-radius: 4px;
-         border: 1px solid var(--kbd-border); font-size: 0.92em; }
-  kbd { background: var(--kbd-bg); padding: 1px 7px; border-radius: 4px;
-        border: 1px solid var(--kbd-border); border-bottom-width: 2px;
-        font-size: 0.85em; color: #ffd84d; }
-  pre { background: var(--kbd-bg); border: 1px solid var(--border);
-        border-radius: 6px; padding: 12px 14px; overflow-x: auto;
-        font-size: 12.5px; }
-  /* Layout: fixed TOC sidebar + scrolling content. The content scrolls
-     inside #main, which jQuery smooth-scrolls when TOC links are clicked. */
-  /* height:100% (not 100vh) so the layout fills the modal body when inlined,
-     and the full standalone window when opened as a real page. */
-  .app { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
-  nav.toc { background: var(--surface); border-right: 1px solid var(--border);
-            overflow-y: auto; padding: 18px 0 24px 0; position: sticky; top: 0;
-            height: 100%; }
-  nav.toc h2 { margin: 0 18px 8px 18px; font-size: 11px; letter-spacing: 0.08em;
-               color: var(--muted); text-transform: uppercase; }
-  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: tocnum; }
-  nav.toc ol li { counter-increment: tocnum; }
-  nav.toc ol li > a { display: block; padding: 7px 18px 7px 36px; font-size: 13.5px;
-                       color: var(--text); position: relative; line-height: 1.3;
-                       border-left: 3px solid transparent; }
-  /* Click feedback wired from panel.js: active TOC link gets an accent bar +
-     tint, the landed section flashes a soft accent glow that fades out. */
-  nav.toc ol li > a.cbe-toc-active {
-    border-left-color: var(--accent); background: var(--accent-soft);
-    color: var(--accent);
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
   }
-  @keyframes cbeHelpFlash {
-    0%   { background: var(--accent-soft); }
-    100% { background: transparent; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 28px 32px 80px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 30px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 15px; margin: 18px 0 4px; color: var(--accent); }
+  h4 { font-size: 13px; margin: 12px 0 4px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  p  { margin: 4px 0 10px; }
+  ul, ol { margin: 4px 0 12px; padding-left: 22px; }
+  li { margin: 3px 0; }
+  code, kbd { font-family: Consolas, "Courier New", monospace; font-size: 12.5px; }
+  code { background: var(--surface-2); padding: 1px 5px; border-radius: 3px; }
+  kbd  { background: var(--kbd-bg); border: 1px solid var(--kbd-border); padding: 1px 6px; border-radius: 3px; font-size: 11.5px; }
+  pre  { background: var(--surface-2); padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; }
+  pre code { background: transparent; padding: 0; }
+  .lead { color: var(--muted); margin: 0 0 18px; }
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 14px 0 24px;
   }
-  .cbe-help-flash { animation: cbeHelpFlash 1.1s ease-out 1; border-radius: 6px; }
-  nav.toc ol li > a::before { content: counter(tocnum); position: absolute;
-                              left: 14px; top: 7px; color: var(--muted);
-                              font-family: ui-monospace; font-size: 11px;
-                              min-width: 16px; text-align: right; }
-  nav.toc ol li > a:hover { background: var(--surface-2); text-decoration: none; }
-  nav.toc ol li > a.active { background: var(--accent-soft);
-                              border-left-color: var(--accent); color: var(--accent); }
-  main#main { overflow-y: auto; padding: 28px 36px 80px 36px; height: 100vh; }
-  main#main > header { margin-bottom: 26px; padding-bottom: 14px;
-                       border-bottom: 1px solid var(--border); }
-  main#main > header h1 { margin: 0 0 4px 0; font-size: 24px; font-weight: 600;
-                          letter-spacing: 0.005em; }
-  main#main > header .meta { color: var(--muted); font-size: 13px; }
-  section.help-section { scroll-margin-top: 16px; max-width: 820px;
-                          margin: 0 0 36px 0; padding-top: 6px; }
-  section.help-section h2 { font-size: 19px; margin: 0 0 10px 0; font-weight: 600;
-                            display: flex; align-items: baseline; gap: 10px; }
-  section.help-section h2 .num { color: var(--muted); font: 13px ui-monospace;
-                                  min-width: 1.5em; }
-  section.help-section h3 { font-size: 15px; margin: 18px 0 6px 0; font-weight: 600;
-                            color: var(--text); }
-  section.help-section p { margin: 0 0 10px 0; color: var(--text); }
-  section.help-section ul { margin: 0 0 12px 0; padding-left: 22px; }
-  section.help-section li { margin-bottom: 4px; }
-  section.help-section table { border-collapse: collapse; width: 100%;
-                                margin: 6px 0 14px 0; font-size: 13.5px; }
-  section.help-section th, section.help-section td { border: 1px solid var(--border);
-                                                       padding: 6px 10px; text-align: left;
-                                                       vertical-align: top; }
-  section.help-section th { background: var(--surface-2); font-weight: 600; }
-  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft);
-             padding: 10px 14px; border-radius: 0 4px 4px 0; margin: 10px 0 14px 0; }
-  .callout.warn { border-color: var(--warn); background: rgba(255,216,77,0.08); }
-  .callout.err  { border-color: var(--err);  background: rgba(255,138,138,0.08); }
-  .top-link { float: right; font-size: 12px; color: var(--muted); }
+  .toc h2 { font-size: 13px; margin: 0 0 8px; border: 0; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .toc ul { columns: 2; column-gap: 28px; margin: 0; padding-left: 18px; list-style: square; }
+  .toc a { color: var(--text); text-decoration: none; }
+  .toc a:hover { color: var(--accent); text-decoration: underline; }
+  section { scroll-margin-top: 12px; }
+  .btnrow {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 4px 16px;
+    margin: 6px 0 14px;
+  }
+  .btnrow dt { font-weight: 600; color: var(--accent); padding-top: 2px; }
+  .btnrow dd { margin: 0 0 8px; }
+  .pill {
+    display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px;
+    background: var(--accent-soft); color: var(--accent); margin-left: 6px;
+    border: 1px solid color-mix(in srgb, var(--accent), transparent 60%);
+  }
+  .pill.warn { background: rgba(255,216,77,.10); color: var(--warn); border-color: color-mix(in srgb, var(--warn), transparent 60%); }
+  .note { background: var(--surface); border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: 13px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  details { margin: 6px 0; }
+  summary { cursor: pointer; color: var(--accent); padding: 4px 0; }
+  summary:hover { text-decoration: underline; }
+  .top-link { float: right; font-size: 12px; color: var(--muted); text-decoration: none; font-weight: normal; }
   .top-link:hover { color: var(--accent); }
-  /* Scrollbar */
-  *::-webkit-scrollbar { width: 10px; height: 10px; }
-  *::-webkit-scrollbar-track { background: var(--bg); }
-  *::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
-  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
+  a { color: var(--accent); }
 </style>
 </head>
 <body>
-<div class="app">
+<div class="wrap">
 
-  <nav class="toc" aria-label="Innehållsförteckning">
-    <h2>Innehål</h2>
-    <ol id="toc-list">
-      <li><a href="#welcome">Välkommen</a></li>
-      <li><a href="#keyboard">Tangentbordsgenvägar</a></li>
-      <li><a href="#prompt-box">Promptrutan</a></li>
-      <li><a href="#toolbar">Verktygsfältknappar</a></li>
-      <li><a href="#providers">Modeller &amp; leverantörer</a></li>
-      <li><a href="#stt">Tal till text</a></li>
-      <li><a href="#auto-prompt">Automatisk prompt</a></li>
-      <li><a href="#tts">Automatisk läsning (TTS)</a></li>
-      <li><a href="#compact">Kompakt &amp; kontextanvändning</a></li>
-      <li><a href="#wake-up">Väckningsrespons</a></li>
-      <li><a href="#attachments">Filbilagor</a></li>
-      <li><a href="#git">Git-modal</a></li>
-      <li><a href="#github">GitHub-databaser</a></li>
-      <li><a href="#domains">NameSilo-domäner</a></li>
-      <li><a href="#skins">Skal &amp; teman</a></li>
-      <li><a href="#settings">Inställningar</a></li>
-      <li><a href="#language">Språk</a></li>
-      <li><a href="#monitor">VSCode-övervakning</a></li>
-      <li><a href="#auto-update">Automatisk uppdatering (pull)</a></li>
-      <li><a href="#admin-push">Admin push</a></li>
-      <li><a href="#extensions">Tilläggsmarknad</a></li>
-      <li><a href="#slash">Snedstreck-kommandon</a></li>
-      <li><a href="#context-menu">Högerklicksmeny</a></li>
-      <li><a href="#trace">Spårkanal</a></li>
-      <li><a href="#troubleshooting">Felsökning</a></li>
-      <li><a href="#about">Om &amp; licens</a></li>
-    </ol>
-  </nav>
+<h1>Claude Codex — Black Edition</h1>
+<p class="lead">Fristående AI-panel för VSCode. Chatta med vilken LLM-leverantör som helst (direkt API eller webbläsarbro), med inbyggd TTS, STT, bifoga-till-fil, kommandopallett, multi-konto, skinnor och en pixel-husdjur Tamagotchi.</p>
 
-  <main id="main">
-    <header>
-      <h1>Claude Codex — Black Edition</h1>
-      <div class="meta">En offline-först multi-leverantör AI-chattanel för VSCode.
-        Tryck <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd> för att växla.</div>
-    </header>
+<nav class="toc">
+  <h2>Innehål</h2>
+  <ul>
+    <li><a href="#quick">Snabbstart</a></li>
+    <li><a href="#providers">Leverantörer & modeller</a></li>
+    <li><a href="#sending">Skicka meddelanden</a></li>
+    <li><a href="#toolbar">Verktygsknappar</a></li>
+    <li><a href="#rightclick">Högerklickmeny</a></li>
+    <li><a href="#modals">Modaler & dialoger</a></li>
+    <li><a href="#settings">Inställningar</a></li>
+    <li><a href="#setup">Installationsguide</a></li>
+    <li><a href="#accounts">Konton & API-nycklar</a></li>
+    <li><a href="#slash">Snedstrek-kommandon</a></li>
+    <li><a href="#tama">Tamagotchi-husdjur</a></li>
+    <li><a href="#skins">Skinnor</a></li>
+    <li><a href="#extensions">Tillägg</a></li>
+    <li><a href="#autoupdate">Auto-uppdatering (push/pull)</a></li>
+    <li><a href="#hotreload">Hot reload</a></li>
+    <li><a href="#troubleshooting">Felsökning</a></li>
+  </ul>
+</nav>
 
-    <section id="welcome" class="help-section">
-      <h2><span class="num">1.</span> Välkommen</h2>
-      <p>Claude Codex Black är en VSCode webview som låter dig chatta med flera AI-leverantörer
-        (Claude, OpenAI, Gemini, Grok, Azure, lokal Ollama) från en enda, temabar panel.
-        Allt som behöver en nyckel läses från <code>config.ini</code> vid tilläggets rot —
-        ingen gränssnittsmodul för tillägginställningar krävs, men en inställningsmodal speglar de mest användbara
-        fälten för redigerering med bara klick.</p>
-      <div class="callout">
-        Ny här? Börja med att öppna <em>Inställningar</em> (kugghjulsikon), välj din leverantör, klistra in
-        din API-nyckel och skriv sedan en prompt och tryck <kbd>Enter</kbd>. Alla andra funktioner i
-        den här guiden är valfria.
-      </div>
-    </section>
+<section id="quick">
+<h2>Snabbstart <a class="top-link" href="#">↑ topp</a></h2>
+<ol>
+  <li>Klicka på <b>Setup</b> (trollstav-ikon) och gå igenom guiden för att ange dina API-nycklar. De sparas i <code>config.ini</code> (som är gitignorerad — aldrig committad).</li>
+  <li>Klicka på <b>leverantörspillret</b> i nedre vänstra hörnet (för närvarande märkt "Claude Codex — Black Edition") för att växla vilken AI du chattar med.</li>
+  <li>Skriv i textarean och tryck <kbd>Enter</kbd> för att skicka. <kbd>Shift</kbd>+<kbd>Enter</kbd> infogar en ny rad.</li>
+  <li>Tryck <kbd>↑</kbd> i en tom textarea för att hämta tidigare prompter (PowerShell-stilhistorik).</li>
+</ol>
+</section>
 
-    <section id="keyboard" class="help-section">
-      <h2><span class="num">2.</span> Tangentbordsgenvägar</h2>
-      <table>
-        <thead><tr><th>Tangent</th><th>Effekt</th></tr></thead>
-        <tbody>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd></td><td>Växla CBE-panelen</td></tr>
-          <tr><td><kbd>Enter</kbd></td><td>Skicka den aktuella prompten</td></tr>
-          <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Ny rad i promptrutan</td></tr>
-          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Cykla genom dina tidigare skickade prompter (från <code>prompt_history.txt</code>)</td></tr>
-          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Cykla genom dina utvalda <code>prompts.txt</code>-poster när markören är vid början/slutet av textarea</td></tr>
-          <tr><td><kbd>Esc</kbd></td><td>Stäng alla öppna modaler</td></tr>
-          <tr><td><kbd>/</kbd></td><td>Öppna snedstreck-kommandopaletten</td></tr>
-        </tbody>
-      </table>
-    </section>
+<section id="providers">
+<h2>Leverantörer & modeller <a class="top-link" href="#">↑ topp</a></h2>
+<p>Två typer av leverantörer stöds:</p>
 
-    <section id="prompt-box" class="help-section">
-      <h2><span class="num">3.</span> Promptrutan</h2>
-      <p>Den stora redigerbara textarea längst ned. Skriv, klistra in, dra en fil, bifoga via
-        binderklamra — allt du lägger här är användarens tur i nästa API-samtal.</p>
-      <p>Teckensnittet är låst till ditt VSCode-editors monospace-teckensnitt (via
-        <code>--vscode-editor-font-family</code> CSS-variabel) så panelen passar hemma
-        inne i redigeraren.</p>
-    </section>
+<h4>Direkt API (använder din nyckel)</h4>
+<table>
+  <tr><th>Leverantör</th><th>Standardmodell</th><th>Där nyckeln går</th></tr>
+  <tr><td>Anthropic (Claude)</td><td>claude-sonnet-4-6</td><td><code>[api_keys] anthropic_api_key</code></td></tr>
+  <tr><td>OpenAI (ChatGPT)</td><td>gpt-4o</td><td><code>[api_keys] openai_api_key</code></td></tr>
+  <tr><td>Google Gemini</td><td>gemini-2.5-pro</td><td><code>[api_keys] gemini_api_key</code></td></tr>
+  <tr><td>xAI (Grok)</td><td>grok-4</td><td><code>[api_keys] xai_api_key</code></td></tr>
+  <tr><td>DeepSeek</td><td>deepseek-chat</td><td><code>[api_keys] deepseek_api_key</code></td></tr>
+  <tr><td>Azure OpenAI</td><td>(distributionsbaserad)</td><td><code>[azure] api_key</code> + endpoint</td></tr>
+</table>
 
-    <section id="toolbar" class="help-section">
-      <h2><span class="num">4.</span> Verktygsfältknappar</h2>
-      <p>Undre rad, från vänster till höger. Verktygstips visas när du för muspekaren över; panelen läser också upp dem
-        på ditt valda språk (se <a href="#language">Språk</a>).</p>
-      <table>
-        <thead><tr><th>Ikon</th><th>Funktion</th></tr></thead>
-        <tbody>
-          <tr><td>🎤 Mikrofon</td><td>Tal-till-text — Web Speech API med SAPI-återgång. Se <a href="#stt">§ 6</a>.</td></tr>
-          <tr><td>📎 Bifoga</td><td>Välj en eller flera filer att infoga i prompten</td></tr>
-          <tr><td>🔁 Väckning</td><td>Redigera väckningspromptens väckningstext (finns i <code>wake.txt</code>)</td></tr>
-          <tr><td>⏱ Automatisk prompt</td><td>Växla nedräkningen för automatisk brand vid inaktivitet</td></tr>
-          <tr><td>📚 Kompakt</td><td>Trunkera konversationshistoriken till de senaste turerna. Ring visar kontextfönsteranvändning.</td></tr>
-          <tr><td>📁 Git</td><td>Kör git-kommandon i projektmappen</td></tr>
-          <tr><td>🌐 Domäner</td><td>Hämta din NameSilo-domänlista</td></tr>
-          <tr><td>🐙 GitHub</td><td>Lista dina GitHub-databaser via PAT</td></tr>
-          <tr><td>🎨 Skal</td><td>Välj ett panelstema (upptäckt live från <code>skins/</code>)</td></tr>
-          <tr><td>🧩 Tillägg</td><td>Öppna marknadsiframe-modalen. Se <a href="#extensions">§ 21</a>.</td></tr>
-          <tr><td>⚙ Inställningar</td><td>Öppna inställningsmodalen</td></tr>
-          <tr><td>📜 Handbok</td><td>Öppna <code>handbook.txt</code> för redigering</td></tr>
-          <tr><td>❔ Hjälp</td><td>Det här dokumentet</td></tr>
-          <tr><td>⏹ Stopp</td><td>Avbryt den aktiva modellkopplingen</td></tr>
-          <tr><td>📤 Skicka</td><td>Skicka prompten (samma som <kbd>Enter</kbd>)</td></tr>
-        </tbody>
-      </table>
-    </section>
+<h4>Webbläsarbroar (ingen API-nyckel — driver en inloggad webbläsarsession)</h4>
+<table>
+  <tr><th>Bro</th><th>Mål</th><th>Port</th></tr>
+  <tr><td>ChatGPT-bro</td><td>chat.openai.com</td><td>8788</td></tr>
+  <tr><td>Grok-bro</td><td>grok.com / x.ai</td><td>8789</td></tr>
+  <tr><td>Copilot-bro</td><td>copilot.microsoft.com</td><td>8790</td></tr>
+  <tr><td>Gemini-bro</td><td>gemini.google.com</td><td>8791</td></tr>
+  <tr><td>Claude-bro</td><td>claude.ai</td><td>8792</td></tr>
+  <tr><td>Ollama (lokal)</td><td>127.0.0.1:11434</td><td>8793</td></tr>
+  <tr><td>DeepSeek-bro</td><td>chat.deepseek.com</td><td>8794</td></tr>
+</table>
+<p>Varje bro är en liten C++-bricka-exe på <code>bin/CBE-Bridge-&lt;Target&gt;.exe</code> som öppnar en inloggad Chrome-profil, avlyssnar din prompt och returnerar modellens svar. Att välja en broleverantör i Inställningar startar automatiskt motsvarande exe. Första gången du använder en bro måste du logga in på webbplatsen i dess Chrome-fönster en gång.</p>
+<div class="note">Bridge-chatt använder ett radprotokoll över TCP: en JSON-rad in (<code>{action:"chat", target, message, model}</code>), en JSON-rad ut. Ingen API-nyckel krävs.</div>
+</section>
 
-    <section id="providers" class="help-section">
-      <h2><span class="num">5.</span> Modeller &amp; leverantörer</h2>
-      <p>CBE levereras med <strong>11 bryggor</strong> som drop-in <code>.bridge</code> insticksprogram under
-        <code>bridges/</code>. Var och en är ett själv innehållet zip med manifest.xml + bridge.py
-        + ikoner. Släpp en ny <code>.bridge</code>-fil i och den visas i kartridgvals-dropdown — ingen ändring av tilläggskod behövs.</p>
-      <h3>Text-chat-bryggor (7)</h3>
-      <ul>
-        <li><strong>ChatGPT</strong> — chatgpt.com, Plus/Pro-prenumeration</li>
-        <li><strong>Grok</strong> — grok.com, infödd xAI-inloggning (anonym nivå är starkt begränsad; logga in först)</li>
-        <li><strong>Gemini</strong> — gemini.google.com, Google-konto</li>
-        <li><strong>Claude</strong> — claude.ai, inloggning med magisk länk (kör <code>tools/sign_in_helper.py claude</code> en gång)</li>
-        <li><strong>Copilot</strong> — copilot.microsoft.com, kostlös Microsoft-konto</li>
-        <li><strong>DeepSeek</strong> — chat.deepseek.com, infödd e-post/lösenord (använd INTE Google SSO)</li>
-        <li><strong>Ollama</strong> — lokal <code>127.0.0.1:11434</code>, ingen inloggning krävs</li>
-      </ul>
-      <h3>Videogenrerings-bryggor (4)</h3>
-      <ul>
-        <li><strong>Sora 2</strong> — sora.com, återanvänder din ChatGPT Plus/Pro-inloggning</li>
-        <li><strong>Google Veo</strong> — gemini.google.com (Veo-läge), Gemini Advanced-prenumeration</li>
-        <li><strong>Runway Gen-3/4</strong> — app.runwayml.com, separat Runway-prenumeration</li>
-        <li><strong>Bing Video Creator</strong> — bing.com/videos/create, <em>gratis Sora-2</em> med Microsoft-konto</li>
-      </ul>
-      <p>Genererade videor sparas till <code>videos/&lt;bridge&gt;/&lt;timestamp&gt;_&lt;prompt-slug&gt;.mp4</code>
-        och spelas automatiskt upp i videopanelen (se §Videobibliotek nedan).</p>
-      <p>Välj en brygga + modell från kartridgvalsmenyn bredvid promptrutan, eller via
-        <em>Inställningar → Allmänt</em>. Valet är per-workspace och sparas i
-        workspaceState. För att lägga till en ny brygga, se <code>docs/WRITING_BRIDGES.md</code>.</p>
-    </section>
+<section id="sending">
+<h2>Skicka meddelanden <a class="top-link" href="#">↑ topp</a></h2>
+<dl class="btnrow">
+  <dt>Textarea</dt>
+  <dd>Skriv din prompt. <kbd>Enter</kbd> skickar, <kbd>Shift</kbd>+<kbd>Enter</kbd> infogar en ny rad. Medan ett svar strömmas är ytterligare prompter <b>köade</b> och skickas i ordning — platshållaren visar "Köa ett annat meddelande…" i det här tillståndet.</dd>
 
-    <section id="video-library" class="help-section">
-      <h2><span class="num">5a.</span> Videobibliotek</h2>
-      <p>En dedikerad panel för att bläddra i och titta på videor som genererats av videobryggorna
-        (Sora, Veo, Runway, Bing Video Creator). Öppnas via kommandopaletten:
-        <em>Claude Codex Black: Open Video Library</em> eller <code>codexBlackEd.openVideoPlayer</code>
-        kommandot.</p>
-      <ul>
-        <li>Sidofältet listar varje <code>.mp4</code> / <code>.webm</code> / <code>.mov</code> under
-          <code>videos/&lt;bridge&gt;/</code>, grupperat efter brygga och sorterat nyast först.</li>
-        <li>Den senaste videon spelas automatiskt upp vid första öppning.</li>
-        <li>Panelen bevakar <code>videos/</code>-katalogen på en 2-sekundersintervall — alla nyligen
-          genererade videor dyker upp med ett ✨ "Just generated"-märke och spelas upp automatiskt
-          (slå av via <em>Auto ▶ new</em>).</li>
-        <li>Klicka på <em>📂 Öppna</em> för att avslöja <code>videos/</code>-mappen i din OS filhanterare.</li>
-      </ul>
-    </section>
+  <dt>Skicka-knapp (orb)</dt>
+  <dd>Den runda knappen på höger kant av textarean. Samma som <kbd>Enter</kbd>. Visar visuellt tre tillstånd (vilande / hovra / aktiv).</dd>
 
-    <section id="stt" class="help-section">
-      <h2><span class="num">6.</span> Tal till text</h2>
-      <p>Klicka på mikrofonen, prata, klicka igen för att stoppa (eller vänta på tystnadstidsgränsen).
-        Två motorer testas i ordning:</p>
-      <ol style="padding-left:22px;">
-        <li><strong>Web Speech API</strong> — Googles molnigenkännare som körs i webview.
-          Använder din Gmail/Google-session; ingen extra nyckel behövs.</li>
-        <li><strong>Windows SAPI</strong> (återgång) — förvärmad PowerShell-process som anropas när
-          webview blockerar mikrofonåtkomst. Konfigurerbar lyssningsfönster via
-          <code>[voice] listen_seconds</code> i <code>config.ini</code>.</li>
-      </ol>
-      <div class="callout">
-        SAPI är <em>förvärmad vid tilläggets aktivering</em> så det första mikrofonklicket undviker
-        2-4 sekunder kalstart som tidigare skulle svälja tidiga stoppklick.
-      </div>
-    </section>
+  <dt>Stoppknapp</dt>
+  <dd>Nedre höger i komponisten. Avbryter det för närvarande strömade svaret och alla köade meddelanden. Strömmat text behålls; endast förfrågan i flygning avbryts.</dd>
 
-    <section id="auto-prompt" class="help-section">
-      <h2><span class="num">7.</span> Automatisk prompt</h2>
-      <p>Knappen med märke och spinner. När DEN ÄR PÅ, efter N sekunder inaktivitet
-        skickar panelen automatiskt din konfigurerade väckningstext. Nedräkningstalet renderas i
-        <code>--cbe-highlight-color</code>, som varje skal definierar.</p>
-      <p>Redigera väckningtexten via 🔁-väckningsknappen — den gör tur och retur <code>wake.txt</code>.</p>
-    </section>
+  <dt>Leverantörspill</dt>
+  <dd>Nedre vänster i komponisten. Klicka för en listruta med varje leverantör du har konfigurerat. Att välja en ny startar automatiskt dess bro (om tillämpligt) och postar ett bekräftelsemeddelande.</dd>
 
-    <section id="tts" class="help-section">
-      <h2><span class="num">8.</span> Automatisk läsning (TTS)</h2>
-      <p>Mun-ikonen. När DEN ÄR PÅ, läses varje assistentsvar högt via Web Speech-
-        syntetiseraren (Google) eller en SAPI-återgång. En blå halo glöder runt ikonen medan
-        ljud spelas.</p>
-    </section>
+  <dt>Prompthistorik</dt>
+  <dd><kbd>↑</kbd> / <kbd>↓</kbd> i en tom textarea går bakåt / framåt genom de senaste 500 prompterna du har skickat (PowerShell-stil). Historiken lagras på <code>prompt_history.txt</code> i tilläggets mapp och överlever panelomläsningar.</dd>
+</dl>
+</section>
 
-    <section id="compact" class="help-section">
-      <h2><span class="num">9.</span> Kompakt &amp; kontextanvändning</h2>
-      <p>Konversationsmatrisen som skickas till modellen växer med varje tur. Ringen runt
-        kompaktikonen visar aktuell kontextfönsteranvändning som en konisk gradient — tom
-        när ny, full när nära modellens kontextgräns.</p>
-      <p>Klicka Kompakt för att trunkera historiken ned till de senaste fyra turerna. Nästa API-samtal
-        använder den mindre matrisen.</p>
-    </section>
+<section id="toolbar">
+<h2>Verktygsknappar <a class="top-link" href="#">↑ topp</a></h2>
+<p>Listade i verktygsordeingen. Alla verktygstips är lokaliseringsbara per språk via <code>languages/*.xml</code>.</p>
 
-    <section id="wake-up" class="help-section">
-      <h2><span class="num">10.</span> Väckningsrespons</h2>
-      <p>Lagrad i <code>wake.txt</code> vid tilläggets rot. Använd av automatisk prompt som
-        meddelandet att skicka när inaktivitetstimern löper ut. Redigera via 🔁 verktygsfältsknappen.</p>
-    </section>
+<dl class="btnrow">
 
-    <section id="attachments" class="help-section">
-      <h2><span class="num">11.</span> Filbilagor</h2>
-      <p>Klicka 📎 för att välja en eller flera filer. Håll <kbd>Ctrl</kbd> eller <kbd>Shift</kbd> i
-        väljaren för multi-val. Varje fil infogad i prompten som ett inhägnat kodblock
-        med dess filnamn och språk. Binära filer över 1 MB hoppas över med en notis.</p>
-    </section>
+<dt>Ny konversation <span class="pill">addBtn</span></dt>
+<dd>Rensar den aktuella tråden, raderar tillståndet för konversation i minnet och startar om. Den tidigare tråden bevaras på disk under <code>chats/&lt;UTC-date&gt;.log</code> så ingenting försvinner. Motsvarar <code>/clear</code>.</dd>
 
-    <section id="git" class="help-section">
-      <h2><span class="num">12.</span> Git-modal</h2>
-      <p>Klicka 📁 Git. Om ingen projektmapp är konfigurerad, får du först en mappväljare —
-        den valda sökvägen skrivs till <code>[project] path</code> i <code>config.ini</code>.
-        Senare git-anrop körs med cwd inställd på den sökvägen.</p>
-    </section>
+<dt>Sparade prompter <span class="pill">storedPromptsBtn</span></dt>
+<dd>Öppnar en modal som listar varje sparad promptmall under <code>stored_prompts/</code>. Klicka på en för att infoga den i textarean; knappen "+" lägger till en ny mall. Mallar stöder variabelersättning.</dd>
 
-    <section id="github" class="help-section">
-      <h2><span class="num">13.</span> GitHub-databaser</h2>
-      <p>Listar varje databas som är tillgänglig för din <code>[github] pat</code>. Klicka på en rad för att infoga
-        dess klon-URL i prompten. Listan är paginerad och cachad.</p>
-    </section>
+<dt>Chatthistorik <span class="pill">chatHistoryBtn</span></dt>
+<dd>Bläddrar igenom chattloggfilen på disk (en fil per UTC-datum under <code>chats/</code>). Välj ett datum för att scrolla igenom tidigare konversationer.</dd>
 
-    <section id="domains" class="help-section">
-      <h2><span class="num">14.</span> NameSilo-domäner</h2>
-      <p>Hämtar varje domän i ditt NameSilo-konto med <code>[namesilo] api_key</code>
-        (eller <code>[api_keys] namesilo_api_key</code> som återgång). Vid första öppning är resultaten
-        cachade till <code>domains.txt</code>; senare panelstarter serveras från cache. Klicka
-        <em>Ladda om</em> i modalen för att tvinga en ny hämtning.</p>
-      <div class="callout warn">
-        Om du någonsin ser "inga domäner" med en 300-svarskod, kontrollera spårkanalen — tomma
-        cacheminnen förgiftar inte längre framtida panelstarter, men en gammal <code>domains.txt</code> i
-        en annan installationssökväg kunde det.
-      </div>
-    </section>
+<dt>Bifoga fil <span class="pill">attachFileBtn</span></dt>
+<dd>Öppnar en filväljare. Vald fil läggs upp tillsammans med nästa prompt — bilder går inline (vision), text/kodfiler blir ett omgivet block i din prompt. Stöder multi-attach.</dd>
 
-    <section id="skins" class="help-section">
-      <h2><span class="num">15.</span> Skal &amp; teman</h2>
-      <p>🎨-knappen poppar en upptäcktsväljare som skannar <code>skins/</code> live (inte vid
-        startup), så att släppa en ny mapp i vid körning är tillräckligt. Varje skal har en
-        <code>manifest.xml</code> som definierar sin palett — inklusive
-        <strong>högdagerfärgen</strong>, som automatisk prompt-räknarbrickan, fokusringar,
-        och övervakarpulsen alla använder.</p>
-      <p>Inbyggda skal inkluderar: <code>gnome</code> (Adwaita grå), <code>terminal</code>
-        (svart/grön med het-rosa accent), <code>tamagotchi</code> (äggskalspastellfärger med
-        en sprite-maskotpanel), <code>blocky</code>, och andra.</p>
-    </section>
+<dt>Läs högt (TTS) <span class="pill">ttsBtn</span></dt>
+<dd>Talar det senaste assistentsvaret högt. Använder ElevenLabs (om <code>[elevenlabs] api_key</code> är inställt) eller faller tillbaka till Windows SAPI. <b>Högerklicka</b> för att växla <i>auto-läs</i>-läge där varje nytt svar sägs högt automatiskt — knappen får en animerad indikator medan den är aktiv.</dd>
 
-    <section id="settings" class="help-section">
-      <h2><span class="num">16.</span> Inställningar</h2>
-      <p>Öppnas från ⚙-kugghjulet. Flikar:</p>
-      <ul>
-        <li><strong>Allmänt</strong> — visningsnamn, standardmodell, skicka vid enter</li>
-        <li><strong>Röst</strong> — mikrofonenhet, listen_seconds, STT-motorval, TTS automatisk läsning</li>
-        <li><strong>Uppdateringar</strong> — <code>is_admin</code>-flagga, WinSCP-session, fjärrsökväg</li>
-        <li><strong>Nycklar</strong> — varje leverantörs API-nyckel</li>
-        <li><strong>Övervakare</strong> — VSCode-övervakningstoggle, port, pollningsintervall</li>
-        <li><strong>Språk</strong> — välj från 39 språkinställningar; se <a href="#language">§ 17</a></li>
-      </ul>
-      <p>Modalen kommer ihåg sin storlek och position mellan sessioner.</p>
-    </section>
+<dt>Tal till text (STT) <span class="pill">sttBtn</span></dt>
+<dd>Spelar in mikrofonljud och transkriberar in i textarean. Försöker först webbvyns Web Speech API; om det misslyckas (<code>not-allowed</code>, vanligt i VSCode-sandlådor), faller tillbaka till Windows SAPI (<code>System.Speech.Recognition</code>) lanserad på värden via PowerShell. Klicka igen för att stoppa.</dd>
 
-    <section id="language" class="help-section">
-      <h2><span class="num">17.</span> Språk</h2>
-      <p>Panelen levereras med översättningar för de 39 mest talade språken. Språkfiler
-        finns på <code>languages/&lt;code&gt;.xml</code> och läses in en gång vid tilläggets
-        aktivering. Saknade nycklar faller tillbaka till engelska.</p>
-      <p>Välj ditt språk i <em>Inställningar → Språk</em>. En flaggikon visas bredvid
-        varje alternativ (inladdad från <code>assets/flags/&lt;code&gt;.svg</code>). Valet
-        sparas till <code>[settings] language</code> i <code>config.ini</code>.</p>
-    </section>
+<dt>Auto Prompt <span class="pill">autoReplyBtn</span></dt>
+<dd>Öppnar Auto Prompt-modalen. Definiera en prompt + ett nedräkningsintervall; efter varje assistentsvar räknas nedräkningen ner och skickar auto-prompten automatiskt när den når noll. Användbart för "fortsätt", "nästa steg", upprepade verktygssessioner. Klicka igen för att inaktivera.</dd>
 
-    <section id="monitor" class="help-section">
-      <h2><span class="num">18.</span> VSCode-övervakning</h2>
-      <p>En Windows-tjänst (<code>CBEVSCodeSupervisor</code>) lindrar
-        <code>tools/vscode_supervisor.ps1</code>-skriptet via NSSM och binder en HttpListener
-        på <strong>http://127.0.0.1:3434/</strong>. Panelens övervakningsknapp glöder blå
-        när övervåkarens <code>/status</code>-slutpunkt svarar 200 OK.</p>
-      <p>Om HTTP-sonden misslyckas men tjänsten är installerad, övervakar panelens vakt
-        automatiskt omstart av tjänsten (30-sekunders nedkylning så den inte omstartar-storm).</p>
-      <p>Vänsterklick på övervakningsknappen för att installera / starta / stoppa. Högerklick för att öppna
-        spårkanalen.</p>
-    </section>
+<dt>Väckningssvar <span class="pill">wakeUpBtn</span></dt>
+<dd>Redigerar väckningsmeddelandet lagrat i <code>wake.txt</code>. Väckningen är vad Auto Prompt skickar om den detekterar att modellen har stannats — vanligtvis ett kort ping som "Hej! Fortsätt."</dd>
 
-    <section id="auto-update" class="help-section">
-      <h2><span class="num">19.</span> Automatisk uppdatering (pull)</h2>
-      <p>4 sekunder efter tilläggets aktivering hämtar panelen
-        <code>https://trentontompkins.com/cbe/manifest.xml.php</code> — en MD5+storleks-manifest
-        för de senaste publicerade filerna. För varje fjärrstil jämförs den lokala kopians MD5; endast ändrade/saknade filer laddas ner över HTTPS.</p>
-      <p>Användar-lokal tillstånd (<code>config.ini</code>, <code>debug.log</code>,
-        <code>domains.txt</code>, <code>wake.txt</code>, <code>prompt_history.txt</code>) är
-        på pull-exkluderingslistan och överskrives aldrig.</p>
-    </section>
+<dt>Visa kommandomena <span class="pill">showCommandsBtn</span></dt>
+<dd>Öppnar snedstrek-kommandopaletten i en modal. Se <a href="#slash">Snedstrek-kommandon</a> för den fullständiga listan. Samma som att skriva <code>/</code> i början av textarean.</dd>
 
-    <section id="admin-push" class="help-section">
-      <h2><span class="num">20.</span> Admin push</h2>
-      <p>Bara klienter med <code>[updates] is_admin = true</code> pushar någonsin till servern.
-        Utlöst via:</p>
-      <ul>
-        <li>Kommandopalett → <em>Claude Codex Black: Push update</em></li>
-        <li>Snedstreck-kommando <code>/push</code></li>
-      </ul>
-      <p>Använder WinSCP-sparad session namngiven i <code>[updates] winscp_session</code> (standard
-        <code>vps</code>). Pushar via <code>/script=…</code> med synkroniseringskommandot och
-        en filmask som exkluderar hemligheter &amp; per-maskintillstånd.</p>
-    </section>
+<dt>Komprimera konversation <span class="pill">compactBtn</span></dt>
+<dd>Postar en sammanfatta-och-trimma-förfrågan som ersätter den aktuella tråden med en kondenserad sammanfattning. Motsvarar <code>/compact</code>. Användbar när konversationen har vuxit långt och du vill behålla kontexten men sluta bränna tokens på att skicka hela historiken igen.</dd>
 
-    <section id="extensions" class="help-section">
-      <h2><span class="num">21.</span> Tilläggsmarknad</h2>
-      <p>Klicka på 🧩 Tillägg-knappen. En iframe-modal öppnas till
-        <code>https://trentontompkins.com/cbe/extension/extension_marketplace.php</code>,
-        som hämtar katalogen på
-        <code>extensions.xml.php</code> och renderar varje tillgängligt tillägg som ett kort med
-        en beskrivning, taggar, version, filstorlek, MD5, och en <strong>Installera</strong>-knapp.</p>
-      <p>Ett tillägg är paketerat som <code>&lt;id&gt;.ext</code> — ett zip-arkiv innehållande
-        <code>manifest.xml</code> plus tillägskoden (typiskt ett enda
-        <code>extension.html</code>). När du klickar Installera skickar marknadsplats-iframe
-        ett <code>postMessage</code> tillbaka till panelen; panelen hämtar
-        <code>.ext</code>-filen direkt från servern och extraherar den under
-        <code>extensions/</code> i tilläggsmappen.</p>
-      <p>Tre demo-tillägg levereras med lanseringskatalogen:
-        <strong>Kalkylator</strong>, <strong>Minsveppare</strong>, och en <strong>Emoji-väljare</strong>.</p>
-    </section>
+<dt>Handbok <span class="pill">handbookBtn</span></dt>
+<dd>Öppnar modal för anställd/projekthandbok. Läser in <code>handbook.html</code> eller vilket dokument som helst som är konfigurerat. Används som en systemprompt-referens som modellen kan uppmanas att konsultera.</dd>
 
-    <section id="slash" class="help-section">
-      <h2><span class="num">22.</span> Snedstreck-kommandon</h2>
-      <p>Skriv <kbd>/</kbd> i promptrutan för att öppna snedstreck-kommandopaletten. Klicka på en rad
-        för att <em>infoga</em> kommandotexten i din prompt (redigerbar), eller tryck
-        <kbd>Enter</kbd> på en körbar rad för att köra den omedelbar.</p>
-      <p>En icke-uttömmande lista:</p>
-      <table>
-        <thead><tr><th>Kommando</th><th>Effekt</th></tr></thead>
-        <tbody>
-          <tr><td><code>/help</code></td><td>Öppna det här dokumentet</td></tr>
-          <tr><td><code>/skin</code></td><td>Poppa skalväljaren</td></tr>
-          <tr><td><code>/push</code></td><td>Köra auto-update push (endast admin)</td></tr>
-          <tr><td><code>/license</code></td><td>Visa <code>LICENSE.TXT</code></td></tr>
-          <tr><td><code>/clear</code></td><td>Rensa konversationshistorik</td></tr>
-          <tr><td><code>/domains</code></td><td>Öppna NameSilo-domänmodalen</td></tr>
-          <tr><td><code>/git</code></td><td>Öppna Git-modalen</td></tr>
-          <tr><td><code>/wake</code></td><td>Öppna väckningsredigeraren</td></tr>
-          <tr><td><code>/memory</code></td><td>Öppna projektminnets index</td></tr>
-        </tbody>
-      </table>
-    </section>
+<dt>Inställningar <span class="pill">settingsBtn</span></dt>
+<dd>Öppnar modalen Inställningar (leverantör, modell, skinn, språk, SFX). Se <a href="#settings">Inställningar</a>.</dd>
 
-    <section id="context-menu" class="help-section">
-      <h2><span class="num">23.</span> Högerklicksmeny</h2>
-      <p>Högerklicka någonstans i panelen för en kontextmeny (definierad som en enda XML-
-        sträng i <code>panel.js</code>). Poster inkluderar Uppdatera (ladda panelen om utan
-        att beröra tilläggets värd — använd aldrig <code>reloadWindow</code>), Rensa
-        konversation, Öppna inställningar, och Inspektera (DevTools, endast debug-versioner).</p>
-    </section>
+<dt>Konton <span class="pill">accountsBtn</span></dt>
+<dd>Öppnar multi-kontomanageraren. Lägg till / redigera / ta bort API-nycklar per leverantör, växla mellan dem per session. Se <a href="#accounts">Konton</a>.</dd>
 
-    <section id="trace" class="help-section">
-      <h2><span class="num">24.</span> Spårkanal</h2>
-      <p>Tillägget skriver en detaljerad tidslinje till <code>debug.log</code> bredvid
-        tillägget. Allt anmärkningsvärt hamnar där: leverantörväxlingar, STT-livscykel,
-        övervakningssondar, NameSilo-svarskoder, panel↔värd-bryggmeddelanden, push/pull
-        manifestantal.</p>
-      <p>Högerklicka övervakningsknappen för en enkelvalsöppning av spårkanalen.</p>
-    </section>
+<dt>Tillägg <span class="pill">extensionsBtn</span></dt>
+<dd>Öppnar webbläsaren för tillägg i panelen. Listar vad som är installerat under <code>extensions/</code> (var och en med en <code>manifest.xml</code> + en <code>entry</code> HTML), låter dig fästa tillägg på verktygsfältet, installera nya från den offentliga katalogen eller ta bort dem.</dd>
 
-    <section id="troubleshooting" class="help-section">
-      <h2><span class="num">25.</span> Felsökning</h2>
-      <table>
-        <thead><tr><th>Symptom</th><th>Sannolikt orsak</th></tr></thead>
-        <tbody>
-          <tr><td>Promptrutan ser proportionell ut, inte monospace</td>
-              <td><code>--vscode-editor-font-family</code> inte applicerad; kontrollera <code>:root</code> variabler</td></tr>
-          <tr><td>Auto Prompt-spinnern är en svart prick</td>
-              <td>Fel SVG-resurs; bör vara <code>auto_read_spinner.svg</code> med drop-shadow halo</td></tr>
-          <tr><td>Kompakt-knappen gör ingenting</td>
-              <td>Värdhanterare saknas — <code>case 'compactConversation'</code> i extension.js-router</td></tr>
-          <tr><td>"0 domäner" i Domäner-modalen</td>
-              <td>NameSilo-svar.code != 300 (spårkanalen har det), eller gammal <code>domains.txt</code></td></tr>
-          <tr><td>STT "inget tal detekterat" omedelbar</td>
-              <td>Du stoppade innan SAPI band mikrofonen. Förvärmningen hoppar nu över den väntan — verifiera med <code>stt: using pre-warmed SAPI</code> i <code>debug.log</code></td></tr>
-          <tr><td>Push misslyckas på sökväg med blanksteg</td>
-              <td>Använder <code>/command=</code> inline; använd alltid <code>/script=tempfile.winscp</code></td></tr>
-          <tr><td>Övervakares blå glöd tänds inte</td>
-              <td>Tjänsten körs inte. Vänsterklick monitorBtn för att installera/starta, eller kör <code>Start-Service CBEVSCodeSupervisor</code></td></tr>
-          <tr><td>Ladda om "fixar" något</td>
-              <td>Det gjorde det inte. Använd aldrig <code>reloadWindow</code>. Använd istället Uppdatera-kontextmenyn.</td></tr>
-        </tbody>
-      </table>
-    </section>
+<dt>Projektmapp <span class="pill">projectFolderBtn</span></dt>
+<dd>Väljer arbetskatalogen som används av Bifoga fil, Terminal, Git och alla verktyg som behöver en projektrrot. Den aktuella mappen visas bredvid leverantörspillret.</dd>
 
-    <section id="about" class="help-section">
-      <h2><span class="num">26.</span> Om &amp; licens</h2>
-      <p>Claude Codex — Black Edition. MIT-licensierad. Källspegel:
-        <a href="https://github.com/tibberous/Claude-Codex-Back-Ed.." target="_blank" rel="noopener">github.com/tibberous/Claude-Codex-Back-Ed..</a>.
-        Officiell auto-uppdateringsserver: <a href="https://trentontompkins.com/cbe/" target="_blank" rel="noopener">trentontompkins.com/cbe</a>.</p>
-      <p>För feedback eller kommersiella arbeten, kontakta <a href="https://trentontompkins.com" target="_blank" rel="noopener">trentontompkins.com</a> · (724) 431-5207.</p>
-      <p style="margin-top:24px; color: var(--muted); font-size: 12px;">
-        <em>Den här hjälpen är också iframad in i hjälpknappen i panelens verktygsfält. Källa:
-        <code>panel/help.html</code>.</em>
-      </p>
-    </section>
+<dt>Webbläsare <span class="pill">browserBtn</span></dt>
+<dd>Öppnar en QtWebEngine-webbläsarruta sida vid sida för snabba sökningar utan att lämna panelen.</dd>
 
-  </main>
+<dt>VSCode-övervakare <span class="pill">monitorBtn</span></dt>
+<dd>Växlar VSCode:s övervakarhund — en bakgrundsprocess som startar om VSCode om det kraschar. Vänsterklick växlar kör/stopp, <b>högerklick</b> öppnar övervåkarens spårkanal.</dd>
+
+<dt>Terminal <span class="pill">terminalBtn</span></dt>
+<dd>Öppnar en VSCode-integrerad terminal i projektmappen. Om projektmappen inte är inställd, faller den tillbaka till ditt Skrivbord. Återanvänder en varaktig terminal märkt "CBE".</dd>
+
+<dt>Installationsguide <span class="pill">setupBtn</span></dt>
+<dd>Gör dig genom varje API-nyckel + integration som tillägget vet om (~12 steg). Se <a href="#setup">Installationsguide</a>.</dd>
+
+<dt>Git <span class="pill">gitBtn</span></dt>
+<dd>Öppnar VSCode:s Source Control-vy fokuserad på den aktuella projektmappen.</dd>
+
+<dt>GitHub <span class="pill">githubBtn</span></dt>
+<dd>Listar dina GitHub-reposar med <code>[github] token</code>. Klicka på ett repo för att klona / öppna / bläddra problem.</dd>
+
+<dt>Domäner (NameSilo) <span class="pill">domainsBtn</span></dt>
+<dd>Listar varje domän på ditt NameSilo-konto med namnservrar. Kräver <code>[namesilo] api_key</code>. <b>Läs in</b>-knappen tvingar en nytt hämtning.</dd>
+
+<dt>Teckenstorlek <span class="pill">fontSizeBtn</span></dt>
+<dd>Växlar mellan normal och stor teckenstorlek för chattråden. Samma som <code>/font</code>.</dd>
+
+<dt>Hjälp <span class="pill">helpBtn</span></dt>
+<dd>Öppnar denna sida. Samma som <code>/help</code>.</dd>
+
+<dt>Tamagotchi <span class="pill">tamaBtn</span></dt>
+<dd>Växlar pixel-hussdjurspanelen (endast synlig på <b>tamagotchi</b>-skinnet, där det dockar i komponistens hörn). Se <a href="#tama">Tamagotchi</a>.</dd>
+
+</dl>
+</section>
+
+<section id="rightclick">
+<h2>Högerklickmeny <a class="top-link" href="#">↑ topp</a></h2>
+<p>Högerklicka på chatttext eller ett kodblock för att få CBE-sammanhangsmeny. Högerklicka på prompttextarean öppnar nu istället den <b>inbyggda webbläsarmenyn</b> (Kopiera / Klipp ut / Klistra in / Ta bort / Markera allt).</p>
+<dl class="btnrow">
+  <dt>Kopiera / Kopiera kodblock</dt><dd>Kopierar det aktuella urvalet. Om inget urval men du högerklickade på en <code>&lt;pre&gt;&lt;code&gt;</code>, kopieras hela kodblocket.</dd>
+  <dt>Visa källa</dt><dd>Visar raw HTML/markdown för den klickade regionen — antingen ett kodblock eller hela panel-DOM:en. Användbar för att felsöka skinne/CSS-problem.</dd>
+  <dt>Öppna DevTools</dt><dd>Frågar VSCode att öppna sina Developer Tools så du kan inspektera webbutsikten live.</dd>
+  <dt>Inställningar <span class="pill">ny</span></dt><dd>Öppnar samma Inställnings-modal som verktygsfältsknappen <b>Inställningar</b> öppnar (leverantör / modell / skinn / språk / SFX). Samma som <code>/settings</code>.</dd>
+  <dt>Om <span class="pill">ny</span></dt><dd>Liten dialog i panelen med version, författare, licens, repo-länk, portfölj och kontakttelefon. Stängs när backgrundsklick, ×-knapp eller <kbd>Esc</kbd>.</dd>
+  <dt>Läs in panel <span class="pill">ny</span></dt><dd>Läser om <code>panel/index.html</code> + <code>panel.js</code> + <code>skins/*</code> med en per-fil <code>?v=&lt;mtime&gt;</code> cache-buster och omtilldelar <code>panel.webview.html</code>. Plockar upp CSS/JS-redigeringar utan att starta om VSCode. Tilläggets värd förblir levande — terminal, övervakare, chatthistorik bevaras alla.</dd>
+  <dt>Läs in fönster <span class="pill warn">ny</span></dt><dd>Utlöser <code>workbench.action.reloadWindow</code>. Använd detta <i>endast</i> när du har redigerat <code>extension.js</code> (värdkod) och panelomläsningen inte räcker. Det är en fullständig VSCode-fönsteromläsning.</dd>
+</dl>
+</section>
+
+<section id="modals">
+<h2>Modaler & dialoger <a class="top-link" href="#">↑ topp</a></h2>
+
+<details open><summary><b>Inställnings-modal</b> — leverantör / modell / skinn / språk / SFX</summary>
+<ul>
+  <li><b>Leverantör</b>: fullständig listruta för varje direkt-API + broleverantör. Att välja en växlar den aktiva sessionen OCH startar automatiskt motsvarande bro-exe (om tillämpligt).</li>
+  <li><b>Modell</b>: per-leverantörlista över tillåtna modeller (t.ex. <code>claude-opus-4-7</code>, <code>claude-sonnet-4-6</code>, <code>claude-haiku-4-5</code> för Anthropic).</li>
+  <li><b>Skinn</b>: visuellt tema. Se <a href="#skins">Skinnor</a>.</li>
+  <li><b>Språk</b>: 39 språk tillgängliga. Att växla drar om strängar-kartan och översätter om varje verktygstips / etikett / hjälpknapp live.</li>
+  <li><b>SFX aktiverad</b>: växla gränssnittets ljudeffekter (klick, bockar, modal öppna/stänga, osv.).</li>
+  <li><b>SFX-volym</b>: 0–100-reglage. Förhandsvisas live när du drar.</li>
+  <li><b>Avbryt</b> återställer eventuella live-förhandsvisningar (SFX/skinn) du provade; <b>Spara</b> bevarar och sänder <code>setProvider</code>.</li>
+</ul>
+</details>
+
+<details><summary><b>Installationsguide</b> — stegvis API-nyckelanmälan</summary>
+<p>Genomgång för varje integration. Varje steg frågar efter autentiseringsuppgifter och skriver dem till <code>config.ini</code>. <b>Hoppa över</b> går vidare utan att skriva; <b>Nästa</b> skriver och går vidare; sista stegets <b>Klar</b> stänger. Stegen inkluderar: Anthropic, OpenAI, Gemini, xAI/Grok, GitHub PAT, E-post/SMTP (Gmail-applösenord), Cloudflare, Twilio, ElevenLabs, Stability AI, Runway, SendGrid, NameSilo och mer.</p>
+</details>
+
+<details><summary><b>Konton-modal</b> — multi-konto API-nyckelhanterare</summary>
+<p>För varje leverantör, hantera flera märkta konton (t.ex. "personligt", "arbete"). Växla vilket som är aktivt per session utan att skriva över de andra. Nycklar maskeras från slutpunkt till slutpunkt och sparas per leverantör i <code>config.ini</code>.</p>
+</details>
+
+<details><summary><b>Domäner-modal</b> — NameSilo</summary>
+<p>Listar varje domän på ditt NameSilo-konto med namnservrar + registreringsdatum. Knappen <b>Läs in</b> tvingar en ny API-hämtning (annars cachelagrar den i <code>domains.txt</code>).</p>
+</details>
+
+<details><summary><b>Handbok-modal</b></summary>
+<p>Renderar en projekthandbok HTML (avsedd som en systemprompt-referens som modellen kan konsultera). Konfigurerbar per projekt.</p>
+</details>
+
+<details><summary><b>Sparade prompter-modal</b></summary>
+<p>Insättbara promptmallar från <code>stored_prompts/</code>. Varje fil är en mall; filnamnsprefixet <code>NN-</code> styr sorteringsordning. Knappen "+" skapar en ny.</p>
+</details>
+
+<details><summary><b>Chatthistorik-modal</b></summary>
+<p>Välj ett UTC-datum för att läsa in chattloggen från <code>chats/&lt;date&gt;.log</code>. Skrivskyddad.</p>
+</details>
+
+<details><summary><b>Tillägg-modal</b></summary>
+<p>Kort för varje installerat tillägg. Fäst på verktygsfältet / lösgör, installera från den offentliga katalogen (<code>extensions.xml.php</code> på servern) eller ta bort från disk.</p>
+</details>
+
+<details><summary><b>Ändringslogg-modal</b></summary>
+<p>Renderar <code>panel/change_log.html</code> — de paketerade versionsnota. Genererad via <code>tools/build_changelog.py</code>.</p>
+</details>
+
+<details><summary><b>Visa källkods-modal</b></summary>
+<p>Pretty-skriver ut vilket kodblock som helst eller panelens fullständiga HTML, med Prism-syntaxmarkering och en Kopiera-knapp. Nådd via högerklick → Visa källa.</p>
+</details>
+
+<details><summary><b>Auto Prompt-modal</b></summary>
+<p>Konfigurera en promptsträng + nedräkningsintervall. Efter varje assistentsvar minskar nedräkningen; när den når noll skickar CBE automatiskt den konfigurerade prompten. Växlad på/av via knappen Auto Prompt i verktygsfältet.</p>
+</details>
+</section>
+
+<section id="settings">
+<h2>Inställningar <a class="top-link" href="#">↑ topp</a></h2>
+<p>Alla inställningar bor på en av två platser:</p>
+<ul>
+  <li><code>workspaceState</code> (VSCode-hanterat, per-arbetsyta) — leverantör, modell, skinn, språk, sfx aktiverad/volym, teckenstorlek.</li>
+  <li><code>config.ini</code> (tilläggets rot, gitignorerad) — API-nycklar + per-integrations-autentiseringsuppgifter.</li>
+</ul>
+<p>Inställningar bevaras automatiskt över panelomläsningar. Modalern <b>Inställningar</b> är det säkra sättet att ändra något; att redigera <code>config.ini</code> direkt fungerar också.</p>
+</section>
+
+<section id="setup">
+<h2>Installationsguide <a class="top-link" href="#">↑ topp</a></h2>
+<p>Installationsguiden (<code>setupBtn</code>) går igenom varje integration som tillägget stöder. För varje steg, klistra in autentiseringsuppgifter och klicka <b>Nästa</b> (skriver + går vidare) eller <b>Hoppa över</b> (går vidare utan att skriva). Stegen:</p>
+<table>
+<tr><th>Steg</th><th>Vad den frågar efter</th><th>Var det kommer från</th></tr>
+<tr><td>Anthropic (Claude)</td><td>API-nyckel</td><td><a target="_blank" rel="noopener" href="https://console.anthropic.com/account/keys">console.anthropic.com</a></td></tr>
+<tr><td>OpenAI (ChatGPT)</td><td>API-nyckel</td><td><a target="_blank" rel="noopener" href="https://platform.openai.com/api-keys">platform.openai.com</a></td></tr>
+<tr><td>Google Gemini</td><td>API-nyckel</td><td><a target="_blank" rel="noopener" href="https://aistudio.google.com/apikey">aistudio.google.com</a></td></tr>
+<tr><td>xAI (Grok)</td><td>API-nyckel</td><td><a target="_blank" rel="noopener" href="https://console.x.ai/">console.x.ai</a></td></tr>
+<tr><td>GitHub PAT</td><td>Personlig åtkomsttoken med repo / workflow / admin:org / osv.</td><td><a target="_blank" rel="noopener" href="https://github.com/settings/tokens/new">github.com/settings/tokens</a></td></tr>
+<tr><td>E-post / SMTP</td><td>Konto + applösenord (Gmail rekommenderas)</td><td><a target="_blank" rel="noopener" href="https://myaccount.google.com/apppasswords">myaccount.google.com/apppasswords</a></td></tr>
+<tr><td>Cloudflare</td><td>API-token (INTE global nyckel)</td><td><a target="_blank" rel="noopener" href="https://dash.cloudflare.com/profile/api-tokens">dash.cloudflare.com</a></td></tr>
+<tr><td>Twilio</td><td>Konto SID + Auth-token + Från-nummer</td><td><a target="_blank" rel="noopener" href="https://console.twilio.com/">console.twilio.com</a></td></tr>
+<tr><td>ElevenLabs (TTS)</td><td>API-nyckel</td><td><a target="_blank" rel="noopener" href="https://elevenlabs.io/app/settings/api-keys">elevenlabs.io</a></td></tr>
+<tr><td>Stability AI</td><td>API-nyckel</td><td><a target="_blank" rel="noopener" href="https://platform.stability.ai/account/keys">platform.stability.ai</a></td></tr>
+<tr><td>Runway</td><td>API-nyckel</td><td><a target="_blank" rel="noopener" href="https://dev.runwayml.com/">dev.runwayml.com</a></td></tr>
+<tr><td>SendGrid</td><td>API-nyckel</td><td><a target="_blank" rel="noopener" href="https://app.sendgrid.com/settings/api_keys">app.sendgrid.com</a></td></tr>
+</table>
+<p>Varje fält är lösenordsmaskerat så att över-skulderskådare inte kan läsa dina nycklar av skärmen.</p>
+</section>
+
+<section id="accounts">
+<h2>Konton & API-nycklar <a class="top-link" href="#">↑ topp</a></h2>
+<p>Varje leverantör kan ha flera märkta konton — användbar om du vill växla mellan personliga och arbetsnyckar eller testa ett annat lager. Konton-modalen låter dig:</p>
+<ul>
+  <li>Lägg till ett nytt konto med etikett + nyckel</li>
+  <li>Redigera ett befintligt konto (omärka, ersätt nyckeln)</li>
+  <li>Ställ in vilket konto som är aktivt för den aktuella sessionen</li>
+  <li>Ta bort ett konto</li>
+</ul>
+<p>Nycklar lagras maskerade (endast sista fyra synlig) i <code>config.ini</code>. Det finns ingen oformaterad kopia i workspaceState.</p>
+</section>
+
+<section id="slash">
+<h2>Snedstrek-kommandon <a class="top-link" href="#">↑ topp</a></h2>
+<p>Skriv <code>/</code> i början av textarean eller klicka <b>Visa kommandomena</b> för att välja från:</p>
+<table>
+<tr><th>Kommando</th><th>Vad det gör</th></tr>
+<tr><td><code>/help</code></td><td>Öppna denna sida</td></tr>
+<tr><td><code>/handbook</code></td><td>Öppna projekthandbok</td></tr>
+<tr><td><code>/clear</code></td><td>Ny konversation</td></tr>
+<tr><td><code>/settings</code></td><td>Öppna Inställningar-modal</td></tr>
+<tr><td><code>/prompts</code></td><td>Redigera sparade promptmallar</td></tr>
+<tr><td><code>/history</code></td><td>Bläddra chatthistorik</td></tr>
+<tr><td><code>/font</code></td><td>Växla stor teckenstorlek</td></tr>
+<tr><td><code>/attach</code></td><td>Bifoga en fil till nästa prompt</td></tr>
+<tr><td><code>/folder</code></td><td>Välj projektmapp</td></tr>
+<tr><td><code>/compact</code></td><td>Komprimera konversation (sammanfatta + trimma)</td></tr>
+<tr><td><code>/git</code></td><td>Öppna Source Control</td></tr>
+<tr><td><code>/github</code></td><td>Lista GitHub-reposar</td></tr>
+<tr><td><code>/license</code></td><td>Visa MIT-licensen</td></tr>
+<tr><td><code>/push</code></td><td>Push tilläggets filer till auto-update-servern (endast admin)</td></tr>
+<tr><td><code>/compress</code></td><td>Komprimera konversation (alias av <code>/compact</code>)</td></tr>
+<tr><td><code>/switch-accounts</code></td><td>Öppna Konton-modalen för att växla vilken API-nyckel som är aktiv</td></tr>
+</table>
+</section>
+
+<section id="tama">
+<h2>Tamagotchi-husdjur <a class="top-link" href="#">↑ topp</a></h2>
+<p>Tamagotchi är ett pixel-husdjur som bor i panelen under <b>tamagotchi</b>-skinnet. Det åldras, blir hungrig/smutsigt, kan leka med och dör om det försummas tillräckligt länge. Tillståndet bevaras i <code>workspaceState</code>.</p>
+
+<h4>Statistik (topp av widget)</h4>
+<table>
+<tr><th>Statistik</th><th>Vad den spårar</th></tr>
+<tr><td>🥚 Stadium</td><td>Livscykel: ägg → baby → barn → tonåring → vuxen → senior → död. Åldras med riktiga minuter.</td></tr>
+<tr><td>🍖 Hunger</td><td>0–100. Sjunker över tid; <b>Mata</b> höjer det. Når 0 → hälsa sjunker.</td></tr>
+<tr><td>😀 Lycka</td><td>0–100. Sjunker över tid; <b>Leka</b> höjer det.</td></tr>
+<tr><td>❤️ Hälsa</td><td>0–100. Sjunker när sjuk eller svält. <b>Spruta</b> läker.</td></tr>
+<tr><td>✨ Renlighet</td><td>0–100. Sjunker när husdjuret bajjar. <b>Rengör</b> höjer det.</td></tr>
+<tr><td>⏱ Ålder</td><td>Minuter sedan kläckning.</td></tr>
+</table>
+
+<h4>In-LCD åtgärdsknappar (botten av widget)</h4>
+<table>
+<tr><th>Ikon</th><th>Åtgärd</th></tr>
+<tr><td>🍖</td><td><b>Mata</b> — växlar mellan kött ↔ aubergine. <b>Välj</b> för att faktiskt mata.</td></tr>
+<tr><td>🧹</td><td><b>Rengör</b> — sopa upp bajset.</td></tr>
+<tr><td>⚾</td><td><b>Leka</b> — minispel; höjer lycka.</td></tr>
+<tr><td>💉</td><td><b>Spruta</b> — läker när sjuk.</td></tr>
+<tr><td>💡</td><td><b>Ljus</b> — växla LCD-lampan; husdjuret sover i mörkret.</td></tr>
+<tr><td>✅</td><td><b>Välj</b> — bekräfta / gå vidare (motsvarighet till Bandai original-mittknappen).</td></tr>
+</table>
+<p>Hussdjurets sprite ritas in i en 240×240 (kompakt: 138×116) canvas. Sprites + livscyklar finns i <code>panel/dotmatrix-tamagotchi-sprites.js</code> och <code>panel/dotmatrix-tamagotchi-game.js</code>.</p>
+</section>
+
+<section id="skins">
+<h2>Skinnor <a class="top-link" href="#">↑ topp</a></h2>
+<p>Visuella teman för hela panelen — knappar, modaler, kodblock, även typsnitt. Välj en i <b>Inställningar → Skinn</b>. Varje skinn bor i <code>skins/&lt;id&gt;/</code> med en <code>manifest.xml</code> (förklarar färger + accent) och en <code>styles.css</code> (åsidosätter CSS-variabler).</p>
+<ul>
+  <li><b>codex-black</b> (standard) — mörk, monospace, neon-cyan accent</li>
+  <li><b>glassy</b> — frostat-glasytor över en mjuk bakgrund</li>
+  <li><b>tamagotchi</b> — lime-grön LCD-handhållen; visar automatiskt hussdjurspanelen dockad i komponistens hörn</li>
+  <li><b>office</b> — Word-stil cream/blue-krom</li>
+  <li><b>macos-color-dock</b> / <b>mint-dock</b> — botten-dockar med glasiga ikoner</li>
+  <li><b>terminal</b> / <b>arch</b> / <b>kde</b> / <b>gnome</b> / <b>xfce</b> / <b>ubuntu</b> / <b>redhat</b> — Linux-skrivbordsteman</li>
+</ul>
+<p>Modal-färger kommer från <code>&lt;colors&gt;</code>-poster i varje skinns manifest och pushes på <code>:root</code> som <code>--cbe-modal-*</code>-variabler så varje modal (inklusive denna hjälp) renderas i-tema.</p>
+</section>
+
+<section id="extensions">
+<h2>Tillägg <a class="top-link" href="#">↑ topp</a></h2>
+<p>Mini-appar som bor inuti CBE. Var och en är en mapp under <code>extensions/&lt;id&gt;/</code> med:</p>
+<ul>
+  <li><code>manifest.xml</code> — id, namn, version, författare, beskrivning, entry HTML, ikon (emoji eller <code>icon.svg</code>)</li>
+  <li><code>extension.html</code> (eller vad manifesten <code>&lt;entry&gt;</code> än säger) — själva appen</li>
+</ul>
+<p>Klicka på <b>Tillägg</b> för att bläddra vad som är installerat, fästa på verktygsfältet, installera nya från den offentliga katalogen eller ta bort från disk. Fästa ID:n bor i <code>extensions/_pinned.json</code>.</p>
+</section>
+
+<section id="autoupdate">
+<h2>Auto-uppdatering (push / pull) <a class="top-link" href="#">↑ topp</a></h2>
+<p>CBE synkroniserar sin källa mellan maskiner via en WinSCP-push + HTTPS-pull-kanal.</p>
+
+<h4>Push (endast admin)</h4>
+<p>Om <code>[updates] is_admin = true</code> i config.ini, kör varje aktivering en bakgrund <code>WinSCP synchronize remote -mirror</code> som pushar tilläggets mapp till <code>/home/trentontompkins.com/cbe</code> på servern. Manuell utlösare: <code>/push</code> snedstrek-kommando. Utesluter per-maskin tillstånd: <code>data/</code> (1.74 GB Chrome-profiler), <code>bridges/</code>, <code>node_modules/</code>, <code>.git/</code>, <code>logs/</code>, <code>chats/</code>, <code>config.ini</code>, <code>prompt_history.txt</code>, <code>domains.txt</code>, <code>wake.txt</code>.</p>
+
+<h4>Pull (varje klient)</h4>
+<p>4 sekunder efter aktivering, hämtar varje klient <code>https://trentontompkins.com/cbe/manifest.xml.php</code> och MD5-jämför per-fil mot lokala kopior. Endast ändrade/saknade filer laddas ner över vanlig HTTPS GET. Uteslutna sökvägar är ALDRIG pulled: <code>config.ini</code>, <code>data/</code>, <code>bridges/</code>, <code>extension.js</code>, <code>panel/panel.js</code>, <code>panel/index.html</code>, <code>package.json</code>, build-verktyg — anledningen är att källan levereras via .vsix och serverns äldre kopia måste inte klirra i-progress dev-arbete.</p>
+</section>
+
+<section id="hotreload">
+<h2>Hot reload <a class="top-link" href="#">↑ topp</a></h2>
+<p>Två omladdningsvägar exponeras via högerklick-menyn:</p>
+<ul>
+  <li><b>Läs in panel</b> — läser om <code>panel/index.html</code> + varje JS/CSS-tillgång med en per-fil <code>?v=&lt;mtime&gt;</code> cache-buster och omtilldelar <code>panel.webview.html</code>. Plockar upp panel.js / skin-CSS / dotmatrix-redigeringar utan att starta om VSCode. Tilläggets värd förblir levande (din terminal, övervakare, meddelandehanterare, chatthistorik bevaras alla).</li>
+  <li><b>Läs in fönster</b> — eldas <code>workbench.action.reloadWindow</code>. Använd endast när du har redigerat <code>extension.js</code> (värdkod) och panelomläsningen inte räcker.</li>
+</ul>
+<p>Skin-CSS-redigeringar tillämpas också automatiskt via panelens befintliga skinn-watchdog — ingen meny-klick behövs.</p>
+</section>
+
+<section id="troubleshooting">
+<h2>Felsökning <a class="top-link" href="#">↑ topp</a></h2>
+
+<details><summary><b>"bridge X chat failed: api key empty in config.ini"</b></summary>
+<p>Smart_bridge.py-demonen cachelagrar en gammal gatingkontroll i minnet. Fixad i C++-exe-routingpivoten. Om du fortfarande ser det, döda löst daemons:</p>
+<pre><code>powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*smart_bridge.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"</code></pre>
+</details>
+
+<details><summary><b>"copilot has no public REST API — use the browser bridge"</b></summary>
+<p>Gammal extension.js routade bridge-chatt genom REST-routern istället för den faktiska C++-bricka-exen. Läs in Window för att plocka upp fixed extension.js, då går chatt direkt till <code>bin/CBE-Bridge-Copilot.exe</code>.</p>
+</details>
+
+<details><summary><b>HTTP 404 modell: sonnet-4.6</b></summary>
+<p>Föråldrad kort alias i Claude-bro-config. Fixad — full ID:n (<code>claude-sonnet-4-6</code>, <code>claude-opus-4-7</code>, <code>claude-haiku-4-5</code>) används nu.</p>
+</details>
+
+<details><summary><b>Jag redigerade en fil men panelen visar inte ändringen</b></summary>
+<ol>
+  <li>Om det är <code>panel.js</code> / <code>skins/*.css</code> / <code>index.html</code> → högerklick → <b>Läs in panel</b>.</li>
+  <li>Om det är <code>extension.js</code> / <code>bridges_cpp/*.py</code> → högerklick → <b>Läs in fönster</b>.</li>
+  <li>Om du inte kan nå menyn (t.ex. menyn själv är inte laddad ännu), starta en ny VSCode-instans med en isolerad user-data-dir:<br>
+  <code>code --user-data-dir="$env:USERPROFILE\.cbe-edh" --extensionDevelopmentPath="C:\Users\moren\Desktop\Claude Codex Black"</code></li>
+</ol>
+</details>
+
+<details><summary><b>STT misslyckas med "not-allowed"</b></summary>
+<p>VSCode sandboxar webbutsikten från mikrofontillstånd. CBE auto-faller tillbaka till Windows SAPI (<code>System.Speech.Recognition</code>) lanserad via PowerShell. Du kan behöva ge mic-åtkomst på OS-nivå (Inställningar → Integritet → Mikrofon).</p>
+</details>
+
+<details><summary><b>Bridge-exe saknas</b></summary>
+<p>Trace-logg visar <code>BRIDGE:MISSING target=&lt;t&gt; expected=&lt;path&gt;</code>. C++-bricka-exen bor i <code>bin/CBE-Bridge-&lt;Pretty&gt;.exe</code>. Om dina inte finns, bygg om från <code>bridges_cpp/</code> källa (MSVC) eller pull en ny .vsix.</p>
+</details>
+
+</section>
+
+<p style="margin-top: 36px; color: var(--muted); font-size: 12px; text-align: center;">
+Claude Codex — Black Edition · MIT licensierad · © 2026 Trent Tompkins · <a target="_blank" rel="noopener" href="mailto:trenttompkins@gmail.com" style="color:var(--accent);">trenttompkins@gmail.com</a> · (724) 431-5207
+</p>
+
+<button id="backToTop" type="button" aria-label="Tillbaka till toppen" title="Tillbaka till toppen"
+        style="position:fixed;right:18px;bottom:18px;width:38px;height:38px;border-radius:50%;
+               background:var(--accent);color:var(--bg);border:0;font-size:18px;cursor:pointer;
+               opacity:0;transition:opacity .25s ease;box-shadow:0 4px 14px rgba(0,0,0,.35);z-index:9999;">↑</button>
+
 </div>
 
+<!-- jQuery for animated smooth scroll on TOC anchor clicks. CDN load is
+     attempted first; if the webview CSP blocks it (typical in VSCode), the
+     CSS `scroll-behavior: smooth` rule above already delivers a smooth
+     fallback so the help remains usable. -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"
+        integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
+        crossorigin="anonymous"></script>
 <script>
-/* Native smooth-scroll TOC navigation. jQuery CDN scripts are blocked by the
-   VSCode webview CSP, so this uses plain DOM APIs — scrollIntoView with
-   behavior:'smooth' gives the identical animated scroll without any external
-   dependency. Works inside the webview iframe sandbox. */
-(function () {
-  const main = document.getElementById('main');
-  const tocLinks = Array.prototype.slice.call(document.querySelectorAll('nav.toc a[href^="#"]'));
-  const sections = Array.prototype.slice.call(document.querySelectorAll('section.help-section'));
+(function() {
+  var hasJQ = (typeof window.jQuery !== 'undefined');
 
-  tocLinks.forEach(function (link) {
-    link.addEventListener('click', function (e) {
+  // ── Animated smooth scroll for in-page anchor links (TOC + "↑ top"). ──
+  function jqScrollTo(targetEl, durationMs) {
+    jQuery('html, body').stop(true).animate({
+      scrollTop: targetEl.offsetTop - 14
+    }, durationMs || 550, 'swing');
+  }
+
+  // Vanilla rAF fallback if jQuery never loaded (CSP-blocked CDN).
+  function rafScrollTo(targetEl, durationMs) {
+    var startY = window.pageYOffset;
+    var endY   = (targetEl.getBoundingClientRect().top + startY) - 14;
+    var dist   = endY - startY;
+    var t0     = performance.now();
+    var d      = durationMs || 550;
+    function easeInOut(t) { return t < .5 ? 2*t*t : -1 + (4 - 2*t)*t; }
+    function step(now) {
+      var p = Math.min(1, (now - t0) / d);
+      window.scrollTo(0, startY + dist * easeInOut(p));
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function scrollToHash(hash) {
+    if (!hash || hash === '#') {
+      // "↑ top" links use href="#" — scroll to absolute top.
+      if (hasJQ) jQuery('html, body').stop(true).animate({ scrollTop: 0 }, 550, 'swing');
+      else window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    var el = document.querySelector(hash);
+    if (!el) return;
+    if (hasJQ) jqScrollTo(el, 550);
+    else rafScrollTo(el, 550);
+  }
+
+  // Intercept every in-page anchor click and animate.
+  document.querySelectorAll('a[href^="#"]').forEach(function(a) {
+    a.addEventListener('click', function(e) {
+      var href = a.getAttribute('href');
       e.preventDefault();
-      const id = link.getAttribute('href');
-      const target = document.querySelector(id);
-      if (!target) return;
-      /* scrollIntoView animates within the nearest scroll container (#main,
-         which has overflow:auto). scroll-margin-top on the section handles
-         the small top offset so headings aren't flush against the edge. */
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      try { history.replaceState(null, '', id); } catch (_) {}
+      scrollToHash(href);
+      if (href && href !== '#') {
+        history.replaceState(null, '', href);
+      } else {
+        history.replaceState(null, '', location.pathname + location.search);
+      }
     });
   });
 
-  /* Highlight whichever section is currently scrolled into view. */
-  function syncActive() {
-    const scrollTop = main.scrollTop;
-    const threshold = 80;
-    let activeId = sections.length ? sections[0].id : '';
-    sections.forEach(function (sec) {
-      if (sec.offsetTop - threshold <= scrollTop) activeId = sec.id;
-    });
-    tocLinks.forEach(function (l) {
-      l.classList.toggle('active', l.getAttribute('href') === '#' + activeId);
-    });
+  // ── Back-to-top floating button: fades in past 240px scroll. ──
+  var btn = document.getElementById('backToTop');
+  if (btn) {
+    function syncBtn() {
+      btn.style.opacity = (window.pageYOffset > 240) ? '0.92' : '0';
+      btn.style.pointerEvents = (window.pageYOffset > 240) ? 'auto' : 'none';
+    }
+    window.addEventListener('scroll', syncBtn, { passive: true });
+    btn.addEventListener('click', function() { scrollToHash('#'); });
+    syncBtn();
   }
-  main.addEventListener('scroll', syncActive);
-  syncActive();
-
-  /* External-link bridge. target="_blank" doesn't escape a VSCode webview
-     iframe — the click would just try to navigate the iframe itself. Instead
-     we intercept clicks on absolute http(s) links and postMessage to the
-     parent panel, which forwards to extension.js, which calls
-     vscode.env.openExternal so the user's real default browser opens. */
-  document.addEventListener('click', function (e) {
-    var t = e.target;
-    while (t && t.tagName !== 'A') t = t.parentNode;
-    if (!t || !t.getAttribute) return;
-    var href = t.getAttribute('href') || '';
-    if (!/^https?:\/\//i.test(href)) return;
-    e.preventDefault();
-    try {
-      window.parent.postMessage({ type: 'cbe.openExternal', url: href }, '*');
-    } catch (err) { /* parent missing — fall back to noop */ }
-  }, true);
 })();
 </script>
 </body>

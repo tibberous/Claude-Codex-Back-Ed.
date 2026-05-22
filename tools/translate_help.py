@@ -106,7 +106,7 @@ SYSTEM_PROMPT = """You are translating an HTML help document for desktop softwar
 def _post_claude(api_key: str, target_lang_english: str, target_code: str, html_in: str) -> str:
     body = json.dumps({
         "model": CLAUDE_MODEL,
-        "max_tokens": 16000,
+        "max_tokens": 32000,
         "system": SYSTEM_PROMPT,
         "messages": [{
             "role": "user",
@@ -139,6 +139,7 @@ def main() -> int:
     parser.add_argument("--only", default="", help="Comma-separated locale codes to translate (default: all missing)")
     parser.add_argument("--force", action="store_true", help="Re-translate even if target file exists")
     parser.add_argument("--dry-run", action="store_true", help="List which files would be written; don't call API")
+    parser.add_argument("--sleep", type=float, default=0.0, help="Seconds to sleep between successful API calls (rate-limit pacing)")
     args = parser.parse_args()
 
     if not HELP_SOURCE.exists():
@@ -203,6 +204,9 @@ def main() -> int:
             print(f"HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:200]}")
         except Exception as e:
             print(f"FAIL: {type(e).__name__}: {e}")
+        if args.sleep > 0 and (code, eng) != targets[-1]:
+            print(f"  ...sleeping {args.sleep}s for rate-limit pacing", flush=True)
+            time.sleep(args.sleep)
 
     print(f"\nDone: {ok_count}/{len(targets)} translated.")
     return 0 if ok_count == len(targets) else 1

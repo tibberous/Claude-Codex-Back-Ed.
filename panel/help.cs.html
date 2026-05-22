@@ -1,570 +1,591 @@
 <!doctype html>
 <html lang="cs">
 <head>
+<base href="about:srcdoc">
 <meta charset="utf-8">
 <title>Claude Codex — Black Edition · Nápověda</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
+  /* Smooth-scroll for the TOC anchor jumps. */
+  html { scroll-behavior: smooth; }
+
   :root {
-    --bg: #16181d;
-    --surface: #1f2229;
-    --surface-2: #262a33;
-    --border: #353a45;
-    --text: #e7eaef;
-    --muted: #aab1bd;
-    --accent: #4ea8ff;
-    --accent-soft: rgba(78,168,255,0.12);
-    --kbd-bg: #0f1116;
-    --kbd-border: #2b313b;
-    --warn: #ffd84d;
-    --err: #ff8a8a;
-    --ok: #6fd58a;
+    /* Defaults — overridden by panel.js applySkinColors() when a skin is
+       active so the help reads natively under any skin (lime tamagotchi,
+       cream macOS, dark codex-black, etc). */
+    --bg:           var(--cbe-modal-bg,           #16181d);
+    --surface:      var(--cbe-modal-foot-bg,      #1f2229);
+    --surface-2:    var(--cbe-modal-title-bg-1,   #262a33);
+    --border:       var(--cbe-modal-border,       #353a45);
+    --text:         var(--cbe-modal-fg,           #e7eaef);
+    --muted:                                      #aab1bd;
+    --accent:       var(--cbe-modal-accent,       #4ea8ff);
+    --accent-soft:                                rgba(78,168,255,0.12);
+    --kbd-bg:                                     #0f1116;
+    --kbd-border:                                 #2b313b;
+    --warn:                                       #ffd84d;
+    --err:                                        #ff8a8a;
   }
-  * { box-sizing: border-box; }
-  /* .app is included here because CBE inlines this file's body into a <div>
-     inside the panel (no <html>/<body> wrapper) — without .app carrying the
-     dark background + text color, the panel skin's background bleeds through
-     and you get unreadable text. Standalone (real <body>) it's still fine. */
-  html, body, .app { margin: 0; padding: 0; height: 100%; background: var(--bg);
-               color: var(--text); font: 14.5px/1.55 ui-sans-serif, system-ui,
-               -apple-system, "Segoe UI", sans-serif; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  code, kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-  code { background: var(--kbd-bg); padding: 1px 6px; border-radius: 4px;
-         border: 1px solid var(--kbd-border); font-size: 0.92em; }
-  kbd { background: var(--kbd-bg); padding: 1px 7px; border-radius: 4px;
-        border: 1px solid var(--kbd-border); border-bottom-width: 2px;
-        font-size: 0.85em; color: #ffd84d; }
-  pre { background: var(--kbd-bg); border: 1px solid var(--border);
-        border-radius: 6px; padding: 12px 14px; overflow-x: auto;
-        font-size: 12.5px; }
-  /* Layout: fixed TOC sidebar + scrolling content. The content scrolls
-     inside #main, which jQuery smooth-scrolls when TOC links are clicked. */
-  /* height:100% (not 100vh) so the layout fills the modal body when inlined,
-     and the full standalone window when opened as a real page. */
-  .app { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
-  nav.toc { background: var(--surface); border-right: 1px solid var(--border);
-            overflow-y: auto; padding: 18px 0 24px 0; position: sticky; top: 0;
-            height: 100%; }
-  nav.toc h2 { margin: 0 18px 8px 18px; font-size: 11px; letter-spacing: 0.08em;
-               color: var(--muted); text-transform: uppercase; }
-  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: tocnum; }
-  nav.toc ol li { counter-increment: tocnum; }
-  nav.toc ol li > a { display: block; padding: 7px 18px 7px 36px; font-size: 13.5px;
-                       color: var(--text); position: relative; line-height: 1.3;
-                       border-left: 3px solid transparent; }
-  /* Click feedback wired from panel.js: active TOC link gets an accent bar +
-     tint, the landed section flashes a soft accent glow that fades out. */
-  nav.toc ol li > a.cbe-toc-active {
-    border-left-color: var(--accent); background: var(--accent-soft);
-    color: var(--accent);
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
   }
-  @keyframes cbeHelpFlash {
-    0%   { background: var(--accent-soft); }
-    100% { background: transparent; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 28px 32px 80px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 30px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 15px; margin: 18px 0 4px; color: var(--accent); }
+  h4 { font-size: 13px; margin: 12px 0 4px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  p  { margin: 4px 0 10px; }
+  ul, ol { margin: 4px 0 12px; padding-left: 22px; }
+  li { margin: 3px 0; }
+  code, kbd { font-family: Consolas, "Courier New", monospace; font-size: 12.5px; }
+  code { background: var(--surface-2); padding: 1px 5px; border-radius: 3px; }
+  kbd  { background: var(--kbd-bg); border: 1px solid var(--kbd-border); padding: 1px 6px; border-radius: 3px; font-size: 11.5px; }
+  pre  { background: var(--surface-2); padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; }
+  pre code { background: transparent; padding: 0; }
+  .lead { color: var(--muted); margin: 0 0 18px; }
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 14px 0 24px;
   }
-  .cbe-help-flash { animation: cbeHelpFlash 1.1s ease-out 1; border-radius: 6px; }
-  nav.toc ol li > a::before { content: counter(tocnum); position: absolute;
-                              left: 14px; top: 7px; color: var(--muted);
-                              font-family: ui-monospace; font-size: 11px;
-                              min-width: 16px; text-align: right; }
-  nav.toc ol li > a:hover { background: var(--surface-2); text-decoration: none; }
-  nav.toc ol li > a.active { background: var(--accent-soft);
-                              border-left-color: var(--accent); color: var(--accent); }
-  main#main { overflow-y: auto; padding: 28px 36px 80px 36px; height: 100vh; }
-  main#main > header { margin-bottom: 26px; padding-bottom: 14px;
-                       border-bottom: 1px solid var(--border); }
-  main#main > header h1 { margin: 0 0 4px 0; font-size: 24px; font-weight: 600;
-                          letter-spacing: 0.005em; }
-  main#main > header .meta { color: var(--muted); font-size: 13px; }
-  section.help-section { scroll-margin-top: 16px; max-width: 820px;
-                          margin: 0 0 36px 0; padding-top: 6px; }
-  section.help-section h2 { font-size: 19px; margin: 0 0 10px 0; font-weight: 600;
-                            display: flex; align-items: baseline; gap: 10px; }
-  section.help-section h2 .num { color: var(--muted); font: 13px ui-monospace;
-                                  min-width: 1.5em; }
-  section.help-section h3 { font-size: 15px; margin: 18px 0 6px 0; font-weight: 600;
-                            color: var(--text); }
-  section.help-section p { margin: 0 0 10px 0; color: var(--text); }
-  section.help-section ul { margin: 0 0 12px 0; padding-left: 22px; }
-  section.help-section li { margin-bottom: 4px; }
-  section.help-section table { border-collapse: collapse; width: 100%;
-                                margin: 6px 0 14px 0; font-size: 13.5px; }
-  section.help-section th, section.help-section td { border: 1px solid var(--border);
-                                                       padding: 6px 10px; text-align: left;
-                                                       vertical-align: top; }
-  section.help-section th { background: var(--surface-2); font-weight: 600; }
-  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft);
-             padding: 10px 14px; border-radius: 0 4px 4px 0; margin: 10px 0 14px 0; }
-  .callout.warn { border-color: var(--warn); background: rgba(255,216,77,0.08); }
-  .callout.err  { border-color: var(--err);  background: rgba(255,138,138,0.08); }
-  .top-link { float: right; font-size: 12px; color: var(--muted); }
+  .toc h2 { font-size: 13px; margin: 0 0 8px; border: 0; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .toc ul { columns: 2; column-gap: 28px; margin: 0; padding-left: 18px; list-style: square; }
+  .toc a { color: var(--text); text-decoration: none; }
+  .toc a:hover { color: var(--accent); text-decoration: underline; }
+  section { scroll-margin-top: 12px; }
+  .btnrow {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 4px 16px;
+    margin: 6px 0 14px;
+  }
+  .btnrow dt { font-weight: 600; color: var(--accent); padding-top: 2px; }
+  .btnrow dd { margin: 0 0 8px; }
+  .pill {
+    display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px;
+    background: var(--accent-soft); color: var(--accent); margin-left: 6px;
+    border: 1px solid color-mix(in srgb, var(--accent), transparent 60%);
+  }
+  .pill.warn { background: rgba(255,216,77,.10); color: var(--warn); border-color: color-mix(in srgb, var(--warn), transparent 60%); }
+  .note { background: var(--surface); border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: 13px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  details { margin: 6px 0; }
+  summary { cursor: pointer; color: var(--accent); padding: 4px 0; }
+  summary:hover { text-decoration: underline; }
+  .top-link { float: right; font-size: 12px; color: var(--muted); text-decoration: none; font-weight: normal; }
   .top-link:hover { color: var(--accent); }
-  /* Scrollbar */
-  *::-webkit-scrollbar { width: 10px; height: 10px; }
-  *::-webkit-scrollbar-track { background: var(--bg); }
-  *::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
-  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
+  a { color: var(--accent); }
 </style>
 </head>
 <body>
-<div class="app">
+<div class="wrap">
 
-  <nav class="toc" aria-label="Obsah">
-    <h2>Obsah</h2>
-    <ol id="toc-list">
-      <li><a href="#welcome">Vítejte</a></li>
-      <li><a href="#keyboard">Klávesové zkratky</a></li>
-      <li><a href="#prompt-box">Pole pro zadání</a></li>
-      <li><a href="#toolbar">Tlačítka panelu nástrojů</a></li>
-      <li><a href="#providers">Modely a poskytovatelé</a></li>
-      <li><a href="#stt">Převod řeči na text</a></li>
-      <li><a href="#auto-prompt">Automatické zadání</a></li>
-      <li><a href="#tts">Automatické čtení (TTS)</a></li>
-      <li><a href="#compact">Komprimování a využití kontextu</a></li>
-      <li><a href="#wake-up">Odpověď na probuzení</a></li>
-      <li><a href="#attachments">Přílohy souborů</a></li>
-      <li><a href="#git">Modální okno Git</a></li>
-      <li><a href="#github">Repozitáře GitHubu</a></li>
-      <li><a href="#domains">Domény NameSilo</a></li>
-      <li><a href="#skins">Skriny a motiv vzhledu</a></li>
-      <li><a href="#settings">Nastavení</a></li>
-      <li><a href="#language">Jazyk</a></li>
-      <li><a href="#monitor">Supervizor VSCode</a></li>
-      <li><a href="#auto-update">Automatická aktualizace (pull)</a></li>
-      <li><a href="#admin-push">Administrativa push</a></li>
-      <li><a href="#extensions">Tržiště rozšíření</a></li>
-      <li><a href="#slash">Příkazy s lomítkem</a></li>
-      <li><a href="#context-menu">Kontextová nabídka</a></li>
-      <li><a href="#trace">Kanál trasování</a></li>
-      <li><a href="#troubleshooting">Odstraňování problémů</a></li>
-      <li><a href="#about">O programu a licence</a></li>
-    </ol>
-  </nav>
+<h1>Claude Codex — Black Edition</h1>
+<p class="lead">Samostatný AI panel pro VSCode. Chatujte s jakýmkoli poskytovatelem LLM (přímé API nebo přemostění v prohlížeči) s vestavěným TTS, STT, přílohami k souborům, paletou příkazů, správou více účtů, skiny a pixel-pet Tamagotchi.</p>
 
-  <main id="main">
-    <header>
-      <h1>Claude Codex — Black Edition</h1>
-      <div class="meta">Offline-first panel AI chatu pro více poskytovatelů ve VSCode.
-        Stisknutím <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd> toggle panel.</div>
-    </header>
+<nav class="toc">
+  <h2>Obsah</h2>
+  <ul>
+    <li><a href="#quick">Rychlý start</a></li>
+    <li><a href="#providers">Poskytovatelé a modely</a></li>
+    <li><a href="#sending">Posílání zpráv</a></li>
+    <li><a href="#toolbar">Tlačítka nástrojů</a></li>
+    <li><a href="#rightclick">Kontextová nabídka</a></li>
+    <li><a href="#modals">Modální okna a dialogy</a></li>
+    <li><a href="#settings">Nastavení</a></li>
+    <li><a href="#setup">Průvodce nastavením</a></li>
+    <li><a href="#accounts">Účty a API klíče</a></li>
+    <li><a href="#slash">Slash příkazy</a></li>
+    <li><a href="#tama">Tamagotchi pet</a></li>
+    <li><a href="#skins">Skiny</a></li>
+    <li><a href="#extensions">Rozšíření</a></li>
+    <li><a href="#autoupdate">Automatická aktualizace (push/pull)</a></li>
+    <li><a href="#hotreload">Hot reload</a></li>
+    <li><a href="#troubleshooting">Řešení problémů</a></li>
+  </ul>
+</nav>
 
-    <section id="welcome" class="help-section">
-      <h2><span class="num">1.</span> Vítejte</h2>
-      <p>Claude Codex Black je VSCode webview, který vám umožňuje chatovat s více AI poskytovateli
-        (Claude, OpenAI, Gemini, Grok, Azure, local Ollama) z jednoho, přizpůsobitelného panelu.
-        Všechno, co potřebuje klíč, se načítá z <code>config.ini</code> v kořenovém adresáři rozšíření —
-        není vyžadováno rozšířené nastavení uživatelského rozhraní, ale modální okno Nastavení zrcadlí nejužitečnější
-        pole pro úpravy pouze pomocí kliknutí.</p>
-      <div class="callout">
-        Jste tu nově? Začněte otevřením <em>Nastavení</em> (ikona převodu), vyberte poskytovatele, vložte
-        váš API klíč, poté zadejte výzvu a stiskněte <kbd>Enter</kbd>. Každá další funkce v
-        této příručce je volitelná.
-      </div>
-    </section>
+<section id="quick">
+<h2>Rychlý start <a class="top-link" href="#">↑ nahoru</a></h2>
+<ol>
+  <li>Klikněte na <b>Setup</b> (ikona čarodějky) a projděte průvodcem, abyste zadali své klíče API. Ty se uloží do <code>config.ini</code> (který je v .gitignore — nikdy se nepotvrzuje).</li>
+  <li>Klikněte na <b>pill poskytovatele</b> v levém dolním rohu (aktuálně označený „Claude Codex — Black Edition") a přepněte se na to, s kterou AI si chcete povídat.</li>
+  <li>Zadejte text do textové oblasti a stiskněte <kbd>Enter</kbd> pro odeslání. <kbd>Shift</kbd>+<kbd>Enter</kbd> vloží nový řádek.</li>
+  <li>Stiskněte <kbd>↑</kbd> v prázdné textové oblasti, abyste si vzpomněli na předchozí prompty (historie ve stylu PowerShellu).</li>
+</ol>
+</section>
 
-    <section id="keyboard" class="help-section">
-      <h2><span class="num">2.</span> Klávesové zkratky</h2>
-      <table>
-        <thead><tr><th>Klávesa</th><th>Efekt</th></tr></thead>
-        <tbody>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd></td><td>Přepnout panel CBE</td></tr>
-          <tr><td><kbd>Enter</kbd></td><td>Odeslat aktuální zadání</td></tr>
-          <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Nový řádek v poli zadání</td></tr>
-          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Procházení dříve odeslaných zadání (z <code>prompt_history.txt</code>)</td></tr>
-          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Procházení kurátor položek <code>prompts.txt</code>, když je kurzor na začátku/konci textové oblasti</td></tr>
-          <tr><td><kbd>Esc</kbd></td><td>Zavřít otevřené modální okno</td></tr>
-          <tr><td><kbd>/</kbd></td><td>Otevřít paletu příkazů s lomítkem</td></tr>
-        </tbody>
-      </table>
-    </section>
+<section id="providers">
+<h2>Poskytovatelé a modely <a class="top-link" href="#">↑ nahoru</a></h2>
+<p>Jsou podporovány dva typy poskytovatelů:</p>
 
-    <section id="prompt-box" class="help-section">
-      <h2><span class="num">3.</span> Pole pro zadání</h2>
-      <p>Velká upravitelná textová oblast na konci. Pište, vkládejte, přetahujte soubor, připojujte pomocí sponky —
-        cokoli, co sem umístíte, je uživatelský turn následujícího volání API.</p>
-      <p>Písmo je uzamčeno na monospace písmo editoru VSCode (pomocí
-        <code>--vscode-editor-font-family</code> proměnné CSS) tak aby panel vypadal jako součást
-        editoru.</p>
-    </section>
+<h4>Přímé API (používá váš klíč)</h4>
+<table>
+  <tr><th>Poskytovatel</th><th>Výchozí model</th><th>Kde se klíč nachází</th></tr>
+  <tr><td>Anthropic (Claude)</td><td>claude-sonnet-4-6</td><td><code>[api_keys] anthropic_api_key</code></td></tr>
+  <tr><td>OpenAI (ChatGPT)</td><td>gpt-4o</td><td><code>[api_keys] openai_api_key</code></td></tr>
+  <tr><td>Google Gemini</td><td>gemini-2.5-pro</td><td><code>[api_keys] gemini_api_key</code></td></tr>
+  <tr><td>xAI (Grok)</td><td>grok-4</td><td><code>[api_keys] xai_api_key</code></td></tr>
+  <tr><td>DeepSeek</td><td>deepseek-chat</td><td><code>[api_keys] deepseek_api_key</code></td></tr>
+  <tr><td>Azure OpenAI</td><td>(na základě nasazení)</td><td><code>[azure] api_key</code> + endpoint</td></tr>
+</table>
 
-    <section id="toolbar" class="help-section">
-      <h2><span class="num">4.</span> Tlačítka panelu nástrojů</h2>
-      <p>Dolní řada, zleva doprava. Popisky se zobrazují při najetí myší; panel je také čte
-        ve vámi vybraném jazyce (viz <a href="#language">Jazyk</a>).</p>
-      <table>
-        <thead><tr><th>Ikona</th><th>Funkce</th></tr></thead>
-        <tbody>
-          <tr><td>🎤 Mikrofon</td><td>Převod řeči na text — Web Speech API se zálohou SAPI. Viz <a href="#stt">§ 6</a>.</td></tr>
-          <tr><td>📎 Připojit</td><td>Vyberte jeden nebo více souborů pro vložení do zadání</td></tr>
-          <tr><td>🔁 Probuzení</td><td>Upravit text probuzení automatického zadání (v <code>wake.txt</code>)</td></tr>
-          <tr><td>⏱ Automatické zadání</td><td>Přepnout odpočet neaktivity automatického vysílání</td></tr>
-          <tr><td>📚 Komprimovat</td><td>Zkrátit historii konverzace na posledních pár obrácení. Prsten ukazuje využití okna kontextu.</td></tr>
-          <tr><td>📁 Git</td><td>Spuštění git příkazů ve složce projektu</td></tr>
-          <tr><td>🌐 Domény</td><td>Stáhnout seznam domén NameSilo</td></tr>
-          <tr><td>🐙 GitHub</td><td>Vypsat vaše repozitáře GitHub přes PAT</td></tr>
-          <tr><td>🎨 Skrn</td><td>Vybrat motiv panelu (objeven za běhu z <code>skins/</code>)</td></tr>
-          <tr><td>🧩 Rozšíření</td><td>Otevřít modální okno iframu tržiště. Viz <a href="#extensions">§ 21</a>.</td></tr>
-          <tr><td>⚙ Nastavení</td><td>Otevřít modální okno nastavení</td></tr>
-          <tr><td>📜 Příručka</td><td>Otevřít <code>handbook.txt</code> pro úpravu</td></tr>
-          <tr><td>❔ Nápověda</td><td>Tento dokument</td></tr>
-          <tr><td>⏹ Zastavit</td><td>Zrušit probíhající volání modelu</td></tr>
-          <tr><td>📤 Odeslat</td><td>Odeslat zadání (stejné jako <kbd>Enter</kbd>)</td></tr>
-        </tbody>
-      </table>
-    </section>
+<h4>Přemostění v prohlížeči (bez API klíče — řídí přihlášenou relaci prohlížeče)</h4>
+<table>
+  <tr><th>Most</th><th>Cíl</th><th>Port</th></tr>
+  <tr><td>ChatGPT most</td><td>chat.openai.com</td><td>8788</td></tr>
+  <tr><td>Grok most</td><td>grok.com / x.ai</td><td>8789</td></tr>
+  <tr><td>Copilot most</td><td>copilot.microsoft.com</td><td>8790</td></tr>
+  <tr><td>Gemini most</td><td>gemini.google.com</td><td>8791</td></tr>
+  <tr><td>Claude most</td><td>claude.ai</td><td>8792</td></tr>
+  <tr><td>Ollama (místní)</td><td>127.0.0.1:11434</td><td>8793</td></tr>
+  <tr><td>DeepSeek most</td><td>chat.deepseek.com</td><td>8794</td></tr>
+</table>
+<p>Každý most je malý exe v C++ v systému <code>bin/CBE-Bridge-&lt;Target&gt;.exe</code>, který otevře přihlášený profil Chrome, zachytí váš prompt a vrátí odpověď modelu. Výběr poskytovatele mostu v Nastavení automaticky spustí příslušný exe. Poprvé, když použijete most, se musíte přihlásit na stránce v jeho okně Chrome.</p>
+<div class="note">Mostní chat používá line-protocol na TCP: jeden JSON řádek vstup (<code>{action:"chat", target, message, model}</code>), jeden JSON řádek výstup. Není vyžadován žádný api klíč.</div>
+</section>
 
-    <section id="providers" class="help-section">
-      <h2><span class="num">5.</span> Modely a poskytovatelé</h2>
-      <p>CBE je vybaven <strong>11 přemostěními</strong> jako plug-in <code>.bridge</code> pod
-        <code>bridges/</code>. Každé je samostatný zip s manifest.xml + bridge.py
-        + ikony. Vložte nový soubor <code>.bridge</code> a objeví se v rozevíracím seznamu patrons —
-        není potřeba žádná změna kódu rozšíření.</p>
-      <h3>Přemostění textového chatu (7)</h3>
-      <ul>
-        <li><strong>ChatGPT</strong> — chatgpt.com, předplatné Plus/Pro</li>
-        <li><strong>Grok</strong> — grok.com, nativní přihlášení xAI (anonymní úroveň je značně omezena; nejprve se přihlaste)</li>
-        <li><strong>Gemini</strong> — gemini.google.com, účet Google</li>
-        <li><strong>Claude</strong> — claude.ai, přihlášení magickým odkazem (spusťte <code>tools/sign_in_helper.py claude</code> jednou)</li>
-        <li><strong>Copilot</strong> — copilot.microsoft.com, bezplatný účet Microsoft</li>
-        <li><strong>DeepSeek</strong> — chat.deepseek.com, nativní přihlášení e-mailem/heslem (nepoužívejte Google SSO)</li>
-        <li><strong>Ollama</strong> — místní <code>127.0.0.1:11434</code>, není vyžadováno přihlášení</li>
-      </ul>
-      <h3>Přemostění generování videa (4)</h3>
-      <ul>
-        <li><strong>Sora 2</strong> — sora.com, opakované použití přihlášení ChatGPT Plus/Pro</li>
-        <li><strong>Google Veo</strong> — gemini.google.com (režim Veo), předplatné Gemini Advanced</li>
-        <li><strong>Runway Gen-3/4</strong> — app.runwayml.com, samostatné předplatné Runway</li>
-        <li><strong>Bing Video Creator</strong> — bing.com/videos/create, <em>bezplatné Sora-2</em> s účtem Microsoft</li>
-      </ul>
-      <p>Generovaná videa se ukládají do <code>videos/&lt;bridge&gt;/&lt;timestamp&gt;_&lt;prompt-slug&gt;.mp4</code>
-        a automaticky se přehrávají v panelu Videotéka (viz §Videotéka níže).</p>
-      <p>Vyberte přemostění + model z rozevíracího seznamu patronů vedle pole zadání nebo přes
-        <em>Nastavení → Obecné</em>. Výběr je na pracovní prostor a uložen v
-        workspaceState. Chcete-li přidat nové přemostění, viz <code>docs/WRITING_BRIDGES.md</code>.</p>
-    </section>
+<section id="sending">
+<h2>Posílání zpráv <a class="top-link" href="#">↑ nahoru</a></h2>
+<dl class="btnrow">
+  <dt>Textová oblast</dt>
+  <dd>Zadejte svůj prompt. <kbd>Enter</kbd> odešle, <kbd>Shift</kbd>+<kbd>Enter</kbd> vloží nový řádek. Během streamování odpovědi jsou další prompty <b>zařazeny do fronty</b> a poslány postupně — zástupný text během tohoto stavu ukazuje „Zařadit další zprávu do fronty…".</dd>
 
-    <section id="video-library" class="help-section">
-      <h2><span class="num">5a.</span> Videotéka</h2>
-      <p>Vyhrazený panel pro procházení + sledování videí generovaných přemostěními videa
-        (Sora, Veo, Runway, Bing Video Creator). Otevřít přes Paletu příkazů:
-        <em>Claude Codex Black: Otevřít Videotéku</em> nebo příkaz <code>codexBlackEd.openVideoPlayer</code>.</p>
-      <ul>
-        <li>Postranní panel zobrazuje všechny soubory <code>.mp4</code> / <code>.webm</code> / <code>.mov</code> pod
-          <code>videos/&lt;bridge&gt;/</code>, seskupené podle přemostění a seřazené od nejnovějších.</li>
-        <li>Nejnovější video se automaticky přehraje při prvním otevření.</li>
-        <li>Panel sleduje adresář <code>videos/</code> s tiktákem 2 sekund — každé nově
-          vygenerované video se zobrazí se značkou ✨ "Právě vygenerováno" a automaticky se přehraje
-          (vypnout přes <em>Auto ▶ nový</em>).</li>
-        <li>Kliknutím na <em>📂 Otevřít</em> odhalte složku <code>videos/</code> v správci souborů OS.</li>
-      </ul>
-    </section>
+  <dt>Tlačítko Odeslat (koule)</dt>
+  <dd>Kulaté tlačítko na pravém okraji textové oblasti. Stejné jako <kbd>Enter</kbd>. Vizuálně zobrazuje tři stavy (nečinný / přesun / aktivní).</dd>
 
-    <section id="stt" class="help-section">
-      <h2><span class="num">6.</span> Převod řeči na text</h2>
-      <p>Kliknutím na mikrofon, mluvte, znovu kliknutím zastavte (nebo počkejte na vypršení času ticha).
-        Jsou vyzkoušeny dva motory v pořadí:</p>
-      <ol style="padding-left:22px;">
-        <li><strong>Web Speech API</strong> — Googleův cloudový znalec spuštěný v webviewu.
-          Používá vaši relaci Gmail/Google; není potřeba žádný další klíč.</li>
-        <li><strong>Windows SAPI</strong> (záloha) — předem zahřátý proces PowerShellu vyvolaný když
-          webview blokuje přístup k mikrofonu. Konfigurovatelné okno poslouchání přes
-          <code>[voice] listen_seconds</code> v <code>config.ini</code>.</li>
-      </ol>
-      <div class="callout">
-        SAPI je <em>předem zahřáván při aktivaci rozšíření</em> takže první klik na mikrofon se vyhnul
-        2-4 sekund studené spuštění, která používala polykat předčasné stop-kliky.
-      </div>
-    </section>
+  <dt>Tlačítko Zastavit</dt>
+  <dd>Vpravo dole od autora. Zruší aktuálně streamovanou odpověď a všechny zařazené zprávy. Streamovaný text se zachovává; pouze letící požadavek se přeruší.</dd>
 
-    <section id="auto-prompt" class="help-section">
-      <h2><span class="num">7.</span> Automatické zadání</h2>
-      <p>Tlačítko s odznakem a spinnery. Když je ZAPNUTO, po N sekundách nečinnosti panel
-        automaticky odešle váš nakonfigurovaný text probuzení. Číslice odpočtu je vykreslena v
-        <code>--cbe-highlight-color</code>, což každý skin definuje.</p>
-      <p>Upravte text probuzení přes tlačítko 🔁 Probuzení — round-trippuje <code>wake.txt</code>.</p>
-    </section>
+  <dt>Pill poskytovatele</dt>
+  <dd>Vlevo dole od autora. Klikněte pro rozbalovací seznam každého poskytovatele, kterého jste nakonfigurovali. Výběr nového automaticky spustí jeho most (je-li k dispozici) a odešle potvrzovací toast.</dd>
 
-    <section id="tts" class="help-section">
-      <h2><span class="num">8.</span> Automatické čtení (TTS)</h2>
-      <p>Ikona úst. Když je ZAPNUTO, každá asistentova odpověď je vyslovena přes Web Speech
-        syntetizátor (Google) nebo SAPI zálohu. Modrý oreol svítí kolem ikony během
-        přehrávání zvuku.</p>
-    </section>
+  <dt>Historie promptů</dt>
+  <dd><kbd>↑</kbd> / <kbd>↓</kbd> v prázdné textové oblasti se pohybuje zpět / vpřed posledních 500 promptů, které jste poslali (ve stylu PowerShellu). Historie se ukládá na <code>prompt_history.txt</code> ve složce rozšíření a přežije opětovné načtení panelu.</dd>
+</dl>
+</section>
 
-    <section id="compact" class="help-section">
-      <h2><span class="num">9.</span> Komprimování a využití kontextu</h2>
-      <p>Pole konverzace odesílané modelu roste s každým turnem. Prsten kolem
-        ikony Komprimování ukazuje aktuální využití okna kontextu jako kuželový gradient — prázdný
-        když svěží, plný když blízko limitu kontextu modelu.</p>
-      <p>Kliknutím na Komprimování zkrátíte historii na poslední čtyři obrácení. Příští volání API
-        používá menší pole.</p>
-    </section>
+<section id="toolbar">
+<h2>Tlačítka nástrojů <a class="top-link" href="#">↑ nahoru</a></h2>
+<p>Uvedeno v pořadí nástrojů. Všechny popisy nástrojů jsou lokalizovatelné podle jazyka přes <code>languages/*.xml</code>.</p>
 
-    <section id="wake-up" class="help-section">
-      <h2><span class="num">10.</span> Odpověď na probuzení</h2>
-      <p>Uloženo v <code>wake.txt</code> v kořenovém adresáři rozšíření. Používáno automatickým zadáním jako
-        zpráva k odeslání když časovač nečinnosti aktivuje. Upravte přes tlačítko 🔁 v panelu nástrojů.</p>
-    </section>
+<dl class="btnrow">
 
-    <section id="attachments" class="help-section">
-      <h2><span class="num">11.</span> Přílohy souborů</h2>
-      <p>Kliknutím 📎 vyberte jeden nebo více souborů. Podržte <kbd>Ctrl</kbd> nebo <kbd>Shift</kbd> v
-        výběru pro vícenásobný výběr. Každý soubor se vloží do zadání jako oplotění kódu
-        s jeho názvem souboru a jazykem. Binární soubory přes 1 MB jsou přeskočeny se zprávou.</p>
-    </section>
+<dt>Nová konverzace <span class="pill">addBtn</span></dt>
+<dd>Vymaže aktuální vlákno, smaže stav konverzace v paměti a začne znovu. Předchozí vlákno se uloží na disk pod <code>chats/&lt;UTC-date&gt;.log</code>, takže se nic neztratí. Ekvivalent <code>/clear</code>.</dd>
 
-    <section id="git" class="help-section">
-      <h2><span class="num">12.</span> Modální okno Git</h2>
-      <p>Kliknutím 📁 Git. Není-li nakonfigurována složka projektu, nejprve se zobrazí výběr složky —
-        vybraná cesta se zapíše do <code>[project] path</code> v <code>config.ini</code>.
-        Následující git volání se spouští s cwd nastaveným na tuto cestu.</p>
-    </section>
+<dt>Uložené prompty <span class="pill">storedPromptsBtn</span></dt>
+<dd>Otevře modální okno se seznamem každé uložené šablony promptu pod <code>stored_prompts/</code>. Klikněte na jednu, aby se vložila do textové oblasti; tlačítko „+" přidá novou šablonu. Šablony podporují nahrazení proměnných.</dd>
 
-    <section id="github" class="help-section">
-      <h2><span class="num">13.</span> Repozitáře GitHubu</h2>
-      <p>Vypíše každý repozitář přístupný vašemu <code>[github] pat</code>. Kliknutím na řádek vložte
-        jeho adresu URL pro klonování do zadání. Seznam je paginátor a uložen v mezipaměti.</p>
-    </section>
+<dt>Historie chatu <span class="pill">chatHistoryBtn</span></dt>
+<dd>Prochází protokol chatu na disku (jeden soubor na UTC datum pod <code>chats/</code>). Vyberte datum, abyste se podívali zpět na minulé konverzace.</dd>
 
-    <section id="domains" class="help-section">
-      <h2><span class="num">14.</span> Domény NameSilo</h2>
-      <p>Stáhne každou doménu ve vašem účtu NameSilo pomocí <code>[namesilo] api_key</code>
-        (nebo <code>[api_keys] namesilo_api_key</code> jako záloha). Při prvním otevření se výsledky
-        uloží do mezipaměti v <code>domains.txt</code>; následující spuštění panelu slouží z mezipaměti. Kliknutím
-        <em>Znovu načíst</em> v modálním okně vynuťte nový fetch.</p>
-      <div class="callout warn">
-        Pokud někdy uvidíte "žádné domény" s kódem odpovědi 300, zkontrolujte kanál trasování — prázdné
-        mezipaměti už nezapouzdřují budoucí spuštění panelu, ale starý <code>domains.txt</code> v
-        jiné cestě instalace by mohl.
-      </div>
-    </section>
+<dt>Připojit soubor <span class="pill">attachFileBtn</span></dt>
+<dd>Otevře výběr souborů. Vybraný soubor se nahraje s dalším promptem — obrázky budou vloženy (vision), textové/kódové soubory se stanou blok v ohradě ve vašem promptu. Podporuje vícenásobné připojení.</dd>
 
-    <section id="skins" class="help-section">
-      <h2><span class="num">15.</span> Skriny a motiv vzhledu</h2>
-      <p>Tlačítko 🎨 otevře výběr objevu, který skenuje <code>skins/</code> za běhu (ne při
-        spuštění), takže vložení nové složky za běhu stačí. Každý skin má
-        <code>manifest.xml</code>, který definuje jeho paletu — včetně
-        <strong>barvy zvýraznění</strong>, kterou odpočet automatického zadání, kroužky zaměření,
-        a puls supervizora všichni používají.</p>
-      <p>Vestavěné skriny zahrnují: <code>gnome</code> (Adwaita šedá), <code>terminal</code>
-        (černá/zelená s neónově růžovým zvýrazněním), <code>tamagotchi</code> (skořápka s pastely a
-        panelem maskota spritů), <code>blocky</code>, a další.</p>
-    </section>
+<dt>Čtení nahlas (TTS) <span class="pill">ttsBtn</span></dt>
+<dd>Vysloví poslední odpověď asistenta. Používá ElevenLabs (je-li nastaven <code>[elevenlabs] api_key</code>) nebo se vrátí k Windows SAPI. <b>Kliknutí pravým tlačítkem</b> přepíná režim <i>automatického čtení</i>, kde je každá nová odpověď automaticky vyslovena — tlačítko během aktivního stavu získá animovaný indikátor.</dd>
 
-    <section id="settings" class="help-section">
-      <h2><span class="num">16.</span> Nastavení</h2>
-      <p>Otevřít z ikony ⚙ kolečka. Záložky:</p>
-      <ul>
-        <li><strong>Obecné</strong> — jméno zobrazení, výchozí model, odeslání po stisku Enter</li>
-        <li><strong>Hlas</strong> — zařízení mikrofonu, listen_seconds, výběr STT motoru, automatické čtení TTS</li>
-        <li><strong>Aktualizace</strong> — příznak <code>is_admin</code>, relace WinSCP, vzdálená cesta</li>
-        <li><strong>Klíče</strong> — API klíč každého poskytovatele</li>
-        <li><strong>Monitor</strong> — přepínač supervizora VSCode, port, interval dotazu</li>
-        <li><strong>Jazyk</strong> — vybrat ze 39 jazyků; viz <a href="#language">§ 17</a></li>
-      </ul>
-      <p>Modální okno si zapamatuje velikost a pozici mezi relacemi.</p>
-    </section>
+<dt>Převod řeči na text (STT) <span class="pill">sttBtn</span></dt>
+<dd>Nahraje zvuk mikrofonu a přepíše jej do textové oblasti. Nejprve se pokusí o Web Speech API webového zobrazení; pokud to selže (<code>not-allowed</code>, běžné v izolovaných prostředích VSCode), vrátí se k Windows SAPI (<code>System.Speech.Recognition</code>) spuštěné na hostiteli přes PowerShell. Klikněte znovu, abyste zastavili.</dd>
 
-    <section id="language" class="help-section">
-      <h2><span class="num">17.</span> Jazyk</h2>
-      <p>Panel se dodává s překlady pro 39 nejvíce mluvených jazyků. Soubory jazykové verze
-        jsou v <code>languages/&lt;code&gt;.xml</code> a jsou načítány jednou při
-        aktivaci rozšíření. Chybějící klíče se vrací na anglictinu.</p>
-      <p>Vyberte svůj jazyk v <em>Nastavení → Jazyk</em>. Vedle každé možnosti se zobrazuje ikona vlajky (načtena
-        z <code>assets/flags/&lt;code&gt;.svg</code>). Výběr
-        se uloží do <code>[settings] language</code> v <code>config.ini</code>.</p>
-    </section>
+<dt>Automatický prompt <span class="pill">autoReplyBtn</span></dt>
+<dd>Otevře modální okno Automatický prompt. Definujte prompt a interval odpočtu; po každé odpovědi asistenta se odpočet snižuje a po dosažení nuly automaticky znovu odešle automatický prompt. Užitečné pro „pokračuj", „další krok", opakované relace nástrojů. Klikněte znovu, abyste vypnuli.</dd>
 
-    <section id="monitor" class="help-section">
-      <h2><span class="num">18.</span> Supervizor VSCode</h2>
-      <p>Služba Windows (<code>CBEVSCodeSupervisor</code>) zabaluje
-        <code>tools/vscode_supervisor.ps1</code> skript přes NSSM a váže HttpListener
-        na <strong>http://127.0.0.1:3434/</strong>. Tlačítko monitoru panelu svítí modře
-        když supervizorův <code>/status</code> koncový bod odpověděl 200 OK.</p>
-      <p>Když sonda HTTP selhá ale služba je nainstalována, hlídač panelu
-        automaticky restartuje službu (30sekundové ochlazování aby se nerestartoval).</p>
-      <p>Levé kliknutí na tlačítko monitoru pro instalaci / spuštění / zastavení. Pravé kliknutí
-        otevřít kanál trasování.</p>
-    </section>
+<dt>Odpověď na probuzení <span class="pill">wakeUpBtn</span></dt>
+<dd>Upravuje zprávu probuzení uloženou na <code>wake.txt</code>. Probuzení je to, co Automatický prompt pošle, pokud zjistí, že se model zasekl — obecně krátký ping jako „Hej! Pokračuj."</dd>
 
-    <section id="auto-update" class="help-section">
-      <h2><span class="num">19.</span> Automatická aktualizace (pull)</h2>
-      <p>4 sekundy po aktivaci rozšíření panel stahuje
-        <code>https://trentontompkins.com/cbe/manifest.xml.php</code> — manifest MD5+velikost
-        nejnovějších publikovaných souborů. Pro každý vzdálený soubor je MD5 místní kopie
-        porovnáno; stahují se pouze změněné/chybějící soubory přes HTTPS.</p>
-      <p>Stav místního uživatele (<code>config.ini</code>, <code>debug.log</code>,
-        <code>domains.txt</code>, <code>wake.txt</code>, <code>prompt_history.txt</code>) je
-        na seznamu vyloučení pull a nikdy se nepřepíše.</p>
-    </section>
+<dt>Zobrazit nabídku příkazů <span class="pill">showCommandsBtn</span></dt>
+<dd>Otevře paletu slash-příkazů v modálním okně. Podívejte se na <a href="#slash">Slash příkazy</a> pro úplný seznam. Stejné jako zadání <code>/</code> na začátek textové oblasti.</dd>
 
-    <section id="admin-push" class="help-section">
-      <h2><span class="num">20.</span> Administrativa push</h2>
-      <p>Pouze klienti s <code>[updates] is_admin = true</code> někdy pushují na server.
-        Spuštění přes:</p>
-      <ul>
-        <li>Paleta příkazů → <em>Claude Codex Black: Push aktualizace</em></li>
-        <li>Příkaz s lomítkem <code>/push</code></li>
-      </ul>
-      <p>Používá uloženou relaci WinSCP pojmenovanou v <code>[updates] winscp_session</code> (výchozí
-        <code>vps</code>). Pushuje přes <code>/script=…</code> s příkazem synchronizace a
-        maskou souboru, která vylučuje tajemství a stav na zařízení.</p>
-    </section>
+<dt>Komprimovat konverzaci <span class="pill">compactBtn</span></dt>
+<dd>Odešle požadavek na shrnutí a prořezávání, který nahradí aktuální vlákno kondenzovaným souhrnem. Ekvivalent <code>/compact</code>. Užitečné, když se konverzace prodloužila a chcete si ponechat kontext, ale přestat spalovat tokeny na opětovné odesílání celé historie.</dd>
 
-    <section id="extensions" class="help-section">
-      <h2><span class="num">21.</span> Tržiště rozšíření</h2>
-      <p>Kliknutím na tlačítko 🧩 Rozšíření. Modální okno iframu se otevře na
-        <code>https://trentontompkins.com/cbe/extension/extension_marketplace.php</code>,
-        které stahuje katalog z
-        <code>extensions.xml.php</code> a vykresluje každé dostupné rozšíření jako kartu s
-        popisem, štítky, verzí, velikostí souboru, MD5 a tlačítkem <strong>Instalovat</strong>.</p>
-      <p>Rozšíření je baleno jako <code>&lt;id&gt;.ext</code> — zip archiv obsahující
-        <code>manifest.xml</code> plus kód rozšíření (obvykle jeden
-        <code>extension.html</code>). Když klikneš na Instalovat, iframe tržiště pošle
-        <code>postMessage</code> zpět do panelu; panel stáhne
-        soubor <code>.ext</code> přímo ze serveru a rozbalí jej pod
-        <code>extensions/</code> ve složce rozšíření.</p>
-      <p>Tři ukázková rozšíření se dodávají s katalogem spuštění:
-        <strong>Kalkulačka</strong>, <strong>Hledání min</strong>, a <strong>Výběr
-        Emoji</strong>.</p>
-    </section>
+<dt>Příručka <span class="pill">handbookBtn</span></dt>
+<dd>Otevře modální okno příručky zaměstnance/projektu. Načte <code>handbook.html</code> nebo jakýkoli nakonfigurovaný dokument. Používá se jako reference systémového promptu, kterou je model požádán, aby konzultoval.</dd>
 
-    <section id="slash" class="help-section">
-      <h2><span class="num">22.</span> Příkazy s lomítkem</h2>
-      <p>Zadejte <kbd>/</kbd> do pole zadání otevřít paletu příkazu s lomítkem. Kliknutím na řádek
-        <em>vložte</em> text příkazu do vašeho zadání (editovatelné), nebo stisknutím
-        <kbd>Enter</kbd> na spustitelném řádku jej ihned spusťte.</p>
-      <p>Úplný seznam:</p>
-      <table>
-        <thead><tr><th>Příkaz</th><th>Efekt</th></tr></thead>
-        <tbody>
-          <tr><td><code>/help</code></td><td>Otevřít tento dokument</td></tr>
-          <tr><td><code>/skin</code></td><td>Otevřít výběr skinu</td></tr>
-          <tr><td><code>/push</code></td><td>Spustit push automatické aktualizace (pouze správce)</td></tr>
-          <tr><td><code>/license</code></td><td>Zobrazit <code>LICENSE.TXT</code></td></tr>
-          <tr><td><code>/clear</code></td><td>Vymazat historii konverzace</td></tr>
-          <tr><td><code>/domains</code></td><td>Otevřít modální okno domén NameSilo</td></tr>
-          <tr><td><code>/git</code></td><td>Otevřít modální okno Git</td></tr>
-          <tr><td><code>/wake</code></td><td>Otevřít editor probuzení</td></tr>
-          <tr><td><code>/memory</code></td><td>Otevřít index paměti projektu</td></tr>
-        </tbody>
-      </table>
-    </section>
+<dt>Nastavení <span class="pill">settingsBtn</span></dt>
+<dd>Otevře modální okno Nastavení (poskytovatel, model, skin, jazyk, SFX). Podívejte se na <a href="#settings">Nastavení</a>.</dd>
 
-    <section id="context-menu" class="help-section">
-      <h2><span class="num">23.</span> Kontextová nabídka</h2>
-      <p>Kliknutím pravým tlačítkem kdekoli v panelu se zobrazí kontextová nabídka (definovaná jako jeden XML
-        řetězec v <code>panel.js</code>). Položky zahrnují Obnovit (znovu načíst panel bez
-        dotyku hostitele rozšíření — nikdy nepoužívejte <code>reloadWindow</code>), Vymazat
-        konverzaci, Otevřít nastavení, a Zkontrolovat (DevTools, pouze debug buildy).</p>
-    </section>
+<dt>Účty <span class="pill">accountsBtn</span></dt>
+<dd>Otevře správce více účtů. Přidejte / upravte / odeberte klíče API na poskytovatele, přepínejte mezi nimi za relaci. Podívejte se na <a href="#accounts">Účty</a>.</dd>
 
-    <section id="trace" class="help-section">
-      <h2><span class="num">24.</span> Kanál trasování</h2>
-      <p>Rozšíření zapisuje podrobnou časovou osu do <code>debug.log</code> vedle rozšíření.
-        Vše důležité tam skončí: přepínače poskytovatele, životní cyklus STT,
-        sondy supervizora, kódy odpovědi NameSilo, zprávy mostu panel↔host, push/pull
-        počty manifestů.</p>
-      <p>Kliknutím pravým tlačítkem na tlačítko monitoru otevřete kanál trasování jedním kliknutím.</p>
-    </section>
+<dt>Rozšíření <span class="pill">extensionsBtn</span></dt>
+<dd>Otevře prohlížeč rozšíření v panelu. Uvádí, co je nainstalováno pod <code>extensions/</code> (každé s <code>manifest.xml</code> + vstupem HTML), umožňuje připnout rozšíření na nástrojovou lištu, nainstalovat nové z veřejného katalogu nebo je odebrat.</dd>
 
-    <section id="troubleshooting" class="help-section">
-      <h2><span class="num">25.</span> Odstraňování problémů</h2>
-      <table>
-        <thead><tr><th>Symptom</th><th>Pravděpodobná příčina</th></tr></thead>
-        <tbody>
-          <tr><td>Pole zadání vypadá proporcionální, ne monospace</td>
-              <td><code>--vscode-editor-font-family</code> není aplikováno; zkontrolujte <code>:root</code> proměnné</td></tr>
-          <tr><td>Spinner automatického zadání je černá tečka</td>
-              <td>Špatný SVG asset; měl by být <code>auto_read_spinner.svg</code> s halo efektem stínu</td></tr>
-          <tr><td>Tlačítko Komprimovat nic nedělá</td>
-              <td>Obslužná program hostitele chybí — <code>case 'compactConversation'</code> v routeru extension.js</td></tr>
-          <tr><td>"0 domén" v modálním okně Domény</td>
-              <td>NameSilo reply.code != 300 (kanál trasování ho má), nebo starý <code>domains.txt</code></td></tr>
-          <tr><td>STT "není detekována řeč" ihned</td>
-              <td>Zastavili jste před vázáním mikrofonu SAPI. Předem zahřátý nyní tuto čekací dobu přeskočí — ověřte s <code>stt: using pre-warmed SAPI</code> v <code>debug.log</code></td></tr>
-          <tr><td>Push selhává na cestě se mezerou</td>
-              <td>Používáte <code>/command=</code> inline; vždy používejte <code>/script=tempfile.winscp</code></td></tr>
-          <tr><td>Modrý oreol supervizora nesvítí</td>
-              <td>Služba neběží. Levým kliknutím na monitorBtn nainstalujte/spusťte, nebo spusťte <code>Start-Service CBEVSCodeSupervisor</code></td></tr>
-          <tr><td>Obnovit "opravuje" něco</td>
-              <td>Neudělalo. Nikdy nepoužívejte <code>reloadWindow</code>. Místo toho použijte položku Obnovit z kontextové nabídky.</td></tr>
-        </tbody>
-      </table>
-    </section>
+<dt>Složka projektu <span class="pill">projectFolderBtn</span></dt>
+<dd>Vybere pracovní adresář používaný funkcí Připojit soubor, Terminál, Git a jakýmikoli nástroji, které potřebují kořen projektu. Aktuální složka je zobrazena vedle pill poskytovatele.</dd>
 
-    <section id="about" class="help-section">
-      <h2><span class="num">26.</span> O programu a licence</h2>
-      <p>Claude Codex — Black Edition. Licencováno MIT. Zrcadlo zdroje:
-        <a href="https://github.com/tibberous/Claude-Codex-Back-Ed.." target="_blank" rel="noopener">github.com/tibberous/Claude-Codex-Back-Ed..</a>.
-        Oficiální server automatické aktualizace: <a href="https://trentontompkins.com/cbe/" target="_blank" rel="noopener">trentontompkins.com/cbe</a>.</p>
-      <p>Zpětná vazba nebo obchodní práce, kontakt <a href="https://trentontompkins.com" target="_blank" rel="noopener">trentontompkins.com</a> · (724) 431-5207.</p>
-      <p style="margin-top:24px; color: var(--muted); font-size: 12px;">
-        <em>Tato nápověda je také iframed do tlačítka Nápověda v panelu nástrojů. Zdroj:
-        <code>panel/help.html</code>.</em>
-      </p>
-    </section>
+<dt>Prohlížeč <span class="pill">browserBtn</span></dt>
+<dd>Otevře vedle sebe panel prohlížeče QtWebEngine pro rychlé vyhledávání bez opuštění panelu.</dd>
 
-  </main>
+<dt>Monitor VSCode <span class="pill">monitorBtn</span></dt>
+<dd>Přepíná strážce dozoru VSCode — proces na pozadí, který restartuje VSCode, pokud se zhroutí. Levé kliknutí přepíná spuštění/zastavení, <b>pravé kliknutí</b> otevře kanál trasování supervizora.</dd>
+
+<dt>Terminál <span class="pill">terminalBtn</span></dt>
+<dd>Otevře integrovaný terminál VSCode ve složce projektu. Pokud složka projektu není nastavena, vrátí se k vašему Počítači. Znovu používá jeden trvalý terminál označený „CBE".</dd>
+
+<dt>Průvodce nastavením <span class="pill">setupBtn</span></dt>
+<dd>Provede vás každým klíčem API a integrací, kterou rozšíření zná (~12 kroků). Podívejte se na <a href="#setup">Průvodce nastavením</a>.</dd>
+
+<dt>Git <span class="pill">gitBtn</span></dt>
+<dd>Otevře zobrazení Source Control VSCode zaměřené na aktuální složku projektu.</dd>
+
+<dt>GitHub <span class="pill">githubBtn</span></dt>
+<dd>Uvádí vaše repozitáře GitHub pomocí <code>[github] token</code>. Klikněte na repo, abyste jej naklonovali / otevřeli / procházeli problémy.</dd>
+
+<dt>Domény (NameSilo) <span class="pill">domainsBtn</span></dt>
+<dd>Uvádí každou doménu v účtu NameSilo s nameservery. Vyžaduje <code>[namesilo] api_key</code>. Tlačítko <b>Načíst znovu</b> vynutí nové načtení.</dd>
+
+<dt>Velikost písma <span class="pill">fontSizeBtn</span></dt>
+<dd>Přepíná mezi normální a velkou velikostí písma pro vlákno chatu. Stejné jako <code>/font</code>.</dd>
+
+<dt>Nápověda <span class="pill">helpBtn</span></dt>
+<dd>Otevře tuto stránku. Stejné jako <code>/help</code>.</dd>
+
+<dt>Tamagotchi <span class="pill">tamaBtn</span></dt>
+<dd>Přepíná panel pixel-pet (viditelný pouze na skinu <b>tamagotchi</b>, kde se zapojuje do rohu autora). Podívejte se na <a href="#tama">Tamagotchi</a>.</dd>
+
+</dl>
+</section>
+
+<section id="rightclick">
+<h2>Kontextová nabídka <a class="top-link" href="#">↑ nahoru</a></h2>
+<p>Klikněte pravým tlačítkem na text chatu nebo blok kódu, abyste dostali kontextovou nabídku CBE. Kliknutí pravým tlačítkem na textovou oblast promptu nyní otevře <b>nativní nabídku prohlížeče</b> (Kopírovat / Vyjmout / Vložit / Smazat / Vybrat vše).</p>
+<dl class="btnrow">
+  <dt>Kopírovat / Kopírovat blok kódu</dt><dd>Kopíruje aktuální výběr. Pokud není výběr, ale klikli jste pravým tlačítkem na <code>&lt;pre&gt;&lt;code&gt;</code>, zkopíruje celý blok kódu.</dd>
+  <dt>Zobrazit zdroj</dt><dd>Zobrazuje surový HTML/markdown kliknuté oblasti — buď blok kódu nebo celý DOM panelu. Užitečné pro ladění problémů s skinem/CSS.</dd>
+  <dt>Otevřít DevTools</dt><dd>Požádá VSCode, aby otevřel Developer Tools, abyste mohli živě kontrolovat webové zobrazení.</dd>
+  <dt>Nastavení <span class="pill">nové</span></dt><dd>Otevře stejné modální okno Nastavení, které otevírá tlačítko nástrojů <b>Nastavení</b> (poskytovatel / model / skin / jazyk / SFX). Stejné jako <code>/settings</code>.</dd>
+  <dt>Informace <span class="pill">nové</span></dt><dd>Malý dialog v panelu s verzí, autorem, licencí, odkazem na repo, portfoliem a kontaktním telefonem. Zavře se kliknutím na pozadí, tlačítkem × nebo <kbd>Esc</kbd>.</dd>
+  <dt>Načíst panel znovu <span class="pill">nové</span></dt><dd>Znovu přečte <code>panel/index.html</code> + <code>panel.js</code> + <code>skins/*</code> s <code>?v=&lt;mtime&gt;</code> cache-busterem pro jednotlivé soubory a znovu přiřadí <code>panel.webview.html</code>. Vybere CSS/JS úpravy bez restartování VSCode. Hostitele rozšíření zůstane naživu — terminál, supervizor, historie chatu všechno přetrvává.</dd>
+  <dt>Načíst okno znovu <span class="pill warn">nové</span></dt><dd>Spustí <code>workbench.action.reloadWindow</code>. Použijte to <i>pouze</i>, když jste upravili <code>extension.js</code> (kód na straně hostitele) a opětovné načtení panelu není dostatečné. Je to úplné opětovné načtení okna VSCode.</dd>
+</dl>
+</section>
+
+<section id="modals">
+<h2>Modální okna a dialogy <a class="top-link" href="#">↑ nahoru</a></h2>
+
+<details open><summary><b>Modální okno Nastavení</b> — poskytovatel / model / skin / jazyk / SFX</summary>
+<ul>
+  <li><b>Poskytovatel</b>: úplný rozbalovací seznam každého poskytovatele přímého API a mostu. Výběr jednoho přepíná aktivní relaci A automaticky spustí odpovídající exe mostu (je-li to vhodné).</li>
+  <li><b>Model</b>: seznam povolených modelů pro jednotlivé poskytovatele (např. <code>claude-opus-4-7</code>, <code>claude-sonnet-4-6</code>, <code>claude-haiku-4-5</code> pro Anthropic).</li>
+  <li><b>Skin</b>: vizuální motiv. Podívejte se na <a href="#skins">Skiny</a>.</li>
+  <li><b>Jazyk</b>: 39 dostupných jazyků. Přepínání znovu načte mapu řetězců a live přeloží každý popis nástroje / popis / tlačítko nápovědy.</li>
+  <li><b>SFX povoleno</b>: přepnutí zvukových efektů UI (kliknutí, tikání, otevření/zavření modálu atd.).</li>
+  <li><b>Hlasitost SFX</b>: posuvník 0–100. Náhled živě při přetahování.</li>
+  <li><b>Zrušit</b> vrátí zpět všechny živé náhledy (SFX/skin), které jste vyzkoušeli; <b>Uložit</b> trvale zachová a vydá <code>setProvider</code>.</li>
+</ul>
+</details>
+
+<details><summary><b>Průvodce nastavením</b> — vícekrokový vstup klíče API</summary>
+<p>Procházka přes každou integraci. Každý krok požádá o přihlašovací údaje a zapíše je do <code>config.ini</code>. <b>Přeskočit</b> postupuje bez zápisu; <b>Další</b> zapíše a postupuje; poslední krok <b>Hotovo</b> zavře. Kroky zahrnují: Anthropic, OpenAI, Gemini, xAI/Grok, GitHub PAT, Email/SMTP (heslo aplikace Gmail), Cloudflare, Twilio, ElevenLabs, Stability AI, Runway, SendGrid, NameSilo a další.</p>
+</details>
+
+<details><summary><b>Modální okno Účty</b> — správce klíčů API více účtů</summary>
+<p>Pro každého poskytovatele spravujte více účtů s popisky (např. „osobní", „pracovní"). Bez přepsání ostatních přepínejte, který je aktivní za relaci. Klíče jsou maskované end-to-end a uložené na poskytovatele v <code>config.ini</code>.</p>
+</details>
+
+<details><summary><b>Modální okno Domény</b> — NameSilo</summary>
+<p>Uvádí každou doménu v účtu NameSilo s nameservery a daty registrace. Tlačítko <b>Načíst znovu</b> vynutí nové načtení rozhraní API (jinak se ukládá do mezipaměti v <code>domains.txt</code>).</p>
+</details>
+
+<details><summary><b>Modální okno Příručka</b></summary>
+<p>Vykresluje projekt příručku HTML (určený jako reference systémového promptu, který může model konzultovat). Konfigurovat pro jednotlivé projekty.</p>
+</details>
+
+<details><summary><b>Modální okno Uložené prompty</b></summary>
+<p>Vložitelné šablony promptů z <code>stored_prompts/</code>. Každý soubor je jedna šablona; předpona názvu souboru <code>NN-</code> řídí pořadí řazení. Tlačítko „+" vytvoří novou.</p>
+</details>
+
+<details><summary><b>Modální okno Historie chatu</b></summary>
+<p>Vyberte UTC datum, aby se načetl protokol chatu z <code>chats/&lt;date&gt;.log</code>. Pouze pro čtení.</p>
+</details>
+
+<details><summary><b>Modální okno Rozšíření</b></summary>
+<p>Karty pro každé nainstalované rozšíření. Připnout na nástrojovou lištu / odepnout, nainstalovat z veřejného katalogu (<code>extensions.xml.php</code> na serveru) nebo odebrat z disku.</p>
+</details>
+
+<details><summary><b>Modální okno Protokol změn</b></summary>
+<p>Vykresluje <code>panel/change_log.html</code> — poznámky k vydané verzi. Generuje se přes <code>tools/build_changelog.py</code>.</p>
+</details>
+
+<details><summary><b>Modální okno Zobrazit zdroj</b></summary>
+<p>Pěkně formátuje jakýkoli blok kódu nebo plný HTML panelu se zvýrazněním syntaxe Prism a tlačítkem Kopírovat. Dostupné přes pravé kliknutí → Zobrazit zdroj.</p>
+</details>
+
+<details><summary><b>Modální okno Automatický prompt</b></summary>
+<p>Nakonfigurujte řetězec promptu a interval odpočtu. Po každé odpovědi asistenta se odpočet snižuje; když dosáhne nuly, CBE automaticky odešle nakonfigurovaný prompt. Přepíná se zapnuto/vypnuto přes tlačítko nástrojů Automatický prompt.</p>
+</details>
+</section>
+
+<section id="settings">
+<h2>Nastavení <a class="top-link" href="#">↑ nahoru</a></h2>
+<p>Všechna nastavení se nacházejí na jednom ze dvou míst:</p>
+<ul>
+  <li><code>workspaceState</code> (spravováno VSCode, na pracovní prostor) — poskytovatel, model, skin, jazyk, sfx povoleno/hlasitost, velikost písma.</li>
+  <li><code>config.ini</code> (kořen rozšíření, gitignored) — klíče API a pověřovací údaje na integraci.</li>
+</ul>
+<p>Nastavení se automaticky uchovávají při opětovném načtení panelu. Modální okno <b>Nastavení</b> je bezpečný způsob, jak cokoliv změnit; přímá úprava <code>config.ini</code> také funguje.</p>
+</section>
+
+<section id="setup">
+<h2>Průvodce nastavením <a class="top-link" href="#">↑ nahoru</a></h2>
+<p>Průvodce nastavením (<code>setupBtn</code>) projde každou integrací, kterou rozšíření podporuje. Pro každý krok vložte přihlašovací údaj a klikněte na <b>Další</b> (zapíše a postupuje) nebo <b>Přeskočit</b> (postupuje bez zápisu). Kroky:</p>
+<table>
+<tr><th>Krok</th><th>Na co se ptá</th><th>Kde to získat</th></tr>
+<tr><td>Anthropic (Claude)</td><td>API klíč</td><td><a target="_blank" rel="noopener" href="https://console.anthropic.com/account/keys">console.anthropic.com</a></td></tr>
+<tr><td>OpenAI (ChatGPT)</td><td>API klíč</td><td><a target="_blank" rel="noopener" href="https://platform.openai.com/api-keys">platform.openai.com</a></td></tr>
+<tr><td>Google Gemini</td><td>API klíč</td><td><a target="_blank" rel="noopener" href="https://aistudio.google.com/apikey">aistudio.google.com</a></td></tr>
+<tr><td>xAI (Grok)</td><td>API klíč</td><td><a target="_blank" rel="noopener" href="https://console.x.ai/">console.x.ai</a></td></tr>
+<tr><td>GitHub PAT</td><td>Osobní přístupový token s repo / workflow / admin:org / atd.</td><td><a target="_blank" rel="noopener" href="https://github.com/settings/tokens/new">github.com/settings/tokens</a></td></tr>
+<tr><td>Email / SMTP</td><td>Účet + heslo aplikace (doporučuje se Gmail)</td><td><a target="_blank" rel="noopener" href="https://myaccount.google.com/apppasswords">myaccount.google.com/apppasswords</a></td></tr>
+<tr><td>Cloudflare</td><td>Token API (NIKOLI globální klíč)</td><td><a target="_blank" rel="noopener" href="https://dash.cloudflare.com/profile/api-tokens">dash.cloudflare.com</a></td></tr>
+<tr><td>Twilio</td><td>SID účtu + ověřovací token + číslo Od</td><td><a target="_blank" rel="noopener" href="https://console.twilio.com/">console.twilio.com</a></td></tr>
+<tr><td>ElevenLabs (TTS)</td><td>API klíč</td><td><a target="_blank" rel="noopener" href="https://elevenlabs.io/app/settings/api-keys">elevenlabs.io</a></td></tr>
+<tr><td>Stability AI</td><td>API klíč</td><td><a target="_blank" rel="noopener" href="https://platform.stability.ai/account/keys">platform.stability.ai</a></td></tr>
+<tr><td>Runway</td><td>API klíč</td><td><a target="_blank" rel="noopener" href="https://dev.runwayml.com/">dev.runwayml.com</a></td></tr>
+<tr><td>SendGrid</td><td>API klíč</td><td><a target="_blank" rel="noopener" href="https://app.sendgrid.com/settings/api_keys">app.sendgrid.com</a></td></tr>
+</table>
+<p>Každé pole je maskováno heslem, takže podivní diváci si nebudou moci přečíst vaše klíče z obrazovky.</p>
+</section>
+
+<section id="accounts">
+<h2>Účty a API klíče <a class="top-link" href="#">↑ nahoru</a></h2>
+<p>Každý poskytovatel může mít více účtů s popisky — užitečné, pokud chcete přepínat mezi osobními a pracovními klíči nebo testovat jinou úroveň. Modální okno Účty vám umožňuje:</p>
+<ul>
+  <li>Přidat nový účet s popiskem a klíčem</li>
+  <li>Upravit stávající účet (přepopsat popis, nahradit klíč)</li>
+  <li>Nastavit, který účet je aktivní pro aktuální relaci</li>
+  <li>Odebrat účet</li>
+</ul>
+<p>Klíče se uchovávají maskované (viditelné pouze poslední čtyři) v <code>config.ini</code>. V workspaceState není žádná kopie ve formátu prostého textu.</p>
+</section>
+
+<section id="slash">
+<h2>Slash příkazy <a class="top-link" href="#">↑ nahoru</a></h2>
+<p>Zadejte <code>/</code> na začátek textové oblasti nebo klikněte na <b>Zobrazit nabídku příkazů</b>, abyste vybrali z:</p>
+<table>
+<tr><th>Příkaz</th><th>Co dělá</th></tr>
+<tr><td><code>/help</code></td><td>Otevřít tuto stránku</td></tr>
+<tr><td><code>/handbook</code></td><td>Otevřít příručku projektu</td></tr>
+<tr><td><code>/clear</code></td><td>Nová konverzace</td></tr>
+<tr><td><code>/settings</code></td><td>Otevřít modální okno Nastavení</td></tr>
+<tr><td><code>/prompts</code></td><td>Upravit uložené šablony promptů</td></tr>
+<tr><td><code>/history</code></td><td>Procházet historii chatu</td></tr>
+<tr><td><code>/font</code></td><td>Přepnout velké písmo</td></tr>
+<tr><td><code>/attach</code></td><td>Připojit soubor k dalšímu promptu</td></tr>
+<tr><td><code>/folder</code></td><td>Vybrat složku projektu</td></tr>
+<tr><td><code>/compact</code></td><td>Komprimovat konverzaci (shrnutí a prořezávání)</td></tr>
+<tr><td><code>/git</code></td><td>Otevřít Source Control</td></tr>
+<tr><td><code>/github</code></td><td>Uvést repozitáře GitHub</td></tr>
+<tr><td><code>/license</code></td><td>Zobrazit licenci MIT</td></tr>
+<tr><td><code>/push</code></td><td>Odeslat soubory rozšíření na server automatické aktualizace (pouze správce)</td></tr>
+<tr><td><code>/compress</code></td><td>Zkomprimovat konverzaci (alias <code>/compact</code>)</td></tr>
+<tr><td><code>/switch-accounts</code></td><td>Otevřít modální okno Účty a přepnout aktivní klíč API</td></tr>
+</table>
+</section>
+
+<section id="tama">
+<h2>Tamagotchi pet <a class="top-link" href="#">↑ nahoru</a></h2>
+<p>Tamagotchi je pixel-artový pet, který žije v panelu pod skinem <b>tamagotchi</b>. Stárne, cítí hlad/špinu, lze si s ním hrát a umírá, pokud je dostatečně dlouho zanedbáván. Stav se uchovává v <code>workspaceState</code>.</p>
+
+<h4>Statistiky (horní část widgetu)</h4>
+<table>
+<tr><th>Statistika</th><th>Co sleduje</th></tr>
+<tr><td>🥚 Fáze</td><td>Životní cyklus: vejce → miminko → dítě → teenager → dospělý → senior → mrtvý. Stárne v reálném čase minut.</td></tr>
+<tr><td>🍖 Hlad</td><td>0–100. Klesá v čase; <b>Krmit</b> to zvyšuje. Když dosáhne 0 → zdraví klesá.</td></tr>
+<tr><td>😀 Štěstí</td><td>0–100. Klesá v čase; <b>Hrát si</b> to zvyšuje.</td></tr>
+<tr><td>❤️ Zdraví</td><td>0–100. Klesá, když je nemocný nebo hladoví. <b>Injekce</b> to vyléčí.</td></tr>
+<tr><td>✨ Čistota</td><td>0–100. Klesá, když pet zmrská. <b>Čistit</b> to zvyšuje.</td></tr>
+<tr><td>⏱ Věk</td><td>Minuty od vylíhnutí.</td></tr>
+</table>
+
+<h4>Tlačítka akcí v LCD (dolní část widgetu)</h4>
+<table>
+<tr><th>Ikona</th><th>Akce</th></tr>
+<tr><td>🍖</td><td><b>Krmit</b> — cyklus maso ↔ baklažán. <b>Vybrat</b>, aby se skutečně nakrmil.</td></tr>
+<tr><td>🧹</td><td><b>Čistit</b> — zametat zmrsku.</td></tr>
+<tr><td>⚾</td><td><b>Hrát si</b> — minihra; zvyšuje štěstí.</td></tr>
+<tr><td>💉</td><td><b>Injekce</b> — vyléčí, když je nemocný.</td></tr>
+<tr><td>💡</td><td><b>Světlo</b> — přepnout lampu LCD; pet spí v temnu.</td></tr>
+<tr><td>✅</td><td><b>Vybrat</b> — potvrdit / pokračovat (ekvivalent původního středního tlačítka Bandai).</td></tr>
+</table>
+<p>Sprite petu se kreslí do plátna 240×240 (kompakt: 138×116). Sprity a logika životního cyklu se nacházejí v <code>panel/dotmatrix-tamagotchi-sprites.js</code> a <code>panel/dotmatrix-tamagotchi-game.js</code>.</p>
+</section>
+
+<section id="skins">
+<h2>Skiny <a class="top-link" href="#">↑ nahoru</a></h2>
+<p>Vizuální motivy pro celý panel — tlačítka, modály, bloky kódu, dokonce i písmo. Vyberte si jeden v <b>Nastavení → Skin</b>. Každý skin se nachází v <code>skins/&lt;id&gt;/</code> s <code>manifest.xml</code> (deklaruje barvy a akcent) a <code>styles.css</code> (přepíše proměnné CSS).</p>
+<ul>
+  <li><b>codex-black</b> (výchozí) — tmavý, monospace, neonově-azurový akcent</li>
+  <li><b>glassy</b> — zamrzlé povrchy přes měkké pozadí</li>
+  <li><b>tamagotchi</b> — limetko-zelené LCD handheld; automaticky zobrazuje widget petu zakotveného v rohu autora</li>
+  <li><b>office</b> — styl Wordu krém/modrý chrom</li>
+  <li><b>macos-color-dock</b> / <b>mint-dock</b> — dolní lišty panelu nástrojů se skleněnými ikonami</li>
+  <li><b>terminal</b> / <b>arch</b> / <b>kde</b> / <b>gnome</b> / <b>xfce</b> / <b>ubuntu</b> / <b>redhat</b> — témata linuxového desktopového prostředí</li>
+</ul>
+<p>Barvy modálu vycházejí z položek <code>&lt;colors&gt;</code> v manifestu každého skinu a jsou vloženy do <code>:root</code> jako proměnné <code>--cbe-modal-*</code>, takže se každý modál (včetně této nápovědy) vykresluje v motivu.</p>
+</section>
+
+<section id="extensions">
+<h2>Rozšíření <a class="top-link" href="#">↑ nahoru</a></h2>
+<p>Mini-aplikace, které se nacházejí uvnitř CBE. Každá je složka pod <code>extensions/&lt;id&gt;/</code> s:</p>
+<ul>
+  <li><code>manifest.xml</code> — id, název, verze, autor, popis, vstupní HTML, ikona (emoji nebo <code>icon.svg</code>)</li>
+  <li><code>extension.html</code> (nebo cokoli, co manifest říká <code>&lt;entry&gt;</code>) — skutečná aplikace</li>
+</ul>
+<p>Klikněte na <b>Rozšíření</b>, abyste procházeli co je nainstalováno, připnuli na nástrojovou lištu, nainstalovali nové z veřejného katalogu nebo odebrat z disku. Připnuté ID se nacházejí v <code>extensions/_pinned.json</code>.</p>
+</section>
+
+<section id="autoupdate">
+<h2>Automatická aktualizace (push / pull) <a class="top-link" href="#">↑ nahoru</a></h2>
+<p>CBE synchronizuje svůj zdroj mezi stroji přes kanál push WinSCP + HTTPS pull.</p>
+
+<h4>Push (pouze správce)</h4>
+<p>Pokud je <code>[updates] is_admin = true</code> v config.ini, každá aktivace spustí na pozadí <code>WinSCP synchronize remote -mirror</code>, která odešle složku rozšíření na <code>/home/trentontompkins.com/cbe</code> na serveru. Ruční spuštění: <code>/push</code> slash příkaz. Vyloučeno stav na jednotlivých strojích: <code>data/</code> (1,74 GB profily Chrome), <code>bridges/</code>, <code>node_modules/</code>, <code>.git/</code>, <code>logs/</code>, <code>chats/</code>, <code>config.ini</code>, <code>prompt_history.txt</code>, <code>domains.txt</code>, <code>wake.txt</code>.</p>
+
+<h4>Pull (každý klient)</h4>
+<p>4 sekundy po aktivaci každý klient načte <code>https://trentontompkins.com/cbe/manifest.xml.php</code> a MD5-porovnává soubory proti místním kopiím. Pouze změněné/chybějící soubory se stahují přes prostý HTTPS GET. Vyloučené cesty se NIKDY nestahuní: <code>config.ini</code>, <code>data/</code>, <code>bridges/</code>, <code>extension.js</code>, <code>panel/panel.js</code>, <code>panel/index.html</code>, <code>package.json</code>, nástroje pro vytváření — důvod je, že zdroj se dodává přes .vsix a starší kopie serveru nesmí přepsat průběžné vývojové práce.</p>
+</section>
+
+<section id="hotreload">
+<h2>Hot reload <a class="top-link" href="#">↑ nahoru</a></h2>
+<p>Dvě cesty opětovného načtení jsou vystaveny přes kontextovou nabídku:</p>
+<ul>
+  <li><b>Načíst panel znovu</b> — znovu přečte <code>panel/index.html</code> + každý prostředek JS/CSS s <code>?v=&lt;mtime&gt;</code> cache-busterem pro jednotlivé soubory a znovu přiřadí <code>panel.webview.html</code>. Vybere úpravy panel.js / skin CSS / dotmatrix bez restartování VSCode. Hostitel rozšíření zůstane naživu (váš terminál, supervizor, obslužné programy zpráv, historie chatu všechno zůstane).</li>
+  <li><b>Načíst okno znovu</b> — spustí <code>workbench.action.reloadWindow</code>. Použijte pouze, když jste upravili <code>extension.js</code> (kód na straně hostitele) a Načíst panel znovu nestačí.</li>
+</ul>
+<p>Úpravy CSS skinu se také automaticky aplikují přes stávajícího sledovače skinu panelu — není potřeba kliknutí na nabídku.</p>
+</section>
+
+<section id="troubleshooting">
+<h2>Řešení problémů <a class="top-link" href="#">↑ nahoru</a></h2>
+
+<details><summary><b>„bridge X chat failed: api key empty in config.ini"</b></summary>
+<p>Daemon smart_bridge.py uchovával starou kontrolu brány v paměti. Opraveno v otočení C++-exe. Pokud ji stále vidíte, zabijte zastaralé demony:</p>
+<pre><code>powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*smart_bridge.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"</code></pre>
+</details>
+
+<details><summary><b>„copilot has no public REST API — use the browser bridge"</b></summary>
+<p>Staré extension.js směrovalo mostní chat přes router REST místo skutečného exe tray. Načtěte okno znovu, aby se vyzvedlo opravené extension.js, pak bude chat jít přímo na <code>bin/CBE-Bridge-Copilot.exe</code>.</p>
+</details>
+
+<details><summary><b>HTTP 404 model: sonnet-4.6</b></summary>
+<p>Zastaralý krátký alias v konfiguraci Claude mostu. Opraveno — nyní se používají úplné ID (<code>claude-sonnet-4-6</code>, <code>claude-opus-4-7</code>, <code>claude-haiku-4-5</code>).</p>
+</details>
+
+<details><summary><b>Upravil jsem soubor, ale panel nezobrazuje změnu</b></summary>
+<ol>
+  <li>Pokud je to <code>panel.js</code> / <code>skins/*.css</code> / <code>index.html</code> → kliknutí pravým tlačítkem → <b>Načíst panel znovu</b>.</li>
+  <li>Pokud je to <code>extension.js</code> / <code>bridges_cpp/*.py</code> → kliknutí pravým tlačítkem → <b>Načíst okno znovu</b>.</li>
+  <li>Pokud nemůžete dosáhnout nabídky (např. nabídka sama se ještě nenačetla), spusťte novou instanci VSCode s izolovaným uživatelským datovým adresářem:<br>
+  <code>code --user-data-dir="$env:USERPROFILE\.cbe-edh" --extensionDevelopmentPath="C:\Users\moren\Desktop\Claude Codex Black"</code></li>
+</ol>
+</details>
+
+<details><summary><b>STT se nezdaří s „not-allowed"</b></summary>
+<p>VSCode izoluje webové zobrazení od povolení mikrofonu. CBE se automaticky vrátí k Windows SAPI (<code>System.Speech.Recognition</code>) spuštěnému přes PowerShell. Možná bude nutné udělit přístup k mikrofonu na úrovni OS (Nastavení → Soukromí → Mikrofon).</p>
+</details>
+
+<details><summary><b>Most exe chybí</b></summary>
+<p>Protokol trasování zobrazuje <code>BRIDGE:MISSING target=&lt;t&gt; expected=&lt;path&gt;</code>. Exe tray v C++ se nacházejí v <code>bin/CBE-Bridge-&lt;Pretty&gt;.exe</code>. Pokud vaše neexistují, přestavte ze zdroje <code>bridges_cpp/</code> (MSVC) nebo stáhněte nový .vsix.</p>
+</details>
+
+</section>
+
+<p style="margin-top: 36px; color: var(--muted); font-size: 12px; text-align: center;">
+Claude Codex — Black Edition · MIT licencováno · © 2026 Trent Tompkins · <a target="_blank" rel="noopener" href="mailto:trenttompkins@gmail.com" style="color:var(--accent);">trenttompkins@gmail.com</a> · (724) 431-5207
+</p>
+
+<button id="backToTop" type="button" aria-label="Zpět na vrchol" title="Zpět na vrchol"
+        style="position:fixed;right:18px;bottom:18px;width:38px;height:38px;border-radius:50%;
+               background:var(--accent);color:var(--bg);border:0;font-size:18px;cursor:pointer;
+               opacity:0;transition:opacity .25s ease;box-shadow:0 4px 14px rgba(0,0,0,.35);z-index:9999;">↑</button>
+
 </div>
 
+<!-- jQuery for animated smooth scroll on TOC anchor clicks. CDN load is
+     attempted first; if the webview CSP blocks it (typical in VSCode), the
+     CSS `scroll-behavior: smooth` rule above already delivers a smooth
+     fallback so the help remains usable. -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"
+        integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
+        crossorigin="anonymous"></script>
 <script>
-/* Native smooth-scroll TOC navigation. jQuery CDN scripts are blocked by the
-   VSCode webview CSP, so this uses plain DOM APIs — scrollIntoView with
-   behavior:'smooth' gives the identical animated scroll without any external
-   dependency. Works inside the webview iframe sandbox. */
-(function () {
-  const main = document.getElementById('main');
-  const tocLinks = Array.prototype.slice.call(document.querySelectorAll('nav.toc a[href^="#"]'));
-  const sections = Array.prototype.slice.call(document.querySelectorAll('section.help-section'));
+(function() {
+  var hasJQ = (typeof window.jQuery !== 'undefined');
 
-  tocLinks.forEach(function (link) {
-    link.addEventListener('click', function (e) {
+  // ── Animated smooth scroll for in-page anchor links (TOC + "↑ top"). ──
+  function jqScrollTo(targetEl, durationMs) {
+    jQuery('html, body').stop(true).animate({
+      scrollTop: targetEl.offsetTop - 14
+    }, durationMs || 550, 'swing');
+  }
+
+  // Vanilla rAF fallback if jQuery never loaded (CSP-blocked CDN).
+  function rafScrollTo(targetEl, durationMs) {
+    var startY = window.pageYOffset;
+    var endY   = (targetEl.getBoundingClientRect().top + startY) - 14;
+    var dist   = endY - startY;
+    var t0     = performance.now();
+    var d      = durationMs || 550;
+    function easeInOut(t) { return t < .5 ? 2*t*t : -1 + (4 - 2*t)*t; }
+    function step(now) {
+      var p = Math.min(1, (now - t0) / d);
+      window.scrollTo(0, startY + dist * easeInOut(p));
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function scrollToHash(hash) {
+    if (!hash || hash === '#') {
+      // "↑ top" links use href="#" — scroll to absolute top.
+      if (hasJQ) jQuery('html, body').stop(true).animate({ scrollTop: 0 }, 550, 'swing');
+      else window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    var el = document.querySelector(hash);
+    if (!el) return;
+    if (hasJQ) jqScrollTo(el, 550);
+    else rafScrollTo(el, 550);
+  }
+
+  // Intercept every in-page anchor click and animate.
+  document.querySelectorAll('a[href^="#"]').forEach(function(a) {
+    a.addEventListener('click', function(e) {
+      var href = a.getAttribute('href');
       e.preventDefault();
-      const id = link.getAttribute('href');
-      const target = document.querySelector(id);
-      if (!target) return;
-      /* scrollIntoView animates within the nearest scroll container (#main,
-         which has overflow:auto). scroll-margin-top on the section handles
-         the small top offset so headings aren't flush against the edge. */
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      try { history.replaceState(null, '', id); } catch (_) {}
+      scrollToHash(href);
+      if (href && href !== '#') {
+        history.replaceState(null, '', href);
+      } else {
+        history.replaceState(null, '', location.pathname + location.search);
+      }
     });
   });
 
-  /* Highlight whichever section is currently scrolled into view. */
-  function syncActive() {
-    const scrollTop = main.scrollTop;
-    const threshold = 80;
-    let activeId = sections.length ? sections[0].id : '';
-    sections.forEach(function (sec) {
-      if (sec.offsetTop - threshold <= scrollTop) activeId = sec.id;
-    });
-    tocLinks.forEach(function (l) {
-      l.classList.toggle('active', l.getAttribute('href') === '#' + activeId);
-    });
+  // ── Back-to-top floating button: fades in past 240px scroll. ──
+  var btn = document.getElementById('backToTop');
+  if (btn) {
+    function syncBtn() {
+      btn.style.opacity = (window.pageYOffset > 240) ? '0.92' : '0';
+      btn.style.pointerEvents = (window.pageYOffset > 240) ? 'auto' : 'none';
+    }
+    window.addEventListener('scroll', syncBtn, { passive: true });
+    btn.addEventListener('click', function() { scrollToHash('#'); });
+    syncBtn();
   }
-  main.addEventListener('scroll', syncActive);
-  syncActive();
-
-  /* External-link bridge. target="_blank" doesn't escape a VSCode webview
-     iframe — the click would just try to navigate the iframe itself. Instead
-     we intercept clicks on absolute http(s) links and postMessage to the
-     parent panel, which forwards to extension.js, which calls
-     vscode.env.openExternal so the user's real default browser opens. */
-  document.addEventListener('click', function (e) {
-    var t = e.target;
-    while (t && t.tagName !== 'A') t = t.parentNode;
-    if (!t || !t.getAttribute) return;
-    var href = t.getAttribute('href') || '';
-    if (!/^https?:\/\//i.test(href)) return;
-    e.preventDefault();
-    try {
-      window.parent.postMessage({ type: 'cbe.openExternal', url: href }, '*');
-    } catch (err) { /* parent missing — fall back to noop */ }
-  }, true);
 })();
 </script>
 </body>

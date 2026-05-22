@@ -1,563 +1,591 @@
 <!doctype html>
 <html lang="tr">
 <head>
+<base href="about:srcdoc">
 <meta charset="utf-8">
 <title>Claude Codex — Black Edition · Yardım</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
+  /* Smooth-scroll for the TOC anchor jumps. */
+  html { scroll-behavior: smooth; }
+
   :root {
-    --bg: #16181d;
-    --surface: #1f2229;
-    --surface-2: #262a33;
-    --border: #353a45;
-    --text: #e7eaef;
-    --muted: #aab1bd;
-    --accent: #4ea8ff;
-    --accent-soft: rgba(78,168,255,0.12);
-    --kbd-bg: #0f1116;
-    --kbd-border: #2b313b;
-    --warn: #ffd84d;
-    --err: #ff8a8a;
-    --ok: #6fd58a;
+    /* Defaults — overridden by panel.js applySkinColors() when a skin is
+       active so the help reads natively under any skin (lime tamagotchi,
+       cream macOS, dark codex-black, etc). */
+    --bg:           var(--cbe-modal-bg,           #16181d);
+    --surface:      var(--cbe-modal-foot-bg,      #1f2229);
+    --surface-2:    var(--cbe-modal-title-bg-1,   #262a33);
+    --border:       var(--cbe-modal-border,       #353a45);
+    --text:         var(--cbe-modal-fg,           #e7eaef);
+    --muted:                                      #aab1bd;
+    --accent:       var(--cbe-modal-accent,       #4ea8ff);
+    --accent-soft:                                rgba(78,168,255,0.12);
+    --kbd-bg:                                     #0f1116;
+    --kbd-border:                                 #2b313b;
+    --warn:                                       #ffd84d;
+    --err:                                        #ff8a8a;
   }
-  * { box-sizing: border-box; }
-  /* .app is included here because CBE inlines this file's body into a <div>
-     inside the panel (no <html>/<body> wrapper) — without .app carrying the
-     dark background + text color, the panel skin's background bleeds through
-     and you get unreadable text. Standalone (real <body>) it's still fine. */
-  html, body, .app { margin: 0; padding: 0; height: 100%; background: var(--bg);
-               color: var(--text); font: 14.5px/1.55 ui-sans-serif, system-ui,
-               -apple-system, "Segoe UI", sans-serif; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  code, kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-  code { background: var(--kbd-bg); padding: 1px 6px; border-radius: 4px;
-         border: 1px solid var(--kbd-border); font-size: 0.92em; }
-  kbd { background: var(--kbd-bg); padding: 1px 7px; border-radius: 4px;
-        border: 1px solid var(--kbd-border); border-bottom-width: 2px;
-        font-size: 0.85em; color: #ffd84d; }
-  pre { background: var(--kbd-bg); border: 1px solid var(--border);
-        border-radius: 6px; padding: 12px 14px; overflow-x: auto;
-        font-size: 12.5px; }
-  /* Layout: fixed TOC sidebar + scrolling content. The content scrolls
-     inside #main, which jQuery smooth-scrolls when TOC links are clicked. */
-  /* height:100% (not 100vh) so the layout fills the modal body when inlined,
-     and the full standalone window when opened as a real page. */
-  .app { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
-  nav.toc { background: var(--surface); border-right: 1px solid var(--border);
-            overflow-y: auto; padding: 18px 0 24px 0; position: sticky; top: 0;
-            height: 100%; }
-  nav.toc h2 { margin: 0 18px 8px 18px; font-size: 11px; letter-spacing: 0.08em;
-               color: var(--muted); text-transform: uppercase; }
-  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: tocnum; }
-  nav.toc ol li { counter-increment: tocnum; }
-  nav.toc ol li > a { display: block; padding: 7px 18px 7px 36px; font-size: 13.5px;
-                       color: var(--text); position: relative; line-height: 1.3;
-                       border-left: 3px solid transparent; }
-  /* Click feedback wired from panel.js: active TOC link gets an accent bar +
-     tint, the landed section flashes a soft accent glow that fades out. */
-  nav.toc ol li > a.cbe-toc-active {
-    border-left-color: var(--accent); background: var(--accent-soft);
-    color: var(--accent);
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
   }
-  @keyframes cbeHelpFlash {
-    0%   { background: var(--accent-soft); }
-    100% { background: transparent; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 28px 32px 80px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 30px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 15px; margin: 18px 0 4px; color: var(--accent); }
+  h4 { font-size: 13px; margin: 12px 0 4px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  p  { margin: 4px 0 10px; }
+  ul, ol { margin: 4px 0 12px; padding-left: 22px; }
+  li { margin: 3px 0; }
+  code, kbd { font-family: Consolas, "Courier New", monospace; font-size: 12.5px; }
+  code { background: var(--surface-2); padding: 1px 5px; border-radius: 3px; }
+  kbd  { background: var(--kbd-bg); border: 1px solid var(--kbd-border); padding: 1px 6px; border-radius: 3px; font-size: 11.5px; }
+  pre  { background: var(--surface-2); padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; }
+  pre code { background: transparent; padding: 0; }
+  .lead { color: var(--muted); margin: 0 0 18px; }
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 14px 0 24px;
   }
-  .cbe-help-flash { animation: cbeHelpFlash 1.1s ease-out 1; border-radius: 6px; }
-  nav.toc ol li > a::before { content: counter(tocnum); position: absolute;
-                              left: 14px; top: 7px; color: var(--muted);
-                              font-family: ui-monospace; font-size: 11px;
-                              min-width: 16px; text-align: right; }
-  nav.toc ol li > a:hover { background: var(--surface-2); text-decoration: none; }
-  nav.toc ol li > a.active { background: var(--accent-soft);
-                              border-left-color: var(--accent); color: var(--accent); }
-  main#main { overflow-y: auto; padding: 28px 36px 80px 36px; height: 100vh; }
-  main#main > header { margin-bottom: 26px; padding-bottom: 14px;
-                       border-bottom: 1px solid var(--border); }
-  main#main > header h1 { margin: 0 0 4px 0; font-size: 24px; font-weight: 600;
-                          letter-spacing: 0.005em; }
-  main#main > header .meta { color: var(--muted); font-size: 13px; }
-  section.help-section { scroll-margin-top: 16px; max-width: 820px;
-                          margin: 0 0 36px 0; padding-top: 6px; }
-  section.help-section h2 { font-size: 19px; margin: 0 0 10px 0; font-weight: 600;
-                            display: flex; align-items: baseline; gap: 10px; }
-  section.help-section h2 .num { color: var(--muted); font: 13px ui-monospace;
-                                  min-width: 1.5em; }
-  section.help-section h3 { font-size: 15px; margin: 18px 0 6px 0; font-weight: 600;
-                            color: var(--text); }
-  section.help-section p { margin: 0 0 10px 0; color: var(--text); }
-  section.help-section ul { margin: 0 0 12px 0; padding-left: 22px; }
-  section.help-section li { margin-bottom: 4px; }
-  section.help-section table { border-collapse: collapse; width: 100%;
-                                margin: 6px 0 14px 0; font-size: 13.5px; }
-  section.help-section th, section.help-section td { border: 1px solid var(--border);
-                                                       padding: 6px 10px; text-align: left;
-                                                       vertical-align: top; }
-  section.help-section th { background: var(--surface-2); font-weight: 600; }
-  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft);
-             padding: 10px 14px; border-radius: 0 4px 4px 0; margin: 10px 0 14px 0; }
-  .callout.warn { border-color: var(--warn); background: rgba(255,216,77,0.08); }
-  .callout.err  { border-color: var(--err);  background: rgba(255,138,138,0.08); }
-  .top-link { float: right; font-size: 12px; color: var(--muted); }
+  .toc h2 { font-size: 13px; margin: 0 0 8px; border: 0; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .toc ul { columns: 2; column-gap: 28px; margin: 0; padding-left: 18px; list-style: square; }
+  .toc a { color: var(--text); text-decoration: none; }
+  .toc a:hover { color: var(--accent); text-decoration: underline; }
+  section { scroll-margin-top: 12px; }
+  .btnrow {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 4px 16px;
+    margin: 6px 0 14px;
+  }
+  .btnrow dt { font-weight: 600; color: var(--accent); padding-top: 2px; }
+  .btnrow dd { margin: 0 0 8px; }
+  .pill {
+    display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px;
+    background: var(--accent-soft); color: var(--accent); margin-left: 6px;
+    border: 1px solid color-mix(in srgb, var(--accent), transparent 60%);
+  }
+  .pill.warn { background: rgba(255,216,77,.10); color: var(--warn); border-color: color-mix(in srgb, var(--warn), transparent 60%); }
+  .note { background: var(--surface); border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: 13px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  details { margin: 6px 0; }
+  summary { cursor: pointer; color: var(--accent); padding: 4px 0; }
+  summary:hover { text-decoration: underline; }
+  .top-link { float: right; font-size: 12px; color: var(--muted); text-decoration: none; font-weight: normal; }
   .top-link:hover { color: var(--accent); }
-  /* Scrollbar */
-  *::-webkit-scrollbar { width: 10px; height: 10px; }
-  *::-webkit-scrollbar-track { background: var(--bg); }
-  *::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
-  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
+  a { color: var(--accent); }
 </style>
 </head>
 <body>
-<div class="app">
+<div class="wrap">
 
-  <nav class="toc" aria-label="İçindekiler">
-    <h2>İçindekiler</h2>
-    <ol id="toc-list">
-      <li><a href="#welcome">Hoşgeldiniz</a></li>
-      <li><a href="#keyboard">Klavye kısayolları</a></li>
-      <li><a href="#prompt-box">İstem kutusu</a></li>
-      <li><a href="#toolbar">Araç çubuğu düğmeleri</a></li>
-      <li><a href="#providers">Modeller ve sağlayıcılar</a></li>
-      <li><a href="#stt">Konuşmayı Metne Dönüştürme</a></li>
-      <li><a href="#auto-prompt">Otomatik İstem</a></li>
-      <li><a href="#tts">Otomatik Oku (TTS)</a></li>
-      <li><a href="#compact">Kompakt ve bağlam kullanımı</a></li>
-      <li><a href="#wake-up">Uyandırma yanıtı</a></li>
-      <li><a href="#attachments">Dosya ekleri</a></li>
-      <li><a href="#git">Git modal</a></li>
-      <li><a href="#github">GitHub depoları</a></li>
-      <li><a href="#domains">NameSilo Etki Alanları</a></li>
-      <li><a href="#skins">Görünümler ve temalar</a></li>
-      <li><a href="#settings">Ayarlar</a></li>
-      <li><a href="#language">Dil</a></li>
-      <li><a href="#monitor">VSCode denetim</a></li>
-      <li><a href="#auto-update">Otomatik güncelleme (çek)</a></li>
-      <li><a href="#admin-push">Yönetici itme</a></li>
-      <li><a href="#extensions">Uzantılar marketpleti</a></li>
-      <li><a href="#slash">Eğik çizgi komutları</a></li>
-      <li><a href="#context-menu">Sağ tık menüsü</a></li>
-      <li><a href="#trace">İz kanalı</a></li>
-      <li><a href="#troubleshooting">Sorun giderme</a></li>
-      <li><a href="#about">Hakkında ve lisans</a></li>
-    </ol>
-  </nav>
+<h1>Claude Codex — Black Edition</h1>
+<p class="lead">VSCode için bağımsız AI paneli. Herhangi bir LLM sağlayıcısı (doğrudan API veya tarayıcı köprüsü) ile sohbet edin, yerleşik TTS, STT, dosyaya ekleme, komut paleti, çoklu hesap, tema desteği ve piksel uydu Tamagotchi ile.</p>
 
-  <main id="main">
-    <header>
-      <h1>Claude Codex — Black Edition</h1>
-      <div class="meta">VSCode için çevrimdışı-öncelikli çok sağlayıcılı yapay zeka sohbet paneli.
-        Açmak/kapatmak için <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd> tuşuna basın.</div>
-    </header>
+<nav class="toc">
+  <h2>İçindekiler</h2>
+  <ul>
+    <li><a href="#quick">Hızlı başlangıç</a></li>
+    <li><a href="#providers">Sağlayıcılar &amp; modeller</a></li>
+    <li><a href="#sending">İleti gönderme</a></li>
+    <li><a href="#toolbar">Araç çubuğu düğmeleri</a></li>
+    <li><a href="#rightclick">Sağ tıklama menüsü</a></li>
+    <li><a href="#modals">Modaller &amp; iletişim kutuları</a></li>
+    <li><a href="#settings">Ayarlar</a></li>
+    <li><a href="#setup">Kurulum sihirbazı</a></li>
+    <li><a href="#accounts">Hesaplar &amp; API anahtarları</a></li>
+    <li><a href="#slash">Eğik çizgi komutları</a></li>
+    <li><a href="#tama">Tamagotchi uydu</a></li>
+    <li><a href="#skins">Temalar</a></li>
+    <li><a href="#extensions">Uzantılar</a></li>
+    <li><a href="#autoupdate">Otomatik güncelleme (gönder/çek)</a></li>
+    <li><a href="#hotreload">Sıcak yeniden yükleme</a></li>
+    <li><a href="#troubleshooting">Sorun giderme</a></li>
+  </ul>
+</nav>
 
-    <section id="welcome" class="help-section">
-      <h2><span class="num">1.</span> Hoşgeldiniz</h2>
-      <p>Claude Codex Black, tek bir kişiselleştirilebilir panelden birden fazla yapay zeka sağlayıcısı
-        (Claude, OpenAI, Gemini, Grok, Azure, yerel Ollama) ile sohbet yapmanıza olanak sağlayan bir VSCode webview'idir.
-        Anahtar gerektiren her şey, uzantı kökünde <code>config.ini</code> dosyasından okunur —
-        uzantı ayarları kullanıcı arayüzü gerekli değildir, ancak bir Ayarlar modal en yararlı
-        alanları tıkla-sola düzenleme için yansıtır.</p>
-      <div class="callout">
-        Yeni misiniz? <em>Ayarlar</em> menüsünü (dişli simgesi) açarak başlayın, sağlayıcınızı seçin, 
-        API anahtarınızı yapıştırın, sonra bir istem yazın ve <kbd>Enter</kbd> tuşuna basın. Bu kılavuzdaki 
-        diğer tüm özellikler isteğe bağlıdır.
-      </div>
-    </section>
+<section id="quick">
+<h2>Hızlı başlangıç <a class="top-link" href="#">↑ üst</a></h2>
+<ol>
+  <li><b>Kurulum</b> düğmesine (değnek simgesi) tıklayın ve sihirbazdan geçerek API anahtarlarınızı girin. Bunlar <code>config.ini</code> dosyasına kaydedilir (gitignore içinde — asla işlenmez).</li>
+  <li>Sol alttaki <b>sağlayıcı etiketi</b>ne tıklayın (şu anda "Claude Codex — Black Edition" olarak etiketlenmiştir) hangi AI'yla konuşacağınızı değiştirmek için.</li>
+  <li>Metin alanına yazın ve <kbd>Enter</kbd> tuşuna basarak gönderin. <kbd>Shift</kbd>+<kbd>Enter</kbd> yeni satır ekler.</li>
+  <li>Boş bir metin alanında <kbd>↑</kbd> tuşuna basarak önceki istemleri geri çağırın (PowerShell tarzı geçmiş).</li>
+</ol>
+</section>
 
-    <section id="keyboard" class="help-section">
-      <h2><span class="num">2.</span> Klavye kısayolları</h2>
-      <table>
-        <thead><tr><th>Tuş</th><th>Etki</th></tr></thead>
-        <tbody>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd></td><td>CBE panelini aç/kapat</td></tr>
-          <tr><td><kbd>Enter</kbd></td><td>Mevcut istem gönder</td></tr>
-          <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>İstem kutusunun içinde yeni satır</td></tr>
-          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Daha önce gönderilen istemlerinizi döngüyle (<code>prompt_history.txt</code> dosyasından)</td></tr>
-          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Seçkin <code>prompts.txt</code> girişlerinizi döngüyle (imleç başta/sonda olduğunda)</td></tr>
-          <tr><td><kbd>Esc</kbd></td><td>Açık modal'ı kapat</td></tr>
-          <tr><td><kbd>/</kbd></td><td>Eğik çizgi komutu paletini aç</td></tr>
-        </tbody>
-      </table>
-    </section>
+<section id="providers">
+<h2>Sağlayıcılar &amp; modeller <a class="top-link" href="#">↑ üst</a></h2>
+<p>İki tür sağlayıcı desteklenir:</p>
 
-    <section id="prompt-box" class="help-section">
-      <h2><span class="num">3.</span> İstem kutusu</h2>
-      <p>Altta büyük düzenlenebilir textarea. Yazın, yapıştırın, dosya sürükleyin, ek düğmesi ile ekleyin —
-        buraya koyduğunuz her şey sonraki API çağrısının kullanıcı turnosudur.</p>
-      <p>Font, VSCode editörünün monospace yazı tipi (<code>--vscode-editor-font-family</code> 
-        CSS değişkeni aracılığıyla) kilitleniştir, bu nedenle panel editörün içinde evde görünür.</p>
-    </section>
+<h4>Doğrudan API (anahtarınızı kullanır)</h4>
+<table>
+  <tr><th>Sağlayıcı</th><th>Varsayılan model</th><th>Anahtarın nereye gideceği</th></tr>
+  <tr><td>Anthropic (Claude)</td><td>claude-sonnet-4-6</td><td><code>[api_keys] anthropic_api_key</code></td></tr>
+  <tr><td>OpenAI (ChatGPT)</td><td>gpt-4o</td><td><code>[api_keys] openai_api_key</code></td></tr>
+  <tr><td>Google Gemini</td><td>gemini-2.5-pro</td><td><code>[api_keys] gemini_api_key</code></td></tr>
+  <tr><td>xAI (Grok)</td><td>grok-4</td><td><code>[api_keys] xai_api_key</code></td></tr>
+  <tr><td>DeepSeek</td><td>deepseek-chat</td><td><code>[api_keys] deepseek_api_key</code></td></tr>
+  <tr><td>Azure OpenAI</td><td>(dağıtıma dayalı)</td><td><code>[azure] api_key</code> + uç nokta</td></tr>
+</table>
 
-    <section id="toolbar" class="help-section">
-      <h2><span class="num">4.</span> Araç çubuğu düğmeleri</h2>
-      <p>Alt sıra, soldan sağa. Açıklamalar açılır pencere görünür; panel ayrıca seçilen dilde okur
-        (bkz. <a href="#language">Dil</a>).</p>
-      <table>
-        <thead><tr><th>Simge</th><th>İşlev</th></tr></thead>
-        <tbody>
-          <tr><td>🎤 Mikrofon</td><td>Konuşmayı Metne Dönüştürme — Web Speech API SAPI yedek ile. Bkz. <a href="#stt">§ 6</a>.</td></tr>
-          <tr><td>📎 Ekle</td><td>İstemde satır içi yapmak için bir veya daha fazla dosya seçin</td></tr>
-          <tr><td>🔁 Uyandır</td><td>Otomatik İstem uyandırma metnini düzenleyin (<code>wake.txt</code> dosyasında bulunur)</td></tr>
-          <tr><td>⏱ Otomatik İstem</td><td>Hareketsizlik sayaç otomatik gönderimini aç/kapat</td></tr>
-          <tr><td>📚 Kompakt</td><td>Konuşma geçmişini son birkaç turna kısalt. Halka bağlam penceresi kullanımını gösterir.</td></tr>
-          <tr><td>📁 Git</td><td>Proje klasöründe git komutları çalıştır</td></tr>
-          <tr><td>🌐 Etki Alanları</td><td>NameSilo etki alanı listesini çek</td></tr>
-          <tr><td>🐙 GitHub</td><td>GitHub depoları PAT aracılığıyla listele</td></tr>
-          <tr><td>🎨 Görünüm</td><td>Panel tema seç (<code>skins/</code> klasöründen canlı keşfedilir)</td></tr>
-          <tr><td>🧩 Uzantılar</td><td>Marketplace iframe modal'ını aç. Bkz. <a href="#extensions">§ 21</a>.</td></tr>
-          <tr><td>⚙ Ayarlar</td><td>Ayarlar modal'ını aç</td></tr>
-          <tr><td>📜 El Kitabı</td><td><code>handbook.txt</code> dosyasını düzenleme için aç</td></tr>
-          <tr><td>❔ Yardım</td><td>Bu belge</td></tr>
-          <tr><td>⏹ Durdur</td><td>Uçuştaki model çağrısını iptal et</td></tr>
-          <tr><td>📤 Gönder</td><td>İstem gönder (<kbd>Enter</kbd> ile aynı)</td></tr>
-        </tbody>
-      </table>
-    </section>
+<h4>Tarayıcı köprüleri (API anahtarı yok — oturum açılmış tarayıcı oturumunu yönetir)</h4>
+<table>
+  <tr><th>Köprü</th><th>Hedef</th><th>Port</th></tr>
+  <tr><td>ChatGPT köprüsü</td><td>chat.openai.com</td><td>8788</td></tr>
+  <tr><td>Grok köprüsü</td><td>grok.com / x.ai</td><td>8789</td></tr>
+  <tr><td>Copilot köprüsü</td><td>copilot.microsoft.com</td><td>8790</td></tr>
+  <tr><td>Gemini köprüsü</td><td>gemini.google.com</td><td>8791</td></tr>
+  <tr><td>Claude köprüsü</td><td>claude.ai</td><td>8792</td></tr>
+  <tr><td>Ollama (yerel)</td><td>127.0.0.1:11434</td><td>8793</td></tr>
+  <tr><td>DeepSeek köprüsü</td><td>chat.deepseek.com</td><td>8794</td></tr>
+</table>
+<p>Her köprü, <code>bin/CBE-Bridge-&lt;Target&gt;.exe</code> konumunda oturum açılmış bir Chrome profilini açan, isteminizi engelleyen ve modelin yanıtını döndüren küçük bir C++ tray exe dosyasıdır. Ayarlar'da bir köprü sağlayıcısı seçmek eşleşen exe dosyasını otomatik olarak başlatır. Bir köprüyü ilk kez kullandığınızda Chrome penceresinde siteye bir kez giriş yapmalısınız.</p>
+<div class="note">Köprü sohbeti TCP'de satır protokolü kullanır: bir JSON satırı girdi (<code>{action:"chat", target, message, model}</code>), bir JSON satırı çıktı. API anahtarı gerekli değil.</div>
+</section>
 
-    <section id="providers" class="help-section">
-      <h2><span class="num">5.</span> Modeller ve sağlayıcılar</h2>
-      <p>CBE, <code>bridges/</code> altında bırak-ve-çalıştır <code>.bridge</code> eklentileri olarak
-        <strong>11 köprü</strong> ile birlikte gelir. Her biri manifest.xml + bridge.py + simgeler içeren 
-        kendi kendine yeterli bir zipcilvedir. Yeni bir <code>.bridge</code> dosyasını bırakın ve 
-        kartuş açılır menüsünde görünür — uzantı kodu değişikliği gerekli değildir.</p>
-      <h3>Metin sohbeti köprüleri (7)</h3>
-      <ul>
-        <li><strong>ChatGPT</strong> — chatgpt.com, Plus/Pro aboneliği</li>
-        <li><strong>Grok</strong> — grok.com, native xAI girişi (anonim katman ağır kısıtlıdır; önce giriş yapın)</li>
-        <li><strong>Gemini</strong> — gemini.google.com, Google hesabı</li>
-        <li><strong>Claude</strong> — claude.ai, magic-link girişi (<code>tools/sign_in_helper.py claude</code> bir kez çalıştırın)</li>
-        <li><strong>Copilot</strong> — copilot.microsoft.com, ücretsiz Microsoft hesabı</li>
-        <li><strong>DeepSeek</strong> — chat.deepseek.com, native e-posta/şifre (Google SSO KULLANMAYIN)</li>
-        <li><strong>Ollama</strong> — yerel <code>127.0.0.1:11434</code>, giriş gerekli değildir</li>
-      </ul>
-      <h3>Video oluşturma köprüleri (4)</h3>
-      <ul>
-        <li><strong>Sora 2</strong> — sora.com, ChatGPT Plus/Pro girişini yeniden kullanır</li>
-        <li><strong>Google Veo</strong> — gemini.google.com (Veo modu), Gemini Advanced aboneliği</li>
-        <li><strong>Runway Gen-3/4</strong> — app.runwayml.com, ayrı Runway aboneliği</li>
-        <li><strong>Bing Video Creator</strong> — bing.com/videos/create, <em>ücretsiz Sora-2</em> Microsoft hesabı ile</li>
-      </ul>
-      <p>Oluşturulan videolar <code>videos/&lt;bridge&gt;/&lt;timestamp&gt;_&lt;prompt-slug&gt;.mp4</code> 
-        dosyasına kaydedilir ve Video Kütüphanesi panelinde otomatik oynatılır (bkz. aşağıda).</p>
-      <p>Kartuş açılır menüsünden veya <em>Ayarlar → Genel</em> aracılığıyla bir köprü + model seçin. 
-        Seçim çalışma alanı başına yapılır ve workspaceState'te kalıcı hale getirilir. 
-        Yeni köprü eklemek için <code>docs/WRITING_BRIDGES.md</code> dosyasına bakın.</p>
-    </section>
+<section id="sending">
+<h2>İleti gönderme <a class="top-link" href="#">↑ üst</a></h2>
+<dl class="btnrow">
+  <dt>Metin alanı</dt>
+  <dd>İsteminizi yazın. <kbd>Enter</kbd> gönderir, <kbd>Shift</kbd>+<kbd>Enter</kbd> yeni satır ekler. Bir yanıt akışı sırasında, ek istekler <b>sıraya alınır</b> ve sırayla gönderilir — yer tutucu bu durum sırasında "Başka bir ileti sıraya alın…" görüntüler.</dd>
 
-    <section id="video-library" class="help-section">
-      <h2><span class="num">5a.</span> Video Kütüphanesi</h2>
-      <p>Video köprüleri tarafından oluşturulan videoları (Sora, Veo, Runway, Bing Video Creator) 
-        göz atmak ve izlemek için özel bir panel. Komut Paletinden açılır:
-        <em>Claude Codex Black: Videoyu Aç Kütüphane</em> veya <code>codexBlackEd.openVideoPlayer</code>
-        komutu.</p>
-      <ul>
-        <li>Kenar çubuğu <code>videos/&lt;bridge&gt;/</code> altındaki tüm <code>.mp4</code> / <code>.webm</code> / <code>.mov</code> dosyalarını listeler, 
-          köprüye göre gruplandırılır ve en yeniden sıralanır.</li>
-        <li>En taze video ilk açılışta otomatik oynatılır.</li>
-        <li>Panel, <code>videos/</code> dizinini 2 saniyelik aralıklarla izler — herhangi bir yeni oluşturulan 
-          video ✨ "Az oluşturuldu" rozeti ile belirir ve otomatik oynatılır
-          (<em>Otomatik ▶ yeni</em> ile kapatılabilir).</li>
-        <li><em>📂 Aç</em> tıklatarak <code>videos/</code> klasörünü işletim sistemi dosya yöneticisinde gösterin.</li>
-      </ul>
-    </section>
+  <dt>Gönder düğmesi (orb)</dt>
+  <dd>Metin alanının sağ kenarındaki yuvarlak düğme. <kbd>Enter</kbd> ile aynı. Görsel olarak üç durumu gösterir (boşta / üzerine gelin / etkin).</dd>
 
-    <section id="stt" class="help-section">
-      <h2><span class="num">6.</span> Konuşmayı Metne Dönüştürme</h2>
-      <p>Mikrofonu tıklatın, konuşun, yeniden tıklatarak durdurun (veya sessizlik zaman aşımını bekleyin).
-        İki motor sırayla denenmiştir:</p>
-      <ol style="padding-left:22px;">
-        <li><strong>Web Speech API</strong> — Webview'de çalışan Google'ın bulut tanıyıcısı.
-          Gmail/Google oturumunu kullanır; ek anahtar gerekmez.</li>
-        <li><strong>Windows SAPI</strong> (yedek) — Webview mikrofon erişimini engellediğinde çağrılan 
-          önceden ısıtılmış PowerShell işlemi. <code>config.ini</code> dosyasında 
-          <code>[voice] listen_seconds</code> aracılığıyla yapılandırılabilir.</li>
-      </ol>
-      <div class="callout">
-        SAPI, <em>uzantı aktivasyonunda önceden ısıtılır</em>, bu nedenle ilk mikrofon tıklaması 
-        ilk tıklamaları yutan 2-4 saniyelik soğuk başlangıçtan kaçınır.
-      </div>
-    </section>
+  <dt>Durdur düğmesi</dt>
+  <dd>Besteci'nin sağ alt kısmı. Şu anda akışı yapan yanıtı ve sıraya alınan tüm iletileri iptal eder. Akışı yapan metin korunur; sadece uçak içi istek durdurulur.</dd>
 
-    <section id="auto-prompt" class="help-section">
-      <h2><span class="num">7.</span> Otomatik İstem</h2>
-      <p>Badge-with-spinner düğmesi. AÇIK olduğunda, N saniye hareketsizlikten sonra panel 
-        yapılandırılmış uyandırma metninizi otomatik olarak gönderir. Geri sayım rakamı 
-        <code>--cbe-highlight-color</code> cinsinden işlenir, her görünüm tanımlar.</p>
-      <p>Uyandırma metnini 🔁 Wake düğmesi aracılığıyla düzenleyin — <code>wake.txt</code> dosyasını gönderip alır.</p>
-    </section>
+  <dt>Sağlayıcı etiketi</dt>
+  <dd>Besteci'nin sol alt kısmı. Yapılandırdığınız her sağlayıcının açılır listesi için tıklayın. Yeni bir tane seçmek otomatik olarak köprüsünü başlatır (varsa) ve bir onay toastı yayınlar.</dd>
 
-    <section id="tts" class="help-section">
-      <h2><span class="num">8.</span> Otomatik Oku (TTS)</h2>
-      <p>Ağız simgesi. AÇIK olduğunda, her asistan yanıtı Web Speech sentetikörü (Google) 
-        veya SAPI yedek aracılığıyla konuşulur. Ses oynatılırken simgenin etrafında mavi bir halo parlar.</p>
-    </section>
+  <dt>İstem geçmişi</dt>
+  <dd>Boş bir metin alanında <kbd>↑</kbd> / <kbd>↓</kbd>, gönderdiğiniz son 500 istemi geriye/ileriye yürür (PowerShell tarzı). Geçmiş, uzantı klasöründeki <code>prompt_history.txt</code> dosyasında depolanır ve panel yeniden yüklemelerinde devam eder.</dd>
+</dl>
+</section>
 
-    <section id="compact" class="help-section">
-      <h2><span class="num">9.</span> Kompakt ve bağlam kullanımı</h2>
-      <p>Modele gönderilen konuşma dizisi her turla büyür. Kompakt simgesinin etrafındaki halka, 
-        mevcut bağlam penceresi kullanımını konik gradyan olarak gösterir — yeni olduğunda boş, 
-        modelin bağlam sınırına yakın olduğunda dolu.</p>
-      <p>Geçmişi son dört turna kısaltmak için Kompakt'a tıklayın. Sonraki API çağrısı daha küçük diziyi kullanır.</p>
-    </section>
+<section id="toolbar">
+<h2>Araç çubuğu düğmeleri <a class="top-link" href="#">↑ üst</a></h2>
+<p>Araç çubuğu sırasında listelenir. Tüm araç ipuçları dile göre <code>languages/*.xml</code> aracılığıyla yerelleştirilebilir.</p>
 
-    <section id="wake-up" class="help-section">
-      <h2><span class="num">10.</span> Uyandırma yanıtı</h2>
-      <p><code>wake.txt</code> dosyasında uzantı kökünde depolanır. Hareketsizlik zamanlayıcısı ateşlendiğinde 
-        gönderilecek ileti olarak Otomatik İstem tarafından kullanılır. 🔁 araç çubuğu düğmesi aracılığıyla düzenleyin.</p>
-    </section>
+<dl class="btnrow">
 
-    <section id="attachments" class="help-section">
-      <h2><span class="num">11.</span> Dosya ekleri</h2>
-      <p>📎 tıklatarak bir veya daha fazla dosya seçin. Çoklu seçim için seçicide <kbd>Ctrl</kbd> veya <kbd>Shift</kbd> basılı tutun. 
-        Her dosya istem içine dosya adı ve dilini içeren çitli kod bloku olarak satır içine alınır. 
-        1 MB'den büyük ikili dosyalar bildirim ile atlanır.</p>
-    </section>
+<dt>Yeni konuşma <span class="pill">addBtn</span></dt>
+<dd>Geçerli iş parçacığını temizler, bellek içi konuşma durumunu siler ve yeniden başlar. Önceki iş parçacığı, <code>chats/&lt;UTC-date&gt;.log</code> altında diske kaydedilir, böylece hiçbir şey kaybolmaz. <code>/clear</code> ile eşdeğerdir.</dd>
 
-    <section id="git" class="help-section">
-      <h2><span class="num">12.</span> Git modal</h2>
-      <p>📁 Git'e tıklayın. Proje klasörü yapılandırılmamışsa, önce bir klasör seçici alırsınız —
-        seçilen yol <code>config.ini</code> dosyasında <code>[project] path</code> öğesine yazılır.
-        Sonraki git çağırmaları bu yola ayarlanan cwd ile çalışır.</p>
-    </section>
+<dt>Kaydedilen istekler <span class="pill">storedPromptsBtn</span></dt>
+<dd><code>stored_prompts/</code> klasöründe kaydedilen her istem şablonunu listeleyen bir modal açar. Metin alanına eklemek için birine tıklayın; "+" düğmesi yeni bir şablon ekler. Şablonlar değişken ikamesi destekler.</dd>
 
-    <section id="github" class="help-section">
-      <h2><span class="num">13.</span> GitHub depoları</h2>
-      <p><code>[github] pat</code> dosyasına erişilebilir her depoyu listeler. Kopyalama URL'sini 
-        istemde eklemek için bir satıra tıklayın. Liste sayfalandırılır ve önbelleğe alınır.</p>
-    </section>
+<dt>Sohbet geçmişi <span class="pill">chatHistoryBtn</span></dt>
+<dd>Diske kaydedilen sohbet günlüğüne göz atar (<code>chats/</code> altında UTC tarihine göre bir dosya). Geçmiş konuşmalara geri dönmek için bir tarih seçin.</dd>
 
-    <section id="domains" class="help-section">
-      <h2><span class="num">14.</span> NameSilo Etki Alanları</h2>
-      <p><code>[namesilo] api_key</code> dosyasını kullanarak (veya yedek olarak <code>[api_keys] namesilo_api_key</code>) 
-        NameSilo hesabınızda bulunan her etki alanını çeker. İlk açılışta, sonuçlar <code>domains.txt</code> dosyasında 
-        önbelleğe alınır; sonraki panel başlatmaları önbellekten hizmet verir. Modal'daki <em>Yenile</em> öğesine 
-        tıklatarak yeni bir alma işlemini zorlayın.</p>
-      <div class="callout warn">
-        Hiç "etki alanı yok" ile 300 yanıt kodunu görürseniz, iz kanalını kontrol edin — boş önbellekler 
-        artık gelecek panel önyüklemelerine zarar vermiyor, ancak başka bir yüklü yoldaki eski bir 
-        <code>domains.txt</code> dosyası yapabilir.
-      </div>
-    </section>
+<dt>Dosya ekle <span class="pill">attachFileBtn</span></dt>
+<dd>Dosya seçiciyi açar. Seçilen dosya sonraki istekle yüklenir — görüntüler satır içi (görme), metin/kod dosyaları isteminizde bir çit bloğu haline gelir. Çoklu eklemeyi destekler.</dd>
 
-    <section id="skins" class="help-section">
-      <h2><span class="num">15.</span> Görünümler ve temalar</h2>
-      <p>🎨 düğmesi, başlangıçta değil canlı olarak <code>skins/</code> taraması yapan keşif seçiciyi açar, 
-        bu nedenle runtime'da yeni bir klasör bırakmak yeterlidir. Her görünüm, paletini tanımlayan bir 
-        <code>manifest.xml</code> dosyasına sahiptir — <strong>vurgulama rengi</strong> dahil olmak üzere, 
-        Otomatik İstem sayaç rozeti, odak halkaları ve denetim nabzı tümü bunu içerir.</p>
-      <p>Yerleşik görünümler şunlardır: <code>gnome</code> (Adwaita gri), <code>terminal</code>
-        (siyah/yeşil sıcak pembe aksan ile), <code>tamagotchi</code> (yumurta kabuğu pastel ve 
-        sprite maskot panel), <code>blocky</code>, ve diğerleri.</p>
-    </section>
+<dt>Yüksek sesle oku (TTS) <span class="pill">ttsBtn</span></dt>
+<dd>En son asistan yanıtını yüksek sesle konuşur. ElevenLabs kullanır (<code>[elevenlabs] api_key</code> ayarlanmışsa) veya Windows SAPI'ye geri döner. <b>Sağ tıkla</b> her yeni yanıtın otomatik olarak konuşulduğu <i>otomatik okuma</i> modunu değiştirir — düğme etkinken animasyonlu bir gösterge alır.</dd>
 
-    <section id="settings" class="help-section">
-      <h2><span class="num">16.</span> Ayarlar</h2>
-      <p>⚙ dişlisinden açılır. Sekmeler:</p>
-      <ul>
-        <li><strong>Genel</strong> — görünen ad, varsayılan model, gönder-aç-oku</li>
-        <li><strong>Ses</strong> — mikrofon cihazı, listen_seconds, STT motor seçimi, TTS otomatik oku</li>
-        <li><strong>Güncellemeler</strong> — <code>is_admin</code> bayrağı, WinSCP oturumu, uzak yolu</li>
-        <li><strong>Anahtarlar</strong> — her sağlayıcının API anahtarı</li>
-        <li><strong>Denetim</strong> — VSCode denetim geçişi, bağlantı noktası, yoklama aralığı</li>
-        <li><strong>Dil</strong> — 39 yerel ayardan seçin; bkz. <a href="#language">§ 17</a></li>
-      </ul>
-      <p>Modal, oturumlar arasında boyutunu ve konumunu hatırlar.</p>
-    </section>
+<dt>Konuşmayı metne (STT) <span class="pill">sttBtn</span></dt>
+<dd>Mikrofon sesini kaydeder ve metin alanına çevirir. Önce webview'in Web Speech API'sini dener; başarısız olursa (<code>not-allowed</code>, VSCode sandbox'larında yaygındır), Windows SAPI'ye geri döner (<code>System.Speech.Recognition</code>) PowerShell aracılığıyla ana bilgisayarda başlatılır. Durdurmak için tekrar tıklayın.</dd>
 
-    <section id="language" class="help-section">
-      <h2><span class="num">17.</span> Dil</h2>
-      <p>Panel 39 en çok konuşulan dil için çeviriler ile gelir. Yerel ayar dosyaları 
-        <code>languages/&lt;code&gt;.xml</code> konumunda bulunur ve uzantı aktivasyonunda bir kez yüklenir. 
-        Eksik anahtarlar İngilizceye geri döner.</p>
-      <p><em>Ayarlar → Dil</em> seçeneğinde dilinizi seçin. Her seçeneğin yanında bir bayrak simgesi gösterilir 
-        (<code>assets/flags/&lt;code&gt;.svg</code> dosyasından yüklenir). Seçim <code>config.ini</code> dosyasında 
-        <code>[settings] language</code> öğesine kaydedilir.</p>
-    </section>
+<dt>Otomatik istem <span class="pill">autoReplyBtn</span></dt>
+<dd>Otomatik istem modalını açar. Bir istem + geri sayım aralığı tanımlayın; her asistan yanıtından sonra geri sayım azalır ve sıfıra ulaştığında otomatik istem otomatik olarak yeniden gönderilir. "Devam et", "Sonraki adım", tekrarlanmış araç oturumları için yararlı. Devre dışı bırakmak için tekrar tıklayın.</dd>
 
-    <section id="monitor" class="help-section">
-      <h2><span class="num">18.</span> VSCode denetim</h2>
-      <p>Windows hizmeti (<code>CBEVSCodeSupervisor</code>), <code>tools/vscode_supervisor.ps1</code> betiğini 
-        NSSM aracılığıyla sarıp ve <strong>http://127.0.0.1:3434/</strong> üzerinde HttpListener'a bağlar. 
-        Denetim düğmesinin paneli, denetçinin <code>/status</code> uç noktası 200 OK yanıtı verdiğinde mavi parlar.</p>
-      <p>HTTP sondası başarısız olur ancak hizmet yüklüyse, panelin bekçisi hizmeti otomatik olarak yeniden başlatır 
-        (yeniden başlatma fırtınası olmaması için 30 saniyelik soğuk dönem).</p>
-      <p>Denetim düğmesine sol tıklayarak kurun / başlatın / durdurun. İz kanalını açmak için sağ tıklayın.</p>
-    </section>
+<dt>Uyandırma yanıtı <span class="pill">wakeUpBtn</span></dt>
+<dd><code>wake.txt</code> dosyasında depolanan uyandırma mesajını düzenler. Uyandırma, otomatik istem modelin donmuş olduğunu algılarsa gönderdiği şeydir — genellikle "Hey! Devam et." gibi kısa bir ping.</dd>
 
-    <section id="auto-update" class="help-section">
-      <h2><span class="num">19.</span> Otomatik güncelleme (çek)</h2>
-      <p>Uzantı aktivasyonundan 4 saniye sonra, panel 
-        <code>https://trentontompkins.com/cbe/manifest.xml.php</code> dosyasını alır — en son yayınlanmış 
-        dosyaların MD5+boyut manifesti. Her uzak dosya için, yerel kopyaNın MD5'i karşılaştırılır; 
-        yalnızca değişen/eksik dosyalar HTTPS üzerinden indirilir.</p>
-      <p>Kullanıcı-yerel durum (<code>config.ini</code>, <code>debug.log</code>,
-        <code>domains.txt</code>, <code>wake.txt</code>, <code>prompt_history.txt</code>) 
-        çek hariç tutma listesindedir ve hiçbir zaman üzerine yazılmaz.</p>
-    </section>
+<dt>Komut menüsünü göster <span class="pill">showCommandsBtn</span></dt>
+<dd>Eğik çizgi komutu paletini bir modalda açar. Tam liste için <a href="#slash">Eğik çizgi komutları</a> bölümüne bakın. Metin alanının başında <code>/</code> yazması ile aynıdır.</dd>
 
-    <section id="admin-push" class="help-section">
-      <h2><span class="num">20.</span> Yönetici itme</h2>
-      <p><code>[updates] is_admin = true</code> dosyası olan yalnızca istemciler sunucuya iter. 
-        Şunlar aracılığıyla tetiklenir:</p>
-      <ul>
-        <li>Komut Paleti → <em>Claude Codex Black: Güncelleme İt</em></li>
-        <li>Eğik çizgi komutu <code>/push</code></li>
-      </ul>
-      <p>Dosya <code>[updates] winscp_session</code> öğesinde adlandırılan WinSCP kaydedilmiş oturumunu kullanır 
-        (varsayılan <code>vps</code>). <code>/script=…</code> aracılığıyla senkronizasyon komutu ve 
-        sırları ve makineye özgü durumu hariç tutan dosya maskesi ile iter.</p>
-    </section>
+<dt>Konuşmayı sıkıştır <span class="pill">compactBtn</span></dt>
+<dd>Geçerli iş parçacığını özeti yapılmış ve budanmış bir özet ile değiştiren bir istek gönderir. <code>/compact</code> ile eşdeğerdir. Konuşma uzun büyüdüğünde ve bağlamı korumak istediğinizde ancak tüm geçmişi yeniden göndermede jetonları harcamayı durdurmak istediğinizde yararlıdır.</dd>
 
-    <section id="extensions" class="help-section">
-      <h2><span class="num">21.</span> Uzantılar marketpleti</h2>
-      <p>🧩 Uzantılar düğmesine tıklayın. Bir iframe modal açılır 
-        <code>https://trentontompkins.com/cbe/extension/extension_marketplace.php</code> adresine,
-        kataloğu <code>extensions.xml.php</code> dosyasından alır ve her kullanılabilir uzantıyı 
-        açıklama, etiketler, sürüm, dosya boyutu, MD5 ve <strong>Kur</strong> düğmesi içeren bir kart olarak işler.</p>
-      <p>Bir uzantı <code>&lt;id&gt;.ext</code> olarak paketlenir — <code>manifest.xml</code> artı 
-        uzantı kodu (tipik olarak tek bir <code>extension.html</code>) içeren zip arşivi. 
-        Kur'a tıklandığında, marketplace iframe panele <code>postMessage</code> geri gönderir; 
-        panel <code>.ext</code> dosyasını doğrudan sunucudan indirir ve uzantı klasöründe 
-        <code>extensions/</code> altında çıkarır.</p>
-      <p>Başlatma kataloğu ile üç demo uzantı birlikte gelir:
-        <strong>Hesap Makinesi</strong>, <strong>Mayın Tarama</strong> ve <strong>Emoji
-        Seçici</strong>.</p>
-    </section>
+<dt>El kitabı <span class="pill">handbookBtn</span></dt>
+<dd>Çalışan/proje el kitabı modalını açar. <code>handbook.html</code> veya yapılandırılan belgeyi yükler. Model'in danışması isteneceği sistem-istemi referansı olarak kullanılır.</dd>
 
-    <section id="slash" class="help-section">
-      <h2><span class="num">22.</span> Eğik çizgi komutları</h2>
-      <p>İstem kutusunda eğik çizgi komutu paletini açmak için <kbd>/</kbd> yazın. Komut metnini isteminize 
-        <em>eklemek</em> için bir satıra tıklayın (düzenlenebilir), veya çalıştırılabilir bir satıra 
-        <kbd>Enter</kbd> tuşuna basarak hemen ateşleyin.</p>
-      <p>Kapsamlı olmayan bir liste:</p>
-      <table>
-        <thead><tr><th>Komut</th><th>Etki</th></tr></thead>
-        <tbody>
-          <tr><td><code>/help</code></td><td>Bu belgeyi aç</td></tr>
-          <tr><td><code>/skin</code></td><td>Görünüm seçici pop</td></tr>
-          <tr><td><code>/push</code></td><td>Otomatik güncelleme itişini ateşle (yalnızca yönetici)</td></tr>
-          <tr><td><code>/license</code></td><td><code>LICENSE.TXT</code> göster</td></tr>
-          <tr><td><code>/clear</code></td><td>Konuşma geçmişini temizle</td></tr>
-          <tr><td><code>/domains</code></td><td>NameSilo etki alanları modal'ını aç</td></tr>
-          <tr><td><code>/git</code></td><td>Git modal'ını aç</td></tr>
-          <tr><td><code>/wake</code></td><td>Uyandırma editörünü aç</td></tr>
-          <tr><td><code>/memory</code></td><td>Proje belleği dizinini aç</td></tr>
-        </tbody>
-      </table>
-    </section>
+<dt>Ayarlar <span class="pill">settingsBtn</span></dt>
+<dd>Ayarlar modalını açar (sağlayıcı, model, tema, dil, SFX). <a href="#settings">Ayarlar</a> bölümüne bakın.</dd>
 
-    <section id="context-menu" class="help-section">
-      <h2><span class="num">23.</span> Sağ tık menüsü</h2>
-      <p>Panel herhangi bir yere sağ tıklayarak bağlamsal menu alın (<code>panel.js</code> 
-        dosyasında tek bir XML dizesi olarak tanımlanır). Girişler arasında Yenile (paneli 
-        uzantı ana bilgisayarına dokunmadan yeniden yükle — asla <code>reloadWindow</code> kullanmayın), 
-        Konuşmayı Temizle, Ayarları Aç ve İncele (Geliştirici Araçları, yalnızca hata ayıklama derlemeleri) yer alır.</p>
-    </section>
+<dt>Hesaplar <span class="pill">accountsBtn</span></dt>
+<dd>Çoklu hesap yöneticisini açar. Sağlayıcı başına API anahtarları ekleyin / düzenleyin / kaldırın, oturum başına aralarında geçiş yapın. <a href="#accounts">Hesaplar</a> bölümüne bakın.</dd>
 
-    <section id="trace" class="help-section">
-      <h2><span class="num">24.</span> İz kanalı</h2>
-      <p>Uzantı, uzantının yanında <code>debug.log</code> dosyasına ayrıntılı bir zaman çizelgesi yazar. 
-        Her önemli şey oraya gider: sağlayıcı değişiklikleri, STT yaşam döngüsü,
-        denetim sondaları, NameSilo yanıt kodları, panel↔host köprü iletileri, itme/çekme bildirim sayıları.</p>
-      <p>İz kanalının tek tıklatmalı açılması için denetim düğmesine sağ tıklayın.</p>
-    </section>
+<dt>Uzantılar <span class="pill">extensionsBtn</span></dt>
+<dd>Panel içi uzantılar tarayıcısını açar. <code>extensions/</code> altında ne kurulu olduğunu listeler (her biri <code>manifest.xml</code> + bir <code>entry</code> HTML ile), uzantıları araç çubuğuna sabitlemenizi, halkla açık katalogdan yenilerini yüklemenizi veya kaldırmanızı sağlar.</dd>
 
-    <section id="troubleshooting" class="help-section">
-      <h2><span class="num">25.</span> Sorun giderme</h2>
-      <table>
-        <thead><tr><th>Belirti</th><th>Muhtemel sebep</th></tr></thead>
-        <tbody>
-          <tr><td>İstem kutusu orantılı görünüyor, monospace değil</td>
-              <td><code>--vscode-editor-font-family</code> uygulanmamış; <code>:root</code> değişkenlerini kontrol edin</td></tr>
-          <tr><td>Otomatik İstem dönüşü siyah nokta</td>
-              <td>Yanlış SVG varlığı; <code>auto_read_spinner.svg</code> damla gölge halesi ile olmalı</td></tr>
-          <tr><td>Kompakt düğmesi hiçbir şey yapmıyor</td>
-              <td>Ana bilgisayar işleyicisi eksik — extension.js yönlendiricisinde <code>case 'compactConversation'</code></td></tr>
-          <tr><td>Domains modal'da "0 etki alanı"</td>
-              <td>NameSilo reply.code != 300 (iz kanalında var), veya eski <code>domains.txt</code></td></tr>
-          <tr><td>STT anında "konuşma algılanmadı"</td>
-              <td>SAPI bağlanmadan önce durdurdunuz. Önyükleme artık bu beklemeyi atlıyor — <code>debug.log</code> 
-              dosyasında <code>stt: using pre-warmed SAPI</code> ile doğrulayın</td></tr>
-          <tr><td>Boşlukluk olan yolda itme başarısız</td>
-              <td><code>/command=</code> satır içi kullanma; her zaman <code>/script=tempfile.winscp</code> kullanın</td></tr>
-          <tr><td>Denetim mavi parıltısı ışıklı değil</td>
-              <td>Hizmet çalışmıyor. Kurmak/başlatmak için monitorBtn'e sol tıklayın, veya <code>Start-Service CBEVSCodeSupervisor</code> çalıştırın</td></tr>
-          <tr><td>Yenile bir şeyi "düzeltir"</td>
-              <td>Düzeltmedi. Hiçbir zaman <code>reloadWindow</code> kullanmayın. Bunun yerine Yenile bağlam menüsü girişini kullanın.</td></tr>
-        </tbody>
-      </table>
-    </section>
+<dt>Proje klasörü <span class="pill">projectFolderBtn</span></dt>
+<dd>Dosya Ekle, Terminal, Git ve proje kökü gereken diğer araçlar tarafından kullanılan çalışma dizinini seçer. Geçerli klasör sağlayıcı etiketi yanında gösterilir.</dd>
 
-    <section id="about" class="help-section">
-      <h2><span class="num">26.</span> Hakkında ve lisans</h2>
-      <p>Claude Codex — Black Edition. MIT-lisanslıdır. Kaynak aynası:
-        <a href="https://github.com/tibberous/Claude-Codex-Back-Ed.." target="_blank" rel="noopener">github.com/tibberous/Claude-Codex-Back-Ed..</a>.
-        Resmi otomatik güncelleme sunucusu: <a href="https://trentontompkins.com/cbe/" target="_blank" rel="noopener">trentontompkins.com/cbe</a>.</p>
-      <p>Geri bildirim veya ticari çalışma için, <a href="https://trentontompkins.com" target="_blank" rel="noopener">trentontompkins.com</a> · (724) 431-5207 ile iletişime geçin.</p>
-      <p style="margin-top:24px; color: var(--muted); font-size: 12px;">
-        <em>Bu yardım ayrıca panel araç çubuğundaki Yardım düğmesine iframe halinde alınır. Kaynak:
-        <code>panel/help.html</code>.</em>
-      </p>
-    </section>
+<dt>Tarayıcı <span class="pill">browserBtn</span></dt>
+<dd>Paneli terk etmeden hızlı araştırmalar için yan yana QtWebEngine tarayıcı bölmesini açar.</dd>
 
-  </main>
+<dt>VSCode monitörü <span class="pill">monitorBtn</span></dt>
+<dd>VSCode denetçisi izleme köpeğini değiştirir — VSCode çöküşü durumunda yeniden başlatan arka plan işlemi. Sol tıklama çalıştırma/durdurma değiştirir, <b>sağ tıkla</b> denetçinin izleme kanalını açar.</dd>
+
+<dt>Terminal <span class="pill">terminalBtn</span></dt>
+<dd>Proje klasöründe VSCode bütünleşik terminal açar. Proje klasörü ayarlanmamışsa Masaüstü'ne geri döner. "CBE" etiketli kalıcı bir terminali yeniden kullanır.</dd>
+
+<dt>Kurulum sihirbazı <span class="pill">setupBtn</span></dt>
+<dd>Uzantı tarafından bilinen her API anahtarı + entegrasyondan (~12 adım) geçer. <a href="#setup">Kurulum sihirbazı</a> bölümüne bakın.</dd>
+
+<dt>Git <span class="pill">gitBtn</span></dt>
+<dd>VSCode Kaynak Denetim görünümünü geçerli proje klasörüne odaklanarak açar.</dd>
+
+<dt>GitHub <span class="pill">githubBtn</span></dt>
+<dd><code>[github] token</code> kullanarak GitHub depolarınızı listeler. Klonlamak / açmak / sorunlara göz atmak için bir depoya tıklayın.</dd>
+
+<dt>Etki alanları (NameSilo) <span class="pill">domainsBtn</span></dt>
+<dd>NameSilo hesabınızdaki her etki alanını ad sunucuları ile listeler. <code>[namesilo] api_key</code> gerektirir. <b>Yenile</b> düğmesi yeni bir getirme zorlar.</dd>
+
+<dt>Yazı tipi boyutu <span class="pill">fontSizeBtn</span></dt>
+<dd>Sohbet iş parçacığı için normal ve büyük yazı tipi arasında geçiş yapar. <code>/font</code> ile aynıdır.</dd>
+
+<dt>Yardım <span class="pill">helpBtn</span></dt>
+<dd>Bu sayfayı açar. <code>/help</code> ile aynıdır.</dd>
+
+<dt>Tamagotchi <span class="pill">tamaBtn</span></dt>
+<dd>Piksel uydu panelini değiştirir (sadece <b>tamagotchi</b> temasında görünür, besteci köşesine takılır). <a href="#tama">Tamagotchi</a> bölümüne bakın.</dd>
+
+</dl>
+</section>
+
+<section id="rightclick">
+<h2>Sağ tıklama menüsü <a class="top-link" href="#">↑ üst</a></h2>
+<p>Sohbet metni veya kod bloğu üzerinde sağ tıkla yaparak CBE bağlam menüsünü alın. İstem metin alanı üzerinde sağ tıkla yapılması artık bunun yerine <b>yerel tarayıcı menüsünü</b> açar (Kopyala / Kes / Yapıştır / Sil / Tümünü Seç).</p>
+<dl class="btnrow">
+  <dt>Kopyala / Kod bloğunu kopyala</dt><dd>Geçerli seçimi kopyalar. Seçim yoksa ancak bir <code>&lt;pre&gt;&lt;code&gt;</code> üzerinde sağ tıkladıysanız, tüm kod bloğunu kopyalar.</dd>
+  <dt>Kaynağı Görüntüle</dt><dd>Tıklanan bölgenin ham HTML/markdown'ını gösterir — bir kod bloğu veya tüm panel DOM. Deri/CSS sorunlarını ayıklamak için yararlı.</dd>
+  <dt>DevTools'u Aç</dt><dd>VSCode'dan webview'i canlı olarak inceleyebilmen için Developer Tools'u açmasını ister.</dd>
+  <dt>Ayarlar <span class="pill">new</span></dt><dd>Araç çubuğu <b>Ayarlar</b> düğmesinin açtığı aynı Ayarlar modalını açar (sağlayıcı / model / tema / dil / SFX). <code>/settings</code> ile aynıdır.</dd>
+  <dt>Hakkında <span class="pill">new</span></dt><dd>Sürüm, yazar, lisans, repo bağlantısı, portföy ve iletişim telefonu içeren küçük panel içi iletişim kutusu. Arka plan tıklaması, × düğmesi veya <kbd>Esc</kbd> tuşunda kapanır.</dd>
+  <dt>Paneli Yeniden Yükle <span class="pill">new</span></dt><dd><code>panel/index.html</code> + <code>panel.js</code> + <code>skins/*</code> dosyalarını dosya başına <code>?v=&lt;mtime&gt;</code> önbellek buştırıcısı ile yeniden okur ve <code>panel.webview.html</code> dosyasını yeniden atar. VSCode yeniden başlatılmadan CSS/JS düzenlemelerini alır. Uzantı ana bilgisayarı canlı kalır — terminal, denetçi, sohbet geçmişi hepsi devam eder.</dd>
+  <dt>Pencereyi Yeniden Yükle <span class="pill warn">new</span></dt><dd><code>workbench.action.reloadWindow</code> tetikler. Bunu <i>sadece</i> <code>extension.js</code> (ana bilgisayar tarafı kodu) düzenlemişseniz ve panel yeniden yüklemesi yeterli değilse kullanın. Bu tam bir VSCode pencere yeniden yüklenmesidir.</dd>
+</dl>
+</section>
+
+<section id="modals">
+<h2>Modaller &amp; iletişim kutuları <a class="top-link" href="#">↑ üst</a></h2>
+
+<details open><summary><b>Ayarlar modali</b> — sağlayıcı / model / tema / dil / SFX</summary>
+<ul>
+  <li><b>Sağlayıcı</b>: her doğrudan API + köprü sağlayıcısının tam açılır listesi. Birini seçmek etkin oturumu DEĞİŞTİRİR VE eşleşen köprü exe dosyasını otomatik olarak başlatır (varsa).</li>
+  <li><b>Model</b>: sağlayıcı başına izin verilen modeller listesi (örn. Anthropic için <code>claude-opus-4-7</code>, <code>claude-sonnet-4-6</code>, <code>claude-haiku-4-5</code>).</li>
+  <li><b>Tema</b>: görsel tema. <a href="#skins">Temalar</a> bölümüne bakın.</li>
+  <li><b>Dil</b>: 39 yerel ayar kullanılabilir. Geçişi yapıldığında, dizelerin haritasını yeniden çeker ve her araç ipucunu / etiketi / yardım düğmesini canlı olarak yeniden çevirir.</li>
+  <li><b>SFX etkinleştirildi</b>: UI ses efektlerini (tıklamalar, tıklar, modal açma/kapama vb.) değiştirir.</li>
+  <li><b>SFX ses düzeyi</b>: 0–100 kaydırıcı. Sürüklerken canlı olarak ön izleme yapılır.</li>
+  <li><b>İptal</b> denediğiniz canlı ön izlemeleri (SFX/tema) geri döndürür; <b>Kaydet</b> kalıcı hale getirir ve <code>setProvider</code> yayınlar.</dd>
+</ul>
+</details>
+
+<details><summary><b>Kurulum sihirbazı</b> — çoklu adım API anahtarı girişi</summary>
+<p>Her entegrasyon için geçiş. Her adım kimlik bilgilerini ister ve bunları <code>config.ini</code> dosyasına yazar. <b>Atla</b> yazmadan ileri gider; <b>İleri</b> yazar ve ileri gider; son adımın <b>Bitti</b> kapatır. Adımlar şunları içerir: Anthropic, OpenAI, Gemini, xAI/Grok, GitHub PAT, E-posta/SMTP (Gmail uygulama şifresi), Cloudflare, Twilio, ElevenLabs, Stability AI, Runway, SendGrid, NameSilo ve daha fazlası.</p>
+</details>
+
+<details><summary><b>Hesaplar modali</b> — çoklu hesap API anahtarı yöneticisi</summary>
+<p>Her sağlayıcı için, etiketlenmiş birden çok hesabı (örn. "kişisel", "iş") yönetin. Diğerlerinin üzerine yazmadan oturum başına hangi tanesinin etkin olduğunu değiştirin. Anahtarlar maskelenmiş uç uca ve sağlayıcı başına <code>config.ini</code> dosyasına kaydedilir.</p>
+</details>
+
+<details><summary><b>Etki alanları modali</b> — NameSilo</summary>
+<p>NameSilo hesabınızdaki her etki alanını ad sunucuları + kayıt tarihleri ile listeler. <b>Yenile</b> düğmesi yeni bir API getirmesi zorlar (aksi takdirde <code>domains.txt</code> içinde önbelleğe alır).</p>
+</details>
+
+<details><summary><b>El kitabı modali</b></summary>
+<p>Bir proje el kitabı HTML'sini oluşturur (sistem-istem referansı olarak model danışabilir). Proje başına yapılandırılabilir.</p>
+</details>
+
+<details><summary><b>Kaydedilen istekler modali</b></summary>
+<p><code>stored_prompts/</code> klasöründen eklenebilir istem şablonları. Her dosya bir şablondur; dosya adı ön eki <code>NN-</code> sıralama sırasını kontrol eder. "+" düğmesi yeni bir tane oluşturur.</p>
+</details>
+
+<details><summary><b>Sohbet geçmişi modali</b></summary>
+<p><code>chats/&lt;date&gt;.log</code> dosyasından sohbet günlüğünü yüklemek için bir UTC tarihi seçin. Salt okunur.</p>
+</details>
+
+<details><summary><b>Uzantılar modali</b></summary>
+<p>Her yüklü uzantı için kartlar. Araç çubuğuna sabitle / kaldır, halkla açık katalogdan yükle (<code>extensions.xml.php</code> sunucuda) veya diskten kaldır.</p>
+</details>
+
+<details><summary><b>Değişiklik günlüğü modali</b></summary>
+<p><code>panel/change_log.html</code> dosyasını oluşturur — paketlenmiş sürüm notları. <code>tools/build_changelog.py</code> aracılığıyla oluşturulur.</p>
+</details>
+
+<details><summary><b>Kaynağı Görüntüle modali</b></summary>
+<p>Herhangi bir kod bloğu veya panelin tam HTML'sini güzel yazdırır, Prism söz dizimi vurgulama ve Kopyala düğmesi ile. Sağ tıklama → Kaynağı Görüntüle yoluyla erişilir.</p>
+</details>
+
+<details><summary><b>Otomatik istem modali</b></summary>
+<p>İstem dizesi + geri sayım aralığını yapılandırın. Her asistan yanıtından sonra geri sayım azalır; sıfıra ulaştığında CBE yapılandırılan istemi otomatik olarak gönderir. Otomatik istem araç çubuğu düğmesiyle açılır/kapatılır.</p>
+</details>
+</section>
+
+<section id="settings">
+<h2>Ayarlar <a class="top-link" href="#">↑ üst</a></h2>
+<p>Tüm ayarlar iki yerden birinde yaşar:</p>
+<ul>
+  <li><code>workspaceState</code> (VSCode yönetimi, çalışma alanı başına) — sağlayıcı, model, tema, dil, sfx etkin/ses, yazı tipi boyutu.</li>
+  <li><code>config.ini</code> (uzantı kökü, gitignore) — API anahtarları + entegrasyon başına kimlik bilgileri.</li>
+</ul>
+<p>Ayarlar panel yeniden yüklemelerinde otomatik olarak devam eder. <b>Ayarlar</b> modali her şeyi değiştirmek için güvenli yoldur; <code>config.ini</code> dosyasını doğrudan düzenlemek de çalışır.</p>
+</section>
+
+<section id="setup">
+<h2>Kurulum sihirbazı <a class="top-link" href="#">↑ üst</a></h2>
+<p>Kurulum sihirbazı (<code>setupBtn</code>) uzantı tarafından desteklenen her entegrasyondan geçer. Her adım için kimlik bilgisini yapıştırın ve <b>İleri</b>'ye tıklayın (yazar + ileriye gider) veya <b>Atla</b> (ileriye gider yazma olmadan). Adımlar:</p>
+<table>
+<tr><th>Adım</th><th>Ne istediği</th><th>Nerede alınacağı</th></tr>
+<tr><td>Anthropic (Claude)</td><td>API anahtarı</td><td><a target="_blank" rel="noopener" href="https://console.anthropic.com/account/keys">console.anthropic.com</a></td></tr>
+<tr><td>OpenAI (ChatGPT)</td><td>API anahtarı</td><td><a target="_blank" rel="noopener" href="https://platform.openai.com/api-keys">platform.openai.com</a></td></tr>
+<tr><td>Google Gemini</td><td>API anahtarı</td><td><a target="_blank" rel="noopener" href="https://aistudio.google.com/apikey">aistudio.google.com</a></td></tr>
+<tr><td>xAI (Grok)</td><td>API anahtarı</td><td><a target="_blank" rel="noopener" href="https://console.x.ai/">console.x.ai</a></td></tr>
+<tr><td>GitHub PAT</td><td>Repo / workflow / admin:org / vs ile kişisel erişim jetonu</td><td><a target="_blank" rel="noopener" href="https://github.com/settings/tokens/new">github.com/settings/tokens</a></td></tr>
+<tr><td>E-posta / SMTP</td><td>Hesap + uygulama şifresi (Gmail tavsiye edilir)</td><td><a target="_blank" rel="noopener" href="https://myaccount.google.com/apppasswords">myaccount.google.com/apppasswords</a></td></tr>
+<tr><td>Cloudflare</td><td>API jetonu (KÜRESEL ANAHTAR DEĞİL)</td><td><a target="_blank" rel="noopener" href="https://dash.cloudflare.com/profile/api-tokens">dash.cloudflare.com</a></td></tr>
+<tr><td>Twilio</td><td>Hesap SID + Auth jetonu + Kimden numarası</td><td><a target="_blank" rel="noopener" href="https://console.twilio.com/">console.twilio.com</a></td></tr>
+<tr><td>ElevenLabs (TTS)</td><td>API anahtarı</td><td><a target="_blank" rel="noopener" href="https://elevenlabs.io/app/settings/api-keys">elevenlabs.io</a></td></tr>
+<tr><td>Stability AI</td><td>API anahtarı</td><td><a target="_blank" rel="noopener" href="https://platform.stability.ai/account/keys">platform.stability.ai</a></td></tr>
+<tr><td>Runway</td><td>API anahtarı</td><td><a target="_blank" rel="noopener" href="https://dev.runwayml.com/">dev.runwayml.com</a></td></tr>
+<tr><td>SendGrid</td><td>API anahtarı</td><td><a target="_blank" rel="noopener" href="https://app.sendgrid.com/settings/api_keys">app.sendgrid.com</a></td></tr>
+</table>
+<p>Her alan şifre maskelenmiştir, böylece omuz sörferleri anahtarınızı ekrandan okuyamaz.</p>
+</section>
+
+<section id="accounts">
+<h2>Hesaplar &amp; API anahtarları <a class="top-link" href="#">↑ üst</a></h2>
+<p>Her sağlayıcı birden çok etiketlenmiş hesabına sahip olabilir — kişisel ve iş anahtarları arasında geçiş yapmak veya farklı bir katmanı test etmek istiyorsanız yararlıdır. Hesaplar modali size izin verir:</p>
+<ul>
+  <li>Etiket + anahtarla yeni bir hesap ekle</li>
+  <li>Mevcut hesabı düzenle (yeniden etiketle, anahtarı değiştir)</li>
+  <li>Geçerli oturum için hangi hesabın etkin olduğunu ayarla</li>
+  <li>Bir hesabı kaldır</li>
+</ul>
+<p>Anahtarlar maskelenmiş olarak (sadece son dört görünür) <code>config.ini</code> dosyasında depolanır. workspaceState'te düz metin kopya yoktur.</p>
+</section>
+
+<section id="slash">
+<h2>Eğik çizgi komutları <a class="top-link" href="#">↑ üst</a></h2>
+<p>Metin alanının başında <code>/</code> yazın veya aşağıdakilerden seçmek için <b>Komut menüsünü göster</b>'e tıklayın:</p>
+<table>
+<tr><th>Komut</th><th>Ne yaptığı</th></tr>
+<tr><td><code>/help</code></td><td>Bu sayfayı aç</td></tr>
+<tr><td><code>/handbook</code></td><td>Proje el kitabını aç</td></tr>
+<tr><td><code>/clear</code></td><td>Yeni konuşma</td></tr>
+<tr><td><code>/settings</code></td><td>Ayarlar modalını aç</td></tr>
+<tr><td><code>/prompts</code></td><td>Kaydedilen istem şablonlarını düzenle</td></tr>
+<tr><td><code>/history</code></td><td>Sohbet geçmişine göz at</td></tr>
+<tr><td><code>/font</code></td><td>Büyük yazı tipi değiştir</td></tr>
+<tr><td><code>/attach</code></td><td>Sonraki isteme dosya ekle</td></tr>
+<tr><td><code>/folder</code></td><td>Proje klasörü seç</td></tr>
+<tr><td><code>/compact</code></td><td>Konuşmayı sıkıştır (özet + budama)</td></tr>
+<tr><td><code>/git</code></td><td>Kaynak Denetimi aç</td></tr>
+<tr><td><code>/github</code></td><td>GitHub depolarını listele</td></tr>
+<tr><td><code>/license</code></td><td>MIT lisansını göster</td></tr>
+<tr><td><code>/push</code></td><td>Uzantı dosyalarını otomatik güncelleme sunucusuna gönder (sadece yönetici)</td></tr>
+<tr><td><code>/compress</code></td><td>Konuşmayı sıkıştır (<code>/compact</code>'in takma adı)</td></tr>
+<tr><td><code>/switch-accounts</code></td><td>Hangi API anahtarının etkin olduğunu değiştirmek için Hesaplar modalını aç</td></tr>
+</table>
+</section>
+
+<section id="tama">
+<h2>Tamagotchi uydu <a class="top-link" href="#">↑ üst</a></h2>
+<p>Tamagotchi, <b>tamagotchi</b> teması altında panel içinde yaşayan bir piksel sanatı uydu. Yaşlanır, açlık/kirlilik alır, oynanabilir ve uzun süredir ihmal edilirse ölür. Durum <code>workspaceState</code> dosyasında devam eder.</p>
+
+<h4>İstatistikler (widget'in üst kısmı)</h4>
+<table>
+<tr><th>İstatistik</th><th>Ne takip ettiği</th></tr>
+<tr><td>🥚 Sahne</td><td>Yaşam döngüsü: yumurta → bebek → çocuk → ergen → yetişkin → yaşlı → ölü. Gerçek zamanlı dakikalar ile yaşlanır.</td></tr>
+<tr><td>🍖 Açlık</td><td>0–100. Zaman içinde düşer; <b>Besle</b> yükseltir. 0'a ulaşır → sağlık düşer.</td></tr>
+<tr><td>😀 Mutluluk</td><td>0–100. Zaman içinde düşer; <b>Oyna</b> yükseltir.</td></tr>
+<tr><td>❤️ Sağlık</td><td>0–100. Hasta olduğunda veya aç kaldığında düşer. <b>İnjeksiyon</b> iyileştirir.</td></tr>
+<tr><td>✨ Temizlik</td><td>0–100. Uydu dışkı yaptığında düşer. <b>Temizle</b> yükseltir.</td></tr>
+<tr><td>⏱ Yaş</td><td>Çıkıştan beri dakikalar.</td></tr>
+</table>
+
+<h4>LCD içi eylem düğmeleri (widget'in alt kısmı)</h4>
+<table>
+<tr><th>Simge</th><th>Eylem</th></tr>
+<tr><td>🍖</td><td><b>Besle</b> — et ↔ patlıcan arasında döner. Gerçekten beslemek için <b>Seç</b> yapın.</td></tr>
+<tr><td>🧹</td><td><b>Temizle</b> — dışkıyı temizle.</td></tr>
+<tr><td>⚾</td><td><b>Oyna</b> — mini oyun; mutluluğu yükseltir.</td></tr>
+<tr><td>💉</td><td><b>İnjeksiyon</b> — hastalandığında iyileştirir.</td></tr>
+<tr><td>💡</td><td><b>Işık</b> — LCD lamba değiştir; uydu karanlıkta uyur.</td></tr>
+<tr><td>✅</td><td><b>Seç</b> — onayla / devam et (orijinal Bandai orta düğmesine eşdeğer).</td></tr>
+</table>
+<p>Uydu sprite'ı 240×240 (kompakt: 138×116) kanvasına çizilir. Sprite'lar + yaşam döngüsü mantığı <code>panel/dotmatrix-tamagotchi-sprites.js</code> ve <code>panel/dotmatrix-tamagotchi-game.js</code> dosyalarında yaşar.</p>
+</section>
+
+<section id="skins">
+<h2>Temalar <a class="top-link" href="#">↑ üst</a></h2>
+<p>Tüm panel için görsel temalar — düğmeler, modaller, kod blokları, hatta yazı tipi. <b>Ayarlar → Tema</b>'da bir tane seçin. Her tema <code>skins/&lt;id&gt;/</code> klasöründe renkler + aksanı bildir eden bir <code>manifest.xml</code> (CSS değişkenlerini geçersiz kılan <code>styles.css</code>) ile yaşar.</p>
+<ul>
+  <li><b>codex-black</b> (varsayılan) — koyu, monospace, neon-cyan aksanı</li>
+  <li><b>glassy</b> — yumuşak arka planın üzerinde donmuş cam yüzeyleri</li>
+  <li><b>tamagotchi</b> — açık yeşil LCD el cihazı; uydu widget'ını besteci köşesine sabitlenmiş otomatik olarak gösterir</li>
+  <li><b>office</b> — Word tarzı krem/mavi krom</li>
+  <li><b>macos-color-dock</b> / <b>mint-dock</b> — parçalı ikonlar içeren alt araç çubukları</li>
+  <li><b>terminal</b> / <b>arch</b> / <b>kde</b> / <b>gnome</b> / <b>xfce</b> / <b>ubuntu</b> / <b>redhat</b> — Linux masaüstü temaları</li>
+</ul>
+<p>Modal renkler her tema'nın manifestindeki <code>&lt;colors&gt;</code> girişlerinden gelir ve her modali (bu yardım da dahil olmak üzere) tema içinde gösterecek <code>:root</code> dosyasına <code>--cbe-modal-*</code> değişkenleri olarak itilir.</p>
+</section>
+
+<section id="extensions">
+<h2>Uzantılar <a class="top-link" href="#">↑ üst</a></h2>
+<p>CBE içinde yaşayan mini uygulamalar. Her biri <code>extensions/&lt;id&gt;/</code> klasörü altında bir klasördür:</p>
+<ul>
+  <li><code>manifest.xml</code> — id, ad, sürüm, yazar, açıklama, entry HTML, simge (emoji veya <code>icon.svg</code>)</li>
+  <li><code>extension.html</code> (veya manifest'in <code>&lt;entry&gt;</code>'sinin söylediği şey) — gerçek uygulama</li>
+</ul>
+<p>Yüklü olanları göz atmak için <b>Uzantılar</b>'a tıklayın, araç çubuğuna sabitleyin, halkla açık katalogdan yeni olanları yükleyin veya diskten kaldırın. Sabitlenmiş ID'ler <code>extensions/_pinned.json</code> dosyasında yaşar.</p>
+</section>
+
+<section id="autoupdate">
+<h2>Otomatik güncelleme (gönder / çek) <a class="top-link" href="#">↑ üst</a></h2>
+<p>CBE kaynağını WinSCP gönderme + HTTPS çekme kanalı aracılığıyla makineler arasında eşitler.</p>
+
+<h4>Gönder (sadece yönetici)</h4>
+<p>Eğer <code>[updates] is_admin = true</code> config.ini dosyasında ise, her aktivasyon, uzantı klasörünü sunucuda <code>/home/trentontompkins.com/cbe</code> adresine gönderen arka plan <code>WinSCP synchronize remote -mirror</code> çalıştırır. Manuel tetik: <code>/push</code> eğik çizgi komutu. Makine başına durumu hariç tutar: <code>data/</code> (1,74 GB Chrome profilleri), <code>bridges/</code>, <code>node_modules/</code>, <code>.git/</code>, <code>logs/</code>, <code>chats/</code>, <code>config.ini</code>, <code>prompt_history.txt</code>, <code>domains.txt</code>, <code>wake.txt</code>.</p>
+
+<h4>Çek (her istemci)</h4>
+<p>Aktivasyondan 4 saniye sonra, her istemci <code>https://trentontompkins.com/cbe/manifest.xml.php</code> dosyasını getirir ve yerel kopyalara karşı dosya başına MD5 karşılaştırması yapar. Sadece değiştirilen/eksik dosyalar düz HTTPS GET üzerinden indirilir. Hariç tutulan yollar ASLA çekilmez: <code>config.ini</code>, <code>data/</code>, <code>bridges/</code>, <code>extension.js</code>, <code>panel/panel.js</code>, <code>panel/index.html</code>, <code>package.json</code>, derleme araçları — gerekçe kaynağın .vsix aracılığıyla gelmesi ve sunucunun eski kopyası devam eden dev işini bozmaymasıdır.</p>
+</section>
+
+<section id="hotreload">
+<h2>Sıcak yeniden yükleme <a class="top-link" href="#">↑ üst</a></h2>
+<p>Sağ tıklama menüsü aracılığıyla iki yeniden yükleme yolu sunulur:</p>
+<ul>
+  <li><b>Paneli Yeniden Yükle</b> — <code>panel/index.html</code> + her JS/CSS varlığını dosya başına <code>?v=&lt;mtime&gt;</code> önbellek buştırıcısı ile yeniden okur ve <code>panel.webview.html</code> dosyasını yeniden atar. VSCode yeniden başlatılmadan panel.js / tema CSS / dotmatrix düzenlemelerini alır. Uzantı ana bilgisayarı canlı kalır (terminal, denetçi, ileti işleyicileri, sohbet geçmişi hepsi devam eder).</li>
+  <li><b>Pencereyi Yeniden Yükle</b> — <code>workbench.action.reloadWindow</code> tetikler. Sadece <code>extension.js</code> (ana bilgisayar tarafı kodu) düzenlemişseniz ve Paneli Yeniden Yükle yeterli değilse kullanın.</li>
+</ul>
+<p>Tema CSS düzenlemeleri, panelin mevcut tema izleyicisi aracılığıyla otomatik olarak da uygulanır — menü tıklaması gerekmez.</p>
+</section>
+
+<section id="troubleshooting">
+<h2>Sorun giderme <a class="top-link" href="#">↑ üst</a></h2>
+
+<details><summary><b>"köprü X sohbeti başarısız oldu: config.ini'de api anahtarı boş"</b></summary>
+<p>smart_bridge.py daemon'u eski bir gating kontrolünü bellekte önbelleğe alıyordu. C++ exe yönlendirme pivotunda düzeltildi. Yine de görürseniz, eski daemon'ları öldürün:</p>
+<pre><code>powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*smart_bridge.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"</code></pre>
+</details>
+
+<details><summary><b>"copilot'ın herkese açık REST API'si yok — tarayıcı köprüsünü kullan"</b></summary>
+<p>Eski extension.js, köprü sohbetini gerçek C++ tray exe yerine REST yönlendiricisi aracılığıyla yönlendiriyordu. Düzeltilmiş extension.js'yi almak için Pencereyi Yeniden Yükle yapın, ardından sohbet doğrudan <code>bin/CBE-Bridge-Copilot.exe</code> dosyasına gider.</p>
+</details>
+
+<details><summary><b>HTTP 404 modeli: sonnet-4.6</b></summary>
+<p>Claude köprüsü yapılandırmasında geçmiş kısa takma ad. Düzeltildi — tam ID'ler (<code>claude-sonnet-4-6</code>, <code>claude-opus-4-7</code>, <code>claude-haiku-4-5</code>) artık kullanılır.</p>
+</details>
+
+<details><summary><b>Bir dosya düzenledim ancak panel değişikliği göstermiyor</b></summary>
+<ol>
+  <li>Eğer <code>panel.js</code> / <code>skins/*.css</code> / <code>index.html</code> ise → sağ tıkla → <b>Paneli Yeniden Yükle</b>.</li>
+  <li>Eğer <code>extension.js</code> / <code>bridges_cpp/*.py</code> ise → sağ tıkla → <b>Pencereyi Yeniden Yükle</b>.</li>
+  <li>Menüye erişemiyorsanız (örn. menü kendisi henüz yüklenmemişse), yalıtılmış kullanıcı veri dizini ile yeni VSCode örneğini başlatın:<br>
+  <code>code --user-data-dir="$env:USERPROFILE\.cbe-edh" --extensionDevelopmentPath="C:\Users\moren\Desktop\Claude Codex Black"</code></li>
+</ol>
+</details>
+
+<details><summary><b>STT "not-allowed" ile başarısız olur</b></summary>
+<p>VSCode, webview'i mikrofon izni verme yeteneğinden yalıtır. CBE otomatik olarak Windows SAPI'ye geri döner (<code>System.Speech.Recognition</code>) PowerShell aracılığıyla başlatılır. İşletim sistemi düzeyinde (Ayarlar → Gizlilik → Mikrofon) mikrofon erişimi vermeniz gerekebilir.</p>
+</details>
+
+<details><summary><b>Köprü exe eksik</b></summary>
+<p>İzleme günlüğü <code>BRIDGE:MISSING target=&lt;t&gt; expected=&lt;path&gt;</code> gösterir. C++ tray exe'leri <code>bin/CBE-Bridge-&lt;Pretty&gt;.exe</code> konumunda yaşar. Sizinkiler yoksa, <code>bridges_cpp/</code> kaynağından (MSVC) yeniden oluşturun veya yeni bir .vsix çekin.</p>
+</details>
+
+</section>
+
+<p style="margin-top: 36px; color: var(--muted); font-size: 12px; text-align: center;">
+Claude Codex — Black Edition · MIT lisanslı · © 2026 Trent Tompkins · <a target="_blank" rel="noopener" href="mailto:trenttompkins@gmail.com" style="color:var(--accent);">trenttompkins@gmail.com</a> · (724) 431-5207
+</p>
+
+<button id="backToTop" type="button" aria-label="Başa dön" title="Başa dön"
+        style="position:fixed;right:18px;bottom:18px;width:38px;height:38px;border-radius:50%;
+               background:var(--accent);color:var(--bg);border:0;font-size:18px;cursor:pointer;
+               opacity:0;transition:opacity .25s ease;box-shadow:0 4px 14px rgba(0,0,0,.35);z-index:9999;">↑</button>
+
 </div>
 
+<!-- jQuery for animated smooth scroll on TOC anchor clicks. CDN load is
+     attempted first; if the webview CSP blocks it (typical in VSCode), the
+     CSS `scroll-behavior: smooth` rule above already delivers a smooth
+     fallback so the help remains usable. -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"
+        integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
+        crossorigin="anonymous"></script>
 <script>
-/* Native smooth-scroll TOC navigation. jQuery CDN scripts are blocked by the
-   VSCode webview CSP, so this uses plain DOM APIs — scrollIntoView with
-   behavior:'smooth' gives the identical animated scroll without any external
-   dependency. Works inside the webview iframe sandbox. */
-(function () {
-  const main = document.getElementById('main');
-  const tocLinks = Array.prototype.slice.call(document.querySelectorAll('nav.toc a[href^="#"]'));
-  const sections = Array.prototype.slice.call(document.querySelectorAll('section.help-section'));
+(function() {
+  var hasJQ = (typeof window.jQuery !== 'undefined');
 
-  tocLinks.forEach(function (link) {
-    link.addEventListener('click', function (e) {
+  // ── Animated smooth scroll for in-page anchor links (TOC + "↑ top"). ──
+  function jqScrollTo(targetEl, durationMs) {
+    jQuery('html, body').stop(true).animate({
+      scrollTop: targetEl.offsetTop - 14
+    }, durationMs || 550, 'swing');
+  }
+
+  // Vanilla rAF fallback if jQuery never loaded (CSP-blocked CDN).
+  function rafScrollTo(targetEl, durationMs) {
+    var startY = window.pageYOffset;
+    var endY   = (targetEl.getBoundingClientRect().top + startY) - 14;
+    var dist   = endY - startY;
+    var t0     = performance.now();
+    var d      = durationMs || 550;
+    function easeInOut(t) { return t < .5 ? 2*t*t : -1 + (4 - 2*t)*t; }
+    function step(now) {
+      var p = Math.min(1, (now - t0) / d);
+      window.scrollTo(0, startY + dist * easeInOut(p));
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function scrollToHash(hash) {
+    if (!hash || hash === '#') {
+      // "↑ top" links use href="#" — scroll to absolute top.
+      if (hasJQ) jQuery('html, body').stop(true).animate({ scrollTop: 0 }, 550, 'swing');
+      else window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    var el = document.querySelector(hash);
+    if (!el) return;
+    if (hasJQ) jqScrollTo(el, 550);
+    else rafScrollTo(el, 550);
+  }
+
+  // Intercept every in-page anchor click and animate.
+  document.querySelectorAll('a[href^="#"]').forEach(function(a) {
+    a.addEventListener('click', function(e) {
+      var href = a.getAttribute('href');
       e.preventDefault();
-      const id = link.getAttribute('href');
-      const target = document.querySelector(id);
-      if (!target) return;
-      /* scrollIntoView animates within the nearest scroll container (#main,
-         which has overflow:auto). scroll-margin-top on the section handles
-         the small top offset so headings aren't flush against the edge. */
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      try { history.replaceState(null, '', id); } catch (_) {}
+      scrollToHash(href);
+      if (href && href !== '#') {
+        history.replaceState(null, '', href);
+      } else {
+        history.replaceState(null, '', location.pathname + location.search);
+      }
     });
   });
 
-  /* Highlight whichever section is currently scrolled into view. */
-  function syncActive() {
-    const scrollTop = main.scrollTop;
-    const threshold = 80;
-    let activeId = sections.length ? sections[0].id : '';
-    sections.forEach(function (sec) {
-      if (sec.offsetTop - threshold <= scrollTop) activeId = sec.id;
-    });
-    tocLinks.forEach(function (l) {
-      l.classList.toggle('active', l.getAttribute('href') === '#' + activeId);
-    });
+  // ── Back-to-top floating button: fades in past 240px scroll. ──
+  var btn = document.getElementById('backToTop');
+  if (btn) {
+    function syncBtn() {
+      btn.style.opacity = (window.pageYOffset > 240) ? '0.92' : '0';
+      btn.style.pointerEvents = (window.pageYOffset > 240) ? 'auto' : 'none';
+    }
+    window.addEventListener('scroll', syncBtn, { passive: true });
+    btn.addEventListener('click', function() { scrollToHash('#'); });
+    syncBtn();
   }
-  main.addEventListener('scroll', syncActive);
-  syncActive();
-
-  /* External-link bridge. target="_blank" doesn't escape a VSCode webview
-     iframe — the click would just try to navigate the iframe itself. Instead
-     we intercept clicks on absolute http(s) links and postMessage to the
-     parent panel, which forwards to extension.js, which calls
-     vscode.env.openExternal so the user's real default browser opens. */
-  document.addEventListener('click', function (e) {
-    var t = e.target;
-    while (t && t.tagName !== 'A') t = t.parentNode;
-    if (!t || !t.getAttribute) return;
-    var href = t.getAttribute('href') || '';
-    if (!/^https?:\/\//i.test(href)) return;
-    e.preventDefault();
-    try {
-      window.parent.postMessage({ type: 'cbe.openExternal', url: href }, '*');
-    } catch (err) { /* parent missing — fall back to noop */ }
-  }, true);
 })();
 </script>
 </body>

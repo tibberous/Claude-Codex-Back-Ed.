@@ -98,4 +98,10 @@
   <s id="voice.nospeech">आवाज़: कोई वाणी नहीं मिली।</s>
   <s id="voice.permission_denied">आवाज़: माइक्रोफ़ोन की अनुमति अस्वीकृत।</s>
   <s id="voice.sapi_error">आवाज़ (SAPI):</s>
+  <s id="tooltip.accounts">खाते — API कुंजियाँ प्रबंधित करें</s>
+  <s id="tooltip.browser">ब्राउज़र</s>
+  <s id="tooltip.tamagotchi">तामागोची पालतू</s>
+  <s id="ext.calculator">कैलकुलेटर</s>
+  <s id="ext.minesweeper">माइनस्वीपर</s>
+  <s id="ext.emoji-picker">इमोजी चयनकर्ता</s>
 </strings>

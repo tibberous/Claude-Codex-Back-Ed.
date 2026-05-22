@@ -98,4 +98,10 @@
   <s id="voice.nospeech">Suara: tidak ada ucapan terdeteksi.</s>
   <s id="voice.permission_denied">Suara: akses mikrofon ditolak.</s>
   <s id="voice.sapi_error">Suara (SAPI):</s>
+  <s id="tooltip.accounts">Akun — kelola kunci API</s>
+  <s id="tooltip.browser">Peramban</s>
+  <s id="tooltip.tamagotchi">Peliharaan Tamagotchi</s>
+  <s id="ext.calculator">Kalkulator</s>
+  <s id="ext.minesweeper">Minesweeper</s>
+  <s id="ext.emoji-picker">Pemilih emoji</s>
 </strings>

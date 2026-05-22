@@ -98,4 +98,10 @@
   <s id="voice.nospeech">آواز: کوئی تقریر نہیں ملی۔</s>
   <s id="voice.permission_denied">آواز: مائیکروفون تک رسائی سے انکار۔</s>
   <s id="voice.sapi_error">آواز (SAPI):</s>
+  <s id="tooltip.accounts">اکاؤنٹس — API کلیدوں کا انتظام</s>
+  <s id="tooltip.browser">براؤزر</s>
+  <s id="tooltip.tamagotchi">تاماگوچی پالتو</s>
+  <s id="ext.calculator">کیلکولیٹر</s>
+  <s id="ext.minesweeper">مائن سویپر</s>
+  <s id="ext.emoji-picker">ایموجی منتخب کنندہ</s>
 </strings>

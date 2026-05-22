@@ -1542,7 +1542,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
                renders in the same 40px dock-icon slot as the other buttons.
                Opens #accountsModal; the multi-account plumbing already lives in
                extension.js ([accounts] section + getAccounts/add/edit/etc). -->
-          <button id="accountsBtn" class="tool-button" type="button" data-tooltip="Accounts — manage API keys" aria-label="Accounts">
+          <button id="accountsBtn" class="tool-button" type="button" data-tooltip="Accounts — manage API keys" data-i18n-tip="tooltip.accounts" aria-label="Accounts">
             <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='8' r='4' fill='%23e8e8e8'/><path d='M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7Z' fill='%23e8e8e8'/></svg>" alt="" />
           </button>
           <button id="extensionsBtn" class="tool-button" type="button" data-tooltip="Extensions" data-i18n-tip="tooltip.extensions" aria-label="Extensions">
@@ -1551,7 +1551,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
           <button id="projectFolderBtn" class="tool-button" type="button" data-tooltip="Project folder" data-i18n-tip="tooltip.project_folder" aria-label="Project folder">
             <img src="{{ASSETS_BASE}}/project_folder.svg" alt="" />
           </button>
-          <button id="browserBtn" class="tool-button" type="button" data-tooltip="Browser" aria-label="Browser">
+          <button id="browserBtn" class="tool-button" type="button" data-tooltip="Browser" data-i18n-tip="tooltip.browser" aria-label="Browser">
             <img src="{{ASSETS_BASE}}/browser.png" alt="" />
           </button>
           <button id="monitorBtn" class="tool-button" type="button" data-tooltip="VSCode monitor" data-i18n-tip="tooltip.monitor" aria-label="VSCode monitor">
@@ -1580,16 +1580,14 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
             <img src="{{ASSETS_BASE}}/help.svg" alt="" />
           </button>
           <!-- Tamagotchi launcher — opens the dot-matrix pet game (panel/dotmatrix-tamagotchi-*.js).
-               Uses an inline SVG icon (no asset file required) so it works without
-               touching assets/. The actual game shell mounts below as #cbe-tama-shell. -->
-          <button id="tamaBtn" class="tool-button" type="button" data-tooltip="Tamagotchi pet" aria-label="Tamagotchi pet">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-              <rect x="3" y="2" width="18" height="20" rx="6" ry="6" fill="none" stroke="currentColor" stroke-width="1.6"/>
-              <rect x="6" y="5" width="12" height="9" rx="1.5" ry="1.5" fill="currentColor" opacity="0.85"/>
-              <circle cx="9" cy="18" r="1.4" fill="currentColor"/>
-              <circle cx="12" cy="18" r="1.4" fill="currentColor"/>
-              <circle cx="15" cy="18" r="1.4" fill="currentColor"/>
-            </svg>
+               Uses an <img> of tamagotchi.svg (currentColor, like settings.svg) so the
+               per-skin `.tool-button img` icon filter recolors it identically to every
+               other icon. It was previously an inline <svg>, which no skin filter could
+               reach — so it stayed black/invisible on dark skins (user 2026-05-22: "the
+               Tamagotchi icon is hard to see black on dark grey, needs to be light grey
+               like the other three"). The game shell still mounts below as #cbe-tama-shell. -->
+          <button id="tamaBtn" class="tool-button" type="button" data-tooltip="Tamagotchi pet" data-i18n-tip="tooltip.tamagotchi" aria-label="Tamagotchi pet">
+            <img src="{{ASSETS_BASE}}/tamagotchi.svg" alt="" />
           </button>
           <!-- Pinned extensions render here — one quick-launch button per
                extension the user pinned via the Extensions marketplace.

@@ -98,4 +98,10 @@
   <s id="voice.nospeech">Voce: nu s-a detectat vorbire.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">Conturi — gestionează cheile API</s>
+  <s id="tooltip.browser">Browser</s>
+  <s id="tooltip.tamagotchi">Animăluț Tamagotchi</s>
+  <s id="ext.calculator">Calculator</s>
+  <s id="ext.minesweeper">Detector de mine</s>
+  <s id="ext.emoji-picker">Selector emoji</s>
 </strings>

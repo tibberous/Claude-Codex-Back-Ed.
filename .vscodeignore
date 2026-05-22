@@ -1,0 +1,163 @@
+# =============================================================================
+# .vscodeignore — controls which files vsce includes in the .vsix package.
+# -----------------------------------------------------------------------------
+# Reference: https://code.visualstudio.com/api/working-with-extensions/publishing-extension#vscodeignore
+# Syntax: glob-style, one pattern per line, mirrors .gitignore semantics.
+# Anything matched here is EXCLUDED from the .vsix.
+#
+# RUNTIME-REQUIRED FILES THAT MUST SHIP:
+#   - bin/CBE-Bridge-*.exe          (native C++ tray bridges; required for
+#                                    claudeBridge / chatgptBridge / grokBridge /
+#                                    geminiBridge / copilotBridge / ollamaBridge
+#                                    provider routes to work)
+#   - bin/CBE-Bridge-*.exe.manifest (UAC manifests for the bridge exes)
+#   - LICENSE, README.md, package.json, extension.js
+#   - panel/, skins/, sounds/, assets/, hooks/, languages/, lib/, fonts/
+#   - resources/icon*.png, resources/icon.svg
+#   - tools/vscode_supervisor.ps1, tools/install_bridge_service.ps1,
+#     tools/uninstall_bridge_service.ps1, tools/nssm.exe
+#   - bridge/cdp-client.js, bridge/browser-bridge.js, bridge/dom-scripts.js
+#   - config.dist.ini  (template; renamed to config.ini at pack time)
+# =============================================================================
+
+# ── Git / GitHub metadata ──────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+.github/
+.github_release_v*.md
+
+# ── Output / build artifacts ───────────────────────────────────────────
+dist/
+*.vsix
+codex-black-ed-*.vsix
+
+# ── Node devDependencies — vsce already strips devDependencies, but
+#    excluding node_modules entirely cuts size dramatically if you ship a
+#    bundled extension. Comment the next line out if you actually need
+#    node_modules in the .vsix (CBE has runtime deps in package.json).
+# node_modules/
+
+# ── Per-machine browser-bridge profile data (1.74 GB QtWebEngine Chrome
+#    profiles — NEVER ship). ─────────────────────────────────────────────
+data/
+bridges/
+
+# ── Logs / chat history / generated reports ────────────────────────────
+logs/
+chats/
+reports/
+*.log
+debug.log
+session.log
+build_full.log
+
+# ── Python cache ───────────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# ── Backups / temp / swap ──────────────────────────────────────────────
+*.bak
+*.tmp
+*.swp
+*.swo
+*.post-pivot.bak
+
+# ── Databases / generated state — these regenerate on first run via
+#    auto-CREATE TABLE IF NOT EXISTS / SQLAlchemy metadata.create_all.
+#    Both root AND nested (**/), since vsce's glob only matches root for a
+#    bare *.db — bridges_cpp/bridge_usage.db was leaking without **/.  ──
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/*.sqlite-journal
+**/*.sqlite-wal
+**/*.sqlite-shm
+
+# ── Pack-script backups — if a pack run crashes mid-way these may exist;
+#    never ship them (they ARE the real secrets/DBs set aside). ──────────
+*.real-backup
+**/*.real-backup
+config.ini.real-backup
+
+# ── CLAUDE.md / Claude memory files (per-machine, may contain paths,
+#    IPs, project notes — never ship). ────────────────────────────────────
+CLAUDE.md
+**/CLAUDE.md
+**/MEMORY.md
+
+# ── Per-machine runtime state ──────────────────────────────────────────
+domains.txt
+wake.txt
+prompt_history.txt
+prompts.txt
+stored_prompts/
+port.txt
+MonkeyPatchDetector.txt
+exception_log.py
+
+# ── Per-machine secrets — the real config.ini is moved aside at pack
+#    time by tools/pack_release.py and replaced with config.dist.ini.
+#    This rule guards against accidental inclusion if someone runs vsce
+#    directly without going through pack_release.py. ────────────────────
+config.ini
+config.sample.ini
+
+# ── .claude/ — Claude Code session cache (per-machine) ─────────────────
+.claude/
+
+# ── Native build artifacts (C++ tray bridge sources / obj dir; we ship
+#    the prebuilt .exes from bin/, not the source/object files). ────────
+bridges_cpp/obj/
+bridges_cpp/*.o
+bridges_cpp/*.obj
+bridges_cpp/Makefile
+*.pdb
+
+# ── Theme dev / render-comparison artifacts (only used during theme
+#    development; not needed at runtime). ───────────────────────────────
+panel/themes/**/*.png
+panel/themes/**/*.pdf
+panel/index.png
+panel/.index_tmp.pdf
+panel/generate_dock_icons.py
+
+# ── Lint / tooling output ──────────────────────────────────────────────
+*.pylintjson
+biome.json
+eslint.config.js
+tsconfig.json
+pyrightconfig.json
+.eslintrc*
+
+# ── Scratch / debug tools (not needed at runtime) ──────────────────────
+tools/_debug_*.py
+tools/_count_help_translatable.py
+tools/_translate_*.log
+tools/_translate_*.txt
+tools/i18n_*.log
+tools/i18n_*.txt
+
+# ── Misc dev-only files ────────────────────────────────────────────────
+collision_report.json
+assets/assets.zip
+handbook.txt
+manifest.xml.php
+proxy.php
+gh_pipeline.py
+login_bridge.py
+LICENSE.TXT
+
+# ── Per-machine WinSCP / push state (admin only) ───────────────────────
+.vscode-test/
+
+# ── Misc package metadata that doesn't belong in a .vsix ───────────────
+package-lock.json

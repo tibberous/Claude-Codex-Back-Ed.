@@ -98,4 +98,10 @@
   <s id="voice.nospeech">音声: 音声が検出されませんでした。</s>
   <s id="voice.permission_denied">音声: マイクへのアクセスが拒否されました。</s>
   <s id="voice.sapi_error">音声 (SAPI):</s>
+  <s id="tooltip.accounts">アカウント — APIキーの管理</s>
+  <s id="tooltip.browser">ブラウザ</s>
+  <s id="tooltip.tamagotchi">たまごっち（ペット）</s>
+  <s id="ext.calculator">電卓</s>
+  <s id="ext.minesweeper">マインスイーパ</s>
+  <s id="ext.emoji-picker">絵文字ピッカー</s>
 </strings>

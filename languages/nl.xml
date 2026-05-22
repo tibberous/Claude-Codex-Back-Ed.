@@ -98,4 +98,10 @@
   <s id="voice.nospeech">Stem: geen spraak gedetecteerd.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">Accounts — API-sleutels beheren</s>
+  <s id="tooltip.browser">Browser</s>
+  <s id="tooltip.tamagotchi">Tamagotchi-huisdier</s>
+  <s id="ext.calculator">Rekenmachine</s>
+  <s id="ext.minesweeper">Mijnenveger</s>
+  <s id="ext.emoji-picker">Emoji-kiezer</s>
 </strings>

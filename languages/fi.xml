@@ -98,4 +98,10 @@
   <s id="voice.nospeech">Ääni: puhetta ei havaittu.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">Tilit — hallitse API-avaimia</s>
+  <s id="tooltip.browser">Selain</s>
+  <s id="tooltip.tamagotchi">Tamagotchi-lemmikki</s>
+  <s id="ext.calculator">Laskin</s>
+  <s id="ext.minesweeper">Miinaharava</s>
+  <s id="ext.emoji-picker">Emoji-valitsin</s>
 </strings>

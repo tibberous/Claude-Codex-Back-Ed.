@@ -98,4 +98,10 @@
   <s id="voice.nospeech">Голос: мовлення не виявлено.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">Облікові записи — керування ключами API</s>
+  <s id="tooltip.browser">Браузер</s>
+  <s id="tooltip.tamagotchi">Улюбленець Тамагочі</s>
+  <s id="ext.calculator">Калькулятор</s>
+  <s id="ext.minesweeper">Сапер</s>
+  <s id="ext.emoji-picker">Вибір емодзі</s>
 </strings>

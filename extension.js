@@ -3507,6 +3507,16 @@ function bindPanel(context, panel) {
                 case 'sendText':
                     await handleSendText(context, panel, msg.text || '');
                     break;
+                case 'cancelInFlight':
+                    /* Stop button. The panel posts this when the user clicks
+                       #stopBtn (panel.js:765). We set a flag the streaming loop
+                       in handleSendText checks each iteration, then break out
+                       and post assistantDone so the UI clears. The bridge
+                       subprocess may keep running to completion — we just stop
+                       consuming its output, which is what the user sees. */
+                    panel.__cbeCancel = true;
+                    panel.webview.postMessage({ type: 'info', text: 'Stopped.' });
+                    break;
                 case 'reset':
                     conversation = [];
                     panel.webview.postMessage({ type: 'info', text: 'Conversation reset.' });
@@ -6048,7 +6058,17 @@ async function handleSendText(context, panel, text) {
             const onProgress = (step) => {
                 panel.webview.postMessage({ type: 'status', text: step });
             };
+            /* Reset the stop-button flag before each new stream so a click that
+               cancelled the prior turn doesn't leak into this one. The
+               'cancelInFlight' case in the dispatcher flips this to true; we
+               check it each delta and bail with a clean assistantDone. */
+            panel.__cbeCancel = false;
             for await (const delta of chatStream(context, providerId, model, conversation, maxTokens, onProgress)) {
+                if (panel.__cbeCancel) {
+                    panel.webview.postMessage({ type: 'assistantDone', text: assembled });
+                    try { setStatus('idle', false, providerId); } catch (_) {}
+                    return;
+                }
                 if (delta && typeof delta === 'object' && Array.isArray(delta.__toolCalls)) {
                     nativeToolCalls = delta.__toolCalls;
                     continue;

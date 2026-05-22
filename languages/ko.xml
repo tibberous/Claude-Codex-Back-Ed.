@@ -98,4 +98,10 @@
   <s id="voice.nospeech">음성: 음성이 감지되지 않았습니다.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">계정 — API 키 관리</s>
+  <s id="tooltip.browser">브라우저</s>
+  <s id="tooltip.tamagotchi">다마고치 펫</s>
+  <s id="ext.calculator">계산기</s>
+  <s id="ext.minesweeper">지뢰 찾기</s>
+  <s id="ext.emoji-picker">이모지 선택기</s>
 </strings>

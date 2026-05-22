@@ -98,4 +98,10 @@
   <s id="voice.nospeech">語音:冇偵測到語音。</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">帳戶 — 管理 API 金鑰</s>
+  <s id="tooltip.browser">瀏覽器</s>
+  <s id="tooltip.tamagotchi">Tamagotchi 寵物</s>
+  <s id="ext.calculator">計算機</s>
+  <s id="ext.minesweeper">掃雷</s>
+  <s id="ext.emoji-picker">Emoji 選擇器</s>
 </strings>

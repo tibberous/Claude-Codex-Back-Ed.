@@ -98,4 +98,10 @@
   <s id="voice.nospeech">Hlas: nezjištěna žádná řeč.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">Účty — správa klíčů API</s>
+  <s id="tooltip.browser">Prohlížeč</s>
+  <s id="tooltip.tamagotchi">Mazlíček Tamagotchi</s>
+  <s id="ext.calculator">Kalkulačka</s>
+  <s id="ext.minesweeper">Hledání min</s>
+  <s id="ext.emoji-picker">Výběr emoji</s>
 </strings>

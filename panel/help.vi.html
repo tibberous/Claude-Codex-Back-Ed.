@@ -1,565 +1,591 @@
 <!doctype html>
 <html lang="vi">
 <head>
+<base href="about:srcdoc">
 <meta charset="utf-8">
 <title>Claude Codex — Black Edition · Trợ giúp</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
+  /* Smooth-scroll for the TOC anchor jumps. */
+  html { scroll-behavior: smooth; }
+
   :root {
-    --bg: #16181d;
-    --surface: #1f2229;
-    --surface-2: #262a33;
-    --border: #353a45;
-    --text: #e7eaef;
-    --muted: #aab1bd;
-    --accent: #4ea8ff;
-    --accent-soft: rgba(78,168,255,0.12);
-    --kbd-bg: #0f1116;
-    --kbd-border: #2b313b;
-    --warn: #ffd84d;
-    --err: #ff8a8a;
-    --ok: #6fd58a;
+    /* Defaults — overridden by panel.js applySkinColors() when a skin is
+       active so the help reads natively under any skin (lime tamagotchi,
+       cream macOS, dark codex-black, etc). */
+    --bg:           var(--cbe-modal-bg,           #16181d);
+    --surface:      var(--cbe-modal-foot-bg,      #1f2229);
+    --surface-2:    var(--cbe-modal-title-bg-1,   #262a33);
+    --border:       var(--cbe-modal-border,       #353a45);
+    --text:         var(--cbe-modal-fg,           #e7eaef);
+    --muted:                                      #aab1bd;
+    --accent:       var(--cbe-modal-accent,       #4ea8ff);
+    --accent-soft:                                rgba(78,168,255,0.12);
+    --kbd-bg:                                     #0f1116;
+    --kbd-border:                                 #2b313b;
+    --warn:                                       #ffd84d;
+    --err:                                        #ff8a8a;
   }
-  * { box-sizing: border-box; }
-  /* .app is included here because CBE inlines this file's body into a <div>
-     inside the panel (no <html>/<body> wrapper) — without .app carrying the
-     dark background + text color, the panel skin's background bleeds through
-     and you get unreadable text. Standalone (real <body>) it's still fine. */
-  html, body, .app { margin: 0; padding: 0; height: 100%; background: var(--bg);
-               color: var(--text); font: 14.5px/1.55 ui-sans-serif, system-ui,
-               -apple-system, "Segoe UI", sans-serif; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  code, kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-  code { background: var(--kbd-bg); padding: 1px 6px; border-radius: 4px;
-         border: 1px solid var(--kbd-border); font-size: 0.92em; }
-  kbd { background: var(--kbd-bg); padding: 1px 7px; border-radius: 4px;
-        border: 1px solid var(--kbd-border); border-bottom-width: 2px;
-        font-size: 0.85em; color: #ffd84d; }
-  pre { background: var(--kbd-bg); border: 1px solid var(--border);
-        border-radius: 6px; padding: 12px 14px; overflow-x: auto;
-        font-size: 12.5px; }
-  /* Layout: fixed TOC sidebar + scrolling content. The content scrolls
-     inside #main, which jQuery smooth-scrolls when TOC links are clicked. */
-  /* height:100% (not 100vh) so the layout fills the modal body when inlined,
-     and the full standalone window when opened as a real page. */
-  .app { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
-  nav.toc { background: var(--surface); border-right: 1px solid var(--border);
-            overflow-y: auto; padding: 18px 0 24px 0; position: sticky; top: 0;
-            height: 100%; }
-  nav.toc h2 { margin: 0 18px 8px 18px; font-size: 11px; letter-spacing: 0.08em;
-               color: var(--muted); text-transform: uppercase; }
-  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: tocnum; }
-  nav.toc ol li { counter-increment: tocnum; }
-  nav.toc ol li > a { display: block; padding: 7px 18px 7px 36px; font-size: 13.5px;
-                       color: var(--text); position: relative; line-height: 1.3;
-                       border-left: 3px solid transparent; }
-  /* Click feedback wired from panel.js: active TOC link gets an accent bar +
-     tint, the landed section flashes a soft accent glow that fades out. */
-  nav.toc ol li > a.cbe-toc-active {
-    border-left-color: var(--accent); background: var(--accent-soft);
-    color: var(--accent);
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
   }
-  @keyframes cbeHelpFlash {
-    0%   { background: var(--accent-soft); }
-    100% { background: transparent; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 28px 32px 80px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 30px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 15px; margin: 18px 0 4px; color: var(--accent); }
+  h4 { font-size: 13px; margin: 12px 0 4px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  p  { margin: 4px 0 10px; }
+  ul, ol { margin: 4px 0 12px; padding-left: 22px; }
+  li { margin: 3px 0; }
+  code, kbd { font-family: Consolas, "Courier New", monospace; font-size: 12.5px; }
+  code { background: var(--surface-2); padding: 1px 5px; border-radius: 3px; }
+  kbd  { background: var(--kbd-bg); border: 1px solid var(--kbd-border); padding: 1px 6px; border-radius: 3px; font-size: 11.5px; }
+  pre  { background: var(--surface-2); padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; }
+  pre code { background: transparent; padding: 0; }
+  .lead { color: var(--muted); margin: 0 0 18px; }
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 14px 0 24px;
   }
-  .cbe-help-flash { animation: cbeHelpFlash 1.1s ease-out 1; border-radius: 6px; }
-  nav.toc ol li > a::before { content: counter(tocnum); position: absolute;
-                              left: 14px; top: 7px; color: var(--muted);
-                              font-family: ui-monospace; font-size: 11px;
-                              min-width: 16px; text-align: right; }
-  nav.toc ol li > a:hover { background: var(--surface-2); text-decoration: none; }
-  nav.toc ol li > a.active { background: var(--accent-soft);
-                              border-left-color: var(--accent); color: var(--accent); }
-  main#main { overflow-y: auto; padding: 28px 36px 80px 36px; height: 100vh; }
-  main#main > header { margin-bottom: 26px; padding-bottom: 14px;
-                       border-bottom: 1px solid var(--border); }
-  main#main > header h1 { margin: 0 0 4px 0; font-size: 24px; font-weight: 600;
-                          letter-spacing: 0.005em; }
-  main#main > header .meta { color: var(--muted); font-size: 13px; }
-  section.help-section { scroll-margin-top: 16px; max-width: 820px;
-                          margin: 0 0 36px 0; padding-top: 6px; }
-  section.help-section h2 { font-size: 19px; margin: 0 0 10px 0; font-weight: 600;
-                            display: flex; align-items: baseline; gap: 10px; }
-  section.help-section h2 .num { color: var(--muted); font: 13px ui-monospace;
-                                  min-width: 1.5em; }
-  section.help-section h3 { font-size: 15px; margin: 18px 0 6px 0; font-weight: 600;
-                            color: var(--text); }
-  section.help-section p { margin: 0 0 10px 0; color: var(--text); }
-  section.help-section ul { margin: 0 0 12px 0; padding-left: 22px; }
-  section.help-section li { margin-bottom: 4px; }
-  section.help-section table { border-collapse: collapse; width: 100%;
-                                margin: 6px 0 14px 0; font-size: 13.5px; }
-  section.help-section th, section.help-section td { border: 1px solid var(--border);
-                                                       padding: 6px 10px; text-align: left;
-                                                       vertical-align: top; }
-  section.help-section th { background: var(--surface-2); font-weight: 600; }
-  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft);
-             padding: 10px 14px; border-radius: 0 4px 4px 0; margin: 10px 0 14px 0; }
-  .callout.warn { border-color: var(--warn); background: rgba(255,216,77,0.08); }
-  .callout.err  { border-color: var(--err);  background: rgba(255,138,138,0.08); }
-  .top-link { float: right; font-size: 12px; color: var(--muted); }
+  .toc h2 { font-size: 13px; margin: 0 0 8px; border: 0; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .toc ul { columns: 2; column-gap: 28px; margin: 0; padding-left: 18px; list-style: square; }
+  .toc a { color: var(--text); text-decoration: none; }
+  .toc a:hover { color: var(--accent); text-decoration: underline; }
+  section { scroll-margin-top: 12px; }
+  .btnrow {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 4px 16px;
+    margin: 6px 0 14px;
+  }
+  .btnrow dt { font-weight: 600; color: var(--accent); padding-top: 2px; }
+  .btnrow dd { margin: 0 0 8px; }
+  .pill {
+    display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px;
+    background: var(--accent-soft); color: var(--accent); margin-left: 6px;
+    border: 1px solid color-mix(in srgb, var(--accent), transparent 60%);
+  }
+  .pill.warn { background: rgba(255,216,77,.10); color: var(--warn); border-color: color-mix(in srgb, var(--warn), transparent 60%); }
+  .note { background: var(--surface); border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: 13px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  details { margin: 6px 0; }
+  summary { cursor: pointer; color: var(--accent); padding: 4px 0; }
+  summary:hover { text-decoration: underline; }
+  .top-link { float: right; font-size: 12px; color: var(--muted); text-decoration: none; font-weight: normal; }
   .top-link:hover { color: var(--accent); }
-  /* Scrollbar */
-  *::-webkit-scrollbar { width: 10px; height: 10px; }
-  *::-webkit-scrollbar-track { background: var(--bg); }
-  *::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
-  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
+  a { color: var(--accent); }
 </style>
 </head>
 <body>
-<div class="app">
+<div class="wrap">
 
-  <nav class="toc" aria-label="Mục lục">
-    <h2>Mục lục</h2>
-    <ol id="toc-list">
-      <li><a href="#welcome">Chào mừng</a></li>
-      <li><a href="#keyboard">Phím tắt</a></li>
-      <li><a href="#prompt-box">Hộp nhập lệnh</a></li>
-      <li><a href="#toolbar">Các nút thanh công cụ</a></li>
-      <li><a href="#providers">Mô hình &amp; nhà cung cấp</a></li>
-      <li><a href="#stt">Chuyển đổi giọng nói thành văn bản</a></li>
-      <li><a href="#auto-prompt">Tự động nhắc nhở</a></li>
-      <li><a href="#tts">Đọc tự động (TTS)</a></li>
-      <li><a href="#compact">Chế độ gọn &amp; sử dụng ngữ cảnh</a></li>
-      <li><a href="#wake-up">Phản hồi kích hoạt</a></li>
-      <li><a href="#attachments">Đính kèm tệp</a></li>
-      <li><a href="#git">Cửa sổ Git</a></li>
-      <li><a href="#github">Kho lưu trữ GitHub</a></li>
-      <li><a href="#domains">Tên miền NameSilo</a></li>
-      <li><a href="#skins">Giao diện &amp; chủ đề</a></li>
-      <li><a href="#settings">Cài đặt</a></li>
-      <li><a href="#language">Ngôn ngữ</a></li>
-      <li><a href="#monitor">Giám sát VSCode</a></li>
-      <li><a href="#auto-update">Cập nhật tự động (kéo)</a></li>
-      <li><a href="#admin-push">Đẩy quản trị viên</a></li>
-      <li><a href="#extensions">Cửa hàng tiện ích mở rộng</a></li>
-      <li><a href="#slash">Lệnh gạch chéo</a></li>
-      <li><a href="#context-menu">Menu chuột phải</a></li>
-      <li><a href="#trace">Kênh theo dõi</a></li>
-      <li><a href="#troubleshooting">Khắc phục sự cố</a></li>
-      <li><a href="#about">Giới thiệu &amp; giấy phép</a></li>
-    </ol>
-  </nav>
+<h1>Claude Codex — Black Edition</h1>
+<p class="lead">Bảng điều khiển AI độc lập cho VSCode. Trò chuyện với bất kỳ nhà cung cấp LLM nào (API trực tiếp hoặc cầu nối trình duyệt), với TTS, STT, đính kèm tệp, bảng lệnh, đa tài khoản, giao diện, và một Tamagotchi thú cưng pixel.</p>
 
-  <main id="main">
-    <header>
-      <h1>Claude Codex — Black Edition</h1>
-      <div class="meta">Một bảng trò chuyện AI đa nhà cung cấp hoạt động ngoại tuyến đầu tiên cho VSCode.
-        Nhấn <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd> để bật/tắt.</div>
-    </header>
+<nav class="toc">
+  <h2>Mục lục</h2>
+  <ul>
+    <li><a href="#quick">Bắt đầu nhanh</a></li>
+    <li><a href="#providers">Nhà cung cấp &amp; mô hình</a></li>
+    <li><a href="#sending">Gửi tin nhắn</a></li>
+    <li><a href="#toolbar">Nút thanh công cụ</a></li>
+    <li><a href="#rightclick">Menu chuột phải</a></li>
+    <li><a href="#modals">Hộp thoại &amp; cửa sổ</a></li>
+    <li><a href="#settings">Cài đặt</a></li>
+    <li><a href="#setup">Trình hướng dẫn cài đặt</a></li>
+    <li><a href="#accounts">Tài khoản &amp; khóa API</a></li>
+    <li><a href="#slash">Lệnh dấu gạch chéo</a></li>
+    <li><a href="#tama">Thú cưng Tamagotchi</a></li>
+    <li><a href="#skins">Giao diện</a></li>
+    <li><a href="#extensions">Tiện ích mở rộng</a></li>
+    <li><a href="#autoupdate">Cập nhật tự động (push/pull)</a></li>
+    <li><a href="#hotreload">Tải lại nóng</a></li>
+    <li><a href="#troubleshooting">Khắc phục sự cố</a></li>
+  </ul>
+</nav>
 
-    <section id="welcome" class="help-section">
-      <h2><span class="num">1.</span> Chào mừng</h2>
-      <p>Claude Codex Black là một webview VSCode cho phép bạn trò chuyện với nhiều nhà cung cấp AI
-        (Claude, OpenAI, Gemini, Grok, Azure, Ollama cục bộ) từ một bảng có thể tùy chỉnh chủ đề.
-        Mọi thứ cần khóa đều đọc từ <code>config.ini</code> ở gốc tiện ích — không cần giao diện cài đặt tiện ích,
-        nhưng modal Cài đặt phản chiếu các trường hữu ích nhất để chỉnh sửa bằng cách nhấp chuột.</p>
-      <div class="callout">
-        Mới tại đây? Hãy bắt đầu bằng cách mở <em>Cài đặt</em> (biểu tượng bánh răng), chọn nhà cung cấp của bạn, dán khóa API,
-        rồi nhập lệnh và nhấn <kbd>Enter</kbd>. Mọi tính năng khác trong hướng dẫn này là tùy chọn.
-      </div>
-    </section>
+<section id="quick">
+<h2>Bắt đầu nhanh <a class="top-link" href="#">↑ đầu</a></h2>
+<ol>
+  <li>Nhấp vào <b>Setup</b> (biểu tượng đũa thần) và thực hiện theo trình hướng dẫn để nhập khóa API của bạn. Chúng được lưu vào <code>config.ini</code> (được gitignore — không bao giờ cam kết).</li>
+  <li>Nhấp vào <b>viên nhà cung cấp</b> ở dưới cùng bên trái (hiện đang được gắn nhãn "Claude Codex — Black Edition") để chuyển đổi AI nào bạn đang nói chuyện.</li>
+  <li>Nhập vào textarea và nhấn <kbd>Enter</kbd> để gửi. <kbd>Shift</kbd>+<kbd>Enter</kbd> chèn một dòng mới.</li>
+  <li>Nhấn <kbd>↑</kbd> trong textarea trống để gọi lại các lệnh trước đó (lịch sử kiểu PowerShell).</li>
+</ol>
+</section>
 
-    <section id="keyboard" class="help-section">
-      <h2><span class="num">2.</span> Phím tắt</h2>
-      <table>
-        <thead><tr><th>Phím</th><th>Hiệu ứng</th></tr></thead>
-        <tbody>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd></td><td>Bật/tắt bảng CBE</td></tr>
-          <tr><td><kbd>Enter</kbd></td><td>Gửi lệnh hiện tại</td></tr>
-          <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Dòng mới bên trong hộp lệnh</td></tr>
-          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Xoay qua các lệnh đã gửi trước đó (từ <code>prompt_history.txt</code>)</td></tr>
-          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Xoay qua các mục <code>prompts.txt</code> được sắp xếp khi con trỏ ở đầu/cuối textarea</td></tr>
-          <tr><td><kbd>Esc</kbd></td><td>Đóng bất kỳ modal nào đang mở</td></tr>
-          <tr><td><kbd>/</kbd></td><td>Mở bảng lệnh gạch chéo</td></tr>
-        </tbody>
-      </table>
-    </section>
+<section id="providers">
+<h2>Nhà cung cấp &amp; mô hình <a class="top-link" href="#">↑ đầu</a></h2>
+<p>Hai loại nhà cung cấp được hỗ trợ:</p>
 
-    <section id="prompt-box" class="help-section">
-      <h2><span class="num">3.</span> Hộp nhập lệnh</h2>
-      <p>Textarea có thể chỉnh sửa lớn ở dưới cùng. Nhập, dán, kéo tệp, đính kèm qua biểu tượng giấy — bất cứ thứ gì bạn đặt tại đây
-        là lượt người dùng của lệnh gọi API tiếp theo.</p>
-      <p>Phông chữ được khóa vào phông chữ monospace của trình soạn thảo VSCode (qua biến CSS
-        <code>--vscode-editor-font-family</code>) để bảng trông phù hợp
-        bên trong trình soạn thảo.</p>
-    </section>
+<h4>API trực tiếp (sử dụng khóa của bạn)</h4>
+<table>
+  <tr><th>Nhà cung cấp</th><th>Mô hình mặc định</th><th>Khóa được đặt ở đâu</th></tr>
+  <tr><td>Anthropic (Claude)</td><td>claude-sonnet-4-6</td><td><code>[api_keys] anthropic_api_key</code></td></tr>
+  <tr><td>OpenAI (ChatGPT)</td><td>gpt-4o</td><td><code>[api_keys] openai_api_key</code></td></tr>
+  <tr><td>Google Gemini</td><td>gemini-2.5-pro</td><td><code>[api_keys] gemini_api_key</code></td></tr>
+  <tr><td>xAI (Grok)</td><td>grok-4</td><td><code>[api_keys] xai_api_key</code></td></tr>
+  <tr><td>DeepSeek</td><td>deepseek-chat</td><td><code>[api_keys] deepseek_api_key</code></td></tr>
+  <tr><td>Azure OpenAI</td><td>(dựa trên triển khai)</td><td><code>[azure] api_key</code> + endpoint</td></tr>
+</table>
 
-    <section id="toolbar" class="help-section">
-      <h2><span class="num">4.</span> Các nút thanh công cụ</h2>
-      <p>Hàng dưới cùng, từ trái sang phải. Các mẹo công cụ hiển thị khi di chuột; bảng cũng đọc chúng to
-        bằng ngôn ngữ bạn đã chọn (xem <a href="#language">Ngôn ngữ</a>).</p>
-      <table>
-        <thead><tr><th>Biểu tượng</th><th>Chức năng</th></tr></thead>
-        <tbody>
-          <tr><td>🎤 Mic</td><td>Chuyển đổi giọng nói thành văn bản — Web Speech API với dự phòng SAPI. Xem <a href="#stt">§ 6</a>.</td></tr>
-          <tr><td>📎 Đính kèm</td><td>Chọn một hoặc nhiều tệp để nhúng vào lệnh</td></tr>
-          <tr><td>🔁 Kích hoạt</td><td>Chỉnh sửa văn bản kích hoạt tự động nhắc nhở (nằm trong <code>wake.txt</code>)</td></tr>
-          <tr><td>⏱ Tự động nhắc nhở</td><td>Bật/tắt đếm ngược không hoạt động tự động phát</td></tr>
-          <tr><td>📚 Gọn</td><td>Cắt ngắn lịch sử cuộc trò chuyện xuống một vài lượt cuối cùng. Vòng tròn hiển thị mức sử dụng cửa sổ ngữ cảnh.</td></tr>
-          <tr><td>📁 Git</td><td>Chạy lệnh git trong thư mục dự án</td></tr>
-          <tr><td>🌐 Tên miền</td><td>Kéo danh sách tên miền NameSilo của bạn</td></tr>
-          <tr><td>🐙 GitHub</td><td>Liệt kê kho lưu trữ GitHub của bạn qua PAT</td></tr>
-          <tr><td>🎨 Giao diện</td><td>Chọn chủ đề bảng (khám phá trực tiếp từ <code>skins/</code>)</td></tr>
-          <tr><td>🧩 Tiện ích mở rộng</td><td>Mở modal iframe cửa hàng. Xem <a href="#extensions">§ 21</a>.</td></tr>
-          <tr><td>⚙ Cài đặt</td><td>Mở modal cài đặt</td></tr>
-          <tr><td>📜 Sổ tay</td><td>Mở <code>handbook.txt</code> để chỉnh sửa</td></tr>
-          <tr><td>❔ Trợ giúp</td><td>Tài liệu này</td></tr>
-          <tr><td>⏹ Dừng</td><td>Hủy lệnh gọi mô hình đang bay</td></tr>
-          <tr><td>📤 Gửi</td><td>Gửi lệnh (giống như <kbd>Enter</kbd>)</td></tr>
-        </tbody>
-      </table>
-    </section>
+<h4>Cầu nối trình duyệt (không có khóa API — điều khiển phiên trình duyệt đã đăng nhập)</h4>
+<table>
+  <tr><th>Cầu nối</th><th>Mục tiêu</th><th>Cổng</th></tr>
+  <tr><td>Cầu nối ChatGPT</td><td>chat.openai.com</td><td>8788</td></tr>
+  <tr><td>Cầu nối Grok</td><td>grok.com / x.ai</td><td>8789</td></tr>
+  <tr><td>Cầu nối Copilot</td><td>copilot.microsoft.com</td><td>8790</td></tr>
+  <tr><td>Cầu nối Gemini</td><td>gemini.google.com</td><td>8791</td></tr>
+  <tr><td>Cầu nối Claude</td><td>claude.ai</td><td>8792</td></tr>
+  <tr><td>Ollama (cục bộ)</td><td>127.0.0.1:11434</td><td>8793</td></tr>
+  <tr><td>Cầu nối DeepSeek</td><td>chat.deepseek.com</td><td>8794</td></tr>
+</table>
+<p>Mỗi cầu nối là một exe khay C++ nhỏ tại <code>bin/CBE-Bridge-&lt;Target&gt;.exe</code> mở một hồ sơ Chrome đã đăng nhập, chặn lời nhắc của bạn và trả về câu trả lời của mô hình. Chọn nhà cung cấp cầu nối trong Cài đặt sẽ tự động khởi chạy exe phù hợp. Lần đầu tiên bạn sử dụng cầu nối, bạn phải đăng nhập vào trang web trong cửa sổ Chrome của nó một lần.</p>
+<div class="note">Chat cầu nối nói một giao thức dòng trên TCP: một dòng JSON vào (<code>{action:"chat", target, message, model}</code>), một dòng JSON ra. Không cần khóa api.</div>
+</section>
 
-    <section id="providers" class="help-section">
-      <h2><span class="num">5.</span> Mô hình &amp; nhà cung cấp</h2>
-      <p>CBE được cung cấp với <strong>11 cây cầu</strong> như các plugin <code>.bridge</code> dễ sử dụng dưới
-        <code>bridges/</code>. Mỗi một là một zip tự chứa đựng với manifest.xml + bridge.py
-        + biểu tượng. Thả một tệp <code>.bridge</code> mới vào và nó xuất hiện trong menu thả xuống hộp mực — không cần thay đổi mã tiện ích.</p>
-      <h3>Cầu trò chuyện văn bản (7)</h3>
-      <ul>
-        <li><strong>ChatGPT</strong> — chatgpt.com, thuê bao Plus/Pro</li>
-        <li><strong>Grok</strong> — grok.com, đăng nhập xAI gốc (tier miễn phí bị giới hạn nặng; hãy đăng nhập trước)</li>
-        <li><strong>Gemini</strong> — gemini.google.com, tài khoản Google</li>
-        <li><strong>Claude</strong> — claude.ai, đăng nhập liên kết kỳ diệu (chạy <code>tools/sign_in_helper.py claude</code> một lần)</li>
-        <li><strong>Copilot</strong> — copilot.microsoft.com, tài khoản Microsoft miễn phí</li>
-        <li><strong>DeepSeek</strong> — chat.deepseek.com, email/mật khẩu gốc (KHÔNG sử dụng Google SSO)</li>
-        <li><strong>Ollama</strong> — cục bộ <code>127.0.0.1:11434</code>, không cần đăng nhập</li>
-      </ul>
-      <h3>Cầu tạo video (4)</h3>
-      <ul>
-        <li><strong>Sora 2</strong> — sora.com, tái sử dụng đăng nhập ChatGPT Plus/Pro</li>
-        <li><strong>Google Veo</strong> — gemini.google.com (chế độ Veo), thuê bao Gemini Advanced</li>
-        <li><strong>Runway Gen-3/4</strong> — app.runwayml.com, thuê bao Runway riêng biệt</li>
-        <li><strong>Bing Video Creator</strong> — bing.com/videos/create, <em>Sora-2 miễn phí</em> với tài khoản Microsoft</li>
-      </ul>
-      <p>Video được tạo lưu vào <code>videos/&lt;bridge&gt;/&lt;timestamp&gt;_&lt;prompt-slug&gt;.mp4</code>
-        và tự động phát trong bảng Thư viện Video (xem §Thư viện Video dưới đây).</p>
-      <p>Chọn cây cầu + mô hình từ menu thả xuống hộp mực, hoặc qua
-        <em>Cài đặt → Chung</em>. Lựa chọn là mỗi không gian làm việc và được lưu giữ trong
-        workspaceState. Để thêm cây cầu mới, xem <code>docs/WRITING_BRIDGES.md</code>.</p>
-    </section>
+<section id="sending">
+<h2>Gửi tin nhắn <a class="top-link" href="#">↑ đầu</a></h2>
+<dl class="btnrow">
+  <dt>Textarea</dt>
+  <dd>Nhập lệnh nhắc của bạn. <kbd>Enter</kbd> gửi, <kbd>Shift</kbd>+<kbd>Enter</kbd> chèn một dòng mới. Trong khi một câu trả lời đang phát trực tuyến, các lệnh nhắc bổ sung sẽ được <b>xếp hàng</b> và gửi theo thứ tự — trình giữ chỗ hiển thị "Xếp hàng tin nhắn khác…" trong trạng thái này.</dd>
 
-    <section id="video-library" class="help-section">
-      <h2><span class="num">5a.</span> Thư viện Video</h2>
-      <p>Một bảng chuyên dụng để duyệt và xem video được tạo bởi các cây cầu video
-        (Sora, Veo, Runway, Bing Video Creator). Mở qua Bảng điều khiển lệnh:
-        <em>Claude Codex Black: Mở Thư viện Video</em> hoặc lệnh
-        <code>codexBlackEd.openVideoPlayer</code>.</p>
-      <ul>
-        <li>Thanh bên liệt kê mọi <code>.mp4</code> / <code>.webm</code> / <code>.mov</code> dưới
-          <code>videos/&lt;bridge&gt;/</code>, được nhóm theo cây cầu và sắp xếp mới nhất trước.</li>
-        <li>Video mới nhất tự động phát khi mở lần đầu.</li>
-        <li>Bảng theo dõi thư mục <code>videos/</code> mỗi 2 giây — bất kỳ video được tạo mới nào
-          sẽ xuất hiện với huy hiệu ✨ "Vừa tạo" và tự động phát
-          (tắt qua <em>Auto ▶ new</em>).</li>
-        <li>Nhấp <em>📂 Mở</em> để hiển thị thư mục <code>videos/</code> trong trình quản lý tệp hệ điều hành của bạn.</li>
-      </ul>
-    </section>
+  <dt>Nút gửi (orb)</dt>
+  <dd>Nút tròn ở cạnh phải của textarea. Giống như <kbd>Enter</kbd>. Trực quan cho thấy ba trạng thái (chờ / di chuột / hoạt động).</dd>
 
-    <section id="stt" class="help-section">
-      <h2><span class="num">6.</span> Chuyển đổi giọng nói thành văn bản</h2>
-      <p>Nhấp vào mic, nói, nhấp lại để dừng (hoặc chờ hết thời gian im lặng).
-        Hai công cụ được thử theo thứ tự:</p>
-      <ol style="padding-left:22px;">
-        <li><strong>Web Speech API</strong> — trình nhận dạng đám mây của Google chạy trong webview.
-          Sử dụng phiên Gmail/Google của bạn; không cần khóa bổ sung.</li>
-        <li><strong>Windows SAPI</strong> (dự phòng) — quy trình PowerShell được chuẩn bị trước được gọi khi
-          webview chặn quyền truy cập mic. Cửa sổ nghe có thể cấu hình qua
-          <code>[voice] listen_seconds</code> trong <code>config.ini</code>.</li>
-      </ol>
-      <div class="callout">
-        SAPI được <em>chuẩn bị trước khi tiện ích kích hoạt</em> nên lần nhấp mic đầu tiên tránh được
-        2-4 giây khởi động lạnh mà trước đây sẽ nuốt các lần nhấp dừng sớm.
-      </div>
-    </section>
+  <dt>Nút dừng</dt>
+  <dd>Dưới cùng bên phải của composer. Hủy câu trả lời đang phát trực tuyến và bất kỳ tin nhắn nào đang chờ. Văn bản đã phát trực tuyến được giữ lại; chỉ yêu cầu trong quá trình bay bị hủy.</dd>
 
-    <section id="auto-prompt" class="help-section">
-      <h2><span class="num">7.</span> Tự động nhắc nhở</h2>
-      <p>Nút huy hiệu có vòng quay. Khi BẬT, sau N giây không hoạt động, bảng sẽ tự động gửi văn bản kích hoạt đã cấu hình của bạn.
-        Chữ số đếm ngược được hiển thị trong
-        <code>--cbe-highlight-color</code>, được mỗi giao diện định nghĩa.</p>
-      <p>Chỉnh sửa văn bản kích hoạt qua nút 🔁 Kích hoạt — nó tròn trặn <code>wake.txt</code>.</p>
-    </section>
+  <dt>Viên nhà cung cấp</dt>
+  <dd>Dưới cùng bên trái của composer. Nhấp để mở một danh sách thả xuống của mọi nhà cung cấp bạn đã cấu hình. Chọn một cái mới sẽ tự động khởi động cầu nối của nó (nếu có) và đăng một toast xác nhận.</dd>
 
-    <section id="tts" class="help-section">
-      <h2><span class="num">8.</span> Đọc tự động (TTS)</h2>
-      <p>Biểu tượng miệng. Khi BẬT, mọi phản hồi trợ lý đều được nói to qua bộ tổng hợp Web Speech
-        (Google) hoặc dự phòng SAPI. Một halo xanh lam phát sáng xung quanh biểu tượng khi
-        âm thanh đang phát.</p>
-    </section>
+  <dt>Lịch sử lệnh nhắc</dt>
+  <dd><kbd>↑</kbd> / <kbd>↓</kbd> trong textarea trống đi qua lùi / tiến 500 lệnh nhắc cuối cùng bạn đã gửi (kiểu PowerShell). Lịch sử được lưu tại <code>prompt_history.txt</code> trong thư mục tiện ích mở rộng và tồn tại qua các lần tải lại bảng điều khiển.</dd>
+</dl>
+</section>
 
-    <section id="compact" class="help-section">
-      <h2><span class="num">9.</span> Chế độ gọn &amp; sử dụng ngữ cảnh</h2>
-      <p>Mảng cuộc trò chuyện được gửi tới mô hình phát triển với mỗi lượt. Vòng tròn xung quanh
-        biểu tượng Gọn hiển thị mức sử dụng cửa sổ ngữ cảnh hiện tại dưới dạng gradient hình nón — trống
-        khi tươi, đầy khi gần với giới hạn ngữ cảnh của mô hình.</p>
-      <p>Nhấp Gọn để cắt ngắn lịch sử xuống bốn lượt cuối cùng. Lệnh gọi API tiếp theo
-        sử dụng mảng nhỏ hơn.</p>
-    </section>
+<section id="toolbar">
+<h2>Nút thanh công cụ <a class="top-link" href="#">↑ đầu</a></h2>
+<p>Liệt kê theo thứ tự thanh công cụ. Tất cả các chú giải công cụ có thể bản địa hóa theo ngôn ngữ qua <code>languages/*.xml</code>.</p>
 
-    <section id="wake-up" class="help-section">
-      <h2><span class="num">10.</span> Phản hồi kích hoạt</h2>
-      <p>Được lưu trữ trong <code>wake.txt</code> ở gốc tiện ích. Được sử dụng bởi Tự động nhắc nhở làm
-        thông báo được gửi khi hết giờ không hoạt động. Chỉnh sửa qua nút 🔁 thanh công cụ.</p>
-    </section>
+<dl class="btnrow">
 
-    <section id="attachments" class="help-section">
-      <h2><span class="num">11.</span> Đính kèm tệp</h2>
-      <p>Nhấp 📎 để chọn một hoặc nhiều tệp. Giữ <kbd>Ctrl</kbd> hoặc <kbd>Shift</kbd> trong
-        trình chọn để chọn nhiều. Mỗi tệp được nhúng vào lệnh dưới dạng khối mã được bao quanh
-        với tên tệp và ngôn ngữ. Tệp nhị phân trên 1 MB được bỏ qua kèm thông báo.</p>
-    </section>
+<dt>Cuộc trò chuyện mới <span class="pill">addBtn</span></dt>
+<dd>Xóa chuỗi hiện tại, xóa trạng thái cuộc trò chuyện trong bộ nhớ và bắt đầu lại. Chuỗi trước đó được bảo tồn trên đĩa dưới <code>chats/&lt;UTC-date&gt;.log</code> nên không có gì bị mất. Tương đương với <code>/clear</code>.</dd>
 
-    <section id="git" class="help-section">
-      <h2><span class="num">12.</span> Cửa sổ Git</h2>
-      <p>Nhấp 📁 Git. Nếu không có thư mục dự án được cấu hình, bạn sẽ nhận được trình chọn thư mục trước — đường dẫn được chọn được viết vào <code>[project] path</code> trong <code>config.ini</code>.
-        Các lệnh gọi git tiếp theo chạy với cwd được đặt thành đường dẫn đó.</p>
-    </section>
+<dt>Lệnh nhắc được lưu trữ <span class="pill">storedPromptsBtn</span></dt>
+<dd>Mở một hộp thoại liệt kê mọi mẫu lệnh nhắc được lưu dưới <code>stored_prompts/</code>. Nhấp vào một cái để chèn nó vào textarea; nút "+" thêm một mẫu mới. Các mẫu hỗ trợ thay thế biến.</dd>
 
-    <section id="github" class="help-section">
-      <h2><span class="num">13.</span> Kho lưu trữ GitHub</h2>
-      <p>Liệt kê mọi kho lưu trữ có thể truy cập được <code>[github] pat</code> của bạn. Nhấp một hàng để chèn
-        URL sao chép của nó vào lệnh. Danh sách được phân trang và lưu trữ trong bộ nhớ cache.</p>
-    </section>
+<dt>Lịch sử trò chuyện <span class="pill">chatHistoryBtn</span></dt>
+<dd>Duyệt qua nhật ký trò chuyện trên đĩa (một tệp cho mỗi ngày UTC dưới <code>chats/</code>). Chọn một ngày để cuộn lại qua các cuộc trò chuyện quá khứ.</dd>
 
-    <section id="domains" class="help-section">
-      <h2><span class="num">14.</span> Tên miền NameSilo</h2>
-      <p>Kéo mọi tên miền trong tài khoản NameSilo của bạn bằng cách sử dụng <code>[namesilo] api_key</code>
-        (hoặc <code>[api_keys] namesilo_api_key</code> làm dự phòng). Khi mở lần đầu, kết quả được
-        lưu vào bộ nhớ cache <code>domains.txt</code>; các lần khởi động bảng tiếp theo phục vụ từ bộ nhớ cache. Nhấp
-        <em>Tải lại</em> trong modal để buộc kéo mới.</p>
-      <div class="callout warn">
-        Nếu bạn bao giờ thấy "không có tên miền" kèm mã 300, hãy kiểm tra kênh theo dõi — bộ nhớ cache rỗng không còn
-        làm nhiễu các lần khởi động bảng trong tương lai, nhưng <code>domains.txt</code> cũ trong
-        đường dẫn cài đặt khác có thể.
-      </div>
-    </section>
+<dt>Đính kèm tệp <span class="pill">attachFileBtn</span></dt>
+<dd>Mở bộ chọn tệp. Tệp được chọn được tải lên cùng với lệnh nhắc tiếp theo — hình ảnh được hiển thị nội tuyến (vision), tệp văn bản/mã trở thành một khối được bao quanh trong lệnh nhắc của bạn. Hỗ trợ đính kèm nhiều.</dd>
 
-    <section id="skins" class="help-section">
-      <h2><span class="num">15.</span> Giao diện &amp; chủ đề</h2>
-      <p>Nút 🎨 bật trình chọn khám phá quét <code>skins/</code> trực tiếp (không ở lúc khởi động), vì vậy thả
-        một thư mục mới vào lúc chạy là đủ. Mỗi giao diện có một
-        <code>manifest.xml</code> xác định bảng màu của nó — bao gồm cả
-        <strong>màu làm nổi bật</strong>, mà huy hiệu đếm ngược Tự động nhắc nhở, vòng tiêu điểm,
-        và xung quanh giám sát đều sử dụng.</p>
-      <p>Các giao diện tích hợp bao gồm: <code>gnome</code> (xám Adwaita), <code>terminal</code>
-        (đen/xanh lá cây với accent hồng sáng), <code>tamagotchi</code> (pastels vỏ trứng với
-        bảng mascot sprite), <code>blocky</code>, và những cái khác.</p>
-    </section>
+<dt>Đọc to (TTS) <span class="pill">ttsBtn</span></dt>
+<dd>Nói to câu trả lời trợ lý gần đây nhất. Sử dụng ElevenLabs (nếu <code>[elevenlabs] api_key</code> được đặt) hoặc quay lại SAPI Windows. <b>Chuột phải</b> để bật chế độ <i>tự động đọc</i> trong đó mỗi câu trả lời mới được nói to tự động — nút sẽ có một chỉ thị hoạt hình trong khi hoạt động.</dd>
 
-    <section id="settings" class="help-section">
-      <h2><span class="num">16.</span> Cài đặt</h2>
-      <p>Mở từ bánh răng ⚙. Các tab:</p>
-      <ul>
-        <li><strong>Chung</strong> — tên hiển thị, mô hình mặc định, gửi khi nhấn Enter</li>
-        <li><strong>Giọng nói</strong> — thiết bị mic, listen_seconds, chọn công cụ STT, TTS đọc tự động</li>
-        <li><strong>Cập nhật</strong> — cờ <code>is_admin</code>, phiên WinSCP, đường dẫn từ xa</li>
-        <li><strong>Khóa</strong> — khóa API của mỗi nhà cung cấp</li>
-        <li><strong>Giám sát</strong> — bật tắt giám sát VSCode, cổng, khoảng thăm dò</li>
-        <li><strong>Ngôn ngữ</strong> — chọn từ 39 miền địa phương; xem <a href="#language">§ 17</a></li>
-      </ul>
-      <p>Modal ghi nhớ kích thước và vị trí của nó giữa các phiên.</p>
-    </section>
+<dt>Chuyển đổi giọng nói thành văn bản (STT) <span class="pill">sttBtn</span></dt>
+<dd>Ghi âm thanh micrô và chuyển đổi thành textarea. Thử Web Speech API của webview trước tiên; nếu điều đó không thành công (<code>not-allowed</code>, phổ biến trong hộp cát VSCode), quay lại SAPI Windows (<code>System.Speech.Recognition</code>) được khởi chạy trên máy chủ thông qua PowerShell. Nhấp lại để dừng.</dd>
 
-    <section id="language" class="help-section">
-      <h2><span class="num">17.</span> Ngôn ngữ</h2>
-      <p>Bảng được cung cấp với bản dịch cho 39 ngôn ngữ phổ biến nhất. Các tệp miền địa phương nằm tại
-        <code>languages/&lt;code&gt;.xml</code> và được tải một lần khi tiện ích kích hoạt.
-        Các khóa bị thiếu quay trở lại Tiếng Anh.</p>
-      <p>Chọn ngôn ngữ của bạn trong <em>Cài đặt → Ngôn ngữ</em>. Một biểu tượng cờ được hiển thị bên cạnh
-        mỗi tùy chọn (tải từ <code>assets/flags/&lt;code&gt;.svg</code>). Lựa chọn
-        được lưu vào <code>[settings] language</code> trong <code>config.ini</code>.</p>
-    </section>
+<dt>Lệnh nhắc tự động <span class="pill">autoReplyBtn</span></dt>
+<dd>Mở hộp thoại Lệnh nhắc tự động. Xác định một lệnh nhắc + một khoảng thời gian đếm ngược; sau mỗi câu trả lời trợ lý, đếm ngược sẽ tích và gửi lại lệnh nhắc tự động khi nó chạm đến 0. Hữu ích cho "tiếp tục", "bước tiếp theo", các phiên công cụ lặp lại. Nhấp lại để tắt.</dd>
 
-    <section id="monitor" class="help-section">
-      <h2><span class="num">18.</span> Giám sát VSCode</h2>
-      <p>Một dịch vụ Windows (<code>CBEVSCodeSupervisor</code>) bao bọc tập lệnh
-        <code>tools/vscode_supervisor.ps1</code> qua NSSM và ràng buộc một HttpListener
-        trên <strong>http://127.0.0.1:3434/</strong>. Nút giám sát của bảng phát sáng xanh lam
-        khi điểm cuối <code>/status</code> của giám sát trả về 200 OK.</p>
-      <p>Nếu thăm dò HTTP không thành công nhưng dịch vụ được cài đặt, watchdog của bảng
-        tự động khởi động lại dịch vụ (làm mát 30 giây để không khởi động lại liên tục).</p>
-      <p>Nhấp trái vào nút giám sát để cài đặt / bắt đầu / dừng. Nhấp phải để mở kênh theo dõi.</p>
-    </section>
+<dt>Phản hồi thức dậy <span class="pill">wakeUpBtn</span></dt>
+<dd>Chỉnh sửa tin nhắn thức dậy được lưu tại <code>wake.txt</code>. Phản hồi thức dậy là những gì Lệnh nhắc tự động gửi nếu nó phát hiện mô hình đã dừng lại — thường là một ping ngắn như "Hey! Tiếp tục."</dd>
 
-    <section id="auto-update" class="help-section">
-      <h2><span class="num">19.</span> Cập nhật tự động (kéo)</h2>
-      <p>4 giây sau khi tiện ích kích hoạt, bảng tìm nạp
-        <code>https://trentontompkins.com/cbe/manifest.xml.php</code> — danh sách MD5+kích thước
-        của các tệp được xuất bản mới nhất. Đối với mỗi tệp từ xa, MD5 của bản sao cục bộ được
-        so sánh; chỉ các tệp đã thay đổi/bị thiếu được tải xuống qua HTTPS.</p>
-      <p>Trạng thái cục bộ người dùng (<code>config.ini</code>, <code>debug.log</code>,
-        <code>domains.txt</code>, <code>wake.txt</code>, <code>prompt_history.txt</code>) nằm
-        trên danh sách loại trừ kéo và không bao giờ bị ghi đè.</p>
-    </section>
+<dt>Hiển thị menu lệnh <span class="pill">showCommandsBtn</span></dt>
+<dd>Mở bảng lệnh dấu gạch chéo trong một hộp thoại. Xem <a href="#slash">Lệnh dấu gạch chéo</a> để xem danh sách đầy đủ. Giống như nhập <code>/</code> ở đầu textarea.</dd>
 
-    <section id="admin-push" class="help-section">
-      <h2><span class="num">20.</span> Đẩy quản trị viên</h2>
-      <p>Chỉ máy khách có <code>[updates] is_admin = true</code> mới đẩy tới máy chủ.
-        Được kích hoạt qua:</p>
-      <ul>
-        <li>Bảng điều khiển lệnh → <em>Claude Codex Black: Đẩy cập nhật</em></li>
-        <li>Lệnh gạch chéo <code>/push</code></li>
-      </ul>
-      <p>Sử dụng phiên WinSCP đã lưu được đặt tên trong <code>[updates] winscp_session</code> (mặc định
-        <code>vps</code>). Đẩy qua <code>/script=…</code> với lệnh đồng bộ hóa và
-        một mặt nạ tệp loại trừ bí mật &amp; trạng thái mỗi máy.</p>
-    </section>
+<dt>Cuộc trò chuyện gọn gàng <span class="pill">compactBtn</span></dt>
+<dd>Đăng một yêu cầu tóm tắt và cắt tỉa thay thế chuỗi hiện tại bằng một bản tóm tắt được nén. Tương đương với <code>/compact</code>. Hữu ích khi cuộc trò chuyện đã kéo dài và bạn muốn giữ ngữ cảnh nhưng dừng tiêu tốn token khi gửi lại toàn bộ lịch sử.</dd>
 
-    <section id="extensions" class="help-section">
-      <h2><span class="num">21.</span> Cửa hàng tiện ích mở rộng</h2>
-      <p>Nhấp nút 🧩 Tiện ích mở rộng. Một modal iframe mở tới
-        <code>https://trentontompkins.com/cbe/extension/extension_marketplace.php</code>,
-        tìm nạp danh mục tại
-        <code>extensions.xml.php</code> và hiển thị mỗi tiện ích mở rộng có sẵn dưới dạng thẻ với
-        mô tả, thẻ, phiên bản, kích thước tệp, MD5 và nút <strong>Cài đặt</strong>.</p>
-      <p>Một tiện ích mở rộng được đóng gói dưới dạng <code>&lt;id&gt;.ext</code> — kho lưu trữ zip chứa
-        <code>manifest.xml</code> cộng với mã tiện ích mở rộng (thường là một
-        <code>extension.html</code>). Khi bạn nhấp Cài đặt, iframe cửa hàng gửi
-        <code>postMessage</code> quay lại bảng; bảng tải xuống
-        tệp <code>.ext</code> trực tiếp từ máy chủ và giải nén nó dưới
-        <code>extensions/</code> trong thư mục tiện ích.</p>
-      <p>Ba tiện ích mở rộng demo được cung cấp với danh mục khởi chạy:
-        <strong>Máy tính</strong>, <strong>Dò mìn</strong> và <strong>Bộ chọn
-        Emoji</strong>.</p>
-    </section>
+<dt>Sổ tay <span class="pill">handbookBtn</span></dt>
+<dd>Mở hộp thoại sổ tay nhân viên/dự án. Tải <code>handbook.html</code> hoặc bất kỳ tài liệu nào được cấu hình. Được sử dụng làm tham chiếu lời nhắc hệ thống mà mô hình có thể được yêu cầu tham khảo.</dd>
 
-    <section id="slash" class="help-section">
-      <h2><span class="num">22.</span> Lệnh gạch chéo</h2>
-      <p>Nhập <kbd>/</kbd> trong hộp lệnh để mở bảng lệnh gạch chéo. Nhấp một hàng để
-        <em>chèn</em> văn bản lệnh vào lệnh của bạn (có thể chỉnh sửa), hoặc nhấn
-        <kbd>Enter</kbd> trên hàng có thể chạy để kích hoạt nó ngay lập tức.</p>
-      <p>Danh sách không đầy đủ:</p>
-      <table>
-        <thead><tr><th>Lệnh</th><th>Hiệu ứng</th></tr></thead>
-        <tbody>
-          <tr><td><code>/help</code></td><td>Mở tài liệu này</td></tr>
-          <tr><td><code>/skin</code></td><td>Bật trình chọn giao diện</td></tr>
-          <tr><td><code>/push</code></td><td>Kích hoạt đẩy cập nhật tự động (chỉ quản trị viên)</td></tr>
-          <tr><td><code>/license</code></td><td>Hiển thị <code>LICENSE.TXT</code></td></tr>
-          <tr><td><code>/clear</code></td><td>Xóa lịch sử cuộc trò chuyện</td></tr>
-          <tr><td><code>/domains</code></td><td>Mở modal tên miền NameSilo</td></tr>
-          <tr><td><code>/git</code></td><td>Mở modal Git</td></tr>
-          <tr><td><code>/wake</code></td><td>Mở trình soạn thảo kích hoạt</td></tr>
-          <tr><td><code>/memory</code></td><td>Mở chỉ mục bộ nhớ dự án</td></tr>
-        </tbody>
-      </table>
-    </section>
+<dt>Cài đặt <span class="pill">settingsBtn</span></dt>
+<dd>Mở hộp thoại Cài đặt (nhà cung cấp, mô hình, giao diện, ngôn ngữ, SFX). Xem <a href="#settings">Cài đặt</a>.</dd>
 
-    <section id="context-menu" class="help-section">
-      <h2><span class="num">23.</span> Menu chuột phải</h2>
-      <p>Nhấp chuột phải ở bất kỳ đâu trong bảng để có menu ngữ cảnh (được định nghĩa dưới dạng chuỗi XML duy nhất
-        trong <code>panel.js</code>). Các mục bao gồm Tải lại (tải lại bảng mà không
-        chạm đến máy chủ tiện ích — không bao giờ sử dụng <code>reloadWindow</code>), Xóa
-        cuộc trò chuyện, Mở cài đặt và Kiểm tra (DevTools, chỉ bản gỡ lỗi).</p>
-    </section>
+<dt>Tài khoản <span class="pill">accountsBtn</span></dt>
+<dd>Mở trình quản lý đa tài khoản. Thêm / chỉnh sửa / xóa khóa API cho mỗi nhà cung cấp, chuyển đổi giữa chúng cho mỗi phiên. Xem <a href="#accounts">Tài khoản</a>.</dd>
 
-    <section id="trace" class="help-section">
-      <h2><span class="num">24.</span> Kênh theo dõi</h2>
-      <p>Tiện ích viết một dòng thời gian chi tiết vào <code>debug.log</code> bên cạnh
-        tiện ích. Mọi thứ đáng chú ý đều ở đó: chuyển nhà cung cấp, vòng đời STT,
-        thăm dò giám sát, mã trả lời NameSilo, thông báo cầu bảng↔máy chủ, số lượng đẩy/kéo.</p>
-      <p>Nhấp chuột phải nút giám sát để mở kênh theo dõi một lần.</p>
-    </section>
+<dt>Tiện ích mở rộng <span class="pill">extensionsBtn</span></dt>
+<dd>Mở trình duyệt tiện ích mở rộng trong bảng điều khiển. Liệt kê những gì được cài đặt dưới <code>extensions/</code> (mỗi cái có <code>manifest.xml</code> + một <code>entry</code> HTML), cho phép bạn ghim tiện ích mở rộng vào thanh công cụ, cài đặt những tiện ích mới từ danh mục công khai hoặc xóa chúng.</dd>
 
-    <section id="troubleshooting" class="help-section">
-      <h2><span class="num">25.</span> Khắc phục sự cố</h2>
-      <table>
-        <thead><tr><th>Triệu chứng</th><th>Nguyên nhân có khả năng</th></tr></thead>
-        <tbody>
-          <tr><td>Hộp lệnh có vẻ tỷ lệ, không phải monospace</td>
-              <td><code>--vscode-editor-font-family</code> chưa được áp dụng; hãy kiểm tra các biến <code>:root</code></td></tr>
-          <tr><td>Vòng quay Tự động nhắc nhở là một dấu chấm đen</td>
-              <td>Tài sản SVG sai; phải là <code>auto_read_spinner.svg</code> với halo bóng thả</td></tr>
-          <tr><td>Nút Gọn không làm gì</td>
-              <td>Trình xử lý máy chủ bị thiếu — <code>case 'compactConversation'</code> trong bộ định tuyến extension.js</td></tr>
-          <tr><td>"0 tên miền" trong modal Tên miền</td>
-              <td>Mã trả lời NameSilo != 300 (kênh theo dõi có nó) hoặc <code>domains.txt</code> cũ</td></tr>
-          <tr><td>STT "không phát hiện giọng nói" ngay lập tức</td>
-              <td>Bạn dừng trước khi SAPI ràng buộc mic. Chuẩn bị trước bây giờ bỏ qua chờ đợi đó — xác minh bằng <code>stt: using pre-warmed SAPI</code> trong <code>debug.log</code></td></tr>
-          <tr><td>Đẩy không thành công trên đường dẫn có khoảng trắng</td>
-              <td>Sử dụng <code>/command=</code> nội tuyến; luôn sử dụng <code>/script=tempfile.winscp</code></td></tr>
-          <tr><td>Halo xanh lam giám sát không sáng</td>
-              <td>Dịch vụ không chạy. Nhấp trái vào monitorBtn để cài đặt/bắt đầu, hoặc chạy <code>Start-Service CBEVSCodeSupervisor</code></td></tr>
-          <tr><td>Tải lại "sửa" cái gì đó</td>
-              <td>Nó đã không. Không bao giờ sử dụng <code>reloadWindow</code>. Hãy sử dụng mục menu ngữ cảnh Tải lại.</td></tr>
-        </tbody>
-      </table>
-    </section>
+<dt>Thư mục dự án <span class="pill">projectFolderBtn</span></dt>
+<dd>Chọn thư mục làm việc được sử dụng bởi Đính kèm tệp, Terminal, Git và bất kỳ công cụ nào cần thư mục gốc dự án. Thư mục hiện tại được hiển thị bên cạnh viên nhà cung cấp.</dd>
 
-    <section id="about" class="help-section">
-      <h2><span class="num">26.</span> Giới thiệu &amp; giấy phép</h2>
-      <p>Claude Codex — Black Edition. Có giấy phép MIT. Gương nguồn:
-        <a href="https://github.com/tibberous/Claude-Codex-Back-Ed.." target="_blank" rel="noopener">github.com/tibberous/Claude-Codex-Back-Ed..</a>.
-        Máy chủ cập nhật chính thức: <a href="https://trentontompkins.com/cbe/" target="_blank" rel="noopener">trentontompkins.com/cbe</a>.</p>
-      <p>Để được phản hồi hoặc công việc thương mại, hãy liên hệ <a href="https://trentontompkins.com" target="_blank" rel="noopener">trentontompkins.com</a> · (724) 431-5207.</p>
-      <p style="margin-top:24px; color: var(--muted); font-size: 12px;">
-        <em>Trợ giúp này cũng được iframe vào nút Trợ giúp ở thanh công cụ bảng. Nguồn:
-        <code>panel/help.html</code>.</em>
-      </p>
-    </section>
+<dt>Trình duyệt <span class="pill">browserBtn</span></dt>
+<dd>Mở ngăn trình duyệt QtWebEngine cạnh nhau để tra cứu nhanh chóng mà không cần rời khỏi bảng điều khiển.</dd>
 
-  </main>
+<dt>Máy theo dõi VSCode <span class="pill">monitorBtn</span></dt>
+<dd>Bật tắt quá trình giám sát VSCode — một quy trình nền khởi động lại VSCode nếu nó gặp sự cố. Nhấp chuột trái để bật tắt chạy/dừng, <b>nhấp chuột phải</b> để mở kênh theo dõi của người giám sát.</dd>
+
+<dt>Terminal <span class="pill">terminalBtn</span></dt>
+<dd>Mở một terminal được tích hợp VSCode trong thư mục dự án. Nếu thư mục dự án không được đặt, quay lại Desktop của bạn. Sử dụng lại một terminal liên tục được gắn nhãn "CBE".</dd>
+
+<dt>Trình hướng dẫn cài đặt <span class="pill">setupBtn</span></dt>
+<dd>Hướng dẫn bạn qua mọi khóa API + tích hợp mà tiện ích mở rộng biết (~12 bước). Xem <a href="#setup">Trình hướng dẫn cài đặt</a>.</dd>
+
+<dt>Git <span class="pill">gitBtn</span></dt>
+<dd>Mở chế độ xem Kiểm soát nguồn của VSCode tập trung vào thư mục dự án hiện tại.</dd>
+
+<dt>GitHub <span class="pill">githubBtn</span></dt>
+<dd>Liệt kê các kho lưu trữ GitHub của bạn bằng cách sử dụng <code>[github] token</code>. Nhấp vào một kho lưu trữ để sao chép / mở / duyệt qua các sự cố.</dd>
+
+<dt>Miền (NameSilo) <span class="pill">domainsBtn</span></dt>
+<dd>Liệt kê mọi tên miền trên tài khoản NameSilo của bạn với máy chủ tên. Yêu cầu <code>[namesilo] api_key</code>. Nút <b>Tải lại</b> buộc một tìm nạp mới.</dd>
+
+<dt>Kích thước phông <span class="pill">fontSizeBtn</span></dt>
+<dd>Chuyển đổi giữa phông bình thường và phông lớn cho chuỗi trò chuyện. Giống như <code>/font</code>.</dd>
+
+<dt>Trợ giúp <span class="pill">helpBtn</span></dt>
+<dd>Mở trang này. Giống như <code>/help</code>.</dd>
+
+<dt>Tamagotchi <span class="pill">tamaBtn</span></dt>
+<dd>Bật tắt ngăn thú cưng pixel (chỉ hiển thị trên giao diện <b>tamagotchi</b>, nơi nó được cộng trong góc composer). Xem <a href="#tama">Tamagotchi</a>.</dd>
+
+</dl>
+</section>
+
+<section id="rightclick">
+<h2>Menu chuột phải <a class="top-link" href="#">↑ đầu</a></h2>
+<p>Chuột phải vào văn bản trò chuyện hoặc khối mã để lấy menu ngữ cảnh CBE. Chuột phải vào textarea lệnh nhắc bây giờ mở <b>menu trình duyệt gốc</b> (Sao chép / Cắt / Dán / Xóa / Chọn tất cả) thay thế.</p>
+<dl class="btnrow">
+  <dt>Sao chép / Sao chép khối mã</dt><dd>Sao chép lựa chọn hiện tại. Nếu không có lựa chọn nhưng bạn chuột phải vào một <code>&lt;pre&gt;&lt;code&gt;</code>, nó sao chép toàn bộ khối mã.</dd>
+  <dt>Xem nguồn</dt><dd>Hiển thị HTML/markdown thô của vùng được nhấp vào — hoặc là một khối mã hoặc toàn bộ DOM của bảng điều khiển. Hữu ích để gỡ lỗi các vấn đề giao diện/CSS.</dd>
+  <dt>Mở DevTools</dt><dd>Yêu cầu VSCode mở Công cụ Dành cho Nhà phát triển của nó để bạn có thể kiểm tra webview trực tiếp.</dd>
+  <dt>Cài đặt <span class="pill">new</span></dt><dd>Mở cùng hộp thoại Cài đặt mà nút <b>Cài đặt</b> của thanh công cụ mở (nhà cung cấp / mô hình / giao diện / ngôn ngữ / SFX). Giống như <code>/settings</code>.</dd>
+  <dt>Giới thiệu <span class="pill">new</span></dt><dd>Hộp thoại nhỏ trong bảng điều khiển có phiên bản, tác giả, giấy phép, liên kết kho lưu trữ, danh mục đầu tư và số điện thoại liên hệ. Đóng khi nhấp backdrop, nút × hoặc <kbd>Esc</kbd>.</dd>
+  <dt>Tải lại bảng điều khiển <span class="pill">new</span></dt><dd>Đọc lại <code>panel/index.html</code> + <code>panel.js</code> + <code>skins/*</code> với bộ xóa bộ nhớ đệm <code>?v=&lt;mtime&gt;</code> theo tệp và gán lại <code>panel.webview.html</code>. Nhận các chỉnh sửa CSS/JS mà không cần khởi động lại VSCode. Máy chủ lưu trữ tiện ích mở rộng vẫn còn sống — terminal, người giám sát, lịch sử trò chuyện đều vẫn tồn tại.</dd>
+  <dt>Tải lại cửa sổ <span class="pill warn">new</span></dt><dd>Kích hoạt <code>workbench.action.reloadWindow</code>. Sử dụng điều này <i>chỉ</i> khi bạn đã chỉnh sửa <code>extension.js</code> (mã phía máy chủ) và tải lại bảng điều khiển là không đủ. Đó là một tải lại cửa sổ VSCode đầy đủ.</dd>
+</dl>
+</section>
+
+<section id="modals">
+<h2>Hộp thoại &amp; cửa sổ <a class="top-link" href="#">↑ đầu</a></h2>
+
+<details open><summary><b>Hộp thoại Cài đặt</b> — nhà cung cấp / mô hình / giao diện / ngôn ngữ / SFX</summary>
+<ul>
+  <li><b>Nhà cung cấp</b>: danh sách thả xuống đầy đủ của mỗi API trực tiếp + nhà cung cấp cầu nối. Chọn một cái sẽ chuyển phiên hoạt động VÀ tự động khởi động exe cầu nối phù hợp (nếu có).</li>
+  <li><b>Mô hình</b>: danh sách mô hình được cho phép cho mỗi nhà cung cấp (ví dụ: <code>claude-opus-4-7</code>, <code>claude-sonnet-4-6</code>, <code>claude-haiku-4-5</code> cho Anthropic).</li>
+  <li><b>Giao diện</b>: chủ đề hình ảnh. Xem <a href="#skins">Giao diện</a>.</li>
+  <li><b>Ngôn ngữ</b>: 39 địa phương khả dụng. Chuyển đổi sẽ kéo lại bản đồ chuỗi và dịch lại mỗi chú giải công cụ / nhãn / nút trợ giúp trực tiếp.</li>
+  <li><b>SFX được bật</b>: bật tắt hiệu ứng âm thanh UI (nhấp, tích, mở/đóng hộp thoại, v.v.).</li>
+  <li><b>Âm lượng SFX</b>: thanh trượt 0–100. Được xem trước trực tiếp khi bạn kéo.</li>
+  <li><b>Hủy</b> hoàn nguyên bất kỳ xem trước trực tiếp nào (SFX/giao diện) mà bạn đã thử; <b>Lưu</b> duy trì và phát ra <code>setProvider</code>.</li>
+</ul>
+</details>
+
+<details><summary><b>Trình hướng dẫn cài đặt</b> — mục nhập khóa API đa bước</summary>
+<p>Hướng dẫn cho mỗi tích hợp. Mỗi bước yêu cầu thông tin đăng nhập và ghi chúng vào <code>config.ini</code>. <b>Bỏ qua</b> tiến hành mà không ghi; nút <b>Tiếp theo</b> cuối cùng của bước cuối cùng <b>Hoàn tất</b> đóng. Các bước bao gồm: Anthropic, OpenAI, Gemini, xAI/Grok, GitHub PAT, Email/SMTP (mật khẩu ứng dụng Gmail), Cloudflare, Twilio, ElevenLabs, Stability AI, Runway, SendGrid, NameSilo và nhiều hơn nữa.</p>
+</details>
+
+<details><summary><b>Hộp thoại Tài khoản</b> — trình quản lý khóa API đa tài khoản</summary>
+<p>Đối với mỗi nhà cung cấp, quản lý nhiều tài khoản được gắn nhãn (ví dụ: "cá nhân", "công việc"). Chuyển đổi cái nào hoạt động cho mỗi phiên mà không ghi đè những cái khác. Khóa được che dấu từ đầu đến cuối và được lưu cho mỗi nhà cung cấp trong <code>config.ini</code>.</p>
+</details>
+
+<details><summary><b>Hộp thoại Miền</b> — NameSilo</summary>
+<p>Liệt kê mọi miền trên tài khoản NameSilo của bạn với máy chủ tên + ngày đăng ký. Nút <b>Tải lại</b> buộc một tìm nạp API mới (nếu không nó lưu trong <code>domains.txt</code>).</p>
+</details>
+
+<details><summary><b>Hộp thoại Sổ tay</b></summary>
+<p>Hiển thị HTML sổ tay dự án (dành để sử dụng làm tham chiếu lời nhắc hệ thống mà mô hình có thể tham khảo). Có thể cấu hình cho mỗi dự án.</p>
+</details>
+
+<details><summary><b>Hộp thoại Lệnh nhắc được lưu trữ</b></summary>
+<p>Mẫu lệnh nhắc có thể chèn từ <code>stored_prompts/</code>. Mỗi tệp là một mẫu; tiền tố tên tệp <code>NN-</code> kiểm soát thứ tự sắp xếp. Nút "+" tạo một mẫu mới.</p>
+</details>
+
+<details><summary><b>Hộp thoại Lịch sử trò chuyện</b></summary>
+<p>Chọn ngày UTC để tải nhật ký trò chuyện từ <code>chats/&lt;date&gt;.log</code>. Chỉ đọc.</p>
+</details>
+
+<details><summary><b>Hộp thoại Tiện ích mở rộng</b></summary>
+<p>Thẻ cho mỗi tiện ích mở rộng được cài đặt. Ghim vào thanh công cụ / bỏ ghim, cài đặt từ danh mục công khai (<code>extensions.xml.php</code> trên máy chủ) hoặc xóa khỏi đĩa.</p>
+</details>
+
+<details><summary><b>Hộp thoại Nhật ký thay đổi</b></summary>
+<p>Hiển thị <code>panel/change_log.html</code> — ghi chú phát hành gói. Được tạo thông qua <code>tools/build_changelog.py</code>.</p>
+</details>
+
+<details><summary><b>Hộp thoại Xem nguồn</b></summary>
+<p>In đẹp bất kỳ khối mã hoặc HTML đầy đủ của bảng điều khiển, với đánh dấu cú pháp Prism và nút Sao chép. Được truy cập thông qua chuột phải → Xem nguồn.</p>
+</details>
+
+<details><summary><b>Hộp thoại Lệnh nhắc tự động</b></summary>
+<p>Cấu hình chuỗi lệnh nhắc + khoảng thời gian đếm ngược. Sau mỗi câu trả lời trợ lý, đếm ngược sẽ giảm; khi nó chạm đến 0, CBE sẽ tự động gửi lệnh nhắc được cấu hình. Được bật tắt thông qua nút thanh công cụ Lệnh nhắc tự động.</p>
+</details>
+</section>
+
+<section id="settings">
+<h2>Cài đặt <a class="top-link" href="#">↑ đầu</a></h2>
+<p>Tất cả cài đặt sống trong một trong hai nơi:</p>
+<ul>
+  <li><code>workspaceState</code> (VSCode-quản lý, theo không gian làm việc) — nhà cung cấp, mô hình, giao diện, ngôn ngữ, sfx được bật/âm lượng, kích thước phông.</li>
+  <li><code>config.ini</code> (gốc tiện ích mở rộng, gitignored) — khóa API + thông tin đăng nhập trên mỗi tích hợp.</li>
+</ul>
+<p>Cài đặt vẫn tồn tại qua các lần tải lại bảng điều khiển tự động. Hộp thoại <b>Cài đặt</b> là cách an toàn để thay đổi bất cứ điều gì; chỉnh sửa <code>config.ini</code> trực tiếp cũng hoạt động.</p>
+</section>
+
+<section id="setup">
+<h2>Trình hướng dẫn cài đặt <a class="top-link" href="#">↑ đầu</a></h2>
+<p>Trình hướng dẫn cài đặt (<code>setupBtn</code>) đi qua mỗi tích hợp mà tiện ích mở rộng hỗ trợ. Đối với mỗi bước, dán thông tin đăng nhập và nhấp <b>Tiếp theo</b> (ghi + tiến hành) hoặc <b>Bỏ qua</b> (tiến hành mà không ghi). Các bước:</p>
+<table>
+<tr><th>Bước</th><th>Nó yêu cầu gì</th><th>Nơi để lấy nó</th></tr>
+<tr><td>Anthropic (Claude)</td><td>Khóa API</td><td><a target="_blank" rel="noopener" href="https://console.anthropic.com/account/keys">console.anthropic.com</a></td></tr>
+<tr><td>OpenAI (ChatGPT)</td><td>Khóa API</td><td><a target="_blank" rel="noopener" href="https://platform.openai.com/api-keys">platform.openai.com</a></td></tr>
+<tr><td>Google Gemini</td><td>Khóa API</td><td><a target="_blank" rel="noopener" href="https://aistudio.google.com/apikey">aistudio.google.com</a></td></tr>
+<tr><td>xAI (Grok)</td><td>Khóa API</td><td><a target="_blank" rel="noopener" href="https://console.x.ai/">console.x.ai</a></td></tr>
+<tr><td>GitHub PAT</td><td>Token truy cập cá nhân có repo / workflow / admin:org / v.v.</td><td><a target="_blank" rel="noopener" href="https://github.com/settings/tokens/new">github.com/settings/tokens</a></td></tr>
+<tr><td>Email / SMTP</td><td>Tài khoản + mật khẩu ứng dụng (Gmail được khuyến nghị)</td><td><a target="_blank" rel="noopener" href="https://myaccount.google.com/apppasswords">myaccount.google.com/apppasswords</a></td></tr>
+<tr><td>Cloudflare</td><td>Token API (KHÔNG phải khóa toàn cầu)</td><td><a target="_blank" rel="noopener" href="https://dash.cloudflare.com/profile/api-tokens">dash.cloudflare.com</a></td></tr>
+<tr><td>Twilio</td><td>SID tài khoản + mã xác thực + Số từ</td><td><a target="_blank" rel="noopener" href="https://console.twilio.com/">console.twilio.com</a></td></tr>
+<tr><td>ElevenLabs (TTS)</td><td>Khóa API</td><td><a target="_blank" rel="noopener" href="https://elevenlabs.io/app/settings/api-keys">elevenlabs.io</a></td></tr>
+<tr><td>Stability AI</td><td>Khóa API</td><td><a target="_blank" rel="noopener" href="https://platform.stability.ai/account/keys">platform.stability.ai</a></td></tr>
+<tr><td>Runway</td><td>Khóa API</td><td><a target="_blank" rel="noopener" href="https://dev.runwayml.com/">dev.runwayml.com</a></td></tr>
+<tr><td>SendGrid</td><td>Khóa API</td><td><a target="_blank" rel="noopener" href="https://app.sendgrid.com/settings/api_keys">app.sendgrid.com</a></td></tr>
+</table>
+<p>Mỗi trường được che dấu mật khẩu để người nhìn vai không thể đọc khóa của bạn ngoài màn hình.</p>
+</section>
+
+<section id="accounts">
+<h2>Tài khoản &amp; khóa API <a class="top-link" href="#">↑ đầu</a></h2>
+<p>Mỗi nhà cung cấp có thể có nhiều tài khoản được gắn nhãn — hữu ích nếu bạn muốn chuyển đổi giữa khóa cá nhân và công việc, hoặc thử một cấp độ khác. Hộp thoại Tài khoản cho phép bạn:</p>
+<ul>
+  <li>Thêm một tài khoản mới với nhãn + khóa</li>
+  <li>Chỉnh sửa tài khoản hiện có (đổi nhãn, thay thế khóa)</li>
+  <li>Đặt tài khoản nào hoạt động cho phiên hiện tại</li>
+  <li>Xóa một tài khoản</li>
+</ul>
+<p>Khóa được lưu trữ được che dấu (chỉ hiển thị bốn cuối cùng) trong <code>config.ini</code>. Không có bản sao văn bản đơn thuần trong workspaceState.</p>
+</section>
+
+<section id="slash">
+<h2>Lệnh dấu gạch chéo <a class="top-link" href="#">↑ đầu</a></h2>
+<p>Nhập <code>/</code> ở đầu textarea hoặc nhấp <b>Hiển thị menu lệnh</b> để chọn từ:</p>
+<table>
+<tr><th>Lệnh</th><th>Nó làm gì</th></tr>
+<tr><td><code>/help</code></td><td>Mở trang này</td></tr>
+<tr><td><code>/handbook</code></td><td>Mở sổ tay dự án</td></tr>
+<tr><td><code>/clear</code></td><td>Cuộc trò chuyện mới</td></tr>
+<tr><td><code>/settings</code></td><td>Mở hộp thoại Cài đặt</td></tr>
+<tr><td><code>/prompts</code></td><td>Chỉnh sửa mẫu lệnh nhắc được lưu trữ</td></tr>
+<tr><td><code>/history</code></td><td>Duyệt lịch sử trò chuyện</td></tr>
+<tr><td><code>/font</code></td><td>Chuyển đổi phông lớn</td></tr>
+<tr><td><code>/attach</code></td><td>Đính kèm tệp vào lệnh nhắc tiếp theo</td></tr>
+<tr><td><code>/folder</code></td><td>Chọn thư mục dự án</td></tr>
+<tr><td><code>/compact</code></td><td>Gọn gàng cuộc trò chuyện (tóm tắt + cắt tỉa)</td></tr>
+<tr><td><code>/git</code></td><td>Mở Kiểm soát nguồn</td></tr>
+<tr><td><code>/github</code></td><td>Liệt kê kho lưu trữ GitHub</td></tr>
+<tr><td><code>/license</code></td><td>Hiển thị giấy phép MIT</td></tr>
+<tr><td><code>/push</code></td><td>Đẩy tệp tiện ích mở rộng lên máy chủ cập nhật tự động (chỉ quản trị viên)</td></tr>
+<tr><td><code>/compress</code></td><td>Nén cuộc trò chuyện (bí danh của <code>/compact</code>)</td></tr>
+<tr><td><code>/switch-accounts</code></td><td>Mở hộp thoại Tài khoản để chuyển đổi khóa API hoạt động</td></tr>
+</table>
+</section>
+
+<section id="tama">
+<h2>Thú cưng Tamagotchi <a class="top-link" href="#">↑ đầu</a></h2>
+<p>Tamagotchi là một thú cưng pixel-art sống trong bảng điều khiển dưới giao diện <b>tamagotchi</b>. Nó già đi, cảm thấy đói/bẩn, có thể chơi được, và sẽ chết nếu bị bỏ bê đủ lâu. Trạng thái vẫn tồn tại trong <code>workspaceState</code>.</p>
+
+<h4>Thống kê (đầu của widget)</h4>
+<table>
+<tr><th>Chỉ số</th><th>Nó theo dõi gì</th></tr>
+<tr><td>🥚 Giai đoạn</td><td>Vòng đời: trứng → em bé → trẻ em → thiếu niên → người lớn → cao cấp → chết. Tuổi với phút thời gian thực.</td></tr>
+<tr><td>🍖 Cơn đói</td><td>0–100. Giảm theo thời gian; <b>Cho ăn</b> nâng cao nó. Chạm 0 → sức khỏe giảm.</td></tr>
+<tr><td>😀 Hạnh phúc</td><td>0–100. Giảm theo thời gian; <b>Chơi</b> nâng cao nó.</td></tr>
+<tr><td>❤️ Sức khỏe</td><td>0–100. Giảm khi bị bệnh hoặc đói. <b>Tiêm</b> chữa lành.</td></tr>
+<tr><td>✨ Sạch sẽ</td><td>0–100. Giảm khi thú cưng đi vệ sinh. <b>Làm sạch</b> nâng cao nó.</td></tr>
+<tr><td>⏱ Tuổi</td><td>Phút kể từ khi nở.</td></tr>
+</table>
+
+<h4>Các nút hành động LCD (dưới cùng của widget)</h4>
+<table>
+<tr><th>Biểu tượng</th><th>Hành động</th></tr>
+<tr><td>🍖</td><td><b>Cho ăn</b> — chu kỳ thịt ↔ cà chua. <b>Chọn</b> để thực sự cho ăn.</td></tr>
+<tr><td>🧹</td><td><b>Làm sạch</b> — quét bỏ việc đi vệ sinh.</td></tr>
+<tr><td>⚾</td><td><b>Chơi</b> — mini-game; nâng cao hạnh phúc.</td></tr>
+<tr><td>💉</td><td><b>Tiêm</b> — chữa lành khi bị bệnh.</td></tr>
+<tr><td>💡</td><td><b>Đèn</b> — bật tắt đèn LCD; thú cưng ngủ trong bóng tối.</td></tr>
+<tr><td>✅</td><td><b>Chọn</b> — xác nhận / tiến hành (tương đương nút giữa Bandai gốc).</td></tr>
+</table>
+<p>Sprite của thú cưng được vẽ vào canvas 240×240 (gọn gàng: 138×116). Sprites + logic vòng đời sống trong <code>panel/dotmatrix-tamagotchi-sprites.js</code> và <code>panel/dotmatrix-tamagotchi-game.js</code>.</p>
+</section>
+
+<section id="skins">
+<h2>Giao diện <a class="top-link" href="#">↑ đầu</a></h2>
+<p>Chủ đề hình ảnh cho toàn bộ bảng điều khiển — nút, hộp thoại, khối mã, thậm chí phông. Chọn một trong <b>Cài đặt → Giao diện</b>. Mỗi giao diện sống trong <code>skins/&lt;id&gt;/</code> với một <code>manifest.xml</code> (khai báo màu + accent) và một <code>styles.css</code> (ghi đè các biến CSS).</p>
+<ul>
+  <li><b>codex-black</b> (mặc định) — tối, monospace, accent cyan neon</li>
+  <li><b>glassy</b> — bề mặt kính mờ trên phông nền mềm</li>
+  <li><b>tamagotchi</b> — cầm tay LCD xanh lá cây; tự động hiển thị widget thú cưng được ghim trong góc composer</li>
+  <li><b>office</b> — chrome kiểu Word màu kem/xanh</li>
+  <li><b>macos-color-dock</b> / <b>mint-dock</b> — thanh công cụ khay dưới cùng với các biểu tượng kính</li>
+  <li><b>terminal</b> / <b>arch</b> / <b>kde</b> / <b>gnome</b> / <b>xfce</b> / <b>ubuntu</b> / <b>redhat</b> — chủ đề bàn tính Linux</li>
+</ul>
+<p>Màu hộp thoại đến từ các mục <code>&lt;colors&gt;</code> trong manifest của mỗi giao diện và được đẩy vào <code>:root</code> dưới dạng các biến <code>--cbe-modal-*</code> để mỗi hộp thoại (bao gồm trợ giúp này) hiển thị theo chủ đề.</p>
+</section>
+
+<section id="extensions">
+<h2>Tiện ích mở rộng <a class="top-link" href="#">↑ đầu</a></h2>
+<p>Mini-ứng dụng sống bên trong CBE. Mỗi cái là một thư mục dưới <code>extensions/&lt;id&gt;/</code> với:</p>
+<ul>
+  <li><code>manifest.xml</code> — id, tên, phiên bản, tác giả, mô tả, HTML mục nhập, biểu tượng (emoji hoặc <code>icon.svg</code>)</li>
+  <li><code>extension.html</code> (hoặc bất kỳ gì trong <code>&lt;entry&gt;</code> của manifest) — ứng dụng thực tế</li>
+</ul>
+<p>Nhấp <b>Tiện ích mở rộng</b> để duyệt những cái được cài đặt, ghim vào thanh công cụ, cài đặt những cái mới từ danh mục công khai hoặc xóa khỏi đĩa. Các ID được ghim sống trong <code>extensions/_pinned.json</code>.</p>
+</section>
+
+<section id="autoupdate">
+<h2>Cập nhật tự động (push / pull) <a class="top-link" href="#">↑ đầu</a></h2>
+<p>CBE đồng bộ hóa nguồn của nó giữa các máy thông qua kênh push WinSCP + HTTPS pull.</p>
+
+<h4>Push (chỉ quản trị viên)</h4>
+<p>Nếu <code>[updates] is_admin = true</code> trong config.ini, mỗi lần kích hoạt chạy một <code>WinSCP synchronize remote -mirror</code> nền đẩy thư mục tiện ích mở rộng đến <code>/home/trentontompkins.com/cbe</code> trên máy chủ. Kích hoạt thủ công: lệnh dấu gạch chéo <code>/push</code>. Loại trừ trạng thái trên mỗi máy: <code>data/</code> (1.74 GB hồ sơ Chrome), <code>bridges/</code>, <code>node_modules/</code>, <code>.git/</code>, <code>logs/</code>, <code>chats/</code>, <code>config.ini</code>, <code>prompt_history.txt</code>, <code>domains.txt</code>, <code>wake.txt</code>.</p>
+
+<h4>Pull (mỗi máy khách)</h4>
+<p>4 giây sau khi kích hoạt, mỗi máy khách tìm nạp <code>https://trentontompkins.com/cbe/manifest.xml.php</code> và so sánh MD5 cho mỗi tệp với bản sao cục bộ. Chỉ các tệp đã thay đổi/thiếu được tải về qua HTTPS GET đơn giản. Các đường dẫn được loại trừ KHÔNG BAO GIỜ được kéo: <code>config.ini</code>, <code>data/</code>, <code>bridges/</code>, <code>extension.js</code>, <code>panel/panel.js</code>, <code>panel/index.html</code>, <code>package.json</code>, công cụ xây dựng — lý do là nguồn được gửi qua .vsix và bản sao cũ hơn của máy chủ không được làm cách trở nên phức tạp hoá công việc đang diễn ra.</p>
+</section>
+
+<section id="hotreload">
+<h2>Tải lại nóng <a class="top-link" href="#">↑ đầu</a></h2>
+<p>Hai đường dẫn tải lại được công khai qua menu chuột phải:</p>
+<ul>
+  <li><b>Tải lại bảng điều khiển</b> — đọc lại <code>panel/index.html</code> + mỗi tài sản JS/CSS với bộ xóa bộ nhớ đệm <code>?v=&lt;mtime&gt;</code> theo tệp và gán lại <code>panel.webview.html</code>. Nhận các chỉnh sửa panel.js / CSS giao diện / dotmatrix mà không cần khởi động lại VSCode. Máy chủ lưu trữ tiện ích mở rộng vẫn còn sống (terminal, người giám sát, bộ xử lý tin nhắn, lịch sử trò chuyện đều vẫn tồn tại).</li>
+  <li><b>Tải lại cửa sổ</b> — kích hoạt <code>workbench.action.reloadWindow</code>. Sử dụng chỉ khi bạn đã chỉnh sửa <code>extension.js</code> (mã phía máy chủ) và Tải lại bảng điều khiển là không đủ.</li>
+</ul>
+<p>Các chỉnh sửa CSS giao diện cũng tự động áp dụng thông qua trình xem giao diện hiện có của bảng điều khiển — không cần nhấp menu.</p>
+</section>
+
+<section id="troubleshooting">
+<h2>Khắc phục sự cố <a class="top-link" href="#">↑ đầu</a></h2>
+
+<details><summary><b>"cầu nối X chat không thành công: khóa api trống trong config.ini"</b></summary>
+<p>Daemon smart_bridge.py được lưu vào bộ nhớ cache một kiểm tra gating cũ. Được sửa trong quay trục định tuyến exe C++. Nếu bạn vẫn thấy nó, hãy giết các daemon cũ:</p>
+<pre><code>powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*smart_bridge.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"</code></pre>
+</details>
+
+<details><summary><b>"copilot không có API REST công khai — sử dụng cầu nối trình duyệt"</b></summary>
+<p>extension.js cũ định tuyến chat cầu nối thông qua bộ định tuyến REST thay vì exe khay C++ thực tế. Tải lại Cửa sổ để nhận extension.js đã sửa, khi đó trò chuyện sẽ đi trực tiếp đến <code>bin/CBE-Bridge-Copilot.exe</code>.</p>
+</details>
+
+<details><summary><b>HTTP 404 mô hình: sonnet-4.6</b></summary>
+<p>Bí danh rút gọn lỗi thời trong cấu hình cầu nối Claude. Được sửa — các ID đầy đủ (<code>claude-sonnet-4-6</code>, <code>claude-opus-4-7</code>, <code>claude-haiku-4-5</code>) hiện được sử dụng.</p>
+</details>
+
+<details><summary><b>Tôi đã chỉnh sửa một tệp nhưng bảng điều khiển không hiển thị thay đổi</b></summary>
+<ol>
+  <li>Nếu đó là <code>panel.js</code> / <code>skins/*.css</code> / <code>index.html</code> → chuột phải → <b>Tải lại bảng điều khiển</b>.</li>
+  <li>Nếu đó là <code>extension.js</code> / <code>bridges_cpp/*.py</code> → chuột phải → <b>Tải lại cửa sổ</b>.</li>
+  <li>Nếu bạn không thể truy cập menu (ví dụ: menu chính chưa được tải), hãy khởi chạy một phiên bản VSCode mới với thư mục dữ liệu người dùng cách lập:<br>
+  <code>code --user-data-dir="$env:USERPROFILE\.cbe-edh" --extensionDevelopmentPath="C:\Users\moren\Desktop\Claude Codex Black"</code></li>
+</ol>
+</details>
+
+<details><summary><b>STT không thành công với "not-allowed"</b></summary>
+<p>VSCode lập sandbox webview khỏi quyền microphone. CBE tự động quay lại SAPI Windows (<code>System.Speech.Recognition</code>) được khởi chạy thông qua PowerShell. Bạn có thể cần cấp quyền truy cập mic ở mức OS (Cài đặt → Quyền riêng tư → Micrô).</p>
+</details>
+
+<details><summary><b>Exe cầu nối bị thiếu</b></summary>
+<p>Nhật ký theo dõi cho thấy <code>BRIDGE:MISSING target=&lt;t&gt; expected=&lt;path&gt;</code>. Các exe khay C++ sống trong <code>bin/CBE-Bridge-&lt;Pretty&gt;.exe</code>. Nếu của bạn không tồn tại, hãy xây dựng lại từ nguồn <code>bridges_cpp/</code> (MSVC) hoặc kéo một .vsix mới.</p>
+</details>
+
+</section>
+
+<p style="margin-top: 36px; color: var(--muted); font-size: 12px; text-align: center;">
+Claude Codex — Black Edition · MIT được cấp phép · © 2026 Trent Tompkins · <a target="_blank" rel="noopener" href="mailto:trenttompkins@gmail.com" style="color:var(--accent);">trenttompkins@gmail.com</a> · (724) 431-5207
+</p>
+
+<button id="backToTop" type="button" aria-label="Quay lại đầu" title="Quay lại đầu"
+        style="position:fixed;right:18px;bottom:18px;width:38px;height:38px;border-radius:50%;
+               background:var(--accent);color:var(--bg);border:0;font-size:18px;cursor:pointer;
+               opacity:0;transition:opacity .25s ease;box-shadow:0 4px 14px rgba(0,0,0,.35);z-index:9999;">↑</button>
+
 </div>
 
+<!-- jQuery for animated smooth scroll on TOC anchor clicks. CDN load is
+     attempted first; if the webview CSP blocks it (typical in VSCode), the
+     CSS `scroll-behavior: smooth` rule above already delivers a smooth
+     fallback so the help remains usable. -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"
+        integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
+        crossorigin="anonymous"></script>
 <script>
-/* Native smooth-scroll TOC navigation. jQuery CDN scripts are blocked by the
-   VSCode webview CSP, so this uses plain DOM APIs — scrollIntoView with
-   behavior:'smooth' gives the identical animated scroll without any external
-   dependency. Works inside the webview iframe sandbox. */
-(function () {
-  const main = document.getElementById('main');
-  const tocLinks = Array.prototype.slice.call(document.querySelectorAll('nav.toc a[href^="#"]'));
-  const sections = Array.prototype.slice.call(document.querySelectorAll('section.help-section'));
+(function() {
+  var hasJQ = (typeof window.jQuery !== 'undefined');
 
-  tocLinks.forEach(function (link) {
-    link.addEventListener('click', function (e) {
+  // ── Animated smooth scroll for in-page anchor links (TOC + "↑ top"). ──
+  function jqScrollTo(targetEl, durationMs) {
+    jQuery('html, body').stop(true).animate({
+      scrollTop: targetEl.offsetTop - 14
+    }, durationMs || 550, 'swing');
+  }
+
+  // Vanilla rAF fallback if jQuery never loaded (CSP-blocked CDN).
+  function rafScrollTo(targetEl, durationMs) {
+    var startY = window.pageYOffset;
+    var endY   = (targetEl.getBoundingClientRect().top + startY) - 14;
+    var dist   = endY - startY;
+    var t0     = performance.now();
+    var d      = durationMs || 550;
+    function easeInOut(t) { return t < .5 ? 2*t*t : -1 + (4 - 2*t)*t; }
+    function step(now) {
+      var p = Math.min(1, (now - t0) / d);
+      window.scrollTo(0, startY + dist * easeInOut(p));
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function scrollToHash(hash) {
+    if (!hash || hash === '#') {
+      // "↑ top" links use href="#" — scroll to absolute top.
+      if (hasJQ) jQuery('html, body').stop(true).animate({ scrollTop: 0 }, 550, 'swing');
+      else window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    var el = document.querySelector(hash);
+    if (!el) return;
+    if (hasJQ) jqScrollTo(el, 550);
+    else rafScrollTo(el, 550);
+  }
+
+  // Intercept every in-page anchor click and animate.
+  document.querySelectorAll('a[href^="#"]').forEach(function(a) {
+    a.addEventListener('click', function(e) {
+      var href = a.getAttribute('href');
       e.preventDefault();
-      const id = link.getAttribute('href');
-      const target = document.querySelector(id);
-      if (!target) return;
-      /* scrollIntoView animates within the nearest scroll container (#main,
-         which has overflow:auto). scroll-margin-top on the section handles
-         the small top offset so headings aren't flush against the edge. */
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      try { history.replaceState(null, '', id); } catch (_) {}
+      scrollToHash(href);
+      if (href && href !== '#') {
+        history.replaceState(null, '', href);
+      } else {
+        history.replaceState(null, '', location.pathname + location.search);
+      }
     });
   });
 
-  /* Highlight whichever section is currently scrolled into view. */
-  function syncActive() {
-    const scrollTop = main.scrollTop;
-    const threshold = 80;
-    let activeId = sections.length ? sections[0].id : '';
-    sections.forEach(function (sec) {
-      if (sec.offsetTop - threshold <= scrollTop) activeId = sec.id;
-    });
-    tocLinks.forEach(function (l) {
-      l.classList.toggle('active', l.getAttribute('href') === '#' + activeId);
-    });
+  // ── Back-to-top floating button: fades in past 240px scroll. ──
+  var btn = document.getElementById('backToTop');
+  if (btn) {
+    function syncBtn() {
+      btn.style.opacity = (window.pageYOffset > 240) ? '0.92' : '0';
+      btn.style.pointerEvents = (window.pageYOffset > 240) ? 'auto' : 'none';
+    }
+    window.addEventListener('scroll', syncBtn, { passive: true });
+    btn.addEventListener('click', function() { scrollToHash('#'); });
+    syncBtn();
   }
-  main.addEventListener('scroll', syncActive);
-  syncActive();
-
-  /* External-link bridge. target="_blank" doesn't escape a VSCode webview
-     iframe — the click would just try to navigate the iframe itself. Instead
-     we intercept clicks on absolute http(s) links and postMessage to the
-     parent panel, which forwards to extension.js, which calls
-     vscode.env.openExternal so the user's real default browser opens. */
-  document.addEventListener('click', function (e) {
-    var t = e.target;
-    while (t && t.tagName !== 'A') t = t.parentNode;
-    if (!t || !t.getAttribute) return;
-    var href = t.getAttribute('href') || '';
-    if (!/^https?:\/\//i.test(href)) return;
-    e.preventDefault();
-    try {
-      window.parent.postMessage({ type: 'cbe.openExternal', url: href }, '*');
-    } catch (err) { /* parent missing — fall back to noop */ }
-  }, true);
 })();
 </script>
 </body>

@@ -98,4 +98,10 @@
   <s id="voice.nospeech">Giọng: không phát hiện lời nói.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">Tài khoản — quản lý khóa API</s>
+  <s id="tooltip.browser">Trình duyệt</s>
+  <s id="tooltip.tamagotchi">Thú cưng Tamagotchi</s>
+  <s id="ext.calculator">Máy tính</s>
+  <s id="ext.minesweeper">Dò mìn</s>
+  <s id="ext.emoji-picker">Bộ chọn emoji</s>
 </strings>

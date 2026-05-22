@@ -1,558 +1,458 @@
 <!doctype html>
 <html lang="ar">
 <head>
+<base href="about:srcdoc">
 <meta charset="utf-8">
-<title>Claude Codex — Black Edition · المساعدة</title>
+<title>Claude Codex — Black Edition · مساعدة</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
+  /* Smooth-scroll for the TOC anchor jumps. */
+  html { scroll-behavior: smooth; }
+
   :root {
-    --bg: #16181d;
-    --surface: #1f2229;
-    --surface-2: #262a33;
-    --border: #353a45;
-    --text: #e7eaef;
-    --muted: #aab1bd;
-    --accent: #4ea8ff;
-    --accent-soft: rgba(78,168,255,0.12);
-    --kbd-bg: #0f1116;
-    --kbd-border: #2b313b;
-    --warn: #ffd84d;
-    --err: #ff8a8a;
-    --ok: #6fd58a;
+    /* Defaults — overridden by panel.js applySkinColors() when a skin is
+       active so the help reads natively under any skin (lime tamagotchi,
+       cream macOS, dark codex-black, etc). */
+    --bg:           var(--cbe-modal-bg,           #16181d);
+    --surface:      var(--cbe-modal-foot-bg,      #1f2229);
+    --surface-2:    var(--cbe-modal-title-bg-1,   #262a33);
+    --border:       var(--cbe-modal-border,       #353a45);
+    --text:         var(--cbe-modal-fg,           #e7eaef);
+    --muted:                                      #aab1bd;
+    --accent:       var(--cbe-modal-accent,       #4ea8ff);
+    --accent-soft:                                rgba(78,168,255,0.12);
+    --kbd-bg:                                     #0f1116;
+    --kbd-border:                                 #2b313b;
+    --warn:                                       #ffd84d;
+    --err:                                        #ff8a8a;
   }
-  * { box-sizing: border-box; }
-  /* .app is included here because CBE inlines this file's body into a <div>
-     inside the panel (no <html>/<body> wrapper) — without .app carrying the
-     dark background + text color, the panel skin's background bleeds through
-     and you get unreadable text. Standalone (real <body>) it's still fine. */
-  html, body, .app { margin: 0; padding: 0; height: 100%; background: var(--bg);
-               color: var(--text); font: 14.5px/1.55 ui-sans-serif, system-ui,
-               -apple-system, "Segoe UI", sans-serif; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  code, kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-  code { background: var(--kbd-bg); padding: 1px 6px; border-radius: 4px;
-         border: 1px solid var(--kbd-border); font-size: 0.92em; }
-  kbd { background: var(--kbd-bg); padding: 1px 7px; border-radius: 4px;
-        border: 1px solid var(--kbd-border); border-bottom-width: 2px;
-        font-size: 0.85em; color: #ffd84d; }
-  pre { background: var(--kbd-bg); border: 1px solid var(--border);
-        border-radius: 6px; padding: 12px 14px; overflow-x: auto;
-        font-size: 12.5px; }
-  /* Layout: fixed TOC sidebar + scrolling content. The content scrolls
-     inside #main, which jQuery smooth-scrolls when TOC links are clicked. */
-  /* height:100% (not 100vh) so the layout fills the modal body when inlined,
-     and the full standalone window when opened as a real page. */
-  .app { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
-  nav.toc { background: var(--surface); border-right: 1px solid var(--border);
-            overflow-y: auto; padding: 18px 0 24px 0; position: sticky; top: 0;
-            height: 100%; }
-  nav.toc h2 { margin: 0 18px 8px 18px; font-size: 11px; letter-spacing: 0.08em;
-               color: var(--muted); text-transform: uppercase; }
-  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: tocnum; }
-  nav.toc ol li { counter-increment: tocnum; }
-  nav.toc ol li > a { display: block; padding: 7px 18px 7px 36px; font-size: 13.5px;
-                       color: var(--text); position: relative; line-height: 1.3;
-                       border-left: 3px solid transparent; }
-  /* Click feedback wired from panel.js: active TOC link gets an accent bar +
-     tint, the landed section flashes a soft accent glow that fades out. */
-  nav.toc ol li > a.cbe-toc-active {
-    border-left-color: var(--accent); background: var(--accent-soft);
-    color: var(--accent);
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
   }
-  @keyframes cbeHelpFlash {
-    0%   { background: var(--accent-soft); }
-    100% { background: transparent; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 28px 32px 80px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 30px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 15px; margin: 18px 0 4px; color: var(--accent); }
+  h4 { font-size: 13px; margin: 12px 0 4px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  p  { margin: 4px 0 10px; }
+  ul, ol { margin: 4px 0 12px; padding-left: 22px; }
+  li { margin: 3px 0; }
+  code, kbd { font-family: Consolas, "Courier New", monospace; font-size: 12.5px; }
+  code { background: var(--surface-2); padding: 1px 5px; border-radius: 3px; }
+  kbd  { background: var(--kbd-bg); border: 1px solid var(--kbd-border); padding: 1px 6px; border-radius: 3px; font-size: 11.5px; }
+  pre  { background: var(--surface-2); padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; }
+  pre code { background: transparent; padding: 0; }
+  .lead { color: var(--muted); margin: 0 0 18px; }
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 14px 0 24px;
   }
-  .cbe-help-flash { animation: cbeHelpFlash 1.1s ease-out 1; border-radius: 6px; }
-  nav.toc ol li > a::before { content: counter(tocnum); position: absolute;
-                              left: 14px; top: 7px; color: var(--muted);
-                              font-family: ui-monospace; font-size: 11px;
-                              min-width: 16px; text-align: right; }
-  nav.toc ol li > a:hover { background: var(--surface-2); text-decoration: none; }
-  nav.toc ol li > a.active { background: var(--accent-soft);
-                              border-left-color: var(--accent); color: var(--accent); }
-  main#main { overflow-y: auto; padding: 28px 36px 80px 36px; height: 100vh; }
-  main#main > header { margin-bottom: 26px; padding-bottom: 14px;
-                       border-bottom: 1px solid var(--border); }
-  main#main > header h1 { margin: 0 0 4px 0; font-size: 24px; font-weight: 600;
-                          letter-spacing: 0.005em; }
-  main#main > header .meta { color: var(--muted); font-size: 13px; }
-  section.help-section { scroll-margin-top: 16px; max-width: 820px;
-                          margin: 0 0 36px 0; padding-top: 6px; }
-  section.help-section h2 { font-size: 19px; margin: 0 0 10px 0; font-weight: 600;
-                            display: flex; align-items: baseline; gap: 10px; }
-  section.help-section h2 .num { color: var(--muted); font: 13px ui-monospace;
-                                  min-width: 1.5em; }
-  section.help-section h3 { font-size: 15px; margin: 18px 0 6px 0; font-weight: 600;
-                            color: var(--text); }
-  section.help-section p { margin: 0 0 10px 0; color: var(--text); }
-  section.help-section ul { margin: 0 0 12px 0; padding-left: 22px; }
-  section.help-section li { margin-bottom: 4px; }
-  section.help-section table { border-collapse: collapse; width: 100%;
-                                margin: 6px 0 14px 0; font-size: 13.5px; }
-  section.help-section th, section.help-section td { border: 1px solid var(--border);
-                                                       padding: 6px 10px; text-align: left;
-                                                       vertical-align: top; }
-  section.help-section th { background: var(--surface-2); font-weight: 600; }
-  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft);
-             padding: 10px 14px; border-radius: 0 4px 4px 0; margin: 10px 0 14px 0; }
-  .callout.warn { border-color: var(--warn); background: rgba(255,216,77,0.08); }
-  .callout.err  { border-color: var(--err);  background: rgba(255,138,138,0.08); }
-  .top-link { float: right; font-size: 12px; color: var(--muted); }
+  .toc h2 { font-size: 13px; margin: 0 0 8px; border: 0; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .toc ul { columns: 2; column-gap: 28px; margin: 0; padding-left: 18px; list-style: square; }
+  .toc a { color: var(--text); text-decoration: none; }
+  .toc a:hover { color: var(--accent); text-decoration: underline; }
+  section { scroll-margin-top: 12px; }
+  .btnrow {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 4px 16px;
+    margin: 6px 0 14px;
+  }
+  .btnrow dt { font-weight: 600; color: var(--accent); padding-top: 2px; }
+  .btnrow dd { margin: 0 0 8px; }
+  .pill {
+    display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px;
+    background: var(--accent-soft); color: var(--accent); margin-left: 6px;
+    border: 1px solid color-mix(in srgb, var(--accent), transparent 60%);
+  }
+  .pill.warn { background: rgba(255,216,77,.10); color: var(--warn); border-color: color-mix(in srgb, var(--warn), transparent 60%); }
+  .note { background: var(--surface); border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: 13px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  details { margin: 6px 0; }
+  summary { cursor: pointer; color: var(--accent); padding: 4px 0; }
+  summary:hover { text-decoration: underline; }
+  .top-link { float: right; font-size: 12px; color: var(--muted); text-decoration: none; font-weight: normal; }
   .top-link:hover { color: var(--accent); }
-  /* Scrollbar */
-  *::-webkit-scrollbar { width: 10px; height: 10px; }
-  *::-webkit-scrollbar-track { background: var(--bg); }
-  *::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
-  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
+  a { color: var(--accent); }
 </style>
 </head>
 <body>
-<div class="app">
+<div class="wrap">
 
-  <nav class="toc" aria-label="جدول المحتويات">
-    <h2>المحتويات</h2>
-    <ol id="toc-list">
-      <li><a href="#welcome">أهلا وسهلا</a></li>
-      <li><a href="#keyboard">اختصارات لوحة المفاتيح</a></li>
-      <li><a href="#prompt-box">صندوق الطلب</a></li>
-      <li><a href="#toolbar">أزرار شريط الأدوات</a></li>
-      <li><a href="#providers">النماذج والمزودون</a></li>
-      <li><a href="#stt">تحويل الكلام إلى نص</a></li>
-      <li><a href="#auto-prompt">الطلب التلقائي</a></li>
-      <li><a href="#tts">القراءة التلقائية (TTS)</a></li>
-      <li><a href="#compact">الضغط واستخدام السياق</a></li>
-      <li><a href="#wake-up">استجابة الاستيقاظ</a></li>
-      <li><a href="#attachments">مرفقات الملفات</a></li>
-      <li><a href="#git">وسيط Git</a></li>
-      <li><a href="#github">مستودعات GitHub</a></li>
-      <li><a href="#domains">نطاقات NameSilo</a></li>
-      <li><a href="#skins">المظاهر والمواضيع</a></li>
-      <li><a href="#settings">الإعدادات</a></li>
-      <li><a href="#language">اللغة</a></li>
-      <li><a href="#monitor">مشرف VSCode</a></li>
-      <li><a href="#auto-update">التحديث التلقائي (السحب)</a></li>
-      <li><a href="#admin-push">الدفع الإداري</a></li>
-      <li><a href="#extensions">متجر الامتدادات</a></li>
-      <li><a href="#slash">أوامر الشرطة المائلة</a></li>
-      <li><a href="#context-menu">القائمة بزر الماوس الأيمن</a></li>
-      <li><a href="#trace">قناة التتبع</a></li>
-      <li><a href="#troubleshooting">استكشاف الأخطاء</a></li>
-      <li><a href="#about">حول وترخيص</a></li>
-    </ol>
-  </nav>
+<h1>Claude Codex — Black Edition</h1>
+<p class="lead">لوحة ذكاء اصطناعي مستقلة لـ VSCode. الدردشة مع أي موفر LLM (واجهة برمجية مباشرة أو جسر المتصفح)، مع TTS مدمجة و STT وإرفاق الملفات وقائمة الأوامر والحسابات المتعددة وتخصيص المظهر وحيوان أليف Tamagotchi.</p>
 
-  <main id="main">
-    <header>
-      <h1>Claude Codex — Black Edition</h1>
-      <div class="meta">لوحة دردشة ذكاء اصطناعي متعددة المزودين دون اتصال في VSCode.
-        اضغط <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd> للتبديل.</div>
-    </header>
+<nav class="toc">
+  <h2>المحتويات</h2>
+  <ul>
+    <li><a href="#quick">البدء السريع</a></li>
+    <li><a href="#providers">الموفرون والنماذج</a></li>
+    <li><a href="#sending">إرسال الرسائل</a></li>
+    <li><a href="#toolbar">أزرار شريط الأدوات</a></li>
+    <li><a href="#rightclick">قائمة النقر بزر الماوس الأيمن</a></li>
+    <li><a href="#modals">النوافذ والحوارات</a></li>
+    <li><a href="#settings">الإعدادات</a></li>
+    <li><a href="#setup">معالج الإعداد</a></li>
+    <li><a href="#accounts">الحسابات ومفاتيح API</a></li>
+    <li><a href="#slash">أوامر الشرطة المائلة</a></li>
+    <li><a href="#tama">حيوان Tamagotchi الأليف</a></li>
+    <li><a href="#skins">المظاهر</a></li>
+    <li><a href="#extensions">الامتدادات</a></li>
+    <li><a href="#autoupdate">التحديث التلقائي (دفع/سحب)</a></li>
+    <li><a href="#hotreload">إعادة التحميل الفوري</a></li>
+    <li><a href="#troubleshooting">استكشاف الأخطاء</a></li>
+  </ul>
+</nav>
 
-    <section id="welcome" class="help-section">
-      <h2><span class="num">1.</span> أهلا وسهلا</h2>
-      <p>Claude Codex Black هي طريقة عرض ويب في VSCode تتيح لك الدردشة مع عدة مزودي ذكاء اصطناعي
-        (Claude، OpenAI، Gemini، Grok، Azure، Ollama محلي) من لوحة واحدة قابلة للتخصيص. كل شيء يحتاج إلى مفتاح يقرأ من <code>config.ini</code> في جذر الامتداد —
-        لا يتطلب واجهة إعدادات الامتداد، لكن وسيط الإعدادات يعكس الحقول الأكثر فائدة
-        للتحرير برقرة واحدة.</p>
-      <div class="callout">
-        جديد هنا؟ ابدأ بفتح <em>الإعدادات</em> (أيقونة العتاد)، واختر مزودك، والصق
-        مفتاحك API، ثم اكتب طلبًا واضغط <kbd>Enter</kbd>. كل ميزة أخرى في
-        هذا الدليل اختيارية.
-      </div>
-    </section>
+<section id="quick">
+<h2>البدء السريع <a class="top-link" href="#">↑ أعلى</a></h2>
+<ol>
+  <li>انقر فوق <b>الإعداد</b> (رمز العصا السحرية) واتبع المعالج لإدخال مفاتيح API الخاصة بك. يتم حفظها في <code>config.ini</code> (والذي يتم تجاهله - لم يتم الالتزام به أبداً).</li>
+  <li>انقر فوق <b>حبة الموفر</b> في أسفل اليسار (حالياً بعنوان "Claude Codex — Black Edition") لتبديل الذكاء الاصطناعي الذي تتحدث معه.</li>
+  <li>اكتب في منطقة النص واضغط <kbd>Enter</kbd> للإرسال. <kbd>Shift</kbd>+<kbd>Enter</kbd> يدرج سطراً جديداً.</li>
+  <li>اضغط <kbd>↑</kbd> في منطقة نص فارغة لاستدعاء الأوامر السابقة (سجل نمط PowerShell).</li>
+</ol>
+</section>
 
-    <section id="keyboard" class="help-section">
-      <h2><span class="num">2.</span> اختصارات لوحة المفاتيح</h2>
-      <table>
-        <thead><tr><th>المفتاح</th><th>التأثير</th></tr></thead>
-        <tbody>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd></td><td>تبديل لوحة CBE</td></tr>
-          <tr><td><kbd>Enter</kbd></td><td>إرسال الطلب الحالي</td></tr>
-          <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>سطر جديد داخل صندوق الطلب</td></tr>
-          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>التنقل عبر الطلبات المرسلة سابقًا (من <code>prompt_history.txt</code>)</td></tr>
-          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>التنقل عبر إدخالات <code>prompts.txt</code> المحددة عندما يكون الكاreturn في البداية/النهاية</td></tr>
-          <tr><td><kbd>Esc</kbd></td><td>إغلاق أي وسيط مفتوح</td></tr>
-          <tr><td><kbd>/</kbd></td><td>فتح لوحة أوامر الشرطة المائلة</td></tr>
-        </tbody>
-      </table>
-    </section>
+<section id="providers">
+<h2>الموفرون والنماذج <a class="top-link" href="#">↑ أعلى</a></h2>
+<p>يتم دعم نوعين من الموفرين:</p>
 
-    <section id="prompt-box" class="help-section">
-      <h2><span class="num">3.</span> صندوق الطلب</h2>
-      <p>منطقة النص الكبيرة القابلة للتحرير في الأسفل. اكتب أو الصق أو اسحب ملفًا أو أرفقه عبر مشبك الورق — أي شيء تضعه هنا هو دور المستخدم في استدعاء API التالي.</p>
-      <p>الخط مقيد بخط monospace محرر VSCode الخاص بك (عبر
-        <code>--vscode-editor-font-family</code> CSS variable) بحيث تبدو اللوحة في بيتها
-        داخل المحرر.</p>
-    </section>
+<h4>واجهة برمجية مباشرة (تستخدم مفتاحك)</h4>
+<table>
+  <tr><th>الموفر</th><th>النموذج الافتراضي</th><th>حيث يذهب المفتاح</th></tr>
+  <tr><td>Anthropic (Claude)</td><td>claude-sonnet-4-6</td><td><code>[api_keys] anthropic_api_key</code></td></tr>
+  <tr><td>OpenAI (ChatGPT)</td><td>gpt-4o</td><td><code>[api_keys] openai_api_key</code></td></tr>
+  <tr><td>Google Gemini</td><td>gemini-2.5-pro</td><td><code>[api_keys] gemini_api_key</code></td></tr>
+  <tr><td>xAI (Grok)</td><td>grok-4</td><td><code>[api_keys] xai_api_key</code></td></tr>
+  <tr><td>DeepSeek</td><td>deepseek-chat</td><td><code>[api_keys] deepseek_api_key</code></td></tr>
+  <tr><td>Azure OpenAI</td><td>(بناءً على النشر)</td><td><code>[azure] api_key</code> + نقطة النهاية</td></tr>
+</table>
 
-    <section id="toolbar" class="help-section">
-      <h2><span class="num">4.</span> أزرار شريط الأدوات</h2>
-      <p>الصف السفلي من اليسار إلى اليمين. تظهر تلميحات الأدوات عند المرور؛ وتقرأ اللوحة أيضًا في لغتك المختارة (انظر <a href="#language">اللغة</a>).</p>
-      <table>
-        <thead><tr><th>الأيقونة</th><th>الدالة</th></tr></thead>
-        <tbody>
-          <tr><td>🎤 الميكروفون</td><td>تحويل الكلام إلى نص — Web Speech API مع fallback SAPI. انظر <a href="#stt">§ 6</a>.</td></tr>
-          <tr><td>📎 إرفاق</td><td>اختر ملفًا أو أكثر لإدراجها في الطلب</td></tr>
-          <tr><td>🔁 الاستيقاظ</td><td>حرر نص استيقاظ الطلب التلقائي (يوجد في <code>wake.txt</code>)</td></tr>
-          <tr><td>⏱ الطلب التلقائي</td><td>تبديل عداد الخمول التلقائي</td></tr>
-          <tr><td>📚 الضغط</td><td>قطع سجل المحادثة إلى آخر بضع الأدوار. الحلقة توضح استخدام سياق النافذة.</td></tr>
-          <tr><td>📁 Git</td><td>تشغيل أوامر git في مجلد المشروع</td></tr>
-          <tr><td>🌐 النطاقات</td><td>سحب قائمة النطاقات الخاصة بك من NameSilo</td></tr>
-          <tr><td>🐙 GitHub</td><td>اعرض مستودعات GitHub الخاصة بك عبر PAT</td></tr>
-          <tr><td>🎨 المظهر</td><td>اختر موضوع اللوحة (مكتشف مباشرة من <code>skins/</code>)</td></tr>
-          <tr><td>🧩 الامتدادات</td><td>فتح وسيط iframe متجر الامتدادات. انظر <a href="#extensions">§ 21</a>.</td></tr>
-          <tr><td>⚙ الإعدادات</td><td>فتح وسيط الإعدادات</td></tr>
-          <tr><td>📜 الدليل</td><td>افتح <code>handbook.txt</code> للتحرير</td></tr>
-          <tr><td>❔ المساعدة</td><td>هذا المستند</td></tr>
-          <tr><td>⏹ إيقاف</td><td>إلغاء استدعاء النموذج الجاري</td></tr>
-          <tr><td>📤 إرسال</td><td>إرسال الطلب (مثل <kbd>Enter</kbd>)</td></tr>
-        </tbody>
-      </table>
-    </section>
+<h4>جسور المتصفح (بدون مفتاح API - يشغل جلسة متصفح مسجلة الدخول)</h4>
+<table>
+  <tr><th>الجسر</th><th>الهدف</th><th>المنفذ</th></tr>
+  <tr><td>جسر ChatGPT</td><td>chat.openai.com</td><td>8788</td></tr>
+  <tr><td>جسر Grok</td><td>grok.com / x.ai</td><td>8789</td></tr>
+  <tr><td>جسر Copilot</td><td>copilot.microsoft.com</td><td>8790</td></tr>
+  <tr><td>جسر Gemini</td><td>gemini.google.com</td><td>8791</td></tr>
+  <tr><td>جسر Claude</td><td>claude.ai</td><td>8792</td></tr>
+  <tr><td>Ollama (محلي)</td><td>127.0.0.1:11434</td><td>8793</td></tr>
+  <tr><td>جسر DeepSeek</td><td>chat.deepseek.com</td><td>8794</td></tr>
+</table>
+<p>كل جسر عبارة عن ملف exe صينية C++ صغير في <code>bin/CBE-Bridge-&lt;Target&gt;.exe</code> يفتح ملف تعريف Chrome مسجل الدخول، يعترض أمرك، ويرجع رد النموذج. اختيار موفر جسر في الإعدادات يشغل ملف exe المطابق تلقائياً. المرة الأولى التي تستخدم فيها جسراً يجب عليك تسجيل الدخول إلى الموقع في نافذة Chrome الخاصة به مرة واحدة.</p>
+<div class="note">دردشة جسر تتحدث بروتوكول خطي على TCP: سطر JSON واحد للدخول (<code>{action:"chat", target, message, model}</code>)، سطر JSON واحد للخروج. لا يلزم مفتاح api.</div>
+</section>
 
-    <section id="providers" class="help-section">
-      <h2><span class="num">5.</span> النماذج والمزودون</h2>
-      <p>يأتي CBE مع <strong>11 جسر</strong> كمكونات إضافية <code>.bridge</code> في
-        <code>bridges/</code>. كل واحد عبارة عن ملف zip مستقل يحتوي على manifest.xml + bridge.py
-        + أيقونات. أسقط ملف <code>.bridge</code> جديد وسيظهر في القائمة المنسدلة — بدون تغيير رمز الامتداد.</p>
-      <h3>جسور الدردشة النصية (7)</h3>
-      <ul>
-        <li><strong>ChatGPT</strong> — chatgpt.com، اشتراك Plus/Pro</li>
-        <li><strong>Grok</strong> — grok.com، تسجيل دخول xAI محلي (المستوى المجاني محدود بشدة؛ سجل الدخول أولاً)</li>
-        <li><strong>Gemini</strong> — gemini.google.com، حساب Google</li>
-        <li><strong>Claude</strong> — claude.ai، تسجيل دخول رابط سحري (قم بتشغيل <code>tools/sign_in_helper.py claude</code> مرة واحدة)</li>
-        <li><strong>Copilot</strong> — copilot.microsoft.com، حساب Microsoft مجاني</li>
-        <li><strong>DeepSeek</strong> — chat.deepseek.com، البريد الإلكتروني / كلمة المرور المحلية (لا تستخدم Google SSO)</li>
-        <li><strong>Ollama</strong> — محلي <code>127.0.0.1:11434</code>، بدون تسجيل دخول مطلوب</li>
-      </ul>
-      <h3>جسور إنشاء الفيديو (4)</h3>
-      <ul>
-        <li><strong>Sora 2</strong> — sora.com، يعيد استخدام تسجيل دخول ChatGPT Plus/Pro الخاص بك</li>
-        <li><strong>Google Veo</strong> — gemini.google.com (وضع Veo)، اشتراك Gemini Advanced</li>
-        <li><strong>Runway Gen-3/4</strong> — app.runwayml.com، اشتراك Runway منفصل</li>
-        <li><strong>Bing Video Creator</strong> — bing.com/videos/create، <em>Sora-2 مجاني</em> مع حساب Microsoft</li>
-      </ul>
-      <p>تحفظ مقاطع الفيديو المُنشأة على <code>videos/&lt;bridge&gt;/&lt;timestamp&gt;_&lt;prompt-slug&gt;.mp4</code>
-        وتُشغل تلقائيًا في لوحة مكتبة الفيديو (انظر قسم مكتبة الفيديو أدناه).</p>
-      <p>اختر جسر + نموذج من قائمة الخرطوشة بجانب صندوق الطلب، أو عبر
-        <em>الإعدادات → عام</em>. التحديد لكل workspace ويتم حفظه في
-        workspaceState. لإضافة جسر جديد، انظر <code>docs/WRITING_BRIDGES.md</code>.</p>
-    </section>
+<section id="sending">
+<h2>إرسال الرسائل <a class="top-link" href="#">↑ أعلى</a></h2>
+<dl class="btnrow">
+  <dt>منطقة النص</dt>
+  <dd>اكتب أمرك. <kbd>Enter</kbd> يرسل، <kbd>Shift</kbd>+<kbd>Enter</kbd> يدرج سطراً جديداً. أثناء بث الرد، يتم <b>إدراج</b> الأوامر الإضافية في قائمة الانتظار وإرسالها بالترتيب - العنصر النائب يظهر "قائمة انتظار رسالة أخرى..." خلال هذه الحالة.</dd>
 
-    <section id="video-library" class="help-section">
-      <h2><span class="num">5a.</span> مكتبة الفيديو</h2>
-      <p>لوحة مخصصة لتصفح ومشاهدة مقاطع الفيديو التي تم إنشاؤها بواسطة جسور الفيديو
-        (Sora، Veo، Runway، Bing Video Creator). تُفتح عبر Command Palette:
-        <em>Claude Codex Black: فتح مكتبة الفيديو</em> أو أمر <code>codexBlackEd.openVideoPlayer</code>.</p>
-      <ul>
-        <li>تدرج الشريط الجانبي كل <code>.mp4</code> / <code>.webm</code> / <code>.mov</code> ضمن
-          <code>videos/&lt;bridge&gt;/</code>، مجمعة حسب الجسر ومرتبة من الأحدث إلى الأقدم.</li>
-        <li>يتم تشغيل أحدث فيديو تلقائيًا عند الفتح الأول.</li>
-        <li>تراقب اللوحة دليل <code>videos/</code> بفاصل 2 ثانية — أي فيديو تم إنشاؤه حديثًا يظهر مع شارة ✨ "تم إنشاؤه للتو" ويتم تشغيله تلقائيًا
-          (يمكن إيقاف التشغيل عبر <em>تشغيل تلقائي ▶ جديد</em>).</li>
-        <li>انقر <em>📂 فتح</em> للكشف عن مجلد <code>videos/</code> في مدير الملفات على نظام التشغيل الخاص بك.</li>
-      </ul>
-    </section>
+  <dt>زر الإرسال (كرة)</dt>
+  <dd>الزر المستدير على الحافة اليمنى من منطقة النص. نفس الشيء مثل <kbd>Enter</kbd>. يظهر بصرياً ثلاث حالات (خامل / تحوم / نشط).</dd>
 
-    <section id="stt" class="help-section">
-      <h2><span class="num">6.</span> تحويل الكلام إلى نص</h2>
-      <p>انقر على الميكروفون، تحدث، ثم انقر مرة أخرى للإيقاف (أو انتظر انتهاء المهلة الزمنية للصمت).
-        يتم تجربة محركين بالترتيب:</p>
-      <ol style="padding-left:22px;">
-        <li><strong>Web Speech API</strong> — معترف Google السحابي يعمل في طريقة العرض.
-          يستخدم جلسة Gmail/Google الخاصة بك؛ لا مفتاح إضافي مطلوب.</li>
-        <li><strong>Windows SAPI</strong> (fallback) — عملية PowerShell مُسخنة مسبقًا يتم استدعاؤها عندما
-          تحظر طريقة العرض الوصول إلى الميكروفون. قابل للتخصيص عبر نافذة الاستماع
-          <code>[voice] listen_seconds</code> في <code>config.ini</code>.</li>
-      </ol>
-      <div class="callout">
-        SAPI <em>مُسخن مسبقًا عند تفعيل الامتداد</em> بحيث يتجنب أول نقرة على الميكروفون
-        بدء بارد لمدة 2-4 ثوان كان سيبتلع نقرات الإيقاف المبكرة.
-      </div>
-    </section>
+  <dt>زر الإيقاف</dt>
+  <dd>أسفل يمين المؤلف. يلغي الرد المتدفق حالياً وأي رسائل في قائمة الانتظار. يتم الاحتفاظ بالنص المبث؛ يتم فقط إيقاف الطلب قيد التنفيذ.</dd>
 
-    <section id="auto-prompt" class="help-section">
-      <h2><span class="num">7.</span> الطلب التلقائي</h2>
-      <p>زر الشارة مع spinner. عندما يكون مفعلًا، بعد N ثانية من الخمول، تُرسل اللوحة نص الاستيقاظ المكون لديك تلقائيًا. يتم عرض رقم العد التنازلي في
-        <code>--cbe-highlight-color</code>، والتي تحدد كل skin.</p>
-      <p>حرر نص الاستيقاظ عبر زر 🔁 Wake — يجعل الجولة <code>wake.txt</code>.</p>
-    </section>
+  <dt>حبة الموفر</dt>
+  <dd>أسفل يسار المؤلف. انقر فوق قائمة منسدلة من كل موفر قمت بتكوينه. اختيار موفر جديد يشغل جسره تلقائياً (إن أمكن) وينشر رسالة تأكيد الخبز المحمص.</dd>
 
-    <section id="tts" class="help-section">
-      <h2><span class="num">8.</span> القراءة التلقائية (TTS)</h2>
-      <p>أيقونة الفم. عندما تكون مفعلة، يتم نطق كل ردة من المساعد عبر مركب Web Speech
-        (Google) أو fallback SAPI. ينير هالة زرقاء حول الأيقونة أثناء تشغيل الصوت.</p>
-    </section>
+  <dt>سجل الأوامر</dt>
+  <dd><kbd>↑</kbd> / <kbd>↓</kbd> في منطقة نص فارغة يتحرك للخلف / للأمام عبر آخر 500 أمر أرسلته (نمط PowerShell). يتم تخزين السجل في <code>prompt_history.txt</code> في مجلد الامتداد ويستمر عبر إعادات تحميل اللوحة.</dd>
+</dl>
+</section>
 
-    <section id="compact" class="help-section">
-      <h2><span class="num">9.</span> الضغط واستخدام السياق</h2>
-      <p>تنمو مصفوفة المحادثة المرسلة إلى النموذج مع كل دور. تُظهر الحلقة حول أيقونة الضغط استخدام نافذة السياق الحالي كـ conic gradient — فارغة
-        عند البدء، ممتلئة عند الاقتراب من حد السياق للنموذج.</p>
-      <p>انقر الضغط لقطع السجل إلى آخر أربع أدوار. يستخدم استدعاء API التالي
-        مصفوفة أصغر.</p>
-    </section>
+<section id="toolbar">
+<h2>أزرار شريط الأدوات <a class="top-link" href="#">↑ أعلى</a></h2>
+<p>مدرجة بترتيب شريط الأدوات. جميع الملخصات قابلة للترجمة لكل لغة عبر <code>languages/*.xml</code>.</p>
 
-    <section id="wake-up" class="help-section">
-      <h2><span class="num">10.</span> استجابة الاستيقاظ</h2>
-      <p>مخزنة في <code>wake.txt</code> في جذر الامتداد. يستخدمها الطلب التلقائي كرسالة
-        الرسالة المراد إرسالها عند انطلاق مؤقت الخمول. حرر عبر زر 🔁 في شريط الأدوات.</p>
-    </section>
+<dl class="btnrow">
 
-    <section id="attachments" class="help-section">
-      <h2><span class="num">11.</span> مرفقات الملفات</h2>
-      <p>انقر 📎 لاختيار ملف أو أكثر. اضغط على <kbd>Ctrl</kbd> أو <kbd>Shift</kbd> في المنتقي لتحديد متعدد. يتم إدراج كل ملف في الطلب كـ fenced code block
-        مع اسم الملف واللغة. يتم تخطي الملفات الثنائية التي تزيد عن 1 MB مع إشعار.</p>
-    </section>
+<dt>محادثة جديدة <span class="pill">addBtn</span></dt>
+<dd>يمسح المؤشر الحالي، ويمسح حالة المحادثة في الذاكرة، ويبدأ من جديد. يتم الاحتفاظ بالمؤشر السابق على القرص تحت <code>chats/&lt;UTC-date&gt;.log</code> حتى لا يتم فقدان أي شيء. يعادل <code>/clear</code>.</dd>
 
-    <section id="git" class="help-section">
-      <h2><span class="num">12.</span> وسيط Git</h2>
-      <p>انقر 📁 Git. إذا لم يتم تكوين مجلد مشروع، ستحصل على منتقي مجلد أولاً —
-        المسار المختار يُكتب إلى <code>[project] path</code> في <code>config.ini</code>.
-        تشغيلات git اللاحقة تعمل مع cwd يُعيّن إلى ذلك المسار.</p>
-    </section>
+<dt>الأوامر المخزنة <span class="pill">storedPromptsBtn</span></dt>
+<dd>يفتح نافذة تدرج كل قالب أمر محفوظ تحت <code>stored_prompts/</code>. انقر على واحد لإدراجه في منطقة النص؛ زر "+" يضيف قالب جديد. تدعم القوالب استبدال المتغيرات.</dd>
 
-    <section id="github" class="help-section">
-      <h2><span class="num">13.</span> مستودعات GitHub</h2>
-      <p>تدرج كل مستودع يمكن الوصول إليه بواسطة <code>[github] pat</code> الخاص بك. انقر على صف لإدراج
-        عنوان URL استنساخه في الطلب. القائمة مرقمة ومخزنة مؤقتًا.</p>
-    </section>
+<dt>سجل الدردشة <span class="pill">chatHistoryBtn</span></dt>
+<dd>تصفح السجل المحفوظ على القرص (ملف واحد لكل تاريخ UTC تحت <code>chats/</code>). اختر تاريخاً للتمرير للخلف عبر المحادثات السابقة.</dd>
 
-    <section id="domains" class="help-section">
-      <h2><span class="num">14.</span> نطاقات NameSilo</h2>
-      <p>سحب كل نطاق في حساب NameSilo الخاص بك باستخدام <code>[namesilo] api_key</code>
-        (أو <code>[api_keys] namesilo_api_key</code> كـ fallback). عند الفتح الأول، يتم تخزين النتائج مؤقتًا إلى <code>domains.txt</code>؛ تصرفات اللوحة اللاحقة من الذاكرة. انقر
-        <em>إعادة تحميل</em> في الوسيط لفرض جلب جديد.</p>
-      <div class="callout warn">
-        إذا رأيت "لا توجد نطاقات" مع كود الرد 300، تحقق من قناة التتبع — الذاكرة المُفرّغة لا تسمم
-        عمليات الإقلاع المستقبلية، لكن <code>domains.txt</code> قديم في
-        مسار تثبيت آخر قد يكون.
-      </div>
-    </section>
+<dt>إرفاق ملف <span class="pill">attachFileBtn</span></dt>
+<dd>يفتح منتقي الملفات. يتم تحميل الملف المحدد مع الأمر التالي - تنتقل الصور إلى inline (vision)، وتصبح ملفات النص/الكود كتلة محاطة بسياج في أمرك. يدعم الإرفاق المتعدد.</dd>
 
-    <section id="skins" class="help-section">
-      <h2><span class="num">15.</span> المظاهر والمواضيع</h2>
-      <p>يفتح زر 🎨 منتقي الاكتشاف الذي يفحص <code>skins/</code> مباشرة (وليس عند البدء)، بحيث
-        إسقاط مجلد جديد في وقت التشغيل يكفي. لكل skin
-        <code>manifest.xml</code> يحدد لوحتها — بما في ذلك
-        <strong>لون الإبراز</strong>، الذي يستخدمه شارة العد التنازلي للطلب التلقائي، والحلقات التركيز،
-        والنبض الإشرافي.</p>
-      <p>تشمل skins المدمجة: <code>gnome</code> (Adwaita رمادي)، <code>terminal</code>
-        (أسود/أخضر مع لون accent وردي ساخن)، <code>tamagotchi</code> (ألوان pastel الصدفة مع
-        لوحة sprite الرسام)، <code>blocky</code>، وغيرها.</p>
-    </section>
+<dt>اقرأ بصوت عالٍ (TTS) <span class="pill">ttsBtn</span></dt>
+<dd>ينطق أحدث رد من المساعد بصوت عالٍ. يستخدم ElevenLabs (إذا تم تعيين <code>[elevenlabs] api_key</code>) أو يعود إلى Windows SAPI. <b>انقر بزر الماوس الأيمن</b> لتبديل وضع <i>القراءة التلقائية</i> حيث يتم نطق كل رد جديد تلقائياً - يحصل الزر على مؤشر متحرك أثناء النشاط.</dd>
 
-    <section id="settings" class="help-section">
-      <h2><span class="num">16.</span> الإعدادات</h2>
-      <p>يفتح من ترس ⚙. التبويبات:</p>
-      <ul>
-        <li><strong>عام</strong> — اسم العرض، النموذج الافتراضي، الإرسال عند الدخول</li>
-        <li><strong>الصوت</strong> — جهاز الميكروفون، listen_seconds، اختيار محرك STT، auto-read TTS</li>
-        <li><strong>التحديثات</strong> — علم <code>is_admin</code>، جلسة WinSCP، المسار البعيد</li>
-        <li><strong>المفاتيح</strong> — مفتاح API كل مزود</li>
-        <li><strong>المراقب</strong> — تبديل مشرف VSCode، المنفذ، فاصل الاستقراء</li>
-        <li><strong>اللغة</strong> — اختر من 39 locale؛ انظر <a href="#language">§ 17</a></li>
-      </ul>
-      <p>يتذكر الوسيط حجمه وموضعه بين الجلسات.</p>
-    </section>
+<dt>تحويل الكلام إلى نص (STT) <span class="pill">sttBtn</span></dt>
+<dd>يسجل صوت الميكروفون ويحوله إلى نص في منطقة النص. يحاول أولاً واجهة برمجة تطبيقات Web Speech الخاصة بـ webview؛ إذا فشلت (<code>not-allowed</code>، شائعة في رمل VSCode)، تعود إلى Windows SAPI (<code>System.Speech.Recognition</code>) تم إطلاقها على المضيف عبر PowerShell. انقر مرة أخرى للإيقاف.</dd>
 
-    <section id="language" class="help-section">
-      <h2><span class="num">17.</span> اللغة</h2>
-      <p>تأتي اللوحة مع ترجمات لـ 39 لغة الأكثر تحدثًا. تعيش ملفات Locale على <code>languages/&lt;code&gt;.xml</code> وتُحمل مرة واحدة عند
-        تفعيل الامتداد. المفاتيح الناقصة ترجع إلى الإنجليزية.</p>
-      <p>اختر لغتك في <em>الإعدادات → اللغة</em>. يتم عرض أيقونة علم بجانب
-        كل خيار (محملة من <code>assets/flags/&lt;code&gt;.svg</code>). يتم حفظ الاختيار
-        على <code>[settings] language</code> في <code>config.ini</code>.</p>
-    </section>
+<dt>الأمر التلقائي <span class="pill">autoReplyBtn</span></dt>
+<dd>يفتح نافذة الأمر التلقائي. حدد أمراً + فاصل زمني للعد التنازلي؛ بعد كل رد مساعد، ينقص العد التنازلي ويعيد إرسال الأمر التلقائي تلقائياً عندما يصل إلى الصفر. مفيد لـ "استمر"، "الخطوة التالية"، جلسات الأدوات المتكررة. انقر مرة أخرى للتعطيل.</dd>
 
-    <section id="monitor" class="help-section">
-      <h2><span class="num">18.</span> مشرف VSCode</h2>
-      <p>خدمة Windows (<code>CBEVSCodeSupervisor</code>) تلف
-        <code>tools/vscode_supervisor.ps1</code> البرنامج النصي عبر NSSM وتربط HttpListener
-        على <strong>http://127.0.0.1:3434/</strong>. زر المراقبة في اللوحة يتوهج بلون أزرق
-        عندما ترد نقطة نهاية <code>/status</code> المشرف 200 OK.</p>
-      <p>إذا فشل فحص HTTP ولكن الخدمة مثبتة، watchdog اللوحة
-        إعادة تشغيل الخدمة تلقائيًا (فترة تهدئة 30 ثانية بحيث لا تحدث عاصفة إعادة تشغيل).</p>
-      <p>انقر بزر الماوس الأيسر على زر المراقبة للتثبيت / البدء / الإيقاف. انقر بزر الماوس الأيمن لفتح
-        قناة التتبع.</p>
-    </section>
+<dt>استجابة الاستيقاظ <span class="pill">wakeUpBtn</span></dt>
+<dd>يحرر رسالة الاستيقاظ المخزنة في <code>wake.txt</code>. الاستيقاظ هو ما يرسله الأمر التلقائي إذا اكتشف أن النموذج قد توقف - عادة ping قصير مثل "مرحبا! استمر."</dd>
 
-    <section id="auto-update" class="help-section">
-      <h2><span class="num">19.</span> التحديث التلقائي (السحب)</h2>
-      <p>بعد 4 ثوان من تفعيل الامتداد، تجلب اللوحة
-        <code>https://trentontompkins.com/cbe/manifest.xml.php</code> — بيان MD5+size
-        من أحدث الملفات المنشورة. لكل ملف بعيد، يتم مقارنة MD5 للنسخة المحلية؛ يتم تنزيل الملفات المتغيرة/المفقودة فقط عبر HTTPS.</p>
-      <p>الحالة المحلية للمستخدم (<code>config.ini</code>، <code>debug.log</code>،
-        <code>domains.txt</code>، <code>wake.txt</code>، <code>prompt_history.txt</code>) على
-        قائمة استبعاد السحب ولا يتم الكتابة فوقها أبدًا.</p>
-    </section>
+<dt>إظهار قائمة الأوامر <span class="pill">showCommandsBtn</span></dt>
+<dd>يفتح قائمة أوامر الشرطة في نافذة. راجع <a href="#slash">أوامر الشرطة المائلة</a> للحصول على القائمة الكاملة. نفس الشيء مثل الكتابة <code>/</code> في بداية منطقة النص.</dd>
 
-    <section id="admin-push" class="help-section">
-      <h2><span class="num">20.</span> الدفع الإداري</h2>
-      <p>فقط العملاء مع <code>[updates] is_admin = true</code> يدفعون أبدًا إلى الخادم.
-        يتم تشغيله عبر:</p>
-      <ul>
-        <li>Command Palette → <em>Claude Codex Black: دفع تحديث</em></li>
-        <li>أمر slash <code>/push</code></li>
-      </ul>
-      <p>يستخدم جلسة WinSCP المحفوظة المسماة في <code>[updates] winscp_session</code> (الافتراضي
-        <code>vps</code>). الدفع عبر <code>/script=…</code> مع أمر المزامنة و
-        filemask يستبعد الأسرار والحالة لكل آلة.</p>
-    </section>
+<dt>ضغط المحادثة <span class="pill">compactBtn</span></dt>
+<dd>ينشر طلب تلخيص وتنقية يستبدل المؤشر الحالي بملخص مختصر. يعادل <code>/compact</code>. مفيد عندما تكون المحادثة طويلة وتريد الاحتفاظ بالسياق ولكن توقف إحراق الرموز عند إعادة إرسال السجل بالكامل.</dd>
 
-    <section id="extensions" class="help-section">
-      <h2><span class="num">21.</span> متجر الامتدادات</h2>
-      <p>انقر على زر 🧩 Extensions. وسيط iframe يفتح إلى
-        <code>https://trentontompkins.com/cbe/extension/extension_marketplace.php</code>،
-        الذي يجلب الكتالوج في
-        <code>extensions.xml.php</code> ويعرض كل امتداد متاح كبطاقة مع
-        وصف وعلامات وإصدار وحجم ملف و MD5 و <strong>زر تثبيت</strong>.</p>
-      <p>يتم تجميع الامتداد كـ <code>&lt;id&gt;.ext</code> — أرشيف zip يحتوي على
-        <code>manifest.xml</code> بالإضافة إلى كود الامتداد (عادة ملف واحد
-        <code>extension.html</code>). عندما تنقر على التثبيت، يرسل iframe المتجر
-        <code>postMessage</code> مرة أخرى إلى اللوحة؛ اللوحة تحمل
-        ملف <code>.ext</code> مباشرة من الخادم وتستخرجه تحت
-        <code>extensions/</code> في مجلد الامتداد.</p>
-      <p>ثلاثة امتدادات توضيحية تأتي مع كتالوج الإطلاق:
-        <strong>الحاسبة</strong>، <strong>Minesweeper</strong>، و<strong>منتقي Emoji
-        </strong>.</p>
-    </section>
+<dt>دليل المستخدم <span class="pill">handbookBtn</span></dt>
+<dd>يفتح نافذة دليل الموظف/المشروع. يحمل <code>handbook.html</code> أو أي وثيقة مكونة. يستخدم كمرجع موجه النظام يمكن للنموذج الاستفسار عنه.</dd>
 
-    <section id="slash" class="help-section">
-      <h2><span class="num">22.</span> أوامر الشرطة المائلة</h2>
-      <p>اكتب <kbd>/</kbd> في صندوق الطلب لفتح لوحة أوامر الشرطة المائلة. انقر على صف لـ
-        <em>إدراج</em> نص الأمر في طلبك (قابل للتحرير)، أو اضغط
-        <kbd>Enter</kbd> على صف قابل للتشغيل لتشغيله فورًا.</p>
-      <p>قائمة غير شاملة:</p>
-      <table>
-        <thead><tr><th>الأمر</th><th>التأثير</th></tr></thead>
-        <tbody>
-          <tr><td><code>/help</code></td><td>فتح هذا المستند</td></tr>
-          <tr><td><code>/skin</code></td><td>فتح منتقي المظهر</td></tr>
-          <tr><td><code>/push</code></td><td>تشغيل دفع التحديث التلقائي (إداري فقط)</td></tr>
-          <tr><td><code>/license</code></td><td>اعرض <code>LICENSE.TXT</code></td></tr>
-          <tr><td><code>/clear</code></td><td>امسح سجل المحادثة</td></tr>
-          <tr><td><code>/domains</code></td><td>فتح وسيط نطاقات NameSilo</td></tr>
-          <tr><td><code>/git</code></td><td>فتح وسيط Git</td></tr>
-          <tr><td><code>/wake</code></td><td>فتح محرر الاستيقاظ</td></tr>
-          <tr><td><code>/memory</code></td><td>فتح فهرس الذاكرة للمشروع</td></tr>
-        </tbody>
-      </table>
-    </section>
+<dt>الإعدادات <span class="pill">settingsBtn</span></dt>
+<dd>يفتح نافذة الإعدادات (الموفر والنموذج والمظهر واللغة وتأثيرات صوتية). راجع <a href="#settings">الإعدادات</a>.</dd>
 
-    <section id="context-menu" class="help-section">
-      <h2><span class="num">23.</span> القائمة بزر الماوس الأيمن</h2>
-      <p>انقر بزر الماوس الأيمن في أي مكان في اللوحة للحصول على قائمة سياقية (معرفة كـ سلسلة XML واحدة في <code>panel.js</code>). تشمل الإدخالات Refresh (إعادة تحميل اللوحة بدون
-        لمس مضيف الامتداد — لا تستخدم <code>reloadWindow</code> أبدًا)، Clear
-        محادثة، فتح الإعدادات، و Inspect (DevTools، بناء debug فقط).</p>
-    </section>
+<dt>الحسابات <span class="pill">accountsBtn</span></dt>
+<dd>يفتح مدير الحسابات المتعددة. أضف / عدّل / أزل مفاتيح API لكل موفر، وبدّل بينها لكل جلسة. راجع <a href="#accounts">الحسابات</a>.</dd>
 
-    <section id="trace" class="help-section">
-      <h2><span class="num">24.</span> قناة التتبع</h2>
-      <p>يكتب الامتداد خط زمني دقيق إلى <code>debug.log</code> بجانب
-        الامتداد. كل شيء جدير بالملاحظة يصل هناك: مفاتيح المزود، دورة حياة STT،
-        فحوصات المشرف، أكواد الرد NameSilo، رسائل جسر اللوحة↔المضيف، push/pull
-        حسابات البيان.</p>
-      <p>انقر بزر الماوس الأيمن على زر المراقبة للحصول على فتح قناة التتبع برقرة واحدة.</p>
-    </section>
+<dt>الامتدادات <span class="pill">extensionsBtn</span></dt>
+<dd>يفتح متصفح الامتدادات في اللوحة. يسرد ما تم تثبيته تحت <code>extensions/</code> (كل منها بـ <code>manifest.xml</code> + <code>entry</code> HTML)، يتيح لك تثبيت الامتدادات في شريط الأدوات، تثبيت امتدادات جديدة من الكتالوج العام، أو إزالتها.</dd>
 
-    <section id="troubleshooting" class="help-section">
-      <h2><span class="num">25.</span> استكشاف الأخطاء</h2>
-      <table>
-        <thead><tr><th>الأعراض</th><th>السبب المحتمل</th></tr></thead>
-        <tbody>
-          <tr><td>صندوق الطلب يبدو متناسبًا وليس monospace</td>
-              <td><code>--vscode-editor-font-family</code> لم يتم تطبيقه؛ تحقق من متغيرات <code>:root</code></td></tr>
-          <tr><td>دوار الطلب التلقائي عبارة عن نقطة سوداء</td>
-              <td>أصل SVG خاطئ؛ يجب أن يكون <code>auto_read_spinner.svg</code> مع هالة drop-shadow</td></tr>
-          <tr><td>زر الضغط لا يفعل شيئًا</td>
-              <td>معالج المضيف مفقود — <code>case 'compactConversation'</code> في router extension.js</td></tr>
-          <tr><td>"0 نطاق" في وسيط النطاقات</td>
-              <td>رد NameSilo.code != 300 (قناة التتبع لديها)، أو <code>domains.txt</code> قديم</td></tr>
-          <tr><td>STT "لا يتم اكتشاف كلام" فورًا</td>
-              <td>أوقفت قبل أن يربط SAPI الميكروفون. يتخطى pre-warm الآن الآن — تحقق باستخدام <code>stt: using pre-warmed SAPI</code> في <code>debug.log</code></td></tr>
-          <tr><td>فشل الدفع على المسار مع المسافات</td>
-              <td>استخدام <code>/command=</code> inline؛ استخدم دائمًا <code>/script=tempfile.winscp</code></td></tr>
-          <tr><td>توهج المشرف الأزرق لا ينير</td>
-              <td>الخدمة لا تعمل. انقر بزر الماوس الأيسر على monitorBtn للتثبيت/البدء، أو قم بتشغيل <code>Start-Service CBEVSCodeSupervisor</code></td></tr>
-          <tr><td>إعادة تحميل "تصلح" شيئًا</td>
-              <td>لم تكن كذلك. لا تستخدم <code>reloadWindow</code> أبدًا. استخدم إدخال قائمة Refresh السياقية بدلاً من ذلك.</td></tr>
-        </tbody>
-      </table>
-    </section>
+<dt>مجلد المشروع <span class="pill">projectFolderBtn</span></dt>
+<dd>اختر دليل العمل المستخدم بواسطة إرفاق الملف والطرفية و Git وأي أدوات تحتاج جذر مشروع. يتم عرض المجلد الحالي بجانب حبة الموفر.</dd>
 
-    <section id="about" class="help-section">
-      <h2><span class="num">26.</span> حول وترخيص</h2>
-      <p>Claude Codex — Black Edition. مرخص MIT. مرآة المصدر:
-        <a href="https://github.com/tibberous/Claude-Codex-Back-Ed.." target="_blank" rel="noopener">github.com/tibberous/Claude-Codex-Back-Ed..</a>.
-        خادم التحديث الرسمي: <a href="https://trentontompkins.com/cbe/" target="_blank" rel="noopener">trentontompkins.com/cbe</a>.</p>
-      <p>للملاحظات أو العمل التجاري، اتصل بـ <a href="https://trentontompkins.com" target="_blank" rel="noopener">trentontompkins.com</a> · (724) 431-5207.</p>
-      <p style="margin-top:24px; color: var(--muted); font-size: 12px;">
-        <em>هذه المساعدة مدرجة أيضًا في زر المساعدة في شريط أدوات اللوحة. المصدر:
-        <code>panel/help.html</code>.</em>
-      </p>
-    </section>
+<dt>المتصفح <span class="pill">browserBtn</span></dt>
+<dd>يفتح جزء متصفح QtWebEngine جنباً إلى جنب للبحث السريع دون مغادرة اللوحة.</dd>
 
-  </main>
-</div>
+<dt>مراقب VSCode <span class="pill">monitorBtn</span></dt>
+<dd>يبدل كلب الحراسة المشرف على VSCode - عملية في الخلفية تعيد تشغيل VSCode إذا توقفت. النقر بزر الماوس الأيسر يبدل التشغيل/الإيقاف، <b>النقر بزر الماوس الأيمن</b> يفتح قناة التتبع الخاصة بالمشرف.</dd>
 
-<script>
-/* Native smooth-scroll TOC navigation. jQuery CDN scripts are blocked by the
-   VSCode webview CSP, so this uses plain DOM APIs — scrollIntoView with
-   behavior:'smooth' gives the identical animated scroll without any external
-   dependency. Works inside the webview iframe sandbox. */
-(function () {
-  const main = document.getElementById('main');
-  const tocLinks = Array.prototype.slice.call(document.querySelectorAll('nav.toc a[href^="#"]'));
-  const sections = Array.prototype.slice.call(document.querySelectorAll('section.help-section'));
+<dt>الطرفية <span class="pill">terminalBtn</span></dt>
+<dd>يفتح محطة VSCode المدمجة في مجلد المشروع. إذا لم يتم تعيين مجلد المشروع، فسيعود إلى سطح المكتب الخاص بك. يعيد استخدام محطة واحدة دائمة بعنوان "CBE".</dd>
 
-  tocLinks.forEach(function (link) {
-    link.addEventListener('click', function (e) {
-      e.preventDefault();
-      const id = link.getAttribute('href');
-      const target = document.querySelector(id);
-      if (!target) return;
-      /* scrollIntoView animates within the nearest scroll container (#main,
-         which has overflow:auto). scroll-margin-top on the section handles
-         the small top offset so headings aren't flush against the edge. */
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      try { history.replaceState(null, '', id); } catch (_) {}
-    });
-  });
+<dt>معالج الإعداد <span class="pill">setupBtn</span></dt>
+<dd>يمشيك عبر كل مفتاح API + تكامل يعرفه الامتداد (~12 خطوة). راجع <a href="#setup">معالج الإعداد</a>.</dd>
 
-  /* Highlight whichever section is currently scrolled into view. */
-  function syncActive() {
-    const scrollTop = main.scrollTop;
-    const threshold = 80;
-    let activeId = sections.length ? sections[0].id : '';
-    sections.forEach(function (sec) {
-      if (sec.offsetTop - threshold <= scrollTop) activeId = sec.id;
-    });
-    tocLinks.forEach(function (l) {
-      l.classList.toggle('active', l.getAttribute('href') === '#' + activeId);
-    });
-  }
-  main.addEventListener('scroll', syncActive);
-  syncActive();
+<dt>Git <span class="pill">gitBtn</span></dt>
+<dd>يفتح عرض Source Control الخاص بـ VSCode مع التركيز على مجلد المشروع الحالي.</dd>
 
-  /* External-link bridge. target="_blank" doesn't escape a VSCode webview
-     iframe — the click would just try to navigate the iframe itself. Instead
-     we intercept clicks on absolute http(s) links and postMessage to the
-     parent panel, which forwards to extension.js, which calls
-     vscode.env.openExternal so the user's real default browser opens. */
-  document.addEventListener('click', function (e) {
-    var t = e.target;
-    while (t && t.tagName !== 'A') t = t.parentNode;
-    if (!t || !t.getAttribute) return;
-    var href = t.getAttribute('href') || '';
-    if (!/^https?:\/\//i.test(href)) return;
-    e.preventDefault();
-    try {
-      window.parent.postMessage({ type: 'cbe.openExternal', url: href }, '*');
-    } catch (err) { /* parent missing — fall back to noop */ }
-  }, true);
-})();
-</script>
-</body>
-</html>
+<dt>GitHub <span class="pill">githubBtn</span></dt>
+<dd>يسرد مستودعات GitHub الخاصة بك باستخدام <code>[github] token</code>. انقر على مستودع لاستنساخه / فتحه / تصفح المشاكل.</dd>
+
+<dt>النطاقات (NameSilo) <span class="pill">domainsBtn</span></dt>
+<dd>يسرد كل نطاق على حسابك في NameSilo مع خوادم الأسماء. يتطلب <code>[namesilo] api_key</code>. زر <b>إعادة التحميل</b> يفرض جلب طازج.</dd>
+
+<dt>حجم الخط <span class="pill">fontSizeBtn</span></dt>
+<dd>يبدل بين الخط العادي والكبير لخيط الدردشة. نفس الشيء مثل <code>/font</code>.</dd>
+
+<dt>مساعدة <span class="pill">helpBtn</span></dt>
+<dd>يفتح هذه الصفحة. نفس الشيء مثل <code>/help</code>.</dd>
+
+<dt>Tamagotchi <span class="pill">tamaBtn</span></dt>
+<dd>يبدل لوحة الحيوان الأليف بالبكسل (مرئية فقط على جلد <b>tamagotchi</b>، حيث يرسو في زاوية المؤلف). راجع <a href="#tama">Tamagotchi</a>.</dd>
+
+</dl>
+</section>
+
+<section id="rightclick">
+<h2>قائمة النقر بزر الماوس الأيمن <a class="top-link" href="#">↑ أعلى</a></h2>
+<p>انقر بزر الماوس الأيمن على نص الدردشة أو كتلة رمز للحصول على قائمة السياق CBE. انقر بزر الماوس الأيمن على منطقة نص الأمر الآن يفتح <b>قائمة المتصفح الأصلية</b> (نسخ / قص / لصق / حذف / تحديد الكل) بدلاً من ذلك.</p>
+<dl class="btnrow">
+  <dt>نسخ / نسخ كتلة الكود</dt><dd>ينسخ التحديد الحالي. إذا لم يكن هناك تحديد ولكنك نقرت بزر الماوس الأيمن على <code>&lt;pre&gt;&lt;code&gt;</code>، فإنها تنسخ كتلة الكود بأكملها.</dd>
+  <dt>عرض المصدر</dt><dd>يعرض HTML/markdown الخام للمنطقة المنقورة - إما كتلة كود أو DOM لوحة كاملة. مفيد لاستكشاف مشاكل الجلد/CSS.</dd>
+  <dt>فتح DevTools</dt><dd>يطلب من VSCode فتح أدوات المطور حتى تتمكن من فحص webview مباشرة.</dd>
+  <dt>الإعدادات <span class="pill">new</span></dt><dd>يفتح نفس نافذة الإعدادات التي يفتحها زر شريط الأدوات <b>الإعدادات</b> (الموفر / النموذج / المظهر / اللغة / تأثيرات صوتية). نفس الشيء مثل <code>/settings</code>.</dd>
+  <dt>حول <span class="pill">new</span></dt><dd>حوار صغير في اللوحة يحتوي على الإصدار والمؤلف والترخيص ورابط المستودع والمحفظة ورقم الاتصال. يتم الإغلاق عند النقر على خلفية أو زر ×أو <kbd>Esc</kbd>.</dd>
+  <dt>إعادة تحميل اللوحة <span class="pill">new</span></dt><dd>إعادة قراءة <code>panel/index.html</code> + <code>panel.js</code> + <code>skins/*</code> مع <code>?v=&lt;mtime&gt;</code> cache-buster لكل ملف وإعادة تعيين <code>panel.webview.html</code>. التقط تعديلات CSS/JS دون إعادة تشغيل VSCode. يبقى مضيف الامتداد على قيد الحياة - الطرفية والمشرف والسجل والمحادثة جميعها تستمر.</dd>
+  <dt>إعادة تحميل النافذة <span class="pill warn">new</span></dt><dd>يشغل <code>workbench.action.reloadWindow</code>. استخدم هذا <i>فقط</i> عند تحرير <code>extension.js</code> (رمز جانب المضيف) ولا تكفي إعادة تحميل اللوحة. إنها إعادة تحميل نافذة VSCode كاملة.</dd>
+</dl>
+</section>
+
+<section id="modals">
+<h2>النوافذ والحوارات <a class="top-link" href="#">↑ أعلى</a></h2>
+
+<details open><summary><b>نافذة الإعدادات</b> — الموفر / النموذج / المظهر / اللغة / تأثيرات صوتية</summary>
+<ul>
+  <li><b>الموفر</b>: قائمة منسدلة كاملة من كل موفر API مباشر + جسر. اختيار واحد يبدل الجلسة النشطة و <b>يشغل</b> تلقائياً ملف exe الجسر المطابق (إن أمكن).</li>
+  <li><b>النموذج</b>: قائمة لكل موفر من النماذج المسموحة (مثل <code>claude-opus-4-7</code>, <code>claude-sonnet-4-6</code>, <code>claude-haiku-4-5</code> لـ Anthropic).</li>
+  <li><b>المظهر</b>: موضوع بصري. راجع <a href="#skins">المظاهر</a>.</li>
+  <li><b>اللغة</b>: 39 لغة متاحة. التبديل يعيد سحب خريطة السلاسل ويعيد ترجمة كل تلميح أداة / تسمية / زر مساعدة مباشرة.</li>
+  <li><b>تأثيرات صوتية مفعلة</b>: بدّل مؤثرات صوت الواجهة (نقرات وطقات وفتح/إغلاق نافذة إلخ).</li>
+  <li><b>مستوى صوت تأثيرات صوتية</b>: مشروط 0-100. معاين مباشرة أثناء السحب.</li>
+  <li><b>إلغاء</b> يعيد معاينات حية جربتها (تأثيرات صوتية/جلد)؛ <b>حفظ</b> يستمر ويصدر <code>setProvider</code>.</li>
+</ul>
+</details>
+
+<details><summary><b>معالج الإعداد</b> — إدخال مفتاح API متعدد الخطوات</summary>
+<p>شرح لكل تكامل. كل خطوة تطلب بيانات اعتماد وتكتبها إلى <code>config.ini</code>. <b>تخطي</b> ينتقل دون الكتابة؛ <b>التالي</b> يكتب ويتقدم؛ <b>تم</b> في الخطوة الأخيرة يغلق. تتضمن الخطوات: Anthropic و OpenAI و Gemini و xAI/Grok و GitHub PAT و Email/SMTP (كلمة مرور تطبيق Gmail) و Cloudflare و Twilio و ElevenLabs و Stability AI و Runway و SendGrid و NameSilo وغيرها.</p>
+</details>
+
+<details><summary><b>نافذة الحسابات</b> — مدير مفتاح API متعدد الحسابات</summary>
+<p>لكل موفر، أدر حسابات متعددة مع تسميات (مثل "شخصي" و "عمل"). بدّل أيها نشط لكل جلسة دون الكتابة فوق الآخرين. يتم إخفاء المفاتيح من طرف إلى طرف وحفظها لكل موفر في <code>config.ini</code>.</p>
+</details>
+
+<details><summary><b>نافذة النطاقات</b> — NameSilo</summary>
+<p>يسرد كل نطاق على حسابك في NameSilo مع خوادم أسماء + تواريخ التسجيل. يفرض زر <b>إعادة التحميل</b> جلب API طازج (وإلا يخزن مؤقتاً في <code>domains.txt</code>).</p>
+</details>
+
+<details><summary><b>نافذة الدليل</b></summary>
+<p>يرسل HTML دليل مشروع (يُقصد به أن يكون مرجع موجه النظام يمكن للنموذج استشارته). قابل للتخصيص لكل مشروع.</p>
+</details>
+
+<details><summary><b>نافذة الأوامر المخزنة</b></summary>
+<p>قوالب أوامر قابلة للإدراج من <code>stored_prompts/</code>. كل ملف قالب واحد؛ بادئة اسم الملف <code>NN-</code> تتحكم في ترتيب الفرز. زر "+" ينشئ واحداً جديداً.</p>
+</details>
+
+<details><summary><b>نافذة سجل الدردشة</b></summary>
+<p>اختر تاريخ UTC لتحميل سجل الدردشة من <code>chats/&lt;date&gt;.log</code>. للقراءة فقط.</p>
+</details>
+
+<details><summary><b>نافذة الامتدادات</b></summary>
+<p>بطاقات لكل امتداد مثبت. دبّس على شريط أدوات / فك التثبيت، ثبّت من الكتالوج العام (<code>extensions.xml.php</code> على الخادم)، أو أزل من القرص.</p>
+</details>
+
+<details><summary><b>نافذة سجل التغييرات</b></summary>
+<p>يرسل <code>panel/change_log.html</code> - ملاحظات الإصدار المجمعة. تم إنشاؤها عبر <code>tools/build_changelog.py</code>.</p>
+</details>
+
+<details><summary><b>نافذة عرض المصدر</b></summary>
+<p>يطبع بشكل جميل أي كتلة رمز أو HTML لوحة كاملة، مع تمييز بناء الجملة Prism وزر نسخ. يتم الوصول إليه عبر النقر بزر الماوس الأيمن → عرض المصدر.</p>
+</details>
+
+<details><summary><b>نافذة الأمر التلقائي</b></summary>
+<p>قم بتكوين سلسلة أمر + فاصل زمني للعد التنازلي. بعد كل رد مساعد ينقص العد التنازلي؛ عندما يصل إلى صفر يرسل CBE تلقائياً الأمر المكون. يتم تشغيل/إيقاف عبر زر شريط أدوات الأمر التلقائي.</p>
+</details>
+</section>
+
+<section id="settings">
+<h2>الإعدادات <a class="top-link" href="#">↑ أعلى</a></h2>
+<p>تعيش جميع الإعدادات في واحد من مكانين:</p>
+<ul>
+  <li><code>workspaceState</code> (VSCode-managed، لكل مساحة عمل) — الموفر والنموذج والمظهر واللغة وتأثيرات صوتية مفعلة/صوت وحجم الخط.</li>
+  <li><code>config.ini</code> (جذر الامتداد، gitignored) — مفاتيح API + بيانات اعتماد لكل تكامل.</li>
+</ul>
+<p>تستمر الإعدادات عبر إعادات تحميل اللوحة تلقائياً. <b>نافذة الإعدادات</b> هي الطريقة الآمنة لتغيير أي شيء؛ تحرير <code>config.ini</code> مباشرة يعمل أيضاً.</p>
+</section>
+
+<section id="setup">
+<h2>معالج الإعداد <a class="top-link" href="#">↑ أعلى</a></h2>
+<p>معالج الإعداد (<code>setupBtn</code>) يمشيك عبر كل تكامل يدعمه الامتداد. لكل خطوة، ألصق بيانات الاعتماد وانقر <b>التالي</b> (كتابة + تقدم) أو <b>تخطي</b> (تقدم دون كتابة). الخطوات:</p>
+<table>
+<tr><th>الخطوة</th><th>ما تطلبه</th><th>من أين تحصل عليه</th></tr>
+<tr><td>Anthropic (Claude)</td><td>مفتاح API</td><td><a target="_blank" rel="noopener" href="https://console.anthropic.com/account/keys">console.anthropic.com</a></td></tr>
+<tr><td>OpenAI (ChatGPT)</td><td>مفتاح API</td><td><a target="_blank" rel="noopener" href="https://platform.openai.com/api-keys">platform.openai.com</a></td></tr>
+<tr><td>Google Gemini</td><td>مفتاح API</td><td><a target="_blank" rel="noopener" href="https://aistudio.google.com/apikey">aistudio.google.com</a></td></tr>
+<tr><td>xAI (Grok)</td><td>مفتاح API</td><td><a target="_blank" rel="noopener" href="https://console.x.ai/">console.x.ai</a></td></tr>
+<tr><td>GitHub PAT</td><td>رمز الوصول الشخصي مع repo / workflow / admin:org / إلخ</td><td><a target="_blank" rel="noopener" href="https://github.com/settings/tokens/new">github.com/settings/tokens</a></td></tr>
+<tr><td>البريد الإلكتروني / SMTP</td><td>الحساب + كلمة مرور التطبيق (يُنصح بـ Gmail)</td><td><a target="_blank" rel="noopener" href="https://myaccount.google.com/apppasswords">myaccount.google.com/apppasswords</a></td></tr>
+<tr><td>Cloudflare</td><td>رمز API (وليس المفتاح العام)</td><td><a target="_blank" rel="noopener" href="https://dash.cloudflare.com/profile/api-tokens">dash.cloudflare.com</a></td></tr>
+<tr><td>Twilio</td><td>SID الحساب + رمز المصادقة + رقم المن</td><td><a target="_blank" rel="noopener" href="https://console.twilio.com/">console.twilio.com</a></td></tr>
+<tr><td>ElevenLabs (TTS)</td><td>مفتاح API</td><td><a target="_blank" rel="noopener" href="https://elevenlabs.io/app/settings/api-keys">elevenlabs.io</a></td></tr>
+<tr><td>Stability AI</td><td>مفتاح API</td><td><a target="_blank" rel="noopener" href="https://platform.stability.ai/account/keys">platform.stability.ai</a></td></tr>
+<tr><td>Runway</td><td>مفتاح API</td><td><a target="_blank" rel="noopener" href="https://dev.runwayml.com/">dev.runwayml.com</a></td></tr>
+<tr><td>SendGrid</td><td>مفتاح API</td><td><a target="_blank" rel="noopener" href="https://app.sendgrid.com/settings/api_keys">app.sendgrid.com</a></td></tr>
+</table>
+<p>كل حقل مقنع بكلمات مرور حتى لا يتمكن الآخرون من قراءة مفاتيحك من الشاشة.</p>
+</section>
+
+<section id="accounts">
+<h2>الحسابات ومفاتيح API <a class="top-link" href="#">↑ أعلى</a></h2>
+<p>يمكن لكل موفر أن يحتوي على حسابات متعددة مع تسميات - مفيد إذا كنت تريد التبديل بين المفاتيح الشخصية والعملية، أو اختبار مستوى مختلف. تتيح لك نافذة الحسابات:</p>
+<ul>
+  <li>إضافة حساب جديد بتسمية + مفتاح</li>
+  <li>تحرير حساب موجود (إعادة تسمية واستبدال المفتاح)</li>
+  <li>تعيين أي حساب نشط للجلسة الحالية</li>
+  <li>إزالة حساب</li>
+</ul>
+<p>يتم تخزين المفاتيح مقنعة (آخر أربعة فقط مرئية) في <code>config.ini</code>. لا توجد نسخة نص عادي في workspaceState.</p>
+</section>
+
+<section id="slash">
+<h2>أوامر الشرطة المائلة <a class="top-link" href="#">↑ أعلى</a></h2>
+<p>اكتب <code>/</code> في بداية منطقة النص أو انقر <b>عرض قائمة الأوامر</b> للاختيار من:</p>
+<table>
+<tr><th>الأمر</th><th>ما يفعله</th></tr>
+<tr><td><code>/help</code></td><td>فتح هذه الصفحة</td></tr>
+<tr><td><code>/handbook</code></td><td>فتح دليل المشروع</td></tr>
+<tr><td><code>/clear</code></td><td>محادثة جديدة</td></tr>
+<tr><td><code>/settings</code></td><td>فتح نافذة الإعدادات</td></tr>
+<tr><td><code>/prompts</code></td><td>تحرير قوالب الأوامر المحفوظة</td></tr>
+<tr><td><code>/history</code></td><td>تصفح سجل الدردشة</td></tr>
+<tr><td><code>/font</code></td><td>بدّل الخط الكبير</td></tr>
+<tr><td><code>/attach</code></td><td>إرفاق ملف للأمر التالي</td></tr>
+<tr><td><code>/folder</code></td><td>اختر مجلد المشروع</td></tr>
+<tr><td><code>/compact</code></td><td>ضغط المحادثة (تلخيص + تنقية)</td></tr>
+<tr><td><code>/git</code></td><td>فتح Source Control</td></tr>
+<tr><td><code>/github</code></td><td>قائمة مستودعات GitHub</td></tr>
+<tr><td><code>/license</code></td><td>عرض ترخيص MIT</td></tr>
+<tr><td><code>/push</code></td><td>دفع ملفات الامتداد إلى خادم التحديث التلقائي (مسؤول فقط)</td></tr>
+<tr><td><code>/compress</code></td><td>ضغط المحادثة (بديل <code>/compact</code>)</td></tr>
+<tr><td><code>/switch-accounts</code></td><td>فتح نافذة الحسابات للتبديل إلى مفتاح API نشط</td></tr>
+</table>
+</section>
+
+<section id="tama">
+<h2>حيوان Tamagotchi الأليف <a class="top-link" href="#">↑ أعلى</a></h2>
+<p>Tamagotchi عبارة عن حيوان أليف بتنسيق البكسل يعيش في اللوحة تحت جلد <b>tamagotchi</b>. يتقدم في العمر ويجوع/يتسخ ويمكن اللعب معه ويموت إذا تم إهماله لفترة طويلة. تستمر الحالة في <code>workspaceState</code>.</p>
+
+<h4>الإحصائيات (أعلى الأداة)</h4>
+<table>
+<tr><th>الإحصائية</th><th>ما يتتبعه</th></tr>
+<tr><td>🥚 المرحلة</td><td>دورة الحياة: بيضة → طفل → طفل → مراهق → بالغ → كبير → ميت. يتقدم في العمر مع دقائق حقيقية.</td></tr>
+<tr><td>🍖 الجوع</td><td>0-100. ينخفض بمرور الوقت؛ <b>تغذية</b> يرفعها. يصل إلى 0 → الصحة تنخفض.</td></tr>
+<tr><td>😀 السعادة</td><td>0-100. ينخفض بمرور الوقت؛ <b>اللعب</b> يرفعها.</td></tr>
+<tr><td>❤️ الصحة</td><td>0-100. ينخفض عند المرض أو الجوع. <b>اللقاح</b> يشفي.</td></tr>
+<tr><td>✨ النظافة</td><td>0-100. ينخفض عندما يتغوط الحيوان الأليف. <b>تنظيف</b> يرفعها.</td></tr>
+<tr><td>⏱ العمر</td><td>دقائق منذ الفقس.</td></tr>
+</table>
+
+<h4>أزرار الإجراء في LCD (أسفل الأداة)</h4>
+<table>
+<tr><th>الأيقونة</th><th>الإجراء</th></tr>
+<tr><td>🍖</td><td><b>تغذية</b> — دورة لحم ↔ باذنجان. <b>تحديد</b> للتغذية الفعلية.</td></tr>
+<tr><td>🧹</td><td><b>تنظيف</b> — كنس الفضلات.</td></tr>
+<tr><td>⚾</td><td><b>اللعب</b> — لعبة صغيرة؛ يرفع السعادة.</td></tr>
+<tr><td>💉</td><td><b>اللقاح</b> — يشفي عند المرض.</td></tr>
+<tr><td>💡</td><td><b>الضوء</b> — بدّل مصباح LCD؛ الحيوان الأليف ينام في الظلام.</td></tr>
+<tr><td>✅</td><td><b>تحديد</b> — تأكيد / متابعة (يعادل زر Bandai الأوسط الأصلي).</td></tr>
+</table>
+<p>يتم رسم رسم الحيوان الأليف في قماش 240×240 (مضغوط: 138×116). تعيش الرسوم البيانية + منطق دورة الحياة في <code>panel/dotmatrix-tamagotchi-sprites.js</code> و <code>panel/dotmatrix-tamagotchi-game.js</code>.</p>
+</section>
+
+<section id="skins">
+<h2>المظاهر <a class="top-link" href="#">↑ أعلى</a></h2>
+<p>المواضيع البصرية لكل لوحة - الأزرار والنوافذ وكتل الرمز وحتى الخط. اختر واحداً في <b>الإعدادات → المظهر</b>. كل جلد يعيش في <code>skins/&lt;id&gt;/</code> مع <code>manifest.xml</code> (يعلن الألوان + التأكيد) و <code>styles.css</code> (يتجاوز متغيرات CSS).</p>
+<ul>
+  <li><b>codex-black</b> (افتراضي) — الظلام وأحادي المسافة وتأكيد سماوي نيون</li>
+  <li><b>glassy</b> — أسطح زجاج مجمد على خلفية ناعمة</li>
+  <li><b>tamagotchi</b> — جهاز يدوي LCD أخضر جير؛ يعرض تلقائياً أداة الحيوان الأليف المرسوة في زاوية المؤلف</li>
+  <li><b>office</b> — أسلوب Word كريم/أزرق Chrome</li>
+  <li><b>macos-color-dock</b> / <b>mint-dock</b> — أشرطة أدوات الرسو السفلي مع رموز زجاجية</li>
+  <li><b>terminal</b> / <b>arch</b> / <b>kde</b> / <b>gnome</b> / <b>xfce</b> / <b>ubuntu</b> / <b>redhat</b> — مواضيع سطح المكتب Linux</li>
+</ul>
+<p>تأتي ألوان النافذة من إدخالات <code>&lt;colors&gt;</code> في قائمة كل جلد وتُدفع إلى <code>:root</code> كمتغيرات <code>--cbe-modal-*</code> حتى تتم معالجة كل نافذة (بما فيها هذه المساعدة) بما يتناسب مع الموضوع.</p>
+</section>
+
+<section id="extensions">
+<h2>الامتدادات <a class="top-link" href="#">↑ أعلى</a></h2>
+<p>تطبيقات صغيرة تعيش داخل CBE. كل منها مجلد تحت <code>extensions/&lt;id&gt;/</code> مع:</p>
+<ul>
+  <li><code>manifest.xml</code> — id و name و version و author و description و entry HTML و icon (رموز تعبيرية أو <code>icon.svg</code>)</li>
+  <li><code>extension.html</code> (أو أي ما يقول البيان <code>&lt;entry&gt;</code>) — التطبيق الفعلي</li>
+</ul>
+<p>انقر على <b>الامتدادات</b> لاستعراض ما تم تثبيته وتدبيس شريط الأدوات وتثبيت الامتدادات الجديدة من الكتالوج العام أو إزالتها من القرص. معرفات مدببة تعيش في <code>extensions/_pinned.json</code>.</p>
+</section>
+
+<section id="autoupdate">
+<h2>التحديث التلقائي (دفع / سحب) <a class="top-link" href="#">↑ أعلى</a></h2>
+<p>يقوم CBE بمزامنة مصدره بين الآلات عبر قناة دفع WinSCP + سحب HTTPS.</p>
+
+<h4>الدفع (مسؤول فقط)</h4>
+<p>إذا كان <code>[updates] is_admin = true</code> في config.ini، فكل تنشيط يشغل خلفية <code>WinSCP synchronize remote -mirror</code> التي تدفع مجلد الامتداد إلى <code>/home/trentontompkins.com/cbe</code> على الخادم. الزناد اليدوي: <code>/push</code> أمر شرطة مائلة. يستبعد الحالة لكل آلة: <code>data/</code> (1.74 GB Chrome profiles)، <code>bridges/</code>، <code>node_modules/</code>، <code>.git/</code>، <code>logs/</code>، <code>chats/</code>، <code>config.ini</code>، <code>prompt_history.txt</code>، <code>domains.txt</code>، <code>wake.txt</code>.</p>
+
+<h4>السحب (كل عميل)</h4>
+<p>بعد 4 ثوان من التنشيط، يجلب كل عميل <code>https://trentontompkins.com/cbe/manifest.xml.php</code> ويقارن MD5 لكل ملف مقابل النسخ المحلية. يتم تنزيل الملفات المتغيرة/المفقودة فقط عبر GET HTTPS عادي. لا يتم سحب المسارات المستثناة أبداً: <code>config.ini</code>، <code>data/</code>، <code>bridges/</code>، <code>extension.js</code>، <code>panel/panel.js</code>، <code>panel/index.html</code>، <code>package.json</code>، أدوات البناء - والسبب في ذلك هو أن المصدر يأتي عبر .vsix ونسخة الخادم الأقدم يجب أل

@@ -98,4 +98,10 @@
   <s id="voice.nospeech">เสียง: ไม่พบคำพูด</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">บัญชี — จัดการคีย์ API</s>
+  <s id="tooltip.browser">เบราว์เซอร์</s>
+  <s id="tooltip.tamagotchi">สัตว์เลี้ยงทามาก็อตจิ</s>
+  <s id="ext.calculator">เครื่องคิดเลข</s>
+  <s id="ext.minesweeper">เกมกู้ระเบิด</s>
+  <s id="ext.emoji-picker">ตัวเลือกอีโมจิ</s>
 </strings>

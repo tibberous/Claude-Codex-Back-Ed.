@@ -98,4 +98,10 @@
   <s id="voice.nospeech">Голос: речь не обнаружена.</s>
   <s id="voice.permission_denied">Голос: доступ к микрофону запрещён.</s>
   <s id="voice.sapi_error">Голос (SAPI):</s>
+  <s id="tooltip.accounts">Аккаунты — управление ключами API</s>
+  <s id="tooltip.browser">Браузер</s>
+  <s id="tooltip.tamagotchi">Питомец Тамагочи</s>
+  <s id="ext.calculator">Калькулятор</s>
+  <s id="ext.minesweeper">Сапёр</s>
+  <s id="ext.emoji-picker">Выбор эмодзи</s>
 </strings>

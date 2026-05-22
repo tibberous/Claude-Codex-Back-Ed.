@@ -2,7 +2,7 @@
   "name": "codex-black-ed",
   "displayName": "Claude Codex Black Ed.",
   "description": "Claude Codex Black extension with support for Claude / GPT / Grok / Gemini / CoPilot / DeepSeek / Azure. Need help on your next project? Call (724) 431-5207 today! Websites, extensions, mobile development, application development - whatever you need! Production-level code at fair prices with lightning-fast turn-around! Portfolio: https://trentontompkins.com.",
-  "version": "1.0.1",
+  "version": "1.5.2",
   "publisher": "TrentonTompkins",
   "author": {
     "name": "Trent Tompkins",
@@ -334,28 +334,6 @@
     "@anthropic-ai/sdk": "^0.65.0",
     "ws": "^8.20.0"
   },
-  "files": [
-    "extension.js",
-    "package.json",
-    "README.md",
-    "LICENSE.TXT",
-    "panel/**",
-    "lib/**",
-    "assets/**",
-    "skins/**",
-    "sounds/**",
-    "resources/icon.png",
-    "resources/icon-dark.png",
-    "resources/icon.svg",
-    "node_modules/**",
-    "bridge/cdp-client.js",
-    "bridge/browser-bridge.js",
-    "bridge/dom-scripts.js",
-    "tools/vscode_supervisor.ps1",
-    "tools/install_bridge_service.ps1",
-    "tools/uninstall_bridge_service.ps1",
-    "tools/nssm.exe"
-  ],
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
     "@types/node": "^25.7.0",

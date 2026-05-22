@@ -98,4 +98,10 @@
   <s id="voice.nospeech">الصوت: لم يُكتشف أي كلام.</s>
   <s id="voice.permission_denied">الصوت: تم رفض الوصول إلى الميكروفون.</s>
   <s id="voice.sapi_error">الصوت (SAPI):</s>
+  <s id="tooltip.accounts">الحسابات — إدارة مفاتيح API</s>
+  <s id="tooltip.browser">المتصفح</s>
+  <s id="tooltip.tamagotchi">حيوان تاماغوتشي</s>
+  <s id="ext.calculator">الآلة الحاسبة</s>
+  <s id="ext.minesweeper">كانسة الألغام</s>
+  <s id="ext.emoji-picker">منتقي الإيموجي</s>
 </strings>

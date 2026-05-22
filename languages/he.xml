@@ -98,4 +98,10 @@
   <s id="voice.nospeech">קול: לא זוהה דיבור.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">חשבונות — ניהול מפתחות API</s>
+  <s id="tooltip.browser">דפדפן</s>
+  <s id="tooltip.tamagotchi">חיית מחמד טמגוצ'י</s>
+  <s id="ext.calculator">מחשבון</s>
+  <s id="ext.minesweeper">שולה מוקשים</s>
+  <s id="ext.emoji-picker">בורר אימוג'י</s>
 </strings>

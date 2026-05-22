@@ -98,4 +98,10 @@
   <s id="voice.nospeech">వాయిస్: ప్రసంగం కనుగొనబడలేదు.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">ఖాతాలు — API కీలను నిర్వహించండి</s>
+  <s id="tooltip.browser">బ్రౌజర్</s>
+  <s id="tooltip.tamagotchi">తామగోచి పెంపుడు</s>
+  <s id="ext.calculator">కాలిక్యులేటర్</s>
+  <s id="ext.minesweeper">మైన్‌స్వీపర్</s>
+  <s id="ext.emoji-picker">ఎమోజీ ఎంపిక</s>
 </strings>

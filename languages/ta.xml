@@ -98,4 +98,10 @@
   <s id="voice.nospeech">குரல்: பேச்சு கண்டறியப்படவில்லை.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">கணக்குகள் — API விசைகளை நிர்வகி</s>
+  <s id="tooltip.browser">உலாவி</s>
+  <s id="tooltip.tamagotchi">தாமகோச்சி செல்லப்பிராணி</s>
+  <s id="ext.calculator">கணிப்பான்</s>
+  <s id="ext.minesweeper">மைன்ஸ்வீப்பர்</s>
+  <s id="ext.emoji-picker">எமோஜி தேர்வி</s>
 </strings>

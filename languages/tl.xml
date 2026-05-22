@@ -98,4 +98,10 @@
   <s id="voice.nospeech">Boses: walang natuklasang pananalita.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">Mga account — pamahalaan ang mga API key</s>
+  <s id="tooltip.browser">Browser</s>
+  <s id="tooltip.tamagotchi">Alagang Tamagotchi</s>
+  <s id="ext.calculator">Calculator</s>
+  <s id="ext.minesweeper">Minesweeper</s>
+  <s id="ext.emoji-picker">Pampili ng emoji</s>
 </strings>

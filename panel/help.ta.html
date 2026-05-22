@@ -1,424 +1,592 @@
 <!doctype html>
 <html lang="ta">
 <head>
+<base href="about:srcdoc">
 <meta charset="utf-8">
 <title>Claude Codex — Black Edition · உதவி</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
+  /* Smooth-scroll for the TOC anchor jumps. */
+  html { scroll-behavior: smooth; }
+
   :root {
-    --bg: #16181d;
-    --surface: #1f2229;
-    --surface-2: #262a33;
-    --border: #353a45;
-    --text: #e7eaef;
-    --muted: #aab1bd;
-    --accent: #4ea8ff;
-    --accent-soft: rgba(78,168,255,0.12);
-    --kbd-bg: #0f1116;
-    --kbd-border: #2b313b;
-    --warn: #ffd84d;
-    --err: #ff8a8a;
-    --ok: #6fd58a;
+    /* Defaults — overridden by panel.js applySkinColors() when a skin is
+       active so the help reads natively under any skin (lime tamagotchi,
+       cream macOS, dark codex-black, etc). */
+    --bg:           var(--cbe-modal-bg,           #16181d);
+    --surface:      var(--cbe-modal-foot-bg,      #1f2229);
+    --surface-2:    var(--cbe-modal-title-bg-1,   #262a33);
+    --border:       var(--cbe-modal-border,       #353a45);
+    --text:         var(--cbe-modal-fg,           #e7eaef);
+    --muted:                                      #aab1bd;
+    --accent:       var(--cbe-modal-accent,       #4ea8ff);
+    --accent-soft:                                rgba(78,168,255,0.12);
+    --kbd-bg:                                     #0f1116;
+    --kbd-border:                                 #2b313b;
+    --warn:                                       #ffd84d;
+    --err:                                        #ff8a8a;
   }
-  * { box-sizing: border-box; }
-  /* .app is included here because CBE inlines this file's body into a <div>
-     inside the panel (no <html>/<body> wrapper) — without .app carrying the
-     dark background + text color, the panel skin's background bleeds through
-     and you get unreadable text. Standalone (real <body>) it's still fine. */
-  html, body, .app { margin: 0; padding: 0; height: 100%; background: var(--bg);
-               color: var(--text); font: 14.5px/1.55 ui-sans-serif, system-ui,
-               -apple-system, "Segoe UI", sans-serif; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  code, kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-  code { background: var(--kbd-bg); padding: 1px 6px; border-radius: 4px;
-         border: 1px solid var(--kbd-border); font-size: 0.92em; }
-  kbd { background: var(--kbd-bg); padding: 1px 7px; border-radius: 4px;
-        border: 1px solid var(--kbd-border); border-bottom-width: 2px;
-        font-size: 0.85em; color: #ffd84d; }
-  pre { background: var(--kbd-bg); border: 1px solid var(--border);
-        border-radius: 6px; padding: 12px 14px; overflow-x: auto;
-        font-size: 12.5px; }
-  /* Layout: fixed TOC sidebar + scrolling content. The content scrolls
-     inside #main, which jQuery smooth-scrolls when TOC links are clicked. */
-  /* height:100% (not 100vh) so the layout fills the modal body when inlined,
-     and the full standalone window when opened as a real page. */
-  .app { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
-  nav.toc { background: var(--surface); border-right: 1px solid var(--border);
-            overflow-y: auto; padding: 18px 0 24px 0; position: sticky; top: 0;
-            height: 100%; }
-  nav.toc h2 { margin: 0 18px 8px 18px; font-size: 11px; letter-spacing: 0.08em;
-               color: var(--muted); text-transform: uppercase; }
-  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: tocnum; }
-  nav.toc ol li { counter-increment: tocnum; }
-  nav.toc ol li > a { display: block; padding: 7px 18px 7px 36px; font-size: 13.5px;
-                       color: var(--text); position: relative; line-height: 1.3;
-                       border-left: 3px solid transparent; }
-  /* Click feedback wired from panel.js: active TOC link gets an accent bar +
-     tint, the landed section flashes a soft accent glow that fades out. */
-  nav.toc ol li > a.cbe-toc-active {
-    border-left-color: var(--accent); background: var(--accent-soft);
-    color: var(--accent);
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
   }
-  @keyframes cbeHelpFlash {
-    0%   { background: var(--accent-soft); }
-    100% { background: transparent; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 28px 32px 80px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 30px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 15px; margin: 18px 0 4px; color: var(--accent); }
+  h4 { font-size: 13px; margin: 12px 0 4px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  p  { margin: 4px 0 10px; }
+  ul, ol { margin: 4px 0 12px; padding-left: 22px; }
+  li { margin: 3px 0; }
+  code, kbd { font-family: Consolas, "Courier New", monospace; font-size: 12.5px; }
+  code { background: var(--surface-2); padding: 1px 5px; border-radius: 3px; }
+  kbd  { background: var(--kbd-bg); border: 1px solid var(--kbd-border); padding: 1px 6px; border-radius: 3px; font-size: 11.5px; }
+  pre  { background: var(--surface-2); padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; }
+  pre code { background: transparent; padding: 0; }
+  .lead { color: var(--muted); margin: 0 0 18px; }
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 14px 0 24px;
   }
-  .cbe-help-flash { animation: cbeHelpFlash 1.1s ease-out 1; border-radius: 6px; }
-  nav.toc ol li > a::before { content: counter(tocnum); position: absolute;
-                              left: 14px; top: 7px; color: var(--muted);
-                              font-family: ui-monospace; font-size: 11px;
-                              min-width: 16px; text-align: right; }
-  nav.toc ol li > a:hover { background: var(--surface-2); text-decoration: none; }
-  nav.toc ol li > a.active { background: var(--accent-soft);
-                              border-left-color: var(--accent); color: var(--accent); }
-  main#main { overflow-y: auto; padding: 28px 36px 80px 36px; height: 100vh; }
-  main#main > header { margin-bottom: 26px; padding-bottom: 14px;
-                       border-bottom: 1px solid var(--border); }
-  main#main > header h1 { margin: 0 0 4px 0; font-size: 24px; font-weight: 600;
-                          letter-spacing: 0.005em; }
-  main#main > header .meta { color: var(--muted); font-size: 13px; }
-  section.help-section { scroll-margin-top: 16px; max-width: 820px;
-                          margin: 0 0 36px 0; padding-top: 6px; }
-  section.help-section h2 { font-size: 19px; margin: 0 0 10px 0; font-weight: 600;
-                            display: flex; align-items: baseline; gap: 10px; }
-  section.help-section h2 .num { color: var(--muted); font: 13px ui-monospace;
-                                  min-width: 1.5em; }
-  section.help-section h3 { font-size: 15px; margin: 18px 0 6px 0; font-weight: 600;
-                            color: var(--text); }
-  section.help-section p { margin: 0 0 10px 0; color: var(--text); }
-  section.help-section ul { margin: 0 0 12px 0; padding-left: 22px; }
-  section.help-section li { margin-bottom: 4px; }
-  section.help-section table { border-collapse: collapse; width: 100%;
-                                margin: 6px 0 14px 0; font-size: 13.5px; }
-  section.help-section th, section.help-section td { border: 1px solid var(--border);
-                                                       padding: 6px 10px; text-align: left;
-                                                       vertical-align: top; }
-  section.help-section th { background: var(--surface-2); font-weight: 600; }
-  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft);
-             padding: 10px 14px; border-radius: 0 4px 4px 0; margin: 10px 0 14px 0; }
-  .callout.warn { border-color: var(--warn); background: rgba(255,216,77,0.08); }
-  .callout.err  { border-color: var(--err);  background: rgba(255,138,138,0.08); }
-  .top-link { float: right; font-size: 12px; color: var(--muted); }
+  .toc h2 { font-size: 13px; margin: 0 0 8px; border: 0; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .toc ul { columns: 2; column-gap: 28px; margin: 0; padding-left: 18px; list-style: square; }
+  .toc a { color: var(--text); text-decoration: none; }
+  .toc a:hover { color: var(--accent); text-decoration: underline; }
+  section { scroll-margin-top: 12px; }
+  .btnrow {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 4px 16px;
+    margin: 6px 0 14px;
+  }
+  .btnrow dt { font-weight: 600; color: var(--accent); padding-top: 2px; }
+  .btnrow dd { margin: 0 0 8px; }
+  .pill {
+    display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px;
+    background: var(--accent-soft); color: var(--accent); margin-left: 6px;
+    border: 1px solid color-mix(in srgb, var(--accent), transparent 60%);
+  }
+  .pill.warn { background: rgba(255,216,77,.10); color: var(--warn); border-color: color-mix(in srgb, var(--warn), transparent 60%); }
+  .note { background: var(--surface); border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: 13px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  details { margin: 6px 0; }
+  summary { cursor: pointer; color: var(--accent); padding: 4px 0; }
+  summary:hover { text-decoration: underline; }
+  .top-link { float: right; font-size: 12px; color: var(--muted); text-decoration: none; font-weight: normal; }
   .top-link:hover { color: var(--accent); }
-  /* Scrollbar */
-  *::-webkit-scrollbar { width: 10px; height: 10px; }
-  *::-webkit-scrollbar-track { background: var(--bg); }
-  *::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
-  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
+  a { color: var(--accent); }
 </style>
 </head>
 <body>
-<div class="app">
+<div class="wrap">
 
-  <nav class="toc" aria-label="உள்ளடக்கத்தின் அட்டவணை">
-    <h2>உள்ளடக்கம்</h2>
-    <ol id="toc-list">
-      <li><a href="#welcome">வரவேற்பு</a></li>
-      <li><a href="#keyboard">விசைப்பலகை குறுக்குவழிகள்</a></li>
-      <li><a href="#prompt-box">உத்தரவு பெட்டி</a></li>
-      <li><a href="#toolbar">கருவிப்பட்டை பொத்தான்கள்</a></li>
-      <li><a href="#providers">மாதிரிகள் &amp; வழங்குநர்கள்</a></li>
-      <li><a href="#stt">பேச்சு முதல் உரை வரை</a></li>
-      <li><a href="#auto-prompt">தானியங்கி உத்தரவு</a></li>
-      <li><a href="#tts">தானியங்கி வாசிப்பு (TTS)</a></li>
-      <li><a href="#compact">சுருக்கம் &amp; சூழல் பயன்பாடு</a></li>
-      <li><a href="#wake-up">விழிப்பு பதில்</a></li>
-      <li><a href="#attachments">ஆவண இணைப்புகள்</a></li>
-      <li><a href="#git">Git மாডல்</a></li>
-      <li><a href="#github">GitHub களஞ்சியங்கள்</a></li>
-      <li><a href="#domains">NameSilo களங்கள்</a></li>
-      <li><a href="#skins">தோல்கள் &amp; கருப்பொருள்கள்</a></li>
-      <li><a href="#settings">அமைப்புகள்</a></li>
-      <li><a href="#language">மொழி</a></li>
-      <li><a href="#monitor">VSCode மேற்பார்வையாளர்</a></li>
-      <li><a href="#auto-update">தானியங்கி-புதுப்பிப்பு (இழு)</a></li>
-      <li><a href="#admin-push">நிர்வாகி தள்ளுதல்</a></li>
-      <li><a href="#extensions">நீட்டிப்புகள் சந்தை</a></li>
-      <li><a href="#slash">சாய்வுக்கோ கட்டளைகள்</a></li>
-      <li><a href="#context-menu">வலது-கிளிக் மெனு</a></li>
-      <li><a href="#trace">பிற்படி சேனல்</a></li>
-      <li><a href="#troubleshooting">சிக்கல் தீர்த்தல்</a></li>
-      <li><a href="#about">பற்றி &amp; உரிமம்</a></li>
-    </ol>
-  </nav>
+<h1>Claude Codex — Black Edition</h1>
+<p class="lead">VSCode க்கான standalone AI panel. எந்த LLM provider உடனும் பேசுங்கள் (direct API அல்லது browser bridge), built-in TTS, STT, attach-to-file, command palette, multi-account, skinning, மற்றும் pixel-pet Tamagotchi உடன்.</p>
 
-  <main id="main">
-    <header>
-      <h1>Claude Codex — Black Edition</h1>
-      <div class="meta">VSCode க்கான ஆப்-லைன் முதல் பல-வழங்குநர் AI சட்டச் பேனல்.
-        நিற்கவும் <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd> பயன்படுத்தவும்.</div>
-    </header>
+<nav class="toc">
+  <h2>உள்ளடக்கம்</h2>
+  <ul>
+    <li><a href="#quick">விரைவு தொடக்கம்</a></li>
+    <li><a href="#providers">Providers &amp; models</a></li>
+    <li><a href="#sending">செய்திகளை அனுப்புதல்</a></li>
+    <li><a href="#toolbar">Toolbar buttons</a></li>
+    <li><a href="#rightclick">Right-click menu</a></li>
+    <li><a href="#modals">Modals &amp; dialogs</a></li>
+    <li><a href="#settings">Settings</a></li>
+    <li><a href="#setup">Setup wizard</a></li>
+    <li><a href="#accounts">Accounts &amp; API keys</a></li>
+    <li><a href="#slash">Slash commands</a></li>
+    <li><a href="#tama">Tamagotchi pet</a></li>
+    <li><a href="#skins">Skins</a></li>
+    <li><a href="#extensions">Extensions</a></li>
+    <li><a href="#autoupdate">Auto-update (push/pull)</a></li>
+    <li><a href="#hotreload">Hot reload</a></li>
+    <li><a href="#troubleshooting">Troubleshooting</a></li>
+  </ul>
+</nav>
 
-    <section id="welcome" class="help-section">
-      <h2><span class="num">1.</span> வரவேற்பு</h2>
-      <p>Claude Codex Black ஒரு VSCode webview ஆகும் இது ஒரு தனிப்பட்ட, பொருளாக்கக்கூடிய பேனலில் இருந்து பல AI வழங்குநர்கள் (Claude, OpenAI, Gemini, Grok, Azure, உள்ளூர் Ollama) உடன் சாட் செய்ய அனுமதிக்கிறது.
-        விசையை தேவைப்படும் எல்லாம் <code>config.ini</code> இல் தொடக்க விரிவாக்கத்திலிருந்து வாசிக்கும் — 
-        விரிவாக்க அமைப்புகள் UI தேவையில்லை, ஆனால் ஒரு அமைப்புகள் மாடல் கிளிக்-மட்டுமே திருத்தத்திற்கான மிகவும் பயனுள்ள புலங்களை பிரதிபலிக்கிறது.</p>
-      <div class="callout">
-        புதியவரா? <em>அமைப்புகளைத்</em> திறந்து (கியர் ஐகான்), உங்கள் வழங்குநரைத் தேர்ந்தெடுக்கவும், உங்கள் API விசை ஒட்டவும், பின்னர் ஒரு உத்தரவு வகை செய்து <kbd>Enter</kbd> அழுத்தவும். இந்த வழிகாட்டலில் ஆறு மற்ற அம்சமும் விருப்பமாகவே உள்ளன.
-      </div>
-    </section>
+<section id="quick">
+<h2>விரைவு தொடக்கம் <a class="top-link" href="#">↑ top</a></h2>
+<ol>
+  <li><b>Setup</b> (wand icon) கிளிக் செய்து உங்கள் API keys ஐ உள்ளிட wizard வழியாக செல்லுங்கள். அவை <code>config.ini</code> ஆக save செய்யப்படும் (which is gitignored — never committed).</li>
+  <li>Bottom-left இல் <b>provider pill</b> கிளிக் செய்யுங்கள் (currently labeled "Claude Codex — Black Edition") எந்த AI உடன் பேசுகிறீர்கள் என்பதை மாற்ற.</li>
+  <li>Textarea இல் type செய்து <kbd>Enter</kbd> அழுத்தி அனுப்புங்கள். <kbd>Shift</kbd>+<kbd>Enter</kbd> newline செருகுகிறது.</li>
+  <li>Empty textarea இல் <kbd>↑</kbd> அழுத்தி முந்தைய prompts ஐ recall செய்யுங்கள் (PowerShell-style history).</li>
+</ol>
+</section>
 
-    <section id="keyboard" class="help-section">
-      <h2><span class="num">2.</span> விசைப்பலகை குறுக்குவழிகள்</h2>
-      <table>
-        <thead><tr><th>விசை</th><th>விளைவு</th></tr></thead>
-        <tbody>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd></td><td>CBE பேனலை இறக்கி இயக்கவும்</td></tr>
-          <tr><td><kbd>Enter</kbd></td><td>தற்போதைய உத்தரவை அனுப்பவும்</td></tr>
-          <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>உத்தரவு பெட்டியில் புதிய வரி</td></tr>
-          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>உங்கள் முன்னர் அனுப்பப்பட்ட உத்தரவுகளின் மூலம் சுழற்று (<code>prompt_history.txt</code> இல் இருந்து)</td></tr>
-          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>textarea இன் தொடக்கத்தில்/முடிவில் கேரட்டு இருந்தபொழுது உங்கள் தேர்ந்தெடுக்கப்பட்ட <code>prompts.txt</code> உள்ளீடுகளின் மூலம் சுழற்று</td></tr>
-          <tr><td><kbd>Esc</kbd></td><td>திறந்த எந்த மாடலையும் மூடவும்</td></tr>
-          <tr><td><kbd>/</kbd></td><td>சாய்வுக்கோ-கட்டளை விளாவைத் திறக்கவும்</td></tr>
-        </tbody>
-      </table>
-    </section>
+<section id="providers">
+<h2>Providers &amp; models <a class="top-link" href="#">↑ top</a></h2>
+<p>இரண்டு வகையான providers support செய்யப்படுகின்றன:</p>
 
-    <section id="prompt-box" class="help-section">
-      <h2><span class="num">3.</span> உத்தரவு பெட்டி</h2>
-      <p>கீழே பெரிய திருத்தக்கூடிய textarea. வகை, ஒட்டு, ஒரு ஆவணத்தை இழு, paperclip மூலம் இணைக்கவும் — 
-        இங்கே நீங்கள் என்ன வைக்கிறீர்கள் என்பது அடுத்த API அழைப்பின் பயனரின் முறைவதாகும்.</p>
-      <p>எழுத்துரு உங்கள் VSCode தொరணி இன் monospace எழுத்துரு (வழியாக <code>--vscode-editor-font-family</code> CSS மாறி) பூட்டப்பட்டது ஆக பேனல் திருத்தியளில் வீட்டுள் தோன்றுகிறது.</p>
-    </section>
+<h4>Direct API (uses your key)</h4>
+<table>
+  <tr><th>Provider</th><th>Default model</th><th>Where the key goes</th></tr>
+  <tr><td>Anthropic (Claude)</td><td>claude-sonnet-4-6</td><td><code>[api_keys] anthropic_api_key</code></td></tr>
+  <tr><td>OpenAI (ChatGPT)</td><td>gpt-4o</td><td><code>[api_keys] openai_api_key</code></td></tr>
+  <tr><td>Google Gemini</td><td>gemini-2.5-pro</td><td><code>[api_keys] gemini_api_key</code></td></tr>
+  <tr><td>xAI (Grok)</td><td>grok-4</td><td><code>[api_keys] xai_api_key</code></td></tr>
+  <tr><td>DeepSeek</td><td>deepseek-chat</td><td><code>[api_keys] deepseek_api_key</code></td></tr>
+  <tr><td>Azure OpenAI</td><td>(deployment-based)</td><td><code>[azure] api_key</code> + endpoint</td></tr>
+</table>
 
-    <section id="toolbar" class="help-section">
-      <h2><span class="num">4.</span> கருவிப்பட்டை பொத்தான்கள்</h2>
-      <p>கீழே வரி, இடமிருந்து வலம். ToolTips மீது தோன்றும்; பேனல் அவற்றை உங்கள் தேர்ந்தெடுக்கப்பட்ட மொழিতে நிரல் பாடும் (பார்க்கவும் <a href="#language">மொழி</a>).</p>
-      <table>
-        <thead><tr><th>ஐகான்</th><th>செயல்பாடு</th></tr></thead>
-        <tbody>
-          <tr><td>🎤 மைக்</td><td>பேச்சு-முதல்-உரை — Web Speech API SAPI fallback உடன். பார்க்கவும் <a href="#stt">§ 6</a>.</td></tr>
-          <tr><td>📎 இணைக்க</td><td>உத்தரவு இல் ஒன்று அல்லது அதிக ஆவணங்களை தேர்ந்தெடுக்கவும்</td></tr>
-          <tr><td>🔁 விழிப்பு</td><td>தானியங்கி உத்தரவு விழிப்பு உரையைத் திருத்தவும் (<code>wake.txt</code> இல் வாழ்க)</td></tr>
-          <tr><td>⏱ தானியங்கி உத்தரவு</td><td>செயல்நீடு்ரத்தால் தானியங்கி-தீ புதுப்பிப்பு முற்றுப்பெறல் இறக்கி இயக்கவும்</td></tr>
-          <tr><td>📚 சுருக்கம்</td><td>உரையாடல் வரலாற்றை கடைசி சில திருப்பங்களுக்கு வெட்டி. ரிங் சூழல்-சாளரம் பயன்பாட்டைக் காட்டுகிறது.</td></tr>
-          <tr><td>📁 Git</td><td>திருட்டின் பாக்கெட்டில் git கட்டளைகளை இயக்கவும்</td></tr>
-          <tr><td>🌐 களங்கள்</td><td>உங்கள் NameSilo களம் பட்டியல் இழுக்கவும்</td></tr>
-          <tr><td>🐙 GitHub</td><td>PAT வழியாக உங்கள் GitHub repos பட்டியல் செய்யவும்</td></tr>
-          <tr><td>🎨 தோல்</td><td>பேனல் கருப்பொருள் தேர்ந்தெடுக்கவும் (<code>skins/</code> இல் இருந்து உயிரோடு கண்டுபிடிக்கப்பட்ட)</td></tr>
-          <tr><td>🧩 நீட்டிப்புகள்</td><td>சந்தை iframe மாடல் திறக்கவும். பார்க்கவும் <a href="#extensions">§ 21</a>.</td></tr>
-          <tr><td>⚙ அமைப்புகள்</td><td>அமைப்புகள் மாடல் திறக்கவும்</td></tr>
-          <tr><td>📜 கையேடு</td><td><code>handbook.txt</code> திருத்ததை திறக்கவும்</td></tr>
-          <tr><td>❔ உதவி</td><td>இந்த ஆவணம்</td></tr>
-          <tr><td>⏹ நிறுத்து</td><td>விமான-மாதிரி அழைப்பைத் ரத்து செய்யவும்</td></tr>
-          <tr><td>📤 அனுப்பவும்</td><td>உத்தரவைச் சமர்ப்பிக்கவும் (<kbd>Enter</kbd> ஆ)</td></tr>
-        </tbody>
-      </table>
-    </section>
+<h4>Browser bridges (no API key — drives a logged-in browser session)</h4>
+<table>
+  <tr><th>Bridge</th><th>Target</th><th>Port</th></tr>
+  <tr><td>ChatGPT bridge</td><td>chat.openai.com</td><td>8788</td></tr>
+  <tr><td>Grok bridge</td><td>grok.com / x.ai</td><td>8789</td></tr>
+  <tr><td>Copilot bridge</td><td>copilot.microsoft.com</td><td>8790</td></tr>
+  <tr><td>Gemini bridge</td><td>gemini.google.com</td><td>8791</td></tr>
+  <tr><td>Claude bridge</td><td>claude.ai</td><td>8792</td></tr>
+  <tr><td>Ollama (local)</td><td>127.0.0.1:11434</td><td>8793</td></tr>
+  <tr><td>DeepSeek bridge</td><td>chat.deepseek.com</td><td>8794</td></tr>
+</table>
+<p>ஒவ்வொரு bridge ஓ ஒரு சிறிய C++ tray exe at <code>bin/CBE-Bridge-&lt;Target&gt;.exe</code> இது logged-in Chrome profile ஐ திறக்கிறது, உங்கள் prompt ஐ intercept செய்து, model ன் reply ஐ திருப்பி கொடுக்கிறது. Settings இல் bridge provider தேர்ந்தெடுப்பது matching exe ஐ auto-launch செய்கிறது. நீங்கள் bridge ஐ முதல் முறை பயன்படுத்தும் போது அதன் Chrome window இல் site க்கு log in செய்ய வேண்டும்.</p>
+<div class="note">Bridge chat speaks a line-protocol on TCP: one JSON line in (<code>{action:"chat", target, message, model}</code>), one JSON line out. No api key required.</div>
+</section>
 
-    <section id="providers" class="help-section">
-      <h2><span class="num">5.</span> மாதிரிகள் &amp; வழங்குநர்கள்</h2>
-      <p>CBE <strong>11 பாலங்கள்</strong> உடன் <code>bridges/</code> கீழ் ஆ-ஐ <code>.bridge</code> செருகிகளாக அனுப்பப்படுகிறது. பிரতிेக ஒன்று manifest.xml + bridge.py + ஐகான்கள் உடன் தன்னிய-கட்டப்பட்ட ஜிபில். ஒரு புதிய <code>.bridge</code> ஆவணத்தை இல் உறிஞ்சுவிக்கவும் மற்றும் அது ஒரு ஆக்சையன்டைஸ் கீழ் கட் தினாக் தோன்றும் — விரிவாக்க குறிப்பு வேறு தேவையில்லை.</p>
-      <h3>உரை-சாட் பாலங்கள் (7)</h3>
-      <ul>
-        <li><strong>ChatGPT</strong> — chatgpt.com, Plus/Pro சந்தா</li>
-        <li><strong>Grok</strong> — grok.com, பூர்வ xAI உள்நுழைவு (அநாமதேய கதை ভারীভাবே வாசல்; முதலில் உள்நுழையவும்)</li>
-        <li><strong>Gemini</strong> — gemini.google.com, Google கணக்கு</li>
-        <li><strong>Claude</strong> — claude.ai, மந்திர-வரி உள்நுழைவு (<code>tools/sign_in_helper.py claude</code> ஒருமுறை இயக்கவும்)</li>
-        <li><strong>Copilot</strong> — copilot.microsoft.com, இலவச Microsoft கணக்கு</li>
-        <li><strong>DeepSeek</strong> — chat.deepseek.com, பூர்வ ஈமெল்/கடவுளொ (Google SSO பயன்படுத்தாதே)</li>
-        <li><strong>Ollama</strong> — உள்ளூர் <code>127.0.0.1:11434</code>, உள்நுழைவு தேவையில்லை</li>
-      </ul>
-      <h3>வீடியோ-প்রজந்மன பாலங்கள் (4)</h3>
-      <ul>
-        <li><strong>Sora 2</strong> — sora.com, உங்கள் ChatGPT Plus/Pro உள்நுழைவை மீண்டும் உபயோகித்து</li>
-        <li><strong>Google Veo</strong> — gemini.google.com (Veo போபு), Gemini Advanced சந்தா</li>
-        <li><strong>Runway Gen-3/4</strong> — app.runwayml.com, பிரதியான Runway சந்தா</li>
-        <li><strong>Bing Video Creator</strong> — bing.com/videos/create, <em>இலவச Sora-2</em> Microsoft கணக்க உடன்</li>
-      </ul>
-      <p>உற்பத்தி வீடியோ <code>videos/&lt;bridge&gt;/&lt;timestamp&gt;_&lt;prompt-slug&gt;.mp4</code> இல் சேமிக்கப்பட்ட மற்றும் Video Library பேனலில் தனித்த இயக்க (பார்க்கவும் §Video Library கீழ்).</p>
-      <p>உத்தரவ பெட்டியின் அருகிலுள்ள ஒரு பாலம் + மாதிரியைத் தேர்ந்தெடுக்கவும், அல்லது <em>அமைப்புகள் → பொது</em>வழியாக. தேர்வு ஒரு பணிக்கு ஒரு மற்றும் workspaceState உள் நிலைபெறப்பட்ட. ஒரு புதிய பாலத்திக்கு, பார்க்கவும் <code>docs/WRITING_BRIDGES.md</code>.</p>
-    </section>
+<section id="sending">
+<h2>செய்திகளை அனுப்புதல் <a class="top-link" href="#">↑ top</a></h2>
+<dl class="btnrow">
+  <dt>Textarea</dt>
+  <dd>உங்கள் prompt type செய்யுங்கள். <kbd>Enter</kbd> அனுப்புகிறது, <kbd>Shift</kbd>+<kbd>Enter</kbd> newline செருகுகிறது. Reply stream செய்யும் போது, கூடுதல் prompts <b>queued</b> மற்றும் order இல் அனுப்பப்படும் — placeholder இந்த state இல் "Queue another message…" காட்டுகிறது.</dd>
 
-    <section id="video-library" class="help-section">
-      <h2><span class="num">5a.</span> வீடியோ நூலகம்</h2>
-      <p>வீடியோ பாலங்களால் உற்பத்தி வீடியோ உலாவுதல் + பார்ப்பதற்கான ஒரு பெறுபத்திய பேனல் (Sora, Veo, Runway, Bing வீடியோ Creator). Command Palette வழியாக திறக்கவும்:
-        <em>Claude Codex Black: Open வீடியோ Library</em> அல்லது <code>codexBlackEd.openVideoPlayer</code> கட்டளை.</p>
-      <ul>
-        <li>Sidebar <code>videos/&lt;bridge&gt;/</code> கீழ் ஒவ்வொரு <code>.mp4</code> / <code>.webm</code> / <code>.mov</code> பட்டியல் செய்யும், பாலம் மற்றும் வரிசைப்படுத்தப்பட்ட புதிய-முதல் দ্বারা grouped.</li>
-        <li>புதிய-பெரুமாணம் வீடியோ முதல் திறந்ததில் தனித்த விளையாடுவது.</li>
-        <li>பேனல் <code>videos/</code> dir உல் 2-விநாடி டிக் பர் கண்காணித்து — எந்த புதியாக உற்பத்தி வீடியோ একটি ✨ "கேள்வி ஆக்குப் பெறு பயணிக்கப்பட்ட" தாளக் உடன் முகர்து மற்றும் தனித்த விளையாடு (<em>Auto ▶ புதிய</em> மூலம் திற்கவும்).</li>
-        <li><em>📂 திறக்க</em> கிளிக் உங்கள் OS ஆவண மறு தொலோடு <code>videos/</code> ஆ.</li>
-      </ul>
-    </section>
+  <dt>Send button (orb)</dt>
+  <dd>Textarea ன் வலது edge இல் round button. <kbd>Enter</kbd> போன்றது. Visually மூன்று states காட்டுகிறது (idle / hover / active).</dd>
 
-    <section id="stt" class="help-section">
-      <h2><span class="num">6.</span> பேச்சு முதல் உரை வரை</h2>
-      <p>நிமிடம் கிளிக், பேசவும், நிறுத்ததை கிளிக் (அல்லது மென்மையான மூடல்-டைம்அவுட் கோ). இரண்டு ஏவு வரிசை ஈ:</p>
-      <ol style="padding-left:22px;">
-        <li><strong>Web Speech API</strong> — webview இல் இயங்கும் Google உறுதிம் recognizer. உங்கள் Gmail/Google அமர்ந்து பயன்படுத்துகிறது; எந்த விசை தேவையில்லை.</li>
-        <li><strong>Windows SAPI</strong> (fallback) — <code>[voice] listen_seconds</code> உல் உল்টம்-வெப்பப் PowerShell செயல்பாடு webview நிறுத்து அணுக்கத் invoked. உல் உள்ளூர் <code>config.ini</code>.</li>
-      </ol>
-      <div class="callout">
-        SAPI ஆ <em>விரிவாக்க செயல்படுத்த பூர்வ-வெப்பம்</em> எனவே முதல் நிமிச் கிளிக் 2-4 விநாடி குளிர் ப்தக் என்று வெளிசுவு வெளி சரவளி தவிர்க்கவும்.
-      </div>
-    </section>
+  <dt>Stop button</dt>
+  <dd>Composer ன் bottom-right. Currently-streaming reply மற்றும் queued messages ஐ cancel செய்கிறது. Streamed text keep செய்யப்படும்; only in-flight request abort செய்யப்படும்.</dd>
 
-    <section id="auto-prompt" class="help-section">
-      <h2><span class="num">7.</span> தானியங்கி உத்தரவு</h2>
-      <p>தாளக்-உடன்-spinner பொத்தான். உள், N விநாடி பூமிப்பின் பின் பேனல் தனித்த-அனுப்பப்பட்ட உங்கள் ஆ விழிப்பு உரை. அக்ர மாற்றி <code>--cbe-highlight-color</code> சுமந்து, ஒவ்வொரு தோல் வரையறுக்கிறது.</p>
-      <p>🔁 Wake பொத்தான் வழியாக விழிப்பு உரைத் திருத்தவும் — இது வெளியாய் <code>wake.txt</code>.</p>
-    </section>
+  <dt>Provider pill</dt>
+  <dd>Composer ன் bottom-left. ஒவ்வொரு configured provider இன் dropdown க்கு click செய்யுங்கள். புதிய ஒன்றை pick செய்வது auto-start செய்கிறது அதன் bridge (if applicable) மற்றும் confirmation toast post செய்கிறது.</dd>
 
-    <section id="tts" class="help-section">
-      <h2><span class="num">8.</span> தானியங்கி வாசிப்பு (TTS)</h2>
-      <p>வாய় ஐகான். உள், ஒவ்வொரு உதவியாளர் பதில் Web Speech synthesizer (Google) அல்லது SAPI fallback மூலம் பேசப்படுகிறது. நீல halo ஆ ஐ சுற்றி எல் ஆக்கு ஆக்கப் முறையமாயே.</p>
-    </section>
+  <dt>Prompt history</dt>
+  <dd><kbd>↑</kbd> / <kbd>↓</kbd> empty textarea இல் கடந்த 500 prompts வழியாக backward / forward walk செய்யுங்கள் (PowerShell-style). History stored at <code>prompt_history.txt</code> extension folder இல் மற்றும் panel reloads ஐ survive செய்கிறது.</dd>
+</dl>
+</section>
 
-    <section id="compact" class="help-section">
-      <h2><span class="num">9.</span> சுருக்கம் &amp; சூழல் பயன்பாடு</h2>
-      <p>உரையாடல் அடை பன்மொழி மாதிரிக்கு மாடல் உடன் ஒவ்வொரு சழ்சி வளர்கிறது. compact icon சுற்றில் வளையம் தெளிதல் சூழல்-சாளரம் பயன்பாட் ஒரு conic gradient — கொத்து புதிய, ஆக்க மாடல் சூழல் தெட்ட அதிக தகவ்று கொத்திப் போர்.",
-      <p>Compact கிளிக் வெட்டி வரலாற்றை கடைசி நான்கு திருப்பங்களுக்கு கீழ். அடுத்த API அழைப்பு சிறிய அডை பயன்படுத்துகிறது.</p>
-    </section>
+<section id="toolbar">
+<h2>Toolbar buttons <a class="top-link" href="#">↑ top</a></h2>
+<p>Toolbar order இல் listed. All tooltips are localizable per-language via <code>languages/*.xml</code>.</p>
 
-    <section id="wake-up" class="help-section">
-      <h2><span class="num">10.</span> விழிப்பு பதில்</h2>
-      <p><code>wake.txt</code> ஆ விரிவாக்கம் மூல. தானியங்கி உத்தரவு பயன்படுத்தப்பட் செய்திப் அனுப்பதற்கு பூமிப்பு டைமர் தீ. 🔁 கருவிப்பட்டை பொத்தான் மூலம் திருத்தவும்.</p>
-    </section>
+<dl class="btnrow">
 
-    <section id="attachments" class="help-section">
-      <h2><span class="num">11.</span> ஆவண இணைப்புகள்</h2>
-      <p>📎 கிளிக் ஒன்று அல்லது ஒன்றாக் அதிக ஆவணங்களைத் தேர்ந்தெடுக்க. <kbd>Ctrl</kbd> அல்லது <kbd>Shift</kbd> தேர்வித் பல-தேர்ந்தெடுக்க. ஒவ்வொரு ஆவணம் தன் ஆவணமாயம் மற்றும் மொழிக் உடன் ஒரு fenced குறிப்பு தொகுக்க உத்தரவ உள் வரிசை. வீட்ட ஆவணங்கள் 1 MB மேல் স் கொண்டு ஒரு நோட் உடன் தவிர்க்கப்পட்ட.</p>
-    </section>
+<dt>New conversation <span class="pill">addBtn</span></dt>
+<dd>Current thread ஐ clear செய்கிறது, in-memory conversation state ஐ wipe செய்கிறது, மற்றும் fresh start செய்கிறது. Previous thread disk இல் preserved <code>chats/&lt;UTC-date&gt;.log</code> under so nothing is lost. Equivalent to <code>/clear</code>.</dd>
 
-    <section id="git" class="help-section">
-      <h2><span class="num">12.</span> Git மாடல்</h2>
-      <p>📁 Git கிளிக். எந்த திருட்டின் பாக்கெட் கட்டமைக்கப்படின்றால், நீங்கள் முதல் ஒரு பாக்கெட் தேர்வית் பெறுக — தேர்ந்தெடுக்கப்பட்ட பாக்கெட் <code>[project] path</code> ஆக <code>config.ini</code> இல் எழுதப்பட்ட.
-        அடுத்த git invocations கட்ட cwd உடன் வரிசை இயக்குகிறது.</p>
-    </section>
+<dt>Stored prompts <span class="pill">storedPromptsBtn</span></dt>
+<dd>Every saved prompt template listing modal open செய்கிறது <code>stored_prompts/</code> under. Textarea இல் insert செய்ய ஒன்றை click செய்யுங்கள்; "+" button புதிய template add செய்கிறது. Templates support variable substitution.</dd>
 
-    <section id="github" class="help-section">
-      <h2><span class="num">13.</span> GitHub களஞ்சியங்கள்</h2>
-      <p>ஒவ்வொரு repos அணுக்கத் <code>[github] pat</code> வரிசை. ஒரு வரி கிளிக் அதி clone URL உத்தரவ உள் உறிஞ்சு. பட்டியல் paginated மற்றும் cached.</p>
-    </section>
+<dt>Chat history <span class="pill">chatHistoryBtn</span></dt>
+<dd>On-disk chat log browse செய்கிறது (one file per UTC date under <code>chats/</code>). Past conversations through scroll back செய்ய date pick செய்யுங்கள்.</dd>
 
-    <section id="domains" class="help-section">
-      <h2><span class="num">14.</span> NameSilo களங்கள்</h2>
-      <p>ஒவ்வொரு களம் உங்கள் NameSilo கணக்கு <code>[namesilo] api_key</code> (அல்லது <code>[api_keys] namesilo_api_key</code> fallback ஆ). முதல் திறக், முடிவு <code>domains.txt</code> cached; அடுத்த பேனல் பூட்ட cached ஆக திசை. <em>Reload</em> மாடல் உல் கிளிக் ஒரு புதிய fetch வலுச்சேயவ.</p>
-      <div class="callout warn">
-        நீங்கள் எவ்வொழுது "எந்த களங்கள்" 300 பதில் குறிப்பு கொண்டு பார்த்தேல், பிற்படி சேனல் நிரல் — வெறும் caches எந்த இனிமை மாற்று பூட்ட வாழ், ஆனால் மற்ற ஆக ப மாற்றி <code>domains.txt</code> அமர்ந்து வேணுபட்டு.
-      </div>
-    </section>
+<dt>Attach file <span class="pill">attachFileBtn</span></dt>
+<dd>File picker open செய்கிறது. Selected file next prompt உடன் upload செய்யப்படும் — images inline go (vision), text/code files fenced block ஆக உங்கள் prompt இல் ஆகும். Supports multi-attach.</dd>
 
-    <section id="skins" class="help-section">
-      <h2><span class="num">15.</span> தோல்கள் &amp; கருப்பொருள்கள்</h2>
-      <p>🎨 பொத்தான் ஒரு தேர்வு தேர்வித் தோல் தேடுகிறது <code>skins/</code> உயிரோடு (தொடக் அ), இதனால் ஒரு புதிய பாக்கெட் drop செயல்பாডு-டைம் இயங்கு போதுமான. ஒவ்வொரு தோல் ஒ <code>manifest.xml</code> அதி பேலட் வரையறுக்கும் — <strong>பொதுவுமை வண்ணம்</strong> உடன், தானியங்கி உத்தரவ அக்ர தாளக், கேள்வி வளையங்கள், மற்றும் மேற்பார்வையாளர் pulses அனைத்து விசை அ.</p>
-      <p>கட்டப்பட்ட தோல்கள் அடங்க: <code>gnome</code> (Adwaita வேளெள்), <code>terminal</code> (கறு/பச்சை வெ வெ-பிங்க் பொதுவுமை), <code>tamagotchi</code> (முட்டை-குண்ட் pastels ஒ sprite mascot பேனல் உடன்), <code>blocky</code>, மற்றும் மாயங்கள்.</p>
-    </section>
+<dt>Read aloud (TTS) <span class="pill">ttsBtn</span></dt>
+<dd>Most recent assistant reply ஐ aloud speak செய்கிறது. ElevenLabs (if <code>[elevenlabs] api_key</code> is set) அல்லது Windows SAPI க்கு fallback. <b>Right-click</b> toggles <i>auto-read</i> mode which every new reply automatically spoken — button animated indicator gets while active.</dd>
 
-    <section id="settings" class="help-section">
-      <h2><span class="num">16.</span> அமைப்புகள்</h2>
-      <p>⚙ கியர் மூலம் திறக்கவும். தாள்களை:</p>
-      <ul>
-        <li><strong>பொது</strong> — கண்காட்சி மாடல், அவாக্க மாதிரி, அனுப்பு-ஆ-enter</li>
-        <li><strong>வாய்ச்</strong> — பாக் கருவி, listen_seconds, STT ஏவு தேர்வு, TTS தனித்த-வாசிப்பு</li>
-        <li><strong>பதுக்কங்கள்</strong> — <code>is_admin</code> குறி, WinSCP அமர்ந்து, தொலக் பாக்கெட்</li>
-        <li><strong>விசைகள்</strong> — ஒவ்வொரு வழங்குநர் API விசை</li>
-        <li><strong>மேற்பார்வை</strong> — VSCode மேற்பார்வையாளர் இறக்கி, தைरь, poll இடைவெளி</li>
-        <li><strong>மொழி</strong> — 39 locales தேர்ந்தெடுக்கவும்; பார்க்கவும் <a href="#language">§ 17</a></li>
-      </ul>
-      <p>மாடல் அறி அதি அளவு மற்றும் அமர்ந்து முதல் அமர்ந்து.</p>
-    </section>
+<dt>Speech to text (STT) <span class="pill">sttBtn</span></dt>
+<dd>Microphone audio record செய்து textarea இல் transcribe செய்கிறது. Webview ன் Web Speech API முதல் try செய்கிறது; that fails (<code>not-allowed</code>, common in VSCode sandboxes), Windows SAPI க்கு fallback (<code>System.Speech.Recognition</code>) host via PowerShell launch செய்யப்படும். Again stop செய்ய click செய்யுங்கள்.</dd>
 
-    <section id="language" class="help-section">
-      <h2><span class="num">17.</span> மொழி</h2>
-      <p>பேனல் கப்பல் 39 மிகவும் பேசிய மொழிகள் மொழிபெயர்ப்புகள் உடன். Locale ஆவணங்கள் <code>languages/&lt;code&gt;.xml</code> இல் உயிரோடு முறியாய் மற்று ஒரு எக்ஸ் activate முதல் எல்டு. மிதைஇழிய விசைகள் ஆங்கிலம் வாழ்க.</p>
-      <p><em>அமைப்புகள் → மொழி</em> உற்தி மொழிப் தேர்ந்தெடுக்கவும். ஒரு கொடி ஐகான் ஒவ்வொரு விரைவு அருகிலுள் (<code>assets/flags/&lt;code&gt;.svg</code> மூலம் எல்टு). தேர்வு <code>[settings] language</code> ஆ <code>config.ini</code> இல் சேமிக்கப்பட்ட.</p>
-    </section>
+<dt>Auto Prompt <span class="pill">autoReplyBtn</span></dt>
+<dd>Auto Prompt modal open செய்கிறது. Prompt + countdown interval define செய்யுங்கள்; ஒவ்வொரு assistant reply க்குப் பிறகு countdown tick மாடும் மற்றும் zero hit செய்யும் போது auto-prompt automatically re-send செய்யும். Useful for "keep going", "next step", repeated tool sessions. Again disable செய்ய click செய்யுங்கள்.</dd>
 
-    <section id="monitor" class="help-section">
-      <h2><span class="num">18.</span> VSCode மேற்பார்வையாளர்</h2>
-      <p>ஒரு Windows உதவ (<code>CBEVSCodeSupervisor</code>) <code>tools/vscode_supervisor.ps1</code> குறி NSSM வழியாக மூறி மற்றும் ஒ HttpListener இணைக்கவும் <strong>http://127.0.0.1:3434/</strong>. பேனல் மேற்பார்வை பொத்தான் கொடெய் மேற்பார்வையாளர் <code>/status</code> endpoint பதில் 200 முத்த ஆ.</p>
-      <p>HTTP probe பசையான ஆனால் உதவ எல்டு, பேனல் watchdog தனித்த-பெறு உதவ (30-விநாடி कूल்-பாய் இதனால் இ prot restart-புயல் என்ற).</p>
-      <p>இடக்-கிளிக் மேற்பார்வை பொத்தான் முறி / ஆ / நிறுத்து. வலக்-கிளிக் பிற்படி சேனல் திறக்க.</p>
-    </section>
+<dt>Wake-up response <span class="pill">wakeUpBtn</span></dt>
+<dd>Wake-up message stored at <code>wake.txt</code> edit செய்கிறது. Wake-up என்பது Auto Prompt அனுப்புவது model stalled detect செய்தால் — generally short ping like "Hey! Continue."</dd>
 
-    <section id="auto-update" class="help-section">
-      <h2><span class="num">19.</span> தானியங்கி-புதுப்பிப்பு (இழு)</h2>
-      <p>4 விநாடி பிறகு விரிவாக்கம் activate, பேனல் fetches <code>https://trentontompkins.com/cbe/manifest.xml.php</code> — ஒ MD5+அளவு manifest புதியவர் வெளியிடப்பட்ட ஆவணங்கள். ஒவ்வொரு தொலக ஆவணம், உள்ளூர் நকல் MD5 ஒப்பிடு; மட்டும் மாற்றிய/விலக ஆவணங்கள் HTTPS மேல் பதிவிறக்குப் பட।</p>
-      <p>பயனர்-உள்ளூர் நிலை (<code>config.ini</code>, <code>debug.log</code>, <code>domains.txt</code>, <code>wake.txt</code>, <code>prompt_history.txt</code>) இழு விலக்குவு பட்டியல் உள் மற்றும் எப்போதுமே மாற்றியதுமில்லை.</p>
-    </section>
+<dt>Show command menu <span class="pill">showCommandsBtn</span></dt>
+<dd>Slash-command palette modal இல் open செய்கிறது. Full list க்கு <a href="#slash">Slash commands</a> பார்க்கவும். Textarea ன் start இல் <code>/</code> type செய்வதற்கு same.</dd>
 
-    <section id="admin-push" class="help-section">
-      <h2><span class="num">20.</span> நிர்வாகி தள்ளுதல்</h2>
-      <p>மட்டும் கணக்கு <code>[updates] is_admin = true</code> உடன் எப்போதுமே சேவக்ஸ் தள்ளுதல். Triggered வழியாக:</p>
-      <ul>
-        <li>கட்டளை பொத் → <em>Claude Codex Black: Push புதுப்பிப்பு</em></li>
-        <li>சாய்வுக்கோ கட்டளை <code>/push</code></li>
-      </ul>
-      <p>WinSCP சேமிக் அமர்ந்து <code>[updates] winscp_session</code> உள் (மத்தி <code>vps</code>). Pushes வழியாக <code>/script=…</code> synchronize கட்டளை உடன் மற்று ஒ filemask என் விலக்கு seserets & ஒ-நிறுத்தப் நிலை.</p>
-    </section>
+<dt>Compact conversation <span class="pill">compactBtn</span></dt>
+<dd>Summarize-and-prune request post செய்கிறது current thread ஐ condensed recap உடன் replace செய்கிறது. Equivalent to <code>/compact</code>. Conversation long grow செய்யும் போது context keep செய்ய ஆனால் re-sending whole history பற்றிய tokens burn stop செய்ய விரும்பும் போது useful.</dd>
 
-    <section id="extensions" class="help-section">
-      <h2><span class="num">21.</span> நீட்டிப்புகள் சந்தை</h2>
-      <p>🧩 நீட்டிப்புகள் பொத்தான் கிளிக். ஒ iframe மாடல் திறக்கவும் <code>https://trentontompkins.com/cbe/extension/extension_marketplace.php</code>, ஒ <code>extensions.xml.php</code> மூலம் fetches கேட்டேலாக மற்று ஒவ்வொரு கிடைக்கும் நீட்டிப் ஒ வர்ணனை, தாள்களை, பதிப்பு, ஆவணம் அளவு, MD5, மற்றும் ஒ <strong>Install</strong> பொத்தான் உடன் கார்டு ஆக.</p>
-      <p>ஒ நீட்டிப் <code>&lt;id&gt;.ext</code> உல் — ஒ ஜிப் அடை <code>manifest.xml</code> மற்றும் நீட்டிப் குறி (<strong>ஒ<code>extension.html</code></strong>). நீங்கள் Install கிளிக் ஆ, சந்தை iframe வரி <code>postMessage</code> பேனலுக்கு; பேனல் பதிவிறக்குப் <code>.ext</code> ஆவணம் directly சேவக் மூலம் மற்று extract <code>extensions/</code> கீழ் விரிவாக்கம் பாக்கெட்.</p>
-      <p>மூன்று demo நீட்டிப்புகள் உடன் ஆ வாழ்க <strong>வாசக</strong>, <strong>Minesweeper</strong>, மற்றும் ஒ <strong>Emoji தேர்வி</strong>.</p>
-    </section>
+<dt>Handbook <span class="pill">handbookBtn</span></dt>
+<dd>Employee/project handbook modal open செய்கிறது. <code>handbook.html</code> அல்லது configured document load செய்கிறது. Used as system-prompt reference model consult செய்யக் கூறப்படாம்.</dd>
 
-    <section id="slash" class="help-section">
-      <h2><span class="num">22.</span> சாய்வுக்கோ கட்டளைகள்</h2>
-      <p><kbd>/</kbd> உத்தரவ பெட்டி உல் வகை சாய்வுக்கோ-கட்டளை விளாவைத் திறக்க. ஒ வரி கிளிக் <em>உறிஞ்சு</em> உத்தரவ உரையை உங்கள் உத்தரவு உள் (எளி), அல்லது <kbd>Enter</kbd> ஒ runnable வரிசை அழுத்த முழு ஏவு உடனே.</p>
-      <p>ஒ வசூல்-தொகுத்துவிட்ட பட்டியல்:</p>
-      <table>
-        <thead><tr><th>கட்டளை</th><th>விளைவு</th></tr></thead>
-        <tbody>
-          <tr><td><code>/help</code></td><td>இந்த ஆவணம் திறக்கவும்</td></tr>
-          <tr><td><code>/skin</code></td><td>தோல் தேர்வி பெறு</td></tr>
-          <tr><td><code>/push</code></td><td>தனித்த-புதுப்பிப்பு தள்ளுதல் வெ (நிர்வாகி மட்டும்)</td></tr>
-          <tr><td><code>/license</code></td><td><code>LICENSE.TXT</code> காட்டவும்</td></tr>
-          <tr><td><code>/clear</code></td><td>உரையாடல் வரலாற்று தெளிதல்</td></tr>
-          <tr><td><code>/domains</code></td><td>NameSilo களங்கள் மாடல் திறக்கவும்</td></tr>
-          <tr><td><code>/git</code></td><td>Git மாடல் திறக்கவும்</td></tr>
-          <tr><td><code>/wake</code></td><td>விழிப்பு-திறம் திறக்கவும்</td></tr>
-          <tr><td><code>/memory</code></td><td>திருட்டின் நினைவு குறி திறக்கவும்</td></tr>
-        </tbody>
-      </table>
-    </section>
+<dt>Settings <span class="pill">settingsBtn</span></dt>
+<dd>Settings modal open செய்கிறது (provider, model, skin, language, SFX). <a href="#settings">Settings</a> பார்க்கவும்.</dd>
 
-    <section id="context-menu" class="help-section">
-      <h2><span class="num">23.</span> வலது-கிளிக் மெனு</h2>
-      <p>வலக்-கிளிக் பேனல் உல் சிக்க மெனு ஒ (ஒ தனி XML உரை <code>panel.js</code> உல் வரையறுக்கப்பட்ட). உள்ளீடுகள் Refresh (பேனல் மாற்றிய விரிவாக்கம் வீட்டு, <code>reloadWindow</code> பயன்படுத்தாதே), Clear உரையாடல், அமைப்புகள் திறக்கவும், மற்றும் Inspect (DevTools, debug கட்ட மட்டும்).</p>
-    </section>
+<dt>Accounts <span class="pill">accountsBtn</span></dt>
+<dd>Multi-account manager open செய்கிறது. Add / edit / remove API keys per provider, per session between switch செய்யுங்கள். <a href="#accounts">Accounts</a> பார்க்கவும்.</dd>
 
-    <section id="trace" class="help-section">
-      <h2><span class="num">24.</span> பிற்படி சேனல்</h2>
-      <p>விரிவாக்கம் ஒ granular timeline <code>debug.log</code> அருகிலுள் விரிவாக்கம் எழுதுகிறது. எல்லாம் குறிப்பு lands அங்கு: வழங்குநர் மாற்றங்கள், STT வாழ்க்கை, மேற்பார்வையாளர் probes, NameSilo பதில் குறி, பேனल↔host bridge செய்திகள், தள்ளுதல்/இழு manifest எண়ணங்கள்.</p>
-      <p>வலக்-கிளிக் மேற்பார்வை பொத்தான் பிற்படி சேனல் ஒ-கிளிக் திறக்கு.</p>
-    </section>
+<dt>Extensions <span class="pill">extensionsBtn</span></dt>
+<dd>In-panel extensions browser open செய்கிறது. <code>extensions/</code> under what's installed list செய்கிறது (ஒவ்வொரு <code>manifest.xml</code> + <code>entry</code> HTML உடன்), extensions toolbar இல் pin செய்ய விடுகிறது, public catalog இலிருந்து புதியவை install செய்யவும் அல்லது remove செய்யவும்.</dd>
 
-    <section id="troubleshooting" class="help-section">
-      <h2><span class="num">25.</span> சிக்கல் தீர்த்தல்</h2>
-      <table>
-        <thead><tr><th>அறிகுறி</th><th>அரும்புப் காரணம்</th></tr></thead>
-        <tbody>
-          <tr><td>உத்தரவ பெட்டி தெளிதல் proportional, வ monospace</td>
-              <td><code>--vscode-editor-font-family</code> பொதுவுமை; நிரל் <code>:root</code> vars</td></tr>
-          <tr><td>தனித்த உத்தரவு spinner ஒ கருப்பு dot</td>
-              <td>தவறான SVG உறிப்; வேணும் <code>auto_read_spinner.svg</code> drop-shadow halo உடன்</td></tr>
-          <tr><td>Compact பொத்தான் எங்க செய்யாதுவ</td>
-              <td>வீட்டு handler விலக் — <code>case 'compactConversation'</code> extension.js router உல்</td></tr>
-          <tr><td>"0 களங்கள்" Domains மாடல் உல்</td>
-              <td>NameSilo பதில்.code != 300 (பிற்படி சேனல் உல் அ), அல்லது வெளியான <code>domains.txt</code></td></tr>
-          <tr><td>STT "எந்த பேச் கண்டுபிடிக்கவு" உடனே</td>
-              <td>நீங்கள் நிறுத்திய முன் SAPI பூட்ட பாக். பூர்வ-வெப்பம் இப்போ தவிர்க் அ wait — যாচ் <code>stt: using பூர்வ-வெப்பம் SAPI</code> <code>debug.log</code> உல்</td></tr>
-          <tr><td>தள்ளுதல் பசையான பாக் உটன் இடங்கள்</td>
-              <td><code>/command=</code> உறிப்பு; எப்போதுமே <code>/script=tempfile.winscp</code> பயன்படுத்தவும்</td></tr>
-          <tr><td>மேற்பார்வை நீல் glow எல் உறிய</td>
-              <td>உதவ இ இயங்க. இடக்-கிளிக் monitorBtn முறி/ஆ, அல்லது இயக்கவும் <code>Start-Service CBEVSCodeSupervisor</code></td></tr>
-          <tr><td>Reload "திறக்க" எங்க</td>
-              <td>இ ஆ. எப்போதுமை <code>reloadWindow</code> பயன்படுத்தாதே. Refresh context-menu உரை அதிலே பயன்படுத்தவும்.</td></tr>
-        </tbody>
-      </table>
-    </section>
+<dt>Project folder <span class="pill">projectFolderBtn</span></dt>
+<dd>Working directory pick செய்கிறது Attach File, Terminal, Git, மற்றும் project root தேவைப்படும் tools பயன்படுத்தப்படும். Current folder shown provider pill ன் அடுத்து.</dd>
 
-    <section id="about" class="help-section">
-      <h2><span class="num">26.</span> பற்றி &amp; உரிமம்</h2>
-      <p>Claude Codex — Black Edition. MIT-licensed. முதல் mirror: <a href="https://github.com/tibberous/Claude-Codex-Back-Ed.." target="_blank" rel="noopener">github.com/tibberous/Claude-Codex-Back-Ed..</a>.
-        அதিகாரபूर्वक தனித்த-புதுப்பிப்பு சேவக்: <a href="https://trentontompkins.com/cbe/" target="_blank" rel="noopener">trentontompkins.com/cbe</a>.</p>
-      <p>பின்னூட்டம் அல்லது வாணிஜ்ய வேலை, தொடர்பு <a href="https://trentontompkins.com" target="_blank" rel="noopener">trentontompkins.com</a> · (724) 431-5207.</p>
-      <p style="margin-top:24px; color: var(--muted); font-size: 12px;">
-        <em>இந்த உதவி மட்டுமே iframe இன்கு Help பொத்தான் பேனல் கருவிப்பட்டை உல். முதல்:
-        <code>
+<dt>Browser <span class="pill">browserBtn</span></dt>
+<dd>Side-by-side QtWebEngine browser pane open செய்கிறது quick lookups க்கு panel छोडना இல்லாமல்.</dd>
+
+<dt>VSCode monitor <span class="pill">monitorBtn</span></dt>
+<dd>VSCode supervisor watchdog toggle செய்கிறது — background process which restarts VSCode if crashes. Left-click run/stop toggle செய்கிறது, <b>right-click</b> supervisor ன் trace channel open செய்கிறது.</dd>
+
+<dt>Terminal <span class="pill">terminalBtn</span></dt>
+<dd>VSCode integrated terminal open செய்கிறது project folder இல். Project folder set இல்லை, Desktop க்கு fallback. One persistent terminal reuses labeled "CBE".</dd>
+
+<dt>Setup wizard <span class="pill">setupBtn</span></dt>
+<dd>ஒவ்வொரு API key + integration walk செய்கிறது extension knows about (~12 steps). <a href="#setup">Setup wizard</a> பார்க்கவும்.</dd>
+
+<dt>Git <span class="pill">gitBtn</span></dt>
+<dd>VSCode ன் Source Control view open செய்கிறது current project folder focused.</dd>
+
+<dt>GitHub <span class="pill">githubBtn</span></dt>
+<dd>உங்கள் GitHub repos list செய்கிறது <code>[github] token</code> பயன்படுத்தி. Repo clone / open / browse issues க்கு click செய்யுங்கள்.</dd>
+
+<dt>Domains (NameSilo) <span class="pill">domainsBtn</span></dt>
+<dd>NameSilo account ன் ஒவ்வொரு domain list செய்கிறது nameservers உடன். <code>[namesilo] api_key</code> require. <b>Reload</b> button fresh fetch force செய்கிறது.</dd>
+
+<dt>Font size <span class="pill">fontSizeBtn</span></dt>
+<dd>Normal மற்றும் large font between chat thread க்கு toggle செய்கிறது. <code>/font</code> போன்றது.</dd>
+
+<dt>Help <span class="pill">helpBtn</span></dt>
+<dd>இந்த page open செய்கிறது. <code>/help</code> போன்றது.</dd>
+
+<dt>Tamagotchi <span class="pill">tamaBtn</span></dt>
+<dd>Pixel-pet panel toggle செய்கிறது (only visible on <b>tamagotchi</b> skin, where composer corner இல் docks). <a href="#tama">Tamagotchi</a> பார்க்கவும்.</dd>
+
+</dl>
+</section>
+
+<section id="rightclick">
+<h2>Right-click menu <a class="top-link" href="#">↑ top</a></h2>
+<p>Chat text அல்லது code block right-click செய்து CBE context menu get செய்யுங்கள். Prompt textarea right-click செய்து இப்போது open <b>native browser menu</b> (Copy / Cut / Paste / Delete / Select All) instead.</p>
+<dl class="btnrow">
+  <dt>Copy / Copy code block</dt><dd>Current selection copy செய்கிறது. No selection ஆனால் right-clicked on <code>&lt;pre&gt;&lt;code&gt;</code>, entire code block copy செய்கிறது.</dd>
+  <dt>View Source</dt><dd>Clicked region ன் raw HTML/markdown show செய்கிறது — either code block அல்லது entire panel DOM. Skin/CSS issues debugging க்கு useful.</dd>
+  <dt>Open DevTools</dt><dd>VSCode அதன் Developer Tools open செய்ய ask செய்கிறது so webview live inspect செய்யக் கூடும்.</dd>
+  <dt>Settings <span class="pill">new</span></dt><dd>Same Settings modal open செய்கிறது toolbar <b>Settings</b> button open செய்கிறது (provider / model / skin / language / SFX). <code>/settings</code> போன்றது.</dd>
+  <dt>About <span class="pill">new</span></dt><dd>Small in-panel dialog version, author, license, repo link, portfolio, மற்றும் contact phone உடன். Backdrop click, × button, அல்லது <kbd>Esc</kbd> on closes.</dd>
+  <dt>Reload Panel <span class="pill">new</span></dt><dd><code>panel/index.html</code> + <code>panel.js</code> + <code>skins/*</code> re-reads per-file <code>?v=&lt;mtime&gt;</code> cache-buster உடன் மற்றும் <code>panel.webview.html</code> reassigns. CSS/JS edits without VSCode reboot pick up. Extension host alive stays — terminal, supervisor, chat history all persist.</dd>
+  <dt>Reload Window <span class="pill warn">new</span></dt><dd><code>workbench.action.reloadWindow</code> triggers. Use this <i>only</i> when <code>extension.js</code> (host-side code) edited மற்றும் panel reload பর்யாप்தம் இல்லை. Full VSCode window reload.</dd>
+</dl>
+</section>
+
+<section id="modals">
+<h2>Modals &amp; dialogs <a class="top-link" href="#">↑ top</a></h2>
+
+<details open><summary><b>Settings modal</b> — provider / model / skin / language / SFX</summary>
+<ul>
+  <li><b>Provider</b>: ஒவ்வொரு direct-API + bridge provider ன் full dropdown. Picking one active session switch செய்கிறது AND matching bridge exe auto-start செய்கிறது (if applicable).</li>
+  <li><b>Model</b>: per-provider list allowed models ன் (e.g. <code>claude-opus-4-7</code>, <code>claude-sonnet-4-6</code>, <code>claude-haiku-4-5</code> for Anthropic).</li>
+  <li><b>Skin</b>: visual theme. <a href="#skins">Skins</a> பார்க்கவும்.</li>
+  <li><b>Language</b>: 39 locales available. Switching re-pulls strings map மற்றும் ஒவ்வொரு tooltip / label / help button live re-translates.</li>
+  <li><b>SFX enabled</b>: UI sound effects toggle (clicks, ticks, modal open/close, etc.).</li>
+  <li><b>SFX volume</b>: 0–100 slider. Previewed live as drag.</li>
+  <li><b>Cancel</b> reverts any live previews (SFX/skin) tried; <b>Save</b> persists மற்றும் <code>setProvider</code> emits.</li>
+</ul>
+</details>
+
+<details><summary><b>Setup wizard</b> — multi-step API key entry</summary>
+<p>ஒவ்வொரு integration ன் walk-through. ஒவ்வொரு step credentials ask செய்து <code>config.ini</code> இல் write செய்கிறது. <b>Skip</b> without advancing; <b>Next</b> writes மற்றும் advances; final step ன் <b>Done</b> closes. Steps include: Anthropic, OpenAI, Gemini, xAI/Grok, GitHub PAT, Email/SMTP (Gmail app password), Cloudflare, Twilio, ElevenLabs, Stability AI, Runway, SendGrid, NameSilo, மற்றும் more.</p>
+</details>
+
+<details><summary><b>Accounts modal</b> — multi-account API key manager</summary>
+<p>ஒவ்வொரு provider க்கு, multiple labeled accounts manage செய்யுங்கள் (e.g. "personal", "work"). Per-session which one active switch செய்யுங்கள் without overwriting others. Keys masked end-to-end மற்றும் saved per-provider in <code>config.ini</code>.</p>
+</details>
+
+<details><summary><b>Domains modal</b> — NameSilo</summary>
+<p>NameSilo account ன் ஒவ்வொரு domain list செய்கிறது nameservers + registration dates உடன். <b>Reload</b> button fresh API fetch force செய்கிறது (otherwise caches in <code>domains.txt</code>).</p>
+</details>
+
+<details><summary><b>Handbook modal</b></summary>
+<p>Project handbook HTML render செய்கிறது (intended as system-prompt reference model consult செய்யக் கூறப்படாம்). Per-project configurable.</p>
+</details>
+
+<details><summary><b>Stored prompts modal</b></summary>
+<p>Insertable prompt templates from <code>stored_prompts/</code>. ஒவ்வொரு file ஒன்று template; filename prefix <code>NN-</code> sort order control செய்கிறது. "+" button புதிய ஒன்று create செய்கிறது.</p>
+</details>
+
+<details><summary><b>Chat history modal</b></summary>
+<p>UTC date pick செய்து <code>chats/&lt;date&gt;.log</code> chat log load செய்யுங்கள். Read-only.</p>
+</details>
+
+<details><summary><b>Extensions modal</b></summary>
+<p>ஒவ்வொரு installed extension க்கு cards. Pin to toolbar / unpin, public catalog (<code>extensions.xml.php</code> on server) இலிருந்து install, அல்லது disk இலிருந்து remove.</p>
+</details>
+
+<details><summary><b>Change log modal</b></summary>
+<p><code>panel/change_log.html</code> render செய்கிறது — bundled release notes. <code>tools/build_changelog.py</code> via generated.</p>
+</details>
+
+<details><summary><b>View Source modal</b></summary>
+<p>Any code block அல்லது panel ன் full HTML pretty-print செய்கிறது, Prism syntax highlighting மற்றும் Copy button உடன். Right-click → View Source via reached.</p>
+</details>
+
+<details><summary><b>Auto Prompt modal</b></summary>
+<p>Prompt string + countdown interval configure செய்யுங்கள். ஒவ்வொரு assistant reply க்குப் பிறகு countdown decrements; zero hit செய்யும் போது CBE configured prompt auto-send செய்கிறது. Toggled on/off via Auto Prompt toolbar button.</p>
+</details>
+</section>
+
+<section id="settings">
+<h2>Settings <a class="top-link" href="#">↑ top</a></h2>
+<p>All settings live ஓ இரண்டு places ன்:</p>
+<ul>
+  <li><code>workspaceState</code> (VSCode-managed, per-workspace) — provider, model, skin, language, sfx enabled/volume, font size.</li>
+  <li><code>config.ini</code> (extension root, gitignored) — API keys + per-integration credentials.</li>
+</ul>
+<p>Settings persist across panel reloads automatically. <b>Settings</b> modal safe way anything change செய்ய; editing <code>config.ini</code> directly works too.</p>
+</section>
+
+<section id="setup">
+<h2>Setup wizard <a class="top-link" href="#">↑ top</a></h2>
+<p>Setup wizard (<code>setupBtn</code>) ஒவ்வொரு integration walk செய்கிறது extension supports. ஒவ்வொரு step க்கு, credential paste செய்து <b>Next</b> click (writes + advances) அல்லது <b>Skip</b> (advances without writing). Steps:</p>
+<table>
+<tr><th>Step</th><th>What it asks for</th><th>Where to get it</th></tr>
+<tr><td>Anthropic (Claude)</td><td>API key</td><td><a target="_blank" rel="noopener" href="https://console.anthropic.com/account/keys">console.anthropic.com</a></td></tr>
+<tr><td>OpenAI (ChatGPT)</td><td>API key</td><td><a target="_blank" rel="noopener" href="https://platform.openai.com/api-keys">platform.openai.com</a></td></tr>
+<tr><td>Google Gemini</td><td>API key</td><td><a target="_blank" rel="noopener" href="https://aistudio.google.com/apikey">aistudio.google.com</a></td></tr>
+<tr><td>xAI (Grok)</td><td>API key</td><td><a target="_blank" rel="noopener" href="https://console.x.ai/">console.x.ai</a></td></tr>
+<tr><td>GitHub PAT</td><td>Personal access token with repo / workflow / admin:org / etc.</td><td><a target="_blank" rel="noopener" href="https://github.com/settings/tokens/new">github.com/settings/tokens</a></td></tr>
+<tr><td>Email / SMTP</td><td>Account + app password (Gmail recommended)</td><td><a target="_blank" rel="noopener" href="https://myaccount.google.com/apppasswords">myaccount.google.com/apppasswords</a></td></tr>
+<tr><td>Cloudflare</td><td>API token (NOT global key)</td><td><a target="_blank" rel="noopener" href="https://dash.cloudflare.com/profile/api-tokens">dash.cloudflare.com</a></td></tr>
+<tr><td>Twilio</td><td>Account SID + Auth token + From number</td><td><a target="_blank" rel="noopener" href="https://console.twilio.com/">console.twilio.com</a></td></tr>
+<tr><td>ElevenLabs (TTS)</td><td>API key</td><td><a target="_blank" rel="noopener" href="https://elevenlabs.io/app/settings/api-keys">elevenlabs.io</a></td></tr>
+<tr><td>Stability AI</td><td>API key</td><td><a target="_blank" rel="noopener" href="https://platform.stability.ai/account/keys">platform.stability.ai</a></td></tr>
+<tr><td>Runway</td><td>API key</td><td><a target="_blank" rel="noopener" href="https://dev.runwayml.com/">dev.runwayml.com</a></td></tr>
+<tr><td>SendGrid</td><td>API key</td><td><a target="_blank" rel="noopener" href="https://app.sendgrid.com/settings/api_keys">app.sendgrid.com</a></td></tr>
+</table>
+<p>ஒவ்வொரு field password-masked so shoulder-surfers உங்கள் keys screen off read செய்ய முடியாது.</p>
+</section>
+
+<section id="accounts">
+<h2>Accounts &amp; API keys <a class="top-link" href="#">↑ top</a></h2>
+<p>ஒவ்வொரு provider multiple labeled accounts — useful personal மற்றும் work keys between switch விரும்பினால், அல்லது different tier test. Accounts modal let செய்கிறது:</p>
+<ul>
+  <li>Label + key உடன் புதிய account add செய்யுங்கள்</li>
+  <li>Existing account edit செய்யுங்கள் (relabel, key replace)</li>
+  <li>Current session क्षेत्र which one active set செய்யுங்கள்</li>
+  <li>Account remove செய்யுங்கள்</li>
+</ul>
+<p>Keys stored masked (visible last-four only) in <code>config.ini</code>. workspaceState இல் plaintext copy இல்லை.</p>
+</section>
+
+<section id="slash">
+<h2>Slash commands <a class="top-link" href="#">↑ top</a></h2>
+<p>Textarea ன் start இல் <code>/</code> type செய்து அல்லது <b>Show command menu</b> pick க்கு click:</p>
+<table>
+<tr><th>Command</th><th>What it does</th></tr>
+<tr><td><code>/help</code></td><td>இந்த page open செய்யுங்கள்</td></tr>
+<tr><td><code>/handbook</code></td><td>Project handbook open செய்யுங்கள்</td></tr>
+<tr><td><code>/clear</code></td><td>New conversation</td></tr>
+<tr><td><code>/settings</code></td><td>Settings modal open செய்யுங்கள்</td></tr>
+<tr><td><code>/prompts</code></td><td>Save செய்யப்பட்ட prompt templates edit செய்யுங்கள்</td></tr>
+<tr><td><code>/history</code></td><td>Chat history browse செய்யுங்கள்</td></tr>
+<tr><td><code>/font</code></td><td>Big font toggle செய்யுங்கள்</td></tr>
+<tr><td><code>/attach</code></td><td>Next prompt க்கு file attach செய்யுங்கள்</td></tr>
+<tr><td><code>/folder</code></td><td>Project folder pick செய்யுங்கள்</td></tr>
+<tr><td><code>/compact</code></td><td>Conversation compact செய்யுங்கள் (summarize + prune)</td></tr>
+<tr><td><code>/git</code></td><td>Source Control open செய்யுங்கள்</td></tr>
+<tr><td><code>/github</code></td><td>GitHub repos list செய்யுங்கள்</td></tr>
+<tr><td><code>/license</code></td><td>MIT license show செய்யுங்கள்</td></tr>
+<tr><td><code>/push</code></td><td>Extension files auto-update server க்கு push செய்யுங்கள் (admin only)</td></tr>
+<tr><td><code>/compress</code></td><td>Conversation compress செய்யுங்கள் (alias of <code>/compact</code>)</td></tr>
+<tr><td><code>/switch-accounts</code></td><td>Accounts modal open செய்து which API key active switch செய்யுங்கள்</td></tr>
+</table>
+</section>
+
+<section id="tama">
+<h2>Tamagotchi pet <a class="top-link" href="#">↑ top</a></h2>
+<p>Tamagotchi ஓ pixel-art pet which panel ல் lives <b>tamagotchi</b> skin under. Ages, hungry/dirty get, played, மற்றும் dies if neglected long. State persists in <code>workspaceState</code>.</p>
+
+<h4>Stats (widget ன் top)</h4>
+<table>
+<tr><th>Stat</th><th>What it tracks</th></tr>
+<tr><td>🥚 Stage</td><td>Lifecycle: egg → baby → child → teen → adult → senior → dead. Ages with real-time minutes.</td></tr>
+<tr><td>🍖 Hunger</td><td>0–100. Drops over time; <b>Feed</b> raises. Hits 0 → health drops.</td></tr>
+<tr><td>😀 Happiness</td><td>0–100. Drops over time; <b>Play</b> raises.</td></tr>
+<tr><td>❤️ Health</td><td>0–100. Drops sick அல்லது starving போது. <b>Shot</b> heals.</td></tr>
+<tr><td>✨ Cleanliness</td><td>0–100. Drops pet poops போது. <b>Clean</b> raises.</td></tr>
+<tr><td>⏱ Age</td><td>Minutes since hatch.</td></tr>
+</table>
+
+<h4>In-LCD action buttons (widget ன் bottom)</h4>
+<table>
+<tr><th>Icon</th><th>Action</th></tr>
+<tr><td>🍖</td><td><b>Feed</b> — cycles meat ↔ eggplant. Actually feed செய்ய <b>Select</b>.</td></tr>
+<tr><td>🧹</td><td><b>Clean</b> — sweep poop up.</td></tr>
+<tr><td>⚾</td><td><b>Play</b> — mini-game; happiness raise.</td></tr>
+<tr><td>💉</td><td><b>Shot</b> — sick போது heal.</td></tr>
+<tr><td>💡</td><td><b>Light</b> — LCD lamp toggle; pet dark இல் sleep.</td></tr>
+<tr><td>✅</td><td><b>Select</b> — confirm / proceed (original Bandai middle button ன் equivalent).</td></tr>
+</table>
+<p>Pet ன் sprite ஓ 240×240 (compact: 138×116) canvas இல் drawn. Sprites + life-cycle logic live in <code>panel/dotmatrix-tamagotchi-sprites.js</code> மற்றும் <code>panel/dotmatrix-tamagotchi-game.js</code>.</p>
+</section>
+
+<section id="skins">
+<h2>Skins <a class="top-link" href="#">↑ top</a></h2>
+<p>Whole panel — buttons, modals, code blocks, even font — visual themes. <b>Settings → Skin</b> இல் ஒன்றை pick. ஒவ்வொரு skin lives in <code>skins/&lt;id&gt;/</code> with <code>manifest.xml</code> (declares colors + accent) மற்றும் <code>styles.css</code> (overrides CSS variables).</p>
+<ul>
+  <li><b>codex-black</b> (default) — dark, monospace, neon-cyan accent</li>
+  <li><b>glassy</b> — frosted-glass surfaces soft backdrop over</li>
+  <li><b>tamagotchi</b> — lime-green LCD handheld; auto-show pet widget docked composer corner இல்</li>
+  <li><b>office</b> — Word-style cream/blue chrome</li>
+  <li><b>macos-color-dock</b> / <b>mint-dock</b> — bottom-dock toolbars glassy icons உடன்</li>
+  <li><b>terminal</b> / <b>arch</b> / <b>kde</b> / <b>gnome</b> / <b>xfce</b> / <b>ubuntu</b> / <b>redhat</b> — Linux desktop themes</li>
+</ul>
+<p>Modal colors come from <code>&lt;colors&gt;</code> entries each skin ன் manifest இல் மற்றும் get pushed <code>:root</code> onto as <code>--cbe-modal-*</code> variables so ஒவ்வொரு modal (including help) render in-theme.</p>
+</section>
+
+<section id="extensions">
+<h2>Extensions <a class="top-link" href="#">↑ top</a></h2>
+<p>Mini-apps which live inside CBE. ஒவ்வொரு ஓ folder under <code>extensions/&lt;id&gt;/</code> with:</p>
+<ul>
+  <li><code>manifest.xml</code> — id, name, version, author, description, entry HTML, icon (emoji அல்லது <code>icon.svg</code>)</li>
+  <li><code>extension.html</code> (அல்லது manifest ன் <code>&lt;entry&gt;</code> says) — actual app</li>
+</ul>
+<p><b>Extensions</b> click செய்து browse installed, pin to toolbar, public catalog இலிருந்து புதியவை install, அல்லது disk இலிருந்து remove. Pinned IDs live in <code>extensions/_pinned.json</code>.</p>
+</section>
+
+<section id="autoupdate">
+<h2>Auto-update (push / pull) <a class="top-link" href="#">↑ top</a></h2>
+<p>CBE syncs source between machines via WinSCP push + HTTPS pull channel.</p>
+
+<h4>Push (admin only)</h4>
+<p>If <code>[updates] is_admin = true</code> in config.ini, ஒவ்வொரு activation runs background <code>WinSCP synchronize remote -mirror</code> which pushes extension folder to <code>/home/trentontompkins.com/cbe</code> on server. Manual trigger: <code>/push</code> slash command. Excludes per-machine state: <code>data/</code> (1.74 GB Chrome profiles), <code>bridges/</code>, <code>node_modules/</code>, <code>.git/</code>, <code>logs/</code>, <code>chats/</code>, <code>config.ini</code>, <code>prompt_history.txt</code>, <code>domains.txt</code>, <code>wake.txt</code>.</p>
+
+<h4>Pull (every client)</h4>
+<p>4 seconds பிறகு activation, ஒவ்வொரு client fetches <code>https://trentontompkins.com/cbe/manifest.xml.php</code> மற்றும் MD5-compare per-file against local copies. Only changed/missing files downloaded plain HTTPS GET over. Excluded paths NEVER pulled: <code>config.ini</code>, <code>data/</code>, <code>bridges/</code>, <code>extension.js</code>, <code>panel/panel.js</code>, <code>panel/index.html</code>, <code>package.json</code>, build tools — rationale being which source ships via .vsix மற்றும் server ன் older copy mustn't clobber in-progress dev work.</p>
+</section>
+
+<section id="hotreload">
+<h2>Hot reload <a class="top-link" href="#">↑ top</a></h2>
+<p>Two reload paths exposed via right-click menu:</p>
+<ul>
+  <li><b>Reload Panel</b> — re-reads <code>panel/index.html</code> + every JS/CSS asset with per-file <code>?v=&lt;mtime&gt;</code> cache-buster மற்றும் reassigns <code>panel.webview.html</code>. Picks up panel.js / skin CSS / dotmatrix edits without VSCode reboot. Extension host stays alive (terminal, supervisor, message handlers, chat history all persist).</li>
+  <li><b>Reload Window</b> — fires <code>workbench.action.reloadWindow</code>. Use only when <code>extension.js</code> (host-side code) edited மற்றும் Reload Panel பர்யாப்தம் இல்லை.</li>
+</ul>
+<p>Skin CSS edits also auto-apply via panel ன் existing skin watcher — menu click need.</p>
+</section>
+
+<section id="troubleshooting">
+<h2>Troubleshooting <a class="top-link" href="#">↑ top</a></h2>
+
+<details><summary><b>"bridge X chat failed: api key empty in config.ini"</b></summary>
+<p>Smart_bridge.py daemon ஓ caching old gating check in memory. Fixed C++-exe routing pivot இல். Still see, stale daemons kill:</p>
+<pre><code>powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*smart_bridge.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"</code></pre>
+</details>
+
+<details><summary><b>"copilot has no public REST API — use the browser bridge"</b></summary>
+<p>Old extension.js ஓ routing bridge chat through REST router instead actual C++ tray exe. Reload Window to pick up fixed extension.js, then chat goes straight <code>bin/CBE-Bridge-Copilot.exe</code> to.</p>
+</details>
+
+<details><summary><b>HTTP 404 model: sonnet-4.6</b></summary>
+<p>Outdated short alias Claude bridge config இல். Fixed — full IDs (<code>claude-sonnet-4-6</code>, <code>claude-opus-4-7</code>, <code>claude-haiku-4-5</code>) now used.</p>
+</details>
+
+<details><summary><b>I edited a file but the panel doesn't show the change</b></summary>
+<ol>
+  <li>If it's <code>panel.js</code> / <code>skins/*.css</code> / <code>index.html</code> → right-click → <b>Reload Panel</b>.</li>
+  <li>If it's <code>extension.js</code> / <code>bridges_cpp/*.py</code> → right-click → <b>Reload Window</b>.</li>
+  <li>If menu reach can't (e.g. menu itself isn't loaded yet), launch fresh VSCode instance isolated user-data-dir உடன்:<br>
+  <code>code --user-data-dir="$env:USERPROFILE\.cbe-edh" --extensionDevelopmentPath="C:\Users\moren\Desktop\Claude Codex Black"</code></li>
+</ol>
+</details>
+
+<details><summary><b>STT fails with "not-allowed"</b></summary>
+<p>VSCode sandboxes webview microphone permission இலிருந்து. CBE auto-falls-back Windows SAPI (<code>System.Speech.Recognition</code>) PowerShell via launched. Mic access OS level grant need (Settings → Privacy → Microphone).</p>
+</details>
+
+<details><summary><b>Bridge exe missing</b></summary>
+<p>Trace log shows <code>BRIDGE:MISSING target=&lt;t&gt; expected=&lt;path&gt;</code>. C++ tray exes live in <code>bin/CBE-Bridge-&lt;Pretty&gt;.exe</code>. Yours exist don't, rebuild from <code>bridges_cpp/</code> source (MSVC) அல்லது pull fresh .vsix.</p>
+</details>
+
+</section>
+
+<p style="margin-top: 36px; color: var(--muted); font-size: 12px; text-align: center;">
+Claude Codex — Black Edition · MIT licensed · © 2026 Trent Tompkins · <a target="_blank" rel="noopener" href="mailto:trenttompkins@gmail.com" style="color:var(--accent);">trenttompkins@gmail.com</a> · (724) 431-5207
+</p>
+
+<button id="backToTop" type="button" aria-label="Top க்கு back" title="Top க்கு back"
+        style="position:fixed;right:18px;bottom:18px;width:38px;height:38px;border-radius:50%;
+               background:var(--accent);color:var(--bg);border:0;font-size:18px;cursor:pointer;
+               opacity:0;transition:opacity .25s ease;box-shadow:0 4px 14px rgba(0,0,0,.35);z-index:9999;">↑</button>
+
+</div>
+
+<!-- jQuery for animated smooth scroll on TOC anchor clicks. CDN load is
+     attempted first; if the webview CSP blocks it (typical in VSCode), the
+     CSS `scroll-behavior: smooth` rule above already delivers a smooth
+     fallback so the help remains usable. -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"
+        integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
+        crossorigin="anonymous"></script>
+<script>
+(function() {
+  var hasJQ = (typeof window.jQuery !== 'undefined');
+
+  // ── Animated smooth scroll for in-page anchor links (TOC + "↑ top"). ──
+  function jqScrollTo(targetEl, durationMs) {
+    jQuery('html, body').stop(true).animate({
+      scrollTop: targetEl.offsetTop - 14
+    }, durationMs || 550, 'swing');
+  }
+
+  // Vanilla rAF fallback if jQuery never loaded (CSP-blocked CDN).
+  function rafScrollTo(targetEl, durationMs) {
+    var startY = window.pageYOffset;
+    var endY   = (targetEl.getBoundingClientRect().top + startY) - 14;
+    var dist   = endY - startY;
+    var t0     = performance.now();
+    var d      = durationMs || 550;
+    function easeInOut(t) { return t < .5 ? 2*t*t : -1 + (4 - 2*t)*t; }
+    function step(now) {
+      var p = Math.min(1, (now - t0) / d);
+      window.scrollTo(0, startY + dist * easeInOut(p));
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function scrollToHash(hash) {
+    if (!hash || hash === '#') {
+      // "↑ top" links use href="#" — scroll to absolute top.
+      if (hasJQ) jQuery('html, body').stop(true).animate({ scrollTop: 0 }, 550, 'swing');
+      else window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    var el = document.querySelector(hash);
+    if (!el) return;
+    if (hasJQ) jqScrollTo(el, 550);
+    else rafScrollTo(el, 550);
+  }
+
+  // Intercept every in-page anchor click and animate.
+  document.querySelectorAll('a[href^="#"]').forEach(function(a) {
+    a.addEventListener('click', function(e) {
+      var href = a.getAttribute('href');
+      e.preventDefault();
+      scrollToHash(href);
+      if (href && href !== '#') {
+        history.replaceState(null, '', href);
+      } else {
+        history.replaceState(null, '', location.pathname + location.search);
+      }
+    });
+  });
+
+  // ── Back-to-top floating button: fades in past 240px scroll. ──
+  var btn = document.getElementById('backToTop');
+  if (btn) {
+    function syncBtn() {
+      btn.style.opacity = (window.pageYOffset > 240) ? '0.92' : '0';
+      btn.style.pointerEvents = (window.pageYOffset > 240) ? 'auto' : 'none';
+    }
+    window.addEventListener('scroll', syncBtn, { passive: true });
+    btn.addEventListener('click', function() { scrollToHash('#'); });
+    syncBtn();
+  }
+})();
+</script>
+</body>
+</html>

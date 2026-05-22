@@ -98,4 +98,10 @@
   <s id="voice.nospeech">ਆਵਾਜ਼: ਕੋਈ ਬੋਲ ਨਹੀਂ ਮਿਲੀ।</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">ਖਾਤੇ — API ਕੁੰਜੀਆਂ ਪ੍ਰਬੰਧਿਤ ਕਰੋ</s>
+  <s id="tooltip.browser">ਬ੍ਰਾਊਜ਼ਰ</s>
+  <s id="tooltip.tamagotchi">ਤਾਮਾਗੋਚੀ ਪਾਲਤੂ</s>
+  <s id="ext.calculator">ਕੈਲਕੁਲੇਟਰ</s>
+  <s id="ext.minesweeper">ਮਾਈਨਸਵੀਪਰ</s>
+  <s id="ext.emoji-picker">ਇਮੋਜੀ ਚੋਣਕਾਰ</s>
 </strings>

@@ -98,4 +98,10 @@
   <s id="voice.nospeech">Sauti: hakuna usemi uliogunduliwa.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">Akaunti — dhibiti funguo za API</s>
+  <s id="tooltip.browser">Kivinjari</s>
+  <s id="tooltip.tamagotchi">Mnyama wa Tamagotchi</s>
+  <s id="ext.calculator">Kikokotoo</s>
+  <s id="ext.minesweeper">Minesweeper</s>
+  <s id="ext.emoji-picker">Kichagua emoji</s>
 </strings>

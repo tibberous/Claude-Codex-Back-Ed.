@@ -98,4 +98,10 @@
   <s id="voice.nospeech">Φωνή: δεν εντοπίστηκε ομιλία.</s>
   <s id="voice.permission_denied">Voice: microphone access denied.</s>
   <s id="voice.sapi_error">Voice (SAPI):</s>
+  <s id="tooltip.accounts">Λογαριασμοί — διαχείριση κλειδιών API</s>
+  <s id="tooltip.browser">Πρόγραμμα περιήγησης</s>
+  <s id="tooltip.tamagotchi">Κατοικίδιο Tamagotchi</s>
+  <s id="ext.calculator">Αριθμομηχανή</s>
+  <s id="ext.minesweeper">Ναρκαλιευτής</s>
+  <s id="ext.emoji-picker">Επιλογέας emoji</s>
 </strings>

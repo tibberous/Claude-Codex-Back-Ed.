@@ -98,4 +98,10 @@
   <s id="voice.nospeech">语音：未检测到声音。</s>
   <s id="voice.permission_denied">语音：麦克风访问被拒绝。</s>
   <s id="voice.sapi_error">语音 (SAPI)：</s>
+  <s id="tooltip.accounts">账户 — 管理 API 密钥</s>
+  <s id="tooltip.browser">浏览器</s>
+  <s id="tooltip.tamagotchi">Tamagotchi 宠物</s>
+  <s id="ext.calculator">计算器</s>
+  <s id="ext.minesweeper">扫雷</s>
+  <s id="ext.emoji-picker">表情选择器</s>
 </strings>
