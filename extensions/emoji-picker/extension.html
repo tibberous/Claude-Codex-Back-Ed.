@@ -2,7 +2,8 @@
 <meta charset="utf-8">
 <title>Emoji Picker</title>
 <style>
-  body { font-family: "Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", ui-sans-serif, system-ui, sans-serif;
+  body { font-family: "Segoe UI Emoji", "Segoe UI Symbol", "Apple Color Emoji", "Noto Color Emoji", "EmojiOne Color", "Android Emoji", emoji, sans-serif;
+         font-variant-emoji: emoji;
          background: #1c1f24; color: #e7eaef; margin: 0; padding: 16px; user-select: none; }
   #search { width: 100%; box-sizing: border-box; padding: 8px 10px; background: #0f1116;
             color: #e7eaef; border: 1px solid #2b313b; border-radius: 6px; margin-bottom: 10px;
@@ -10,8 +11,9 @@
   h4 { margin: 12px 0 6px 0; font-size: 12px; color: #b9bec7; text-transform: uppercase;
        letter-spacing: 0.06em; }
   .grid { display: grid; gap: 4px; grid-template-columns: repeat(10, 1fr); }
-  .pick { padding: 6px 0; font-size: 20px; text-align: center; background: #2b313b;
-          font-family: "Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", ui-sans-serif, system-ui, sans-serif;
+  .pick { padding: 6px 0; font-size: 22px; line-height: 1.2; text-align: center; background: #2b313b;
+          font-family: "Segoe UI Emoji", "Segoe UI Symbol", "Apple Color Emoji", "Noto Color Emoji", "EmojiOne Color", "Android Emoji", emoji, sans-serif !important;
+          font-variant-emoji: emoji;
           border: 1px solid #3a414c; border-radius: 6px; cursor: pointer; }
   .pick:hover { background: #3a414c; }
   #status { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);

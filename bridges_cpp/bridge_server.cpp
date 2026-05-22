@@ -651,6 +651,19 @@ static void spawnPythonBridge() {
     // to the profile dir; no stdin/stdout redirection needed.
     STARTUPINFOW si; memset(&si, 0, sizeof(si));
     si.cb = sizeof(si);
+    // CRITICAL: launch Chrome's window WITHOUT activating it. Without a
+    // STARTF_USESHOWWINDOW hint, Windows shows the child's first top-level
+    // window with SW_SHOWNORMAL and gives it foreground. Because our window
+    // is positioned off-screen at 5000,5000, that foreground-grab yanks the
+    // user's visible window away to an invisible one — and with 6 bridges
+    // each spawning a Chrome near-simultaneously at boot, the desktop reads
+    // as "everything minimized". SW_SHOWNOACTIVATE shows the window at its
+    // (off-screen) position but leaves the user's active window active —
+    // no focus steal. NOT SW_SHOWMINNOACTIVE: a minimized window re-triggers
+    // Chromium's render-throttle that the off-screen-not-(-32000) trick above
+    // was specifically chosen to avoid.
+    si.dwFlags     = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_SHOWNOACTIVATE;
     PROCESS_INFORMATION pi; memset(&pi, 0, sizeof(pi));
     // CREATE_SUSPENDED so we can attach the child to our kill-job BEFORE
     // it starts executing. If we let it run first, it'd race ahead and
@@ -1127,18 +1140,69 @@ static std::string runChatScript(const std::string& target, const std::string& m
 //
 // For both, the body is the same status JSON. This lets start.py's status
 // probe AND a curl healthcheck both see "ok":true.
-static void serverWorker() {
-    for (;;) {
-        SOCKET client = accept(g_listenSock, NULL, NULL);
-        if (client == INVALID_SOCKET) {
-            if (g_listenSock == INVALID_SOCKET) return;
-            continue;
-        }
-        g_connCount.fetch_add(1);
+//
+// 2026-05-21 socket-leak fix:
+//   The original implementation handled connections inline in the accept
+//   loop, with a blocking `recv()` and no per-socket timeouts. A client
+//   that completed the TCP handshake but never sent bytes (port scanner,
+//   broken HTTP probe, half-open peer crash) starved the single-threaded
+//   accept loop indefinitely. Meanwhile the kernel queued additional
+//   completed handshakes (backlog=16); when those peers later closed,
+//   the connections piled up in CLOSE_WAIT waiting for accept() to be
+//   called. The user observed dozens of CLOSE_WAIT sockets bound to the
+//   bridge PID + the bridge eventually becoming unreachable.
+//
+//   Fix: each accept() result is dispatched to a detached std::thread so
+//   the accept loop never blocks on per-connection I/O. The handler sets
+//   SO_RCVTIMEO/SO_SNDTIMEO and SO_LINGER {1,0}; both error paths and
+//   the success path go through a single `closesocket()` cleanup at the
+//   end of handleConnection() (RAII-style via a struct guard).
 
-        char req[4096] = {0};
-        int reqLen = recv(client, req, sizeof(req) - 1, 0);
-        bool isJson = (reqLen > 0 && req[0] == '{');
+// RAII guard — closes a socket on scope exit unless released.
+struct SocketGuard {
+    SOCKET s;
+    SocketGuard(SOCKET sock) : s(sock) {}
+    ~SocketGuard() { if (s != INVALID_SOCKET) closesocket(s); }
+    SOCKET release() { SOCKET t = s; s = INVALID_SOCKET; return t; }
+    SocketGuard(const SocketGuard&) = delete;
+    SocketGuard& operator=(const SocketGuard&) = delete;
+};
+
+static void handleConnection(SOCKET client) {
+    SocketGuard guard(client);    // closesocket() guaranteed on every return path
+
+    // Per-socket I/O timeouts. The chat path can take up to 180s (vision-pilot
+    // round trip), but for the *initial* read we only need a few seconds —
+    // a real client sends its request immediately after connect. A slow / dead
+    // client must not be allowed to block this handler forever.
+    DWORD rcvTo = 10000;       // 10s — generous for HTTP request bytes
+    DWORD sndTo = 30000;       // 30s — chat reply send (large JSON answer)
+    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, (const char*)&rcvTo, sizeof(rcvTo));
+    setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, (const char*)&sndTo, sizeof(sndTo));
+
+    // SO_LINGER {l_onoff=1, l_linger=0} → on closesocket() send RST instead of
+    // graceful FIN, skipping TIME_WAIT. Acceptable here because we always
+    // shutdown(SD_SEND) first when we successfully wrote our reply, so the
+    // peer has already drained its response. For error paths we'd rather RST
+    // than leak a TIME_WAIT slot per failed connection.
+    linger lg; lg.l_onoff = 1; lg.l_linger = 0;
+    setsockopt(client, SOL_SOCKET, SO_LINGER, (const char*)&lg, sizeof(lg));
+
+    g_connCount.fetch_add(1);
+
+    char req[4096] = {0};
+    int reqLen = recv(client, req, sizeof(req) - 1, 0);
+    // Distinguish the failure modes:
+    //   reqLen  > 0  : got bytes, fall through to dispatch.
+    //   reqLen == 0  : peer closed before sending — nothing to do, bail.
+    //   reqLen <  0  : SOCKET_ERROR (likely WSAETIMEDOUT now that we set
+    //                  SO_RCVTIMEO, or WSAECONNRESET). Bail.
+    if (reqLen <= 0) {
+        // Guard's destructor will closesocket(). No shutdown needed — we
+        // never wrote anything. LINGER {1,0} ensures the kernel sends RST.
+        return;
+    }
+    bool isJson = (req[0] == '{');
 
         std::string model;
         {
@@ -1242,7 +1306,31 @@ static void serverWorker() {
             chatLog("tcp-http", req, reqLen, resp, respLen);
         }
         shutdown(client, SD_SEND);
-        closesocket(client);
+        // closesocket() runs via SocketGuard destructor.
+}
+
+// Accept loop. Dispatches each connection to a detached worker thread so
+// blocking I/O on one client can't stall newer clients (the original bug).
+static void serverWorker() {
+    for (;;) {
+        SOCKET client = accept(g_listenSock, NULL, NULL);
+        if (client == INVALID_SOCKET) {
+            if (g_listenSock == INVALID_SOCKET) return;
+            // Transient error (WSAEINTR, WSAECONNRESET on a half-open client
+            // that died between SYN-ACK and accept completing). The kernel
+            // already cleaned the connection; just loop.
+            continue;
+        }
+        // Detach a handler thread. handleConnection() owns the socket from
+        // this point and guarantees closesocket() via SocketGuard.
+        try {
+            std::thread(handleConnection, client).detach();
+        } catch (...) {
+            // std::thread may throw on resource exhaustion. Don't leak the
+            // socket if we can't spawn — close it inline so the kernel
+            // doesn't park it in CLOSE_WAIT.
+            closesocket(client);
+        }
     }
 }
 

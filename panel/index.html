@@ -1055,6 +1055,61 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   #cbe-settings button.cbe-save   { background: var(--cbe-modal-accent); color: var(--cbe-modal-title-fg); }
   #cbe-settings button.cbe-save:hover { background: #ff7a1a; }
 
+  /* ── Accounts modal (standalone — toolbar #accountsBtn) ──────
+     Mirrors the Settings-modal chrome (.cbe-box / .cbe-hdr / .cbe-body /
+     .cbe-foot) so it re-themes off the active skin's --cbe-modal-* vars
+     with zero per-skin work. Hidden by default; panel.js flips display. */
+  #accountsModal { position: fixed; inset: 0; z-index: 2147483645;
+    background: rgba(0,0,0,.65); display: none;
+    align-items: center; justify-content: center; }
+  #accountsModal.show { display: flex; }
+  #accountsModal .cbe-box { background: var(--cbe-modal-bg); border: 2px solid var(--cbe-modal-border);
+    border-radius: 8px; width: 480px; max-width: 92vw;
+    box-shadow: 0 8px 40px rgba(0,0,0,.6); overflow: hidden;
+    display: flex; flex-direction: column; max-height: 86vh; }
+  #accountsModal .cbe-hdr {
+    padding: 10px 14px; background: linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2)); color: var(--cbe-modal-title-fg);
+    font-family: system-ui, sans-serif; font-weight: 700;
+    font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+  #accountsModal .cbe-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px;
+    overflow-y: auto; }
+  #accountsModal label { font-size: 11px; color: #aaa;
+    font-family: system-ui, sans-serif; text-transform: uppercase;
+    letter-spacing: .08em; margin-bottom: 5px; display: block; }
+  #accountsModal select { width: 100%; background: #0f0f0f; color: var(--cbe-modal-fg, #e8e8e8);
+    border: 1px solid #333; border-radius: 5px; padding: 8px 10px;
+    font-family: 'Consolas','Courier New',monospace; font-size: 12px; outline: none; }
+  #accountsModal select:focus { border-color: var(--cbe-modal-accent); }
+  #accountsModal select option { background: var(--cbe-modal-bg); color: var(--cbe-modal-fg); }
+  #accountsModal input[type="text"], #accountsModal input[type="password"] {
+    width: 100%; box-sizing: border-box; background: var(--cbe-modal-bg, #1c1c1c);
+    color: var(--cbe-modal-fg, #eee); border: 1px solid var(--cbe-modal-border, #444);
+    border-radius: 4px; padding: 6px 8px; font: inherit; }
+  #accountsModal input:focus { border-color: var(--cbe-modal-accent); outline: none; }
+  #accountsModal #cbe-am-list { display: flex; flex-direction: column; gap: 6px; }
+  #accountsModal .cbe-am-row { display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border: 1px solid var(--cbe-modal-border, #3a3a3a);
+    border-radius: 4px; background: var(--cbe-modal-bg, #1a1a1a); }
+  #accountsModal .cbe-am-info { flex: 1; min-width: 0; font-size: 12px; line-height: 1.35;
+    color: var(--cbe-modal-fg, #e8e8e8); }
+  #accountsModal .cbe-am-btn { padding: 3px 9px; font-size: 11px; cursor: pointer;
+    border: 0; border-radius: 3px; font-family: inherit; flex-shrink: 0;
+    background: var(--cbe-modal-accent, #2563eb); color: var(--cbe-modal-title-fg, #fff); }
+  #accountsModal .cbe-am-btn--del { background: #7a2222; }
+  #accountsModal .cbe-am-btn--neutral { background: #555; }
+  #accountsModal #cbe-am-err { display: none; color: #ff6b6b; font-size: 12px; }
+  #accountsModal .cbe-am-addform { padding: 10px; border: 1px solid var(--cbe-modal-border, #444);
+    border-radius: 5px; background: var(--cbe-modal-bg, #181818);
+    display: flex; flex-direction: column; gap: 6px; }
+  #accountsModal .cbe-foot { padding: 12px 18px; background: var(--cbe-modal-foot-bg);
+    border-top: 1px solid #222; display: flex; justify-content: flex-end; gap: 8px; }
+  #accountsModal button.cbe-btn { font-family: system-ui, sans-serif;
+    font-weight: 700; font-size: 12px; cursor: pointer; padding: 7px 14px;
+    border-radius: 5px; border: none; }
+  #accountsModal button.cbe-cancel { background: #2a2a2a; color: #ddd; }
+  #accountsModal button.cbe-save   { background: var(--cbe-modal-accent); color: var(--cbe-modal-title-fg); }
+  #accountsModal button.cbe-save:hover { background: #ff7a1a; }
+
   /* ── Context menu (View Source + DevTools) ────────────────── */
   #cbe-ctx-menu {
     position: fixed; z-index: 2147483647;
@@ -1482,6 +1537,14 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
           <button id="settingsBtn" class="tool-button" type="button" data-tooltip="Settings" data-i18n-tip="tooltip.settings" aria-label="Settings">
             <img src="{{ASSETS_BASE}}/settings.svg" alt="" />
           </button>
+          <!-- Accounts manager — per-provider API-key rotation. Uses an inline
+               person-silhouette data-URI <img> (no asset file needed) so it
+               renders in the same 40px dock-icon slot as the other buttons.
+               Opens #accountsModal; the multi-account plumbing already lives in
+               extension.js ([accounts] section + getAccounts/add/edit/etc). -->
+          <button id="accountsBtn" class="tool-button" type="button" data-tooltip="Accounts — manage API keys" aria-label="Accounts">
+            <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='8' r='4' fill='%23e8e8e8'/><path d='M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7Z' fill='%23e8e8e8'/></svg>" alt="" />
+          </button>
           <button id="extensionsBtn" class="tool-button" type="button" data-tooltip="Extensions" data-i18n-tip="tooltip.extensions" aria-label="Extensions">
             <img src="{{ASSETS_BASE}}/extensions.svg" alt="" />
           </button>
@@ -1555,6 +1618,43 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   <!-- Tooltip overlay used by data-tooltip elements -->
   <div id="tooltip" class="tooltip" role="tooltip" aria-hidden="true"></div>
 
+  <!-- ── ACCOUNTS MODAL (standalone — toolbar #accountsBtn) ───────────────
+       Easy-access UI over the multi-account plumbing in extension.js. Lets
+       the user pick a provider, see each masked key + label, Edit / Delete a
+       row, and Add a new account. Hidden by default; panel.js toggles .show.
+       Rows + add-form are populated by renderAccountsList() on the host's
+       accountsState reply. Keys are NEVER rendered raw — only masked. ─────── -->
+  <div id="accountsModal" role="dialog" aria-modal="true" aria-label="Accounts">
+    <div class="cbe-box">
+      <div class="cbe-hdr">
+        <span>Accounts — manage API keys</span>
+        <button type="button" class="cbe-x-svg" id="cbe-am-close" aria-label="Close"></button>
+      </div>
+      <div class="cbe-body">
+        <div>
+          <label for="accountsProvider">Provider</label>
+          <select id="accountsProvider"></select>
+        </div>
+        <div>
+          <label>Accounts <span id="cbe-am-count" style="opacity:.6;font-weight:400;text-transform:none;letter-spacing:0;"></span></label>
+          <div id="cbe-am-list"></div>
+        </div>
+        <div class="cbe-am-addform">
+          <label style="margin-bottom:2px;">Add account</label>
+          <input type="text" id="cbe-am-label" placeholder="Label (e.g. work, alt-2)" autocomplete="off" spellcheck="false" />
+          <input type="password" id="cbe-am-key" placeholder="API key" autocomplete="off" spellcheck="false" />
+          <div id="cbe-am-err"></div>
+          <div style="display:flex;justify-content:flex-end;">
+            <button type="button" class="cbe-btn cbe-save" id="cbe-am-add">Add</button>
+          </div>
+        </div>
+      </div>
+      <div class="cbe-foot">
+        <button type="button" class="cbe-btn cbe-cancel" id="cbe-am-done">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── TAMAGOTCHI GAME SHELL ─────────────────────────────────────────────
        Hidden by default. Opens as a floating modal overlay when #tamaBtn
        is pressed (or when window.openTamagotchi() is called via slash
@@ -1575,16 +1675,24 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
         <span class="tama-stat" data-stat="cleanliness" data-tooltip="Cleanliness"       title="Cleanliness">✨ 100</span>
         <span class="tama-stat" data-stat="age"         data-tooltip="Age in minutes"    title="Age (minutes)">⏱ 0</span>
       </div>
-      <canvas id="cbe-tama-screen" width="240" height="240"></canvas>
-      <div id="cbe-tama-banner" hidden></div>
-      <div id="cbe-tama-buttons">
-        <button class="tama-btn" data-action="feed"   type="button" title="Feed (cycle meat / eggplant)">Feed</button>
-        <button class="tama-btn" data-action="clean"  type="button" title="Clean poop">Clean</button>
-        <button class="tama-btn" data-action="play"   type="button" title="Play">Play</button>
-        <button class="tama-btn" data-action="shot"   type="button" title="Give shot (heals when sick)">Shot</button>
-        <button class="tama-btn" data-action="light"  type="button" title="Toggle light (sleep)">Light</button>
-        <button class="tama-btn" data-action="select" type="button" title="Select / confirm">Select</button>
+      <div class="cbe-tama-lcd">
+        <canvas id="cbe-tama-screen" width="240" height="240"></canvas>
+        <!-- Thin in-screen control strip — small pixel-icon buttons that sit
+             inside the LCD frame, matching the reference gif's icon row.
+             Each button keeps its data-action so the existing delegated
+             click handler dispatches to the game loop unchanged. The pixel
+             glyph is drawn into the <canvas> child by drawTamaIcons() from
+             TAMAGOTCHI_SPRITES via DotMatrix40.spriteFromAscii. -->
+        <div id="cbe-tama-buttons">
+          <button class="tama-btn" data-action="feed"   data-icon="iconFeed"   type="button" title="Feed (cycle meat / eggplant)" aria-label="Feed"><canvas width="24" height="24" aria-hidden="true"></canvas></button>
+          <button class="tama-btn" data-action="clean"  data-icon="iconClean"  type="button" title="Clean poop" aria-label="Clean"><canvas width="24" height="24" aria-hidden="true"></canvas></button>
+          <button class="tama-btn" data-action="play"   data-icon="iconPlay"   type="button" title="Play" aria-label="Play"><canvas width="24" height="24" aria-hidden="true"></canvas></button>
+          <button class="tama-btn" data-action="shot"   data-icon="iconShot"   type="button" title="Give shot (heals when sick)" aria-label="Shot"><canvas width="24" height="24" aria-hidden="true"></canvas></button>
+          <button class="tama-btn" data-action="light"  data-icon="iconLight"  type="button" title="Toggle light (sleep)" aria-label="Light"><canvas width="24" height="24" aria-hidden="true"></canvas></button>
+          <button class="tama-btn" data-action="select" data-icon="iconSelect" type="button" title="Select / confirm" aria-label="Select"><canvas width="24" height="24" aria-hidden="true"></canvas></button>
+        </div>
       </div>
+      <div id="cbe-tama-banner" hidden></div>
       <div id="cbe-tama-hint" class="cbe-tama-hint">Tip: Feed cycles meat ↔ eggplant. Press Select to feed.</div>
     </div>
   </div>
@@ -1633,15 +1741,25 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
       padding: 4px 6px; border-radius: 6px;
     }
     #cbe-tama-shell .tama-stat { white-space: nowrap; }
-    #cbe-tama-shell #cbe-tama-screen {
-      display: block;
-      margin: 0 auto 8px auto;
-      width: 240px; height: 240px;
-      image-rendering: pixelated;
-      image-rendering: -moz-crisp-edges;
+    /* The LCD module — a single flat green panel that holds the pixel
+       screen AND the in-screen icon strip, matching the reference gif
+       (no gradient — one uniform LCD-green fill). */
+    #cbe-tama-shell .cbe-tama-lcd {
+      background: #8db83f;
       border: 3px inset #4a5a2a;
       border-radius: 6px;
-      background: #86bd3e;
+      padding: 6px 6px 4px 6px;
+      margin: 0 auto 8px auto;
+      width: 240px;
+    }
+    #cbe-tama-shell #cbe-tama-screen {
+      display: block;
+      margin: 0 auto;
+      width: 226px; height: 200px;
+      image-rendering: pixelated;
+      image-rendering: -moz-crisp-edges;
+      border: 0;
+      background: #8db83f;
     }
     #cbe-tama-shell #cbe-tama-banner {
       text-align: center; font-size: 12px; padding: 6px 4px;
@@ -1654,22 +1772,38 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
       background: #6f8a3a; color: #fff; border: 0;
       border-radius: 4px; cursor: pointer; font-size: 11px;
     }
+    /* In-screen icon strip — a thin horizontal row of small pixel-icon
+       buttons sitting inside the LCD frame, exactly like the reference
+       gif's bottom icon row. No big text buttons; each button is just a
+       ~22px clickable square that draws a dark pixel glyph onto the
+       flat green LCD. data-action still drives the game loop. */
     #cbe-tama-shell #cbe-tama-buttons {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+      display: flex;
+      justify-content: space-between;
+      gap: 2px;
+      margin-top: 4px;
+      padding-top: 3px;
+      border-top: 1px solid rgba(40,58,30,0.35);
     }
     #cbe-tama-shell .tama-btn {
-      background: linear-gradient(180deg, #4a5a2a, #2c3a1e);
-      color: #d8e8b8;
-      border: 1px solid #6f8a3a;
-      border-radius: 4px;
-      padding: 6px 4px;
-      font-size: 11px;
-      font-family: inherit;
+      background: transparent;
+      border: 0;
+      border-radius: 3px;
+      padding: 1px;
+      width: 22px; height: 22px;
       cursor: pointer;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 0 rgba(0,0,0,0.4);
+      display: flex; align-items: center; justify-content: center;
+      flex: 0 0 auto;
     }
-    #cbe-tama-shell .tama-btn:hover { background: linear-gradient(180deg, #5a6a3a, #3c4a2e); }
-    #cbe-tama-shell .tama-btn:active { transform: translateY(1px); box-shadow: inset 0 1px 2px rgba(0,0,0,0.4); }
+    #cbe-tama-shell .tama-btn canvas {
+      width: 18px; height: 18px;
+      image-rendering: pixelated;
+      image-rendering: -moz-crisp-edges;
+      display: block;
+    }
+    #cbe-tama-shell .tama-btn:hover { background: rgba(40,58,30,0.18); }
+    #cbe-tama-shell .tama-btn:active { background: rgba(40,58,30,0.34); }
+    #cbe-tama-shell .tama-btn:focus-visible { outline: 1px solid #2c3a1e; }
     #cbe-tama-shell .cbe-tama-hint {
       margin-top: 6px; font-size: 10px; color: #99a883; text-align: center;
       opacity: 0.85;
@@ -1994,7 +2128,16 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     }
     const canvas = el("cbe-tama-screen");
     if (!canvas) return null;
-    const matrix = new window.DotMatrix40(canvas, { cellSize: 6, gap: 0, cellShape: "rect" });
+    /* Flat single-tone LCD: OFF cells share the exact background colour so
+       the screen reads as one uniform light-green panel (matching the
+       reference gif) instead of a two-tone / gradient grid. ON cells are
+       a thin dark-green pixel for the creature outline. */
+    const matrix = new window.DotMatrix40(canvas, {
+      cellSize: 6, gap: 0, cellShape: "rect",
+      onColor: "#26331a",
+      offColor: "#8db83f",
+      bgColor: "#8db83f",
+    });
 
     /* Restore from localStorage if a save exists; otherwise start fresh. */
     const saved = window.TamagotchiGame.loadState(STORAGE_KEY) || {};
@@ -2007,12 +2150,52 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     return game;
   }
 
+  /* Draw the small dark-pixel glyph for each control button onto its
+     child <canvas>, sourced from TAMAGOTCHI_SPRITES via the DotMatrix40
+     ASCII parser. Runs once — the glyphs are static. Re-callable safely
+     (idempotent). Mirrors the reference gif's thin in-screen icon row. */
+  let iconsDrawn = false;
+  function drawTamaIcons() {
+    if (iconsDrawn) return;
+    const sprites = window.TAMAGOTCHI_SPRITES;
+    const parse = window.DotMatrix40 && window.DotMatrix40.spriteFromAscii;
+    if (!sprites || typeof parse !== "function") return;
+    const buttons = document.querySelectorAll("#cbe-tama-buttons .tama-btn[data-icon]");
+    if (!buttons.length) return;
+    buttons.forEach((btn) => {
+      const ascii = sprites[btn.getAttribute("data-icon")];
+      const cv = btn.querySelector("canvas");
+      if (!ascii || !cv) return;
+      const glyph = parse(ascii);
+      const ctx = cv.getContext("2d");
+      if (!ctx || !glyph || !glyph.w || !glyph.h) return;
+      /* Fit the glyph cells into the canvas with a 1px margin. */
+      const cell = Math.max(1, Math.floor(Math.min(
+        (cv.width - 2) / glyph.w,
+        (cv.height - 2) / glyph.h
+      )));
+      const ox = Math.floor((cv.width - glyph.w * cell) / 2);
+      const oy = Math.floor((cv.height - glyph.h * cell) / 2);
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      ctx.fillStyle = "#26331a";
+      for (let y = 0; y < glyph.h; y++) {
+        for (let x = 0; x < glyph.w; x++) {
+          if (glyph.data[y * glyph.w + x]) {
+            ctx.fillRect(ox + x * cell, oy + y * cell, cell, cell);
+          }
+        }
+      }
+    });
+    iconsDrawn = true;
+  }
+
   function openShell() {
     const shell = el("cbe-tama-shell");
     if (!shell) return;
     const g = ensureGame();
     if (!g) return;
     shell.hidden = false;
+    drawTamaIcons();
     g.start();
     refreshStats(g);
   }

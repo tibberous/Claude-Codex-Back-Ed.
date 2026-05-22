@@ -470,7 +470,6 @@
         <div class="menu-dropdown" id="menuCommunicatorDropdown">
           <div class="menu-dropdown-item" data-action="webmail">Webmail</div>
           <div class="menu-dropdown-item" data-action="calendar">Calendar</div>
-          <div class="menu-dropdown-item" data-action="composer">Composer</div>
           <div class="menu-dropdown-sep"></div>
           <div class="menu-dropdown-item" data-action="aboutcomm">About Communicator</div>
         </div>
@@ -1199,6 +1198,86 @@
       var action = t.getAttribute('data-action');
       closeAllMenus();
       var fn = VIEW_ACTIONS[action];
+      if (fn) fn();
+    });
+  }
+
+  // ── File menu handlers ───────────────────────────────────────
+  // The File dropdown was never wired (only View/Go/Edit/Communicator were),
+  // so Open File / Save As / View Source / Dev Tools were all dead. Open File
+  // uses a hidden <input type=file> + object URL (pure-webview, no host dep);
+  // Save As + Dev Tools post to the VSCode host with a graceful standalone
+  // fallback; View Source reuses window.cbeViewSource like the View menu.
+  var FILE_ACTIONS = {
+    open: function () {
+      dbg('INFO', 'file: open');
+      try {
+        var inp = document.createElement('input');
+        inp.type = 'file';
+        inp.accept = '.html,.htm,.txt,.md,.json,.xml,.svg,.css,.js';
+        inp.style.display = 'none';
+        inp.addEventListener('change', function () {
+          if (inp.files && inp.files[0]) {
+            var url = URL.createObjectURL(inp.files[0]);
+            navigate(url);
+          }
+          inp.remove();
+        });
+        document.body.appendChild(inp);
+        inp.click();
+      } catch (e) {
+        dbg('ERR', 'file: open throw ' + e.message);
+        toast('Open File: ' + e.message);
+      }
+    },
+    saveas: function () {
+      dbg('INFO', 'file: saveas -> ' + loc.value);
+      if (vscodeApi) {
+        try { vscodeApi.postMessage({ type: 'nn4SaveAs', url: loc.value }); }
+        catch (e) { dbg('ERR', 'file: saveas post throw ' + e.message); }
+      }
+      // Webview-native fallback: trigger a download of the current URL.
+      try {
+        var a = document.createElement('a');
+        a.href = loc.value;
+        a.download = '';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } catch (e2) {
+        toast('Save As: ' + e2.message);
+      }
+    },
+    viewsource: function () {
+      if (typeof window.cbeViewSource === 'function') {
+        dbg('INFO', 'file: view-source -> ' + loc.value);
+        window.cbeViewSource(loc.value);
+      } else {
+        dbg('WARN', 'file: view-source not ready');
+        toast('View Source: not ready yet, try again in a moment');
+      }
+    },
+    devtools: function () {
+      if (vscodeApi) {
+        dbg('INFO', 'file: devtools');
+        try { vscodeApi.postMessage({ type: 'nn4BrowserDevTools' }); }
+        catch (e) { dbg('ERR', 'file: devtools post throw ' + e.message); }
+      } else {
+        dbg('WARN', 'file: devtools — no vscodeApi (standalone mode)');
+        setStatus('Dev Tools: only available inside VSCode');
+      }
+    }
+  };
+  var fileDropdown = document.getElementById('menuFileDropdown');
+  if (fileDropdown) {
+    fileDropdown.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var t = e.target;
+      while (t && t !== fileDropdown && !t.getAttribute('data-action')) t = t.parentNode;
+      if (!t || t === fileDropdown) return;
+      var action = t.getAttribute('data-action');
+      closeAllMenus();
+      var fn = FILE_ACTIONS[action];
       if (fn) fn();
     });
   }

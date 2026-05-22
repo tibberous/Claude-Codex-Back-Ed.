@@ -5,10 +5,37 @@
    class names (.prompt-shell, .prompt-input-wrap, .tool-button,
    .label-button, .stop-button, etc).
    ──────────────────────────────────────────────────────────────────────── */
+
+@font-face {
+  font-family: 'Jersey 10';
+  src: url('assets/Jersey10-Regular.ttf') format('truetype');
+  font-display: swap;
+}
+
+/* Prompt input — retro pixel font for the LCD/handheld vibe. The base panel
+   CSS uses max-specificity selectors + inline !important to lock monospace,
+   so we match the same stacked selectors AND need the inline lock in panel.js
+   to be relaxed for this skin (see lockPromptFont). These rules cover the
+   CSS-cascade path. */
+html body .prompt-input-wrap textarea.prompt-input#promptBox,
+html body textarea#promptBox.prompt-input {
+  font-family: 'Jersey 10', 'Courier New', monospace !important;
+  letter-spacing: 0.5px !important;
+}
+html body .prompt-input-wrap textarea.prompt-input#promptBox::placeholder,
+html body textarea#promptBox.prompt-input::placeholder {
+  font-family: 'Jersey 10', 'Courier New', monospace !important;
+  letter-spacing: 0.5px !important;
+}
+
 :root {
   --stage-bg:
     radial-gradient(circle at 20% 15%, rgba(155, 215, 68, .24), transparent 28%),
     linear-gradient(180deg, #2d3b18 0%, #111a0a 100%);
+  /* Lime-green device shell — RESTORED 2026-05-22 (user: "green panel is
+     gone and buttons are outside the panel"). The shell frames the prompt +
+     toolbar as one handheld unit so the buttons sit INSIDE the green panel
+     again. Values are the originals from commit 1364c7e. */
   --shell-bg: #c9ee75;
   --shell-border: #5f9e22;
   --shell-radius: 0;
@@ -45,12 +72,13 @@ body {
 }
 
 .prompt-input-wrap {
+  /* No inner pale-lime panel — let the textarea sit directly on the outer
+     green shell (user 2026-05-22: "get rid of the lime green inner panel").
+     Border-radius kept so the textarea inherits a soft corner. */
   border-radius: calc(var(--button-radius, 10px) + 6px) !important;
-  border: 1px solid var(--field-border) !important;
-  background: var(--field-bg) !important;
-  box-shadow:
-    inset 0 1px 2px rgba(0,0,0,.08),
-    inset 0 1px 0 rgba(255,255,255,.85) !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 .prompt-input {
@@ -62,11 +90,9 @@ body {
   color: var(--field-placeholder, color-mix(in srgb, var(--field-text), transparent 60%)) !important;
 }
 
-/* ── Send button — circular bubble-blue orb (2026-05-17 polish).
-   Was 61×65 with orange send.png; tamagotchi is a candy-toy theme so use a
-   playful bubble blue (#5fb8ff) instead of the green accent for contrast.
-   48×48 round; base `.send-button::before` paints the white chevron on
-   top via mask-image. Preserves translateY(-50%) on hover/active. */
+/* ── Send button — circular candy-green orb. Was bubble-blue #5fb8ff;
+   flipped to the skin's primary green (user request 2026-05-21). 48×48 round;
+   base `.send-button::before` paints the white chevron via mask-image. */
 .send-button {
   width: 48px !important;
   height: 48px !important;
@@ -74,25 +100,25 @@ body {
   top: 50% !important;
   transform: translateY(-50%) !important;
   background:
-    radial-gradient(circle at 35% 30%, #b8e2ff, #5fb8ff 55%, #1a73c6 100%) !important;
-  border: 1px solid rgba(200, 230, 255, 0.65) !important;
+    radial-gradient(circle at 35% 30%, #d4ecc8, #7ccf6e 55%, #2e7a26 100%) !important;
+  border: 1px solid rgba(210, 245, 200, 0.65) !important;
   border-radius: 50% !important;
   box-shadow:
     0 6px 14px rgba(0, 0, 0, 0.40),
     inset 0 1px 0 rgba(255, 255, 255, 0.80),
-    0 0 12px rgba(95, 184, 255, 0.55) !important;
+    0 0 12px rgba(124, 207, 110, 0.55) !important;
   transition: transform 0.12s ease, box-shadow 0.14s ease, background 0.14s ease;
 }
 .send-button:hover,
 .send-button.is-hover {
   background:
-    radial-gradient(circle at 35% 30%, #d0edff, #7fc7ff 55%, #1a73c6 100%) !important;
+    radial-gradient(circle at 35% 30%, #e6f5db, #95dd86 55%, #2e7a26 100%) !important;
   transform: translateY(-50%) scale(1.08) !important;
 }
 .send-button:active,
 .send-button.is-active {
   background:
-    radial-gradient(circle at 35% 30%, #6cb0e0, #1a73c6 60%, #114b85 100%) !important;
+    radial-gradient(circle at 35% 30%, #7ac46b, #2e7a26 60%, #1a4a14 100%) !important;
   transform: translateY(-50%) scale(0.96) !important;
 }
 
@@ -200,9 +226,13 @@ body {
 
 /* ── Tooltip ─────────────────────────────────────────────────────────── */
 .tooltip {
-  background: var(--shell-bg) !important;
-  color: var(--field-text) !important;
+  /* ~80% white backing so the dark-green label reads clearly instead of
+     lime-on-lime (user 2026-05-22: "tooltips are hard to read, need ~70-80%
+     white behind them"). */
+  background: rgba(255, 255, 255, 0.80) !important;
+  color: #243f10 !important;
   border: 1px solid var(--button-border) !important;
+  text-shadow: none !important;
 }
 
 /* ── Tamagotchi pet panel ──────────────────────────────────────────────
@@ -220,22 +250,55 @@ body {
    The toolbar button (#tamaBtn) still works on every skin to toggle
    visibility, but on the tamagotchi skin closing it just re-shows on
    next interaction since the skin pins it back open. */
+/* Anchor the pet INSIDE the prompt-shell, not the viewport. position:fixed
+   floated it outside the panel; absolute + a positioned .prompt-shell pins
+   it to the panel's own top-right corner and max-height keeps it within the
+   panel bounds (scrolls if the pet UI is taller). Opt-in via #tamaBtn. */
+body[data-skin="tamagotchi"] .prompt-shell { position: relative !important; }
 body[data-skin="tamagotchi"] #cbe-tama-shell {
-  /* Override the baseline floating-bottom-right position from index.html. */
+  /* Dock the pet at the BOTTOM-LEFT of the panel so it sits INSIDE the
+     green prompt-shell composer area (user 2026-05-22: "needs to be to the
+     left in the panel, and fit in the panel"). The composer fills the
+     bottom of the panel, so bottom-left of the panel viewport == bottom-
+     left of the green composer. Max-height caps the widget so it can't
+     poke up past the composer into the chat thread. */
   position: absolute !important;
+  bottom: 16px !important;
   left: 16px !important;
-  top: 16px !important;
+  top: auto !important;
   right: auto !important;
-  bottom: auto !important;
-  width: 270px !important;
-  z-index: 2 !important;
-  display: block !important;
+  width: 168px !important;
+  max-height: 260px !important;
+  overflow: auto !important;
+  z-index: 50 !important;
 }
+/* Compact the whole device so it FITS inside the panel corner instead of
+   overflowing (user 2026-05-22: "needs to fit in the panel, it's too big").
+   Baseline is a 240px LCD / 280px shell — shrink frame, stats, buttons and
+   drop the hint so the pet tucks neatly into the top-right. */
+body[data-skin="tamagotchi"] #cbe-tama-shell .cbe-tama-frame {
+  padding: 6px 7px 7px 7px !important;
+}
+body[data-skin="tamagotchi"] #cbe-tama-shell .cbe-tama-title { font-size: 11px !important; }
+body[data-skin="tamagotchi"] #cbe-tama-shell #cbe-tama-status {
+  font-size: 9px !important;
+  gap: 2px 5px !important;
+  margin-bottom: 5px !important;
+  padding: 3px 4px !important;
+}
+body[data-skin="tamagotchi"] #cbe-tama-shell .cbe-tama-hint { display: none !important; }
+body[data-skin="tamagotchi"] #cbe-tama-shell #cbe-tama-buttons {
+  margin-top: 3px !important;
+  padding-top: 2px !important;
+}
+body[data-skin="tamagotchi"] #cbe-tama-shell .tama-btn { width: 18px !important; height: 18px !important; }
+body[data-skin="tamagotchi"] #cbe-tama-shell .tama-btn canvas { width: 15px !important; height: 15px !important; }
 body[data-skin="tamagotchi"] #cbe-tama-shell[hidden] {
-  /* Skin overrides the [hidden] attribute — the pet is always visible
-     in this skin. Users can still close the panel temporarily via the
-     ✕ button; the skin will re-show it on next openTamagotchi() call. */
-  display: block !important;
+  /* Respect the [hidden] attribute so the ✕ close button actually works and
+     the pet doesn't pin itself open over the chat. Pet is opt-in: click the
+     toolbar #tamaBtn to toggle it. (Was `display: block !important`, which
+     force-showed it always and defeated closeShell()'s hidden=true.) */
+  display: none !important;
 }
 body[data-skin="tamagotchi"] #cbe-tama-shell .cbe-tama-frame {
   background:
@@ -258,25 +321,35 @@ body[data-skin="tamagotchi"] #cbe-tama-shell .cbe-tama-hint {
 body[data-skin="tamagotchi"] #cbe-tama-shell #cbe-tama-status {
   background: rgba(255,255,255,0.28) !important;
 }
-body[data-skin="tamagotchi"] #cbe-tama-shell .tama-btn {
-  background: linear-gradient(180deg, #c9ee75, #79a936) !important;
-  color: #2c3a1e !important;
-  border: 1px solid #426d1d !important;
-  text-shadow: 0 1px 0 rgba(255,255,255,0.35);
-}
-body[data-skin="tamagotchi"] #cbe-tama-shell .tama-btn:hover {
-  background: linear-gradient(180deg, #d8f583, #8bbf45) !important;
-}
-body[data-skin="tamagotchi"] #cbe-tama-shell #cbe-tama-screen {
+/* In-screen icon strip — the control row sits INSIDE the flat green LCD
+   module (see .cbe-tama-lcd), so the buttons stay transparent and only
+   the dark pixel glyph shows. Matches the reference gif's icon row. */
+body[data-skin="tamagotchi"] #cbe-tama-shell .cbe-tama-lcd {
+  background: #8db83f !important;
   border: 3px inset #416b18 !important;
 }
-/* Push the prompt-shell content over to make room for the docked panel.
-   This is the same 168px reserve the old GIF rule used, but now the
-   real pet panel lives there instead of a static image. */
+body[data-skin="tamagotchi"] #cbe-tama-shell #cbe-tama-screen {
+  background: #8db83f !important;
+  border: 0 !important;
+}
+body[data-skin="tamagotchi"] #cbe-tama-shell .tama-btn {
+  background: transparent !important;
+  border: 0 !important;
+}
+body[data-skin="tamagotchi"] #cbe-tama-shell .tama-btn:hover {
+  background: rgba(40,58,30,0.18) !important;
+}
+body[data-skin="tamagotchi"] #cbe-tama-shell .tama-btn:active {
+  background: rgba(40,58,30,0.34) !important;
+}
+/* No content reservation needed — the pet is absolutely positioned at the
+   bottom-left and floats over the composer corner. Trim padding-bottom so
+   there's no dead green space under the label/Stop row (user 2026-05-22:
+   "get rid of the empty space at the bottom under the label"). */
 body[data-skin="tamagotchi"] .prompt-shell {
   position: relative !important;
-  padding-left: 300px !important;
-  min-height: 360px;
+  padding-bottom: 8px !important;
+  min-height: 0 !important;
 }
 @keyframes cbe-tamagotchi-glow {
   0%, 100% {

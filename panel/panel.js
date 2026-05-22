@@ -516,6 +516,10 @@ document.getElementById('terminalBtn').onclick = () => { if (api) api.postMessag
 document.getElementById('setupBtn').onclick    = () => { if (api) api.postMessage({ type: 'loadSetup' }); };
 document.getElementById('label-pill').onclick  = () => { if (api) api.postMessage({ type: 'labelClick' }); };
 document.getElementById('settingsBtn').onclick = () => { if (api) api.postMessage({ type: 'openSettings' }); };
+(function wireAccountsButton() {
+  const btn = document.getElementById('accountsBtn');
+  if (btn) btn.onclick = () => openAccountsModal();
+})();
 document.getElementById('domainsBtn').onclick  = () => {
   /* If the host already pre-fetched the list on startup, render it
      instantly from cache so there's zero perceived latency. Always
@@ -936,6 +940,232 @@ function renderAccountsList(payload) {
     list.appendChild(row);
   });
 }
+
+/* ── Standalone Accounts modal (toolbar #accountsBtn) ───────────────────────
+   Easy-access front-end over the SAME host protocol the Settings-embedded
+   accounts section uses (getAccounts/addAccount/useAccount/disableAccount +
+   the new removeAccount/editAccount). The host always replies with an
+   `accountsState` message; renderAccountsList() fans it out to BOTH this modal
+   (when open) and the Settings section. Keys are received already MASKED — the
+   webview never holds a raw key. */
+let __cbeAmProvider = null;          /* provider id the modal is currently showing */
+let __cbeAmEditingId = null;         /* account id whose row is in inline-edit mode, or null */
+let __cbeAmUndo = null;              /* { accountId, timer } for the 2s delete undo window */
+
+function _amEl(id) { return document.getElementById(id); }
+
+function _amModalOpen() {
+  const m = _amEl('accountsModal');
+  return !!(m && m.classList.contains('show'));
+}
+
+function _amShowError(text) {
+  const err = _amEl('cbe-am-err');
+  if (err) { err.textContent = text || ''; err.style.display = text ? 'block' : 'none'; }
+}
+
+/* Populate the provider <select> with NON-bridge providers only — bridge
+   providers authenticate in the browser and have no API key to manage. */
+function _amPopulateProviders() {
+  const sel = _amEl('accountsProvider');
+  if (!sel) return;
+  const prev = __cbeAmProvider;
+  sel.innerHTML = '';
+  const choices = (__cbeProviders || []).filter(p => !p.bridge);
+  choices.forEach(p => {
+    const o = document.createElement('option');
+    o.value = p.id;
+    o.textContent = p.label + (p.haveKey ? '' : '  (no key)');
+    sel.appendChild(o);
+  });
+  /* Prefer the previously-shown provider, else the active provider if it's
+     non-bridge, else the first non-bridge provider. */
+  let want = prev;
+  if (!choices.some(p => p.id === want)) {
+    want = (choices.some(p => p.id === __cbeActive)) ? __cbeActive : (choices[0] ? choices[0].id : null);
+  }
+  if (want) sel.value = want;
+  __cbeAmProvider = sel.value || want || null;
+}
+
+function openAccountsModal() {
+  const modal = _amEl('accountsModal');
+  if (!modal) return;
+  __cbeAmEditingId = null;
+  _amShowError('');
+  const lbl = _amEl('cbe-am-label'); if (lbl) lbl.value = '';
+  const key = _amEl('cbe-am-key');   if (key) key.value = '';
+  _amPopulateProviders();
+  modal.classList.add('show');
+  if (__cbeAmProvider && api) api.postMessage({ type: 'listAccounts', provider: __cbeAmProvider });
+}
+
+function closeAccountsModal() {
+  const modal = _amEl('accountsModal');
+  if (!modal) return;
+  modal.classList.remove('show');
+  __cbeAmEditingId = null;
+  /* Commit any pending delete immediately on close — the undo window ends. */
+  if (__cbeAmUndo) { clearTimeout(__cbeAmUndo.timer); __cbeAmUndo = null; }
+}
+
+/* Render the account rows into the STANDALONE modal from a host payload.
+   Mirrors the Settings-section renderer but targets #cbe-am-list and adds the
+   Edit (inline) + Delete (2s undo) controls the standalone modal owns. */
+function renderAccountsModalList(payload) {
+  if (!_amModalOpen()) return;
+  /* Ignore stale replies for a provider we're no longer viewing. */
+  if (payload && payload.provider && __cbeAmProvider && payload.provider !== __cbeAmProvider) return;
+  const list = _amEl('cbe-am-list');
+  if (!list) return;
+  /* A fresh state push means any pending add succeeded — clear the form. */
+  const lbl = _amEl('cbe-am-label'); const key = _amEl('cbe-am-key');
+  if (lbl && document.activeElement !== lbl) lbl.value = '';
+  if (key) key.value = '';
+  _amShowError('');
+  const accounts = (payload && payload.accounts) || [];
+  const countEl = _amEl('cbe-am-count');
+  if (countEl) countEl.textContent = accounts.length ? `(${accounts.length})` : '(none yet)';
+  list.innerHTML = '';
+  if (payload && payload.bridge) {
+    const note = document.createElement('div');
+    note.style.cssText = 'opacity:.6;font-size:12px;padding:4px 2px;';
+    note.textContent = 'Bridge providers authenticate in the browser — no API key to manage.';
+    list.appendChild(note);
+    return;
+  }
+  if (!accounts.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'opacity:.6;font-size:12px;padding:4px 2px;';
+    empty.textContent = 'No accounts yet — add one below.';
+    list.appendChild(empty);
+    return;
+  }
+  accounts.forEach((a) => {
+    const row = document.createElement('div');
+    row.className = 'cbe-am-row';
+    if (a.disabled) row.style.opacity = '.5';
+
+    if (__cbeAmEditingId === a.id) {
+      /* Inline-edit mode: label + key inputs + Save / Cancel. */
+      const editWrap = document.createElement('div');
+      editWrap.style.cssText = 'flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;';
+      const lblIn = document.createElement('input');
+      lblIn.type = 'text'; lblIn.value = a.label || ''; lblIn.placeholder = 'Label';
+      lblIn.setAttribute('data-am-edit-label', '1');
+      const keyIn = document.createElement('input');
+      keyIn.type = 'password'; keyIn.placeholder = 'New API key (leave blank to keep current)';
+      keyIn.autocomplete = 'off'; keyIn.spellcheck = false;
+      keyIn.setAttribute('data-am-edit-key', '1');
+      editWrap.appendChild(lblIn);
+      editWrap.appendChild(keyIn);
+      row.appendChild(editWrap);
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button'; saveBtn.className = 'cbe-am-btn'; saveBtn.textContent = 'Save';
+      saveBtn.addEventListener('click', () => {
+        const newLabel = lblIn.value.trim();
+        const newKey = keyIn.value.trim();
+        const msg = { type: 'editAccount', provider: __cbeAmProvider, accountId: a.id };
+        if (newLabel) msg.label = newLabel;
+        if (newKey) msg.apiKey = newKey;
+        __cbeAmEditingId = null;
+        if (api) api.postMessage(msg);
+      });
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button'; cancelBtn.className = 'cbe-am-btn cbe-am-btn--neutral'; cancelBtn.textContent = 'Cancel';
+      cancelBtn.addEventListener('click', () => {
+        __cbeAmEditingId = null;
+        renderAccountsModalList(payload);
+      });
+      row.appendChild(saveBtn);
+      row.appendChild(cancelBtn);
+      list.appendChild(row);
+      setTimeout(() => lblIn.focus(), 0);
+      return;
+    }
+
+    const dot = a.active ? '<span title="active" style="color:#4ade80;">&#9679;</span>' : '<span style="color:#555;">&#9675;</span>';
+    const dis = a.disabled ? ` &middot; <span style="color:#ff6b6b;">limited</span>` : '';
+    const info = document.createElement('div');
+    info.className = 'cbe-am-info';
+    info.innerHTML = `${dot} <b>${_acctEsc(a.label)}</b><br><code style="opacity:.8;">${_acctEsc(a.maskedKey)}</code>${dis}`;
+    row.appendChild(info);
+
+    const mk = (txt, cls, onClick) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'cbe-am-btn' + (cls ? ' ' + cls : ''); b.textContent = txt;
+      b.addEventListener('click', onClick);
+      return b;
+    };
+    if (!a.active) row.appendChild(mk('Use', 'cbe-am-btn--neutral', () => {
+      if (api) api.postMessage({ type: 'useAccount', provider: __cbeAmProvider, accountId: a.id });
+    }));
+    row.appendChild(mk('Edit', '', () => {
+      __cbeAmEditingId = a.id;
+      renderAccountsModalList(payload);
+    }));
+    row.appendChild(mk('Delete', 'cbe-am-btn--del', () => {
+      _amStartDelete(a, row);
+    }));
+    list.appendChild(row);
+  });
+}
+
+/* Delete with a 2s undo window: the row swaps to a "Deleted — Undo" strip; if
+   the user doesn't click Undo within 2s we fire removeAccount to the host. */
+function _amStartDelete(account, row) {
+  if (__cbeAmUndo) { clearTimeout(__cbeAmUndo.timer); __cbeAmUndo = null; }
+  row.innerHTML = '';
+  row.style.opacity = '1';
+  const msg = document.createElement('div');
+  msg.className = 'cbe-am-info';
+  msg.innerHTML = `Deleted <b>${_acctEsc(account.label)}</b>`;
+  row.appendChild(msg);
+  const undoBtn = document.createElement('button');
+  undoBtn.type = 'button'; undoBtn.className = 'cbe-am-btn cbe-am-btn--neutral'; undoBtn.textContent = 'Undo';
+  row.appendChild(undoBtn);
+  const fire = () => {
+    __cbeAmUndo = null;
+    if (api) api.postMessage({ type: 'removeAccount', provider: __cbeAmProvider, accountId: account.id });
+  };
+  const timer = setTimeout(fire, 2000);
+  __cbeAmUndo = { accountId: account.id, timer };
+  undoBtn.addEventListener('click', () => {
+    clearTimeout(timer);
+    __cbeAmUndo = null;
+    /* Re-fetch fresh state so the row comes back exactly as the host has it. */
+    if (api) api.postMessage({ type: 'listAccounts', provider: __cbeAmProvider });
+  });
+}
+
+(function wireAccountsModal() {
+  const sel = _amEl('accountsProvider');
+  if (sel) sel.addEventListener('change', () => {
+    __cbeAmProvider = sel.value || null;
+    __cbeAmEditingId = null;
+    if (__cbeAmUndo) { clearTimeout(__cbeAmUndo.timer); __cbeAmUndo = null; }
+    _amShowError('');
+    if (__cbeAmProvider && api) api.postMessage({ type: 'listAccounts', provider: __cbeAmProvider });
+  });
+  const closeBtn = _amEl('cbe-am-close');
+  const doneBtn  = _amEl('cbe-am-done');
+  if (closeBtn) closeBtn.addEventListener('click', closeAccountsModal);
+  if (doneBtn)  doneBtn.addEventListener('click', closeAccountsModal);
+  /* Click-outside the .cbe-box closes the modal. */
+  const modal = _amEl('accountsModal');
+  if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeAccountsModal(); });
+  const addBtn = _amEl('cbe-am-add');
+  if (addBtn) addBtn.addEventListener('click', () => {
+    const label = (_amEl('cbe-am-label') || {}).value || '';
+    const key   = (_amEl('cbe-am-key') || {}).value || '';
+    if (!key.trim()) { _amShowError('Enter an API key.'); return; }
+    if (!__cbeAmProvider) { _amShowError('Pick a provider first.'); return; }
+    if (api) api.postMessage({ type: 'addAccount', provider: __cbeAmProvider, label: label.trim(), apiKey: key.trim() });
+  });
+  /* Enter in the key field submits the add form. */
+  const keyIn = _amEl('cbe-am-key');
+  if (keyIn) keyIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (addBtn) addBtn.click(); } });
+})();
 let __cbeActiveSkin = '';  /* bare filename, e.g. 'noir.css'. '' = no skin */
 let __cbeSkinsList  = null;/* null = not yet discovered for this session; [] = scanned, empty */
 
@@ -2038,13 +2268,30 @@ window.__cbeProbeFont = (sel) => {
   /* Prefer VSCode's editor font — guaranteed available and monospace.
      Plain Consolas/Cascadia/Courier weren't actually loaded in the
      webview sandbox on this user's box; the generic-monospace fallback
-     resolved to a proportional UA default. */
-  const FAMILY = 'var(--vscode-editor-font-family, Consolas, "Cascadia Mono", "Courier New", monospace)';
-  const FONT_SHORTHAND = '400 18px/1.34 ' + FAMILY;
+     resolved to a proportional UA default.
+
+     Skin-aware: the tamagotchi skin ships its own retro pixel font
+     (Jersey 10) and wants the prompt to use it. We pick the family from
+     the active <body data-skin> stamp so the nuclear inline lock doesn't
+     stomp a skin's intentional font choice. */
+  const DEFAULT_FAMILY = 'var(--vscode-editor-font-family, Consolas, "Cascadia Mono", "Courier New", monospace)';
+  const SKIN_FAMILY = {
+    tamagotchi: "'Jersey 10', 'Courier New', monospace",
+  };
+  function familyForActiveSkin() {
+    const skin = (document.body && document.body.dataset && document.body.dataset.skin) || '';
+    return SKIN_FAMILY[skin] || DEFAULT_FAMILY;
+  }
+  /* Sentinel substring used by the observer to detect "our font got stripped"
+     — switches with the skin so a skin-font lock isn't seen as foreign. */
+  function sentinelFor(family) {
+    return family.indexOf('Jersey') !== -1 ? 'Jersey' : 'Consolas';
+  }
   function apply(el) {
     if (!el) return;
-    el.style.setProperty('font',        FONT_SHORTHAND, 'important');
-    el.style.setProperty('font-family', FAMILY,         'important');
+    const family = familyForActiveSkin();
+    el.style.setProperty('font',        '400 18px/1.34 ' + family, 'important');
+    el.style.setProperty('font-family', family,                    'important');
   }
   function attach() {
     const el = document.getElementById('promptBox');
@@ -2058,11 +2305,15 @@ window.__cbeProbeFont = (sel) => {
       for (const m of muts) {
         if (m.type === 'attributes' && m.attributeName === 'style') {
           const cur = el.style.getPropertyValue('font-family');
-          if (!cur || cur.indexOf('Consolas') === -1) apply(el);
+          const want = sentinelFor(familyForActiveSkin());
+          if (!cur || cur.indexOf(want) === -1) apply(el);
         }
       }
     });
     mo.observe(el, { attributes: true, attributeFilter: ['style'] });
+    /* Re-apply when the skin changes — the data-skin stamp flips on <body>. */
+    const skinMo = new MutationObserver(() => apply(el));
+    if (document.body) skinMo.observe(document.body, { attributes: true, attributeFilter: ['data-skin'] });
     /* Also re-apply once after fonts settle — `document.fonts.ready` can
        cause the UA to re-resolve fallback chains briefly. */
     if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
@@ -3353,12 +3604,16 @@ window.addEventListener('message', e => {
       addMsg(`⚠ ${label}: ${m.reason || 'could not reach port ' + (m.port || '?')}`, 'error');
     }
   } else if (m.type === 'accountsState') {
-    /* Host answered getAccounts / a mutating account command. Re-render the
-       Accounts list in the open Settings modal (no-op if it's closed). */
+    /* Host answered getAccounts/listAccounts or a mutating account command.
+       Fan the masked state out to BOTH surfaces: the Settings-embedded list
+       and the standalone Accounts modal. Each renderer no-ops when its host
+       UI is closed, so this is safe regardless of which one is visible. */
     renderAccountsList(m);
+    renderAccountsModalList(m);
   } else if (m.type === 'accountError') {
-    /* Add/validate failure — show it inline in the Add-Account form. */
+    /* Add/validate/edit failure — show it inline in whichever surface is open. */
     _showAccountFormError(m.message || 'Account error.');
+    if (typeof _amModalOpen === 'function' && _amModalOpen()) _amShowError(m.message || 'Account error.');
   } else if (m.type === 'accountToast') {
     /* Rotation fired — surface a small toast so the user knows we switched
        accounts mid-request. addMsg renders an info line in the thread. */
@@ -3932,19 +4187,34 @@ window.addEventListener('resize', fitProjectPath);
     });
     menu.appendChild(dev);
 
-    /* Refresh — asks the host to re-read panel/index.html + panel.js from
-       disk and re-assign panel.webview.html. This is the supported way to
-       pick up CSS / JS edits without rebooting VSCode. The webview will
-       re-fire its `ready` message and rehydrate state from the host. */
+    /* Reload Panel — re-reads panel/index.html + panel.js + lib/* from disk
+       with a per-file mtime cache-buster and reassigns panel.webview.html.
+       This is the supported way to pick up CSS / JS edits in panel-side
+       code WITHOUT rebooting VSCode (extension.js host code is unaffected
+       by this — use Reload Window for that). The webview re-fires `ready`. */
     var refresh = document.createElement('div');
     refresh.className = 'cbe-item';
-    refresh.textContent = 'Refresh';
+    refresh.textContent = 'Reload Panel';
     refresh.addEventListener('mousedown', function(e) {
       e.preventDefault(); e.stopPropagation();
       removeMenu();
       if (api) api.postMessage({ type: 'refreshPanel' });
     });
     menu.appendChild(refresh);
+
+    /* Reload Window — full VSCode reload. Use ONLY when a Reload Panel
+       isn't enough (i.e., you changed extension.js host code and need the
+       extension to restart). User explicitly authorized this menu item
+       2026-05-22 ("if you can just do Reload for the whole app"). */
+    var reload = document.createElement('div');
+    reload.className = 'cbe-item';
+    reload.textContent = 'Reload Window';
+    reload.addEventListener('mousedown', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      removeMenu();
+      if (api) api.postMessage({ type: 'reloadWindow' });
+    });
+    menu.appendChild(reload);
 
     menu.style.left = x + 'px';
     menu.style.top  = y + 'px';
@@ -4080,11 +4350,20 @@ window.addEventListener('resize', fitProjectPath);
      Copy / View Source / DevTools / Refresh remain reachable. */
   document.addEventListener('contextmenu', function(e) {
     if (e.target && e.target.closest) {
-      const skip = e.target.closest(
+      /* Editable prompt textarea: let the BROWSER's native context menu
+         render so the user gets Copy / Cut / Paste / Delete / Select All
+         (user 2026-05-22: "the prompt windows need to let you right click
+         for copy / cut / delete / paste"). Just return without
+         preventDefault so the default menu fires. */
+      const isTextInput = e.target.closest('#promptBox, .prompt-input-wrap');
+      if (isTextInput) return;
+      /* Toolbar / send / stop / label: a context menu over a button is
+         confusing — silence the default and skip the custom one too. */
+      const isChrome = e.target.closest(
         '.tool-button, .label-button, .send-button, .stop-button, ' +
-        '#promptBox, .prompt-input-wrap, .prompt-toolbar, .toolbar-meta'
+        '.prompt-toolbar, .toolbar-meta'
       );
-      if (skip) {
+      if (isChrome) {
         e.preventDefault();
         return;
       }

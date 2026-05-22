@@ -618,8 +618,8 @@
                re-blitted the creature; blit() ADDs pixels without clearing. */
             if (this.poopSpritesOnScreen > 0 && this.sprites.poop) {
                 const poopSprite = this.sprites.poop;
-                const POOP_W = 11;  // visual width of poop sprite from ASCII
-                const POOP_H = 11;
+                const POOP_W = 10;  // visual width of poop sprite from ASCII
+                const POOP_H = 9;
                 for (let i = 0; i < Math.min(3, this.poopSpritesOnScreen); i++) {
                     const px = 1 + (i * (POOP_W + 1));
                     const py = this.matrix.rows - POOP_H - 1;

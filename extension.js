@@ -78,8 +78,9 @@ const PROVIDERS = {
     grokBridge:    { label: 'Grok (browser bridge)',    bridge: true, bridgeTarget: 'grok',    defaultModel: 'grok-4',         models: ['grok-4', 'grok-4-fast', 'grok-3'] },
     copilotBridge: { label: 'Copilot (browser bridge)', bridge: true, bridgeTarget: 'copilot', defaultModel: 'gpt-4',          models: ['gpt-4'] },
     geminiBridge:  { label: 'Gemini (browser bridge)',  bridge: true, bridgeTarget: 'gemini',  defaultModel: 'gemini-2.5-pro', models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
-    claudeBridge:  { label: 'Claude (browser bridge)',  bridge: true, bridgeTarget: 'claude',  defaultModel: 'sonnet-4.6',     models: ['opus-4.7', 'sonnet-4.6'] },
+    claudeBridge:  { label: 'Claude (browser bridge)',  bridge: true, bridgeTarget: 'claude',  defaultModel: 'claude-sonnet-4-6', models: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'] },
     ollamaBridge:  { label: 'Ollama (local)',           bridge: true, bridgeTarget: 'ollama',  defaultModel: 'llama3.2:3b',    models: ['llama3.2:3b', 'llama3.2', 'qwen2.5', 'mistral'] },
+    deepseekBridge:{ label: 'DeepSeek (browser bridge)',bridge: true, bridgeTarget: 'deepseek',defaultModel: 'deepseek-chat',  models: ['deepseek-chat', 'deepseek-reasoner'] },
 };
 
 const DEFAULT_PROVIDER = 'anthropic';
@@ -216,6 +217,9 @@ function pushUpdateToServer(context) {
         '*.log', '*.bak', '*.tmp', '*.swp',
         '.git/', 'node_modules/', 'logs/', 'chats/', 'dist/',
         '.claude/', 'reports/',
+        'data/',                // 1.74 GB per-machine QtWebEngine Chrome profile data
+                                // (cookies/cache/ActorSafetyLists/etc) — NEVER push
+        'bridges/',             // per-target browser-profile build artifacts — per-machine
         'config.ini',           // per-machine secrets
         'domains.txt', 'wake.txt', 'prompt_history.txt',
         'tools/nssm.exe',       // bundled per-host binaries — server doesn't need
@@ -303,7 +307,7 @@ const PULL_EXCLUDES = new Set([
     'tools/extract_prompts_from_log.py',
     'tools/pull_flag_svgs.ps1',
 ]);
-const PULL_EXCLUDE_PREFIXES = ['.git/', 'node_modules/', 'logs/', 'chats/', 'dist/', '.claude/', 'reports/'];
+const PULL_EXCLUDE_PREFIXES = ['.git/', 'node_modules/', 'logs/', 'chats/', 'dist/', '.claude/', 'reports/', 'data/', 'bridges/'];
 const PULL_EXCLUDE_SUFFIXES = ['.log', '.bak', '.tmp', '.swp'];
 
 function _shouldPullPath(relPath) {
@@ -1998,6 +2002,7 @@ async function activate(context) {
             if (provider && provider.bridge && provider.bridgeTarget) {
                 const target = provider.bridgeTarget;
                 trace(`BRIDGE:AUTOSTART target=${target} (active provider=${activeId})`);
+                killOtherBridgeTrays(target);
                 ensureBridge(context, target, { timeoutMs: 8000 })
                     .then((r) => trace(`BRIDGE:AUTOSTART target=${target} result=${r.ok ? 'ok' : 'fail'} ${r.reason || ''}`))
                     .catch((e) => traceErr(`BRIDGE:AUTOSTART target=${target}`, e));
@@ -3539,6 +3544,7 @@ function bindPanel(context, panel) {
                     const _provider = PROVIDERS[msg.provider];
                     if (_provider && _provider.bridge && _provider.bridgeTarget) {
                         const _target = _provider.bridgeTarget;
+                        killOtherBridgeTrays(_target);
                         ensureBridge(context, _target, { timeoutMs: 8000 })
                             .then((r) => {
                                 trace(`BRIDGE:PROVIDER-SWITCH target=${_target} ok=${r.ok} ${r.reason || ''}`);
@@ -3572,6 +3578,10 @@ function bindPanel(context, panel) {
                    The panel's Settings → Accounts UI drives these. Every
                    reply ships a fresh masked accountsState so the list
                    re-renders. Keys are NEVER echoed back — only maskedKey. */
+                /* listAccounts is the standalone Accounts modal's name for the
+                   read; getAccounts is the Settings-embedded section's name.
+                   Both answer with the same masked accountsState payload. */
+                case 'listAccounts':
                 case 'getAccounts': {
                     const pid = PROVIDERS[msg.provider] ? msg.provider : getActiveProvider(context);
                     panel.webview.postMessage({ type: 'accountsState', ...buildAccountsPayload(context, pid) });
@@ -3651,6 +3661,9 @@ function bindPanel(context, panel) {
                     panel.webview.postMessage({ type: 'accountsState', ...buildAccountsPayload(context, pid) });
                     break;
                 }
+                /* removeAccount is the standalone modal's name; deleteAccount is
+                   the Settings section's name. Same delete-and-reactivate flow. */
+                case 'removeAccount':
                 case 'deleteAccount': {
                     const pid = PROVIDERS[msg.provider] ? msg.provider : getActiveProvider(context);
                     let accounts = getProviderAccounts(context, pid);
@@ -3665,6 +3678,50 @@ function bindPanel(context, panel) {
                     trace(`ACCOUNTS:DELETE provider=${pid} id=${msg.accountId} remaining=${accounts.length}`);
                     panel.webview.postMessage({ type: 'accountsState', ...buildAccountsPayload(context, pid) });
                     panel.webview.postMessage({ type: 'init', ...buildSettingsPayload(context) });
+                    break;
+                }
+                /* Edit an existing account's label and/or key in place. Either
+                   field is optional; a new key is shape-validated and de-duped.
+                   NEVER log the raw key — only maskKey(). The webview drives this
+                   from the standalone Accounts modal's inline-edit row. */
+                case 'editAccount': {
+                    const pid = PROVIDERS[msg.provider] ? msg.provider : getActiveProvider(context);
+                    const p = PROVIDERS[pid] || {};
+                    if (p.bridge) {
+                        panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'Bridge providers have no API key to edit.' });
+                        break;
+                    }
+                    const accounts = getProviderAccounts(context, pid);
+                    const target = accounts.find(a => a.id === msg.accountId);
+                    if (!target) {
+                        panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'Account not found.' });
+                        break;
+                    }
+                    const hasLabel = Object.prototype.hasOwnProperty.call(msg, 'label') && String(msg.label || '').trim() !== '';
+                    const hasKey   = Object.prototype.hasOwnProperty.call(msg, 'apiKey') && String(msg.apiKey || '').trim() !== '';
+                    if (!hasLabel && !hasKey) {
+                        panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'Nothing to change — enter a new label or key.' });
+                        break;
+                    }
+                    if (hasKey) {
+                        const newKey = String(msg.apiKey).trim();
+                        const shape = validateKeyShape(pid, newKey);
+                        if (!shape.ok) {
+                            panel.webview.postMessage({ type: 'accountError', provider: pid, message: `Invalid key: ${shape.reason}.` });
+                            break;
+                        }
+                        if (accounts.some(a => a.id !== target.id && a.apiKey === newKey)) {
+                            panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'That key is already in the list.' });
+                            break;
+                        }
+                        target.apiKey = newKey;
+                        /* A key change invalidates a cached SDK client bound to it. */
+                        if (anthropicClient && pid === 'anthropic') anthropicClient = null;
+                    }
+                    if (hasLabel) target.label = String(msg.label).trim();
+                    setProviderAccounts(context, pid, accounts);
+                    trace(`ACCOUNTS:EDIT provider=${pid} id=${target.id} label=${target.label} key=${maskKey(target.apiKey)} keyChanged=${hasKey}`);
+                    panel.webview.postMessage({ type: 'accountsState', ...buildAccountsPayload(context, pid) });
                     break;
                 }
                 case 'ollamaProbe': {
@@ -4359,14 +4416,24 @@ function bindPanel(context, panel) {
                        and re-fires `ready` on the new document, which rehydrates
                        provider/skin/sfx state from buildSettingsPayload. This
                        is NOT a full VSCode reload — extension host stays alive,
-                       message handlers stay registered, terminal stays open. */
+                       message handlers stay registered, terminal stays open.
+                       Cache-busting query strings on the JS/CSS URIs make this
+                       actually pick up file edits (was a no-op before fix). */
                     try {
                         const html = getPanelHtml(context, panel.webview);
                         panel.webview.html = html;
-                        trace('panel refreshed via context menu');
+                        trace('panel reloaded via context menu (cache-busted)');
                     } catch (e) {
                         traceErr('refreshPanel', e);
                     }
+                    break;
+                case 'reloadWindow':
+                    /* Full VSCode window reload — last-resort for picking up
+                       extension.js (host-side) edits. User authorized this
+                       2026-05-22 over the never-reload rule because Reload
+                       Panel can't touch extension host code. */
+                    trace('reloadWindow requested via context menu');
+                    vscode.commands.executeCommand('workbench.action.reloadWindow');
                     break;
                 case 'sttStart':
                     /* Fallback path: webview's Web Speech API got `not-allowed`
@@ -4403,26 +4470,45 @@ function getPanelHtml(context, webview) {
     let html = fs.readFileSync(htmlPath, 'utf8');
     endRead(`bytes=${html.length}`);
 
+    /* Cache-buster appended to every JS/CSS URI. Without this, reassigning
+       panel.webview.html on refresh keeps producing the SAME URIs, so
+       Chromium serves the cached resources and edits to panel.js / CSS
+       never appear (user 2026-05-22: "right click > Refresh doesnt do
+       anything"). Stamping `?v=<mtime>` per-file forces a re-fetch only
+       when the file actually changed. */
+    const _bust = (p) => {
+        try { return String(fs.statSync(p).mtimeMs | 0); }
+        catch (e) { return String(Date.now()); }
+    };
+    const withV = (uri, fsPath) => uri.toString() + '?v=' + _bust(fsPath);
+
     const endUris = timeStep('  buildAssetUris');
     const assetsBase    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets')));
     const labelUri      = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets', 'label-alpha.png')));
     const blankUri      = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets', 'blank.png')));
     const blankOverUri  = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets', 'blank_over.png')));
     const blankClickUri = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets', 'blank_click.png')));
-    const prismJsUri    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism.min.js')));
-    const prismLangsUri = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-langs.min.js')));
-    const prismCssUri   = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'lib', 'prism-dark.min.css')));
+    const prismJsPath   = path.join(context.extensionPath, 'lib', 'prism.min.js');
+    const prismLangsPath= path.join(context.extensionPath, 'lib', 'prism-langs.min.js');
+    const prismCssPath  = path.join(context.extensionPath, 'lib', 'prism-dark.min.css');
+    const prismJsUri    = webview.asWebviewUri(vscode.Uri.file(prismJsPath));
+    const prismLangsUri = webview.asWebviewUri(vscode.Uri.file(prismLangsPath));
+    const prismCssUri   = webview.asWebviewUri(vscode.Uri.file(prismCssPath));
     const soundsBase    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'sounds')));
     const helpUri       = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'panel', 'help.html')));
-    const panelJsUri    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'panel', 'panel.js')));
+    const panelJsPath   = path.join(context.extensionPath, 'panel', 'panel.js');
+    const panelJsUri    = webview.asWebviewUri(vscode.Uri.file(panelJsPath));
     /* Tamagotchi game scripts — three vanilla-JS modules that the panel's
        index.html loads BEFORE panel.js so the game's globals (DotMatrix40,
        TAMAGOTCHI_SPRITES, TamagotchiGame) are defined for any code that
        wants to reference them. Each module self-guards against duplicate
        registration, so re-injecting via hot-reload is safe. */
-    const dotmatrixJsUri    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'panel', 'dotmatrix.js')));
-    const tamaSpritesJsUri  = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'panel', 'dotmatrix-tamagotchi-sprites.js')));
-    const tamaGameJsUri     = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'panel', 'dotmatrix-tamagotchi-game.js')));
+    const dotmatrixJsPath   = path.join(context.extensionPath, 'panel', 'dotmatrix.js');
+    const tamaSpritesJsPath = path.join(context.extensionPath, 'panel', 'dotmatrix-tamagotchi-sprites.js');
+    const tamaGameJsPath    = path.join(context.extensionPath, 'panel', 'dotmatrix-tamagotchi-game.js');
+    const dotmatrixJsUri    = webview.asWebviewUri(vscode.Uri.file(dotmatrixJsPath));
+    const tamaSpritesJsUri  = webview.asWebviewUri(vscode.Uri.file(tamaSpritesJsPath));
+    const tamaGameJsUri     = webview.asWebviewUri(vscode.Uri.file(tamaGameJsPath));
     endUris();
 
     const endSubst = timeStep('  substituteTemplateTokens');
@@ -4432,14 +4518,14 @@ function getPanelHtml(context, webview) {
     html = html.split('{{BLANK_URI}}').join(blankUri.toString());
     html = html.split('{{BLANK_OVER_URI}}').join(blankOverUri.toString());
     html = html.split('{{BLANK_CLICK_URI}}').join(blankClickUri.toString());
-    html = html.split('{{PRISM_JS_URI}}').join(prismJsUri.toString());
-    html = html.split('{{PRISM_LANGS_URI}}').join(prismLangsUri.toString());
-    html = html.split('{{PRISM_CSS_URI}}').join(prismCssUri.toString());
+    html = html.split('{{PRISM_JS_URI}}').join(withV(prismJsUri, prismJsPath));
+    html = html.split('{{PRISM_LANGS_URI}}').join(withV(prismLangsUri, prismLangsPath));
+    html = html.split('{{PRISM_CSS_URI}}').join(withV(prismCssUri, prismCssPath));
     html = html.split('{{HELP_URI}}').join(helpUri.toString());
-    html = html.split('{{PANEL_JS_URI}}').join(panelJsUri.toString());
-    html = html.split('{{DOTMATRIX_JS_URI}}').join(dotmatrixJsUri.toString());
-    html = html.split('{{TAMA_SPRITES_JS_URI}}').join(tamaSpritesJsUri.toString());
-    html = html.split('{{TAMA_GAME_JS_URI}}').join(tamaGameJsUri.toString());
+    html = html.split('{{PANEL_JS_URI}}').join(withV(panelJsUri, panelJsPath));
+    html = html.split('{{DOTMATRIX_JS_URI}}').join(withV(dotmatrixJsUri, dotmatrixJsPath));
+    html = html.split('{{TAMA_SPRITES_JS_URI}}').join(withV(tamaSpritesJsUri, tamaSpritesJsPath));
+    html = html.split('{{TAMA_GAME_JS_URI}}').join(withV(tamaGameJsUri, tamaGameJsPath));
     html = html.split('{{CSP_SOURCE}}').join(webview.cspSource);
     endSubst();
     endHtml(`final bytes=${html.length}`);
@@ -5160,10 +5246,22 @@ function _probeTcpPort(host, port, timeoutMs) {
 }
 
 /* Spawn a bridge exe detached + hidden. Tracks it in _runningBridges so we
-   don't double-spawn. Returns the child handle (already unref'd). */
+   don't double-spawn. Returns the child handle (already unref'd).
+
+   This launches the native C++ tray exe at bin/CBE-Bridge-<Target>.exe — the
+   ONLY thing that knows how to drive the logged-in browser session (via
+   bridge_pilot.py + the minicomputer chrome it supervises) for cloud
+   providers, and the only thing that talks to the local Ollama daemon for
+   the Ollama target. (Earlier code launched smart_bridge.py instead — a
+   REST-API client that has no public route for Copilot, no browser session
+   for the others, and a different on-the-wire shape than what the JS chat
+   path posts. That was the routing-bug being fixed here.)
+
+   The tray exe takes its TCP port as its first command-line argument. */
 function _spawnBridge(target, exePath) {
     const cp = require('child_process');
-    const child = cp.spawn(exePath, [], {
+    const port = BRIDGE_PORTS[target];
+    const child = cp.spawn(exePath, [String(port)], {
         cwd: path.dirname(exePath),
         stdio: 'ignore',
         windowsHide: true,
@@ -5187,6 +5285,41 @@ async function _waitForPort(host, port, timeoutMs) {
         await new Promise(r => setTimeout(r, 250));
     }
     return false;
+}
+
+/* Kill every CBE-Bridge-*.exe whose target is NOT `keepTarget`. Single-bridge
+   invariant: only the currently-selected provider's tray stays alive. Without
+   this, every Settings → provider switch leaves the old bridge tray running,
+   so after N switches the user has N trays piled up. Treat "process not
+   found" (no instance running) as a non-event — don't log it as an error. */
+function killOtherBridgeTrays(keepTarget) {
+    const keepExe = (BRIDGE_EXE_NAME[keepTarget] || '').toLowerCase();
+    const { execFile } = require('child_process');
+    for (const target of Object.keys(BRIDGE_EXE_NAME)) {
+        if (target === keepTarget) continue;
+        const exe = BRIDGE_EXE_NAME[target];
+        if (!exe || exe.toLowerCase() === keepExe) continue;
+        try {
+            execFile('taskkill', ['/F', '/IM', exe], { windowsHide: true }, (err) => {
+                if (err) {
+                    const msg = String((err && err.message) || err);
+                    /* taskkill returns non-zero when no matching process exists.
+                       That's the common case (most bridges aren't running), so
+                       silence it. Only log surprise failures. */
+                    if (!/not found|there is no running|not running/i.test(msg)) {
+                        trace(`BRIDGE:KILL ${exe} err=${msg.trim()}`);
+                    }
+                } else {
+                    trace(`BRIDGE:KILL ${exe} ok`);
+                    /* Drop any stale book-keeping for the killed target. */
+                    _runningBridges.delete(target);
+                }
+            });
+        } catch (e) {
+            /* synchronous throw from execFile is rare (bad args); log + continue */
+            trace(`BRIDGE:KILL ${exe} threw ${e && e.message}`);
+        }
+    }
 }
 
 /* Ensure the tray-exe bridge for `target` is running. If not, spawn it +
@@ -5443,9 +5576,7 @@ async function* streamBridge(context, providerId, messages, onProgress) {
     const message = (lastUser && lastUser.content) || '';
     if (!message) throw new Error('no user message to send');
 
-    const pythonExe = process.env.CBE_PYTHON || 'python';
-    const cliArgs = ['start.py', '--chat', target, '--no-auto-login', message];
-    if (onProgress) onProgress(`bridge → ${target} (start.py --chat)`);
+    if (onProgress) onProgress(`bridge → ${target}`);
 
     /* AUTO-START the tray bridge BEFORE invoking start.py --chat. Without
        this, --chat exits 2 ("bridge ${target} not running") whenever the
@@ -5470,59 +5601,128 @@ async function* streamBridge(context, providerId, messages, onProgress) {
     }
 
     const answer = await new Promise((resolve, reject) => {
-        let proc;
-        try {
-            proc = spawn(pythonExe, cliArgs, {
-                cwd: context.extensionPath,
-                windowsHide: true,
-                stdio: ['ignore', 'pipe', 'pipe'],
-            });
-        } catch (e) {
-            reject(new Error(`failed to spawn ${pythonExe}: ${e.message}. Set env var CBE_PYTHON to the python.exe path, or add python to PATH.`));
-            return;
-        }
-        let stdout = '';
-        let stderr = '';
-        proc.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
-        proc.stderr.on('data', (chunk) => {
-            const txt = chunk.toString('utf8');
-            stderr += txt;
-            /* Surface CLI progress lines as panel status — they look like
-               "[TRACE:bridge-client] waiting for chat job=... elapsed=...". */
-            if (onProgress) {
-                for (const ln of txt.split(/\r?\n/)) {
-                    const t = ln.trim();
-                    if (t.startsWith('[TRACE:bridge-client]') && t.includes('elapsed=')) {
-                        onProgress(t.slice(0, 200));
-                    }
-                }
-            }
-        });
-        proc.on('error', (e) => reject(new Error(`failed to spawn ${pythonExe}: ${e.message}. Set env var CBE_PYTHON to the python.exe path, or add python to PATH.`)));
-        proc.on('close', (code) => {
-            const out = stdout.replace(/\r\n/g, '\n').replace(/\n+$/, '');
-            if (code === 0) {
-                resolve(out);
-            } else if (code === 2) {
-                /* ensureBridge() above already tried to spawn the tray exe.
-                   If start.py still couldn't reach the port, the EXE either
-                   (a) isn't on disk (handled separately above) or (b) crashed
-                   on launch / is held by a zombie. Surface a useful hint. */
-                const port = BRIDGE_PORTS[target] || '?';
-                reject(new Error(`bridge ${target} not reachable on port ${port}. CBE tried to auto-start bin/${BRIDGE_EXE_NAME[target] || target} — check Task Manager for a stuck CBE-Bridge-* process, or netstat -ano | findstr ${port}.`));
+        /* Speak the C++ tray exe's newline-delimited JSON protocol directly.
+           The exe's handleConnection() (bridge_server.cpp) sniffs the first
+           byte: '{' selects the SuperGrok line protocol; anything else falls
+           into the HTTP/1.1 status-ping path (which has no chat route — that
+           was the routing bug being fixed here).
+
+           Wire shape:
+             out: {"action":"chat","target":"<t>","message":"<text>","model":"<m>"}\n
+             in : {"ok":true,"accepted":false,"target":"<t>","port":<p>,
+                   "model":"<m>","answer":"<text>","server":"CBE-Bridge-<T>/1.0"}\n
+           The exe dispatches internally to bridge_chat.py (Ollama) or
+           bridge_pilot.py (browser targets) and returns the final answer
+           synchronously — no jobId/polling needed. */
+        const net  = require('net');
+        const port = BRIDGE_PORTS[target];
+        const payload = JSON.stringify({
+            action:  'chat',
+            target:  target,
+            message: message,
+            model:   provider.defaultModel,
+        }) + '\n';
+        const sock = new net.Socket();
+        let body = '';
+        let settled = false;
+        const fail = (err) => {
+            if (settled) return;
+            settled = true;
+            try { sock.destroy(); } catch (_) {}
+            reject(err);
+        };
+        sock.setTimeout(240000);
+        sock.on('connect', () => { sock.write(payload); });
+        sock.on('data', (c) => { body += c.toString('utf8'); });
+        sock.on('end', () => {
+            if (settled) return;
+            const line = body.split('\n').find(s => s.trim().length > 0) || '';
+            let data = null;
+            try { data = JSON.parse(line); } catch (_) { /* fall through */ }
+            if (data && data.ok && typeof data.answer === 'string') {
+                settled = true;
+                resolve(data.answer);
             } else {
-                const tail = stderr.trim().split(/\r?\n/).slice(-8).join('\n');
-                reject(new Error(`bridge ${target} chat failed (exit ${code}): ${tail || out || '(no output)'}`));
+                const detail = (data && (data.error || data.err)) || line.slice(0, 300) || '(empty response)';
+                fail(new Error(`bridge ${target} chat failed: ${detail}`));
             }
         });
+        sock.on('timeout', () => fail(new Error(`bridge ${target} chat timed out after 240s`)));
+        sock.on('error', (e) => fail(new Error(
+            `bridge ${target} not reachable on port ${port} — ${e.message}. `
+            + `CBE auto-starts CBE-Bridge-${target}.exe; check bin/ for the exe and `
+            + `netstat -ano | findstr ${port}.`)));
+        try { sock.connect(port, '127.0.0.1'); } catch (e) { fail(e); }
     });
     if (answer) yield answer;
 }
 
-/* Anthropic via SDK — wrap stream events as async generator. */
-async function* streamAnthropic(apiKey, model, messages, maxTokens) {
+/* Translate the OpenAI-shape conversation into Anthropic's messages/system
+   format. Conversation is stored canonically in OpenAI shape (role:'user' |
+   'assistant' | 'tool' | 'system'; assistant may carry tool_calls[]; tool
+   carries tool_call_id). Anthropic wants:
+     - system as a separate top-level field
+     - assistant tool calls as content blocks {type:'tool_use', id, name, input}
+     - tool results as content blocks {type:'tool_result', tool_use_id, content}
+       inside a USER message (consecutive tool results merge into one msg). */
+function _messagesToAnthropic(openAiMessages) {
+    const out = [];
+    let system = '';
+    for (const m of openAiMessages) {
+        if (m.role === 'system') {
+            system += (system ? '\n\n' : '') + (m.content || '');
+            continue;
+        }
+        if (m.role === 'tool') {
+            const block = { type: 'tool_result', tool_use_id: m.tool_call_id, content: String(m.content || '') };
+            const last = out[out.length - 1];
+            if (last && last.role === 'user' && Array.isArray(last.content)) {
+                last.content.push(block);
+            } else {
+                out.push({ role: 'user', content: [block] });
+            }
+            continue;
+        }
+        if (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length) {
+            const blocks = [];
+            if (m.content) blocks.push({ type: 'text', text: String(m.content) });
+            for (const tc of m.tool_calls) {
+                let inp = {};
+                try { inp = JSON.parse((tc.function && tc.function.arguments) || '{}'); }
+                catch (e) { inp = { __raw_arguments: tc.function && tc.function.arguments }; }
+                blocks.push({ type: 'tool_use', id: tc.id, name: tc.function && tc.function.name, input: inp });
+            }
+            out.push({ role: 'assistant', content: blocks });
+            continue;
+        }
+        out.push({ role: m.role, content: m.content || '' });
+    }
+    return { system, messages: out };
+}
+
+/* OpenAI-shape NATIVE_TOOL_SCHEMAS → Anthropic tool definitions. Anthropic
+   uses `input_schema` instead of `parameters` and drops the {type:'function'}
+   wrapper — name/description/input_schema sit at the top level. */
+function _toolsToAnthropic(schemas) {
+    return (schemas || []).map(t => ({
+        name: t.function && t.function.name,
+        description: t.function && t.function.description,
+        input_schema: t.function && t.function.parameters,
+    }));
+}
+
+/* Anthropic via SDK — wrap stream events as async generator. When `tools` is
+   provided, we also tail the stream's finalMessage() for tool_use content
+   blocks and yield them as a `__toolCalls` sentinel in the same OpenAI shape
+   that streamOpenAIFormat emits, so handleSendText's existing daisy-chain
+   branch handles them without provider-specific code. */
+async function* streamAnthropic(apiKey, model, messages, maxTokens, tools) {
     const client = getAnthropicClient(apiKey);
-    const stream = await client.messages.stream({ model, max_tokens: maxTokens, messages });
+    const { system, messages: anthMsgs } = _messagesToAnthropic(messages);
+    const req = { model, max_tokens: maxTokens, messages: anthMsgs };
+    if (system) req.system = system;
+    if (tools && tools.length) req.tools = _toolsToAnthropic(tools);
+    const stream = await client.messages.stream(req);
     const queue = [];
     let finished = false;
     let pendingResolve = null;
@@ -5539,6 +5739,27 @@ async function* streamAnthropic(apiKey, model, messages, maxTokens) {
         } else {
             await new Promise(r => { pendingResolve = r; });
         }
+    }
+    /* Stream ended — collect tool_use blocks if the model wants to call a tool.
+       finalMessage() resolves to the assembled Message; stop_reason 'tool_use'
+       means the next turn must carry tool_result blocks. */
+    try {
+        const final = await stream.finalMessage();
+        if (final && final.stop_reason === 'tool_use' && Array.isArray(final.content)) {
+            const toolCalls = [];
+            for (const block of final.content) {
+                if (block && block.type === 'tool_use') {
+                    toolCalls.push({
+                        id: block.id,
+                        type: 'function',
+                        function: { name: block.name, arguments: JSON.stringify(block.input || {}) },
+                    });
+                }
+            }
+            if (toolCalls.length) yield { __toolCalls: toolCalls, __finishReason: 'tool_use' };
+        }
+    } catch (e) {
+        traceErr('streamAnthropic finalMessage', e);
     }
 }
 
@@ -5558,7 +5779,7 @@ async function* chatStream(context, providerId, model, messages, maxTokens, onPr
     if (!key) throw new Error(`No API key for ${providerId}. Run "Claude Codex Black: Set API Key" or add it to config.ini under [api_keys] (or [azure]).`);
 
     if (providerId === 'anthropic') {
-        yield* streamAnthropic(key, model, messages, maxTokens);
+        yield* streamAnthropic(key, model, messages, maxTokens, NATIVE_TOOL_SCHEMAS);
         return;
     }
     if (providerId === 'gemini') {
