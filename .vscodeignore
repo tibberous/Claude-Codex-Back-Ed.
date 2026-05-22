@@ -161,3 +161,10 @@ LICENSE.TXT
 
 # ── Misc package metadata that doesn't belong in a .vsix ───────────────
 package-lock.json
+
+# ── Orphan .color.png variants — verified 2026-05-22 to have ZERO
+#    references in extension.js / panel.js / hooks / skins / build_skins.py
+#    (`grep -r '.color.png' src` returns nothing). Leftover from an
+#    earlier asset-gen experiment; not used at runtime. Excluding ~50 MB
+#    of unused 1024x1024 PNG icons from the .vsix. ──────────────────────
+assets/*.color.png
