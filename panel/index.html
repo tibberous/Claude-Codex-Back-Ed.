@@ -1158,7 +1158,11 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     all: unset; cursor: pointer;
     width: 26px; height: 26px;
     display: inline-block;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path stroke='%23ffffff' stroke-width='2.4' stroke-linecap='round' fill='none' d='M6 6L18 18M18 6L6 18'/></svg>");
+    /* URL-encoded `<` `>` (was raw — VSCode webview's strict CSP/parser
+       rejected the malformed data URI, the SVG failed to load, and the close
+       button rendered as a solid box with no X — user 2026-05-22: "X IS MAGIC
+       BOXING"). Encoded form loads in every browser including the webview. */
+    background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath stroke='%23ffffff' stroke-width='2.4' stroke-linecap='round' fill='none' d='M6 6L18 18M18 6L6 18'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: center;
     background-size: 14px 14px;
