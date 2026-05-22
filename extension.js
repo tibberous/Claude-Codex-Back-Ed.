@@ -1037,6 +1037,50 @@ async function rotateOnRateLimit(context, providerId, opts) {
 }
 
 let activePanel;
+
+/* Slash-command palette runner. Mirrors panel/panel.js CBE_COMMANDS so each
+   slash command also exists as a real VSCode command id (registered in
+   contributes.commands → "codexBlackEd.slash.<name>"). Opens the panel if
+   needed, then posts the same `type` strings the in-panel run() bodies use.
+   `key` is the panel-side slash name without the leading "/" (e.g. "help",
+   "compact", "switchAccounts"). */
+function runSlashCommand(context, key) {
+    /* Map slash key → webview message envelope. For commands that the
+       panel's CBE_COMMANDS runs by clicking a DOM button (e.g. /clear →
+       addBtn.click()), we expose a thin `runSlash` message so panel.js
+       can dispatch it without re-implementing the click logic. */
+    const map = {
+        help:           { type: 'runSlash', name: 'help' },
+        handbook:       { type: 'runSlash', name: 'handbook' },
+        clear:          { type: 'runSlash', name: 'clear' },
+        settings:       { type: 'openSettings' },
+        prompts:        { type: 'openPromptsFile' },
+        history:        { type: 'openChatHistory' },
+        font:           { type: 'runSlash', name: 'font' },
+        attach:         { type: 'runSlash', name: 'attach' },
+        folder:         { type: 'runSlash', name: 'folder' },
+        compact:        { type: 'compactConversation' },
+        git:            { type: 'openGit' },
+        github:         { type: 'runSlash', name: 'github' },
+        license:        { type: 'showLicense' },
+        push:           { type: 'pushUpdate' },
+        switchAccounts: { type: 'runSlash', name: 'switchAccounts' },
+    };
+    const msg = map[key];
+    if (!msg) { trace(`SLASH:UNKNOWN ${key}`); return; }
+    try {
+        /* Ensure the panel exists, then post. openPanel resolves to the
+           bound panel — we then deliver the message. */
+        const ensure = () => {
+            if (activePanel) { activePanel.webview.postMessage(msg); return; }
+            vscode.commands.executeCommand('codexBlackEd.openPanel').then(() => {
+                if (activePanel) activePanel.webview.postMessage(msg);
+            }, e => traceErr('runSlashCommand:openPanel', e));
+        };
+        ensure();
+    } catch (e) { traceErr('runSlashCommand', e); }
+}
+
 /* Singleton WebviewPanel for the NN4-skinned browser shell. Created lazily
    on the first 'openNN4Browser' message; revealed on subsequent clicks;
    nulled out by onDidDispose so the next click rebuilds it. */
@@ -1932,23 +1976,71 @@ async function activate(context) {
                 if (activePanel) activePanel.webview.postMessage({ type: 'error', message: 'pushUpdate failed: ' + (e.message || e) });
             }
         }),
+        /* Slash-command palette mirrors — every CBE_COMMANDS entry from
+           panel/panel.js also gets a real VSCode command id so it shows up
+           in the Marketplace "Commands" section and in the Command Palette.
+           Each handler ensures the panel is open, then posts a message that
+           the panel's slash-command runner reads via window message events.
+           The message types here match the postMessage `type` strings used
+           inside CBE_COMMANDS run() bodies. */
+        vscode.commands.registerCommand('codexBlackEd.slash.help',     () => runSlashCommand(context, 'help')),
+        vscode.commands.registerCommand('codexBlackEd.slash.handbook', () => runSlashCommand(context, 'handbook')),
+        vscode.commands.registerCommand('codexBlackEd.slash.clear',    () => runSlashCommand(context, 'clear')),
+        vscode.commands.registerCommand('codexBlackEd.slash.settings', () => runSlashCommand(context, 'settings')),
+        vscode.commands.registerCommand('codexBlackEd.slash.prompts',  () => runSlashCommand(context, 'prompts')),
+        vscode.commands.registerCommand('codexBlackEd.slash.history',  () => runSlashCommand(context, 'history')),
+        vscode.commands.registerCommand('codexBlackEd.slash.font',     () => runSlashCommand(context, 'font')),
+        vscode.commands.registerCommand('codexBlackEd.slash.attach',   () => runSlashCommand(context, 'attach')),
+        vscode.commands.registerCommand('codexBlackEd.slash.folder',   () => runSlashCommand(context, 'folder')),
+        vscode.commands.registerCommand('codexBlackEd.slash.compact',  () => runSlashCommand(context, 'compact')),
+        vscode.commands.registerCommand('codexBlackEd.slash.compress', () => runSlashCommand(context, 'compact')),
+        vscode.commands.registerCommand('codexBlackEd.slash.git',      () => runSlashCommand(context, 'git')),
+        vscode.commands.registerCommand('codexBlackEd.slash.github',   () => runSlashCommand(context, 'github')),
+        vscode.commands.registerCommand('codexBlackEd.slash.license',  () => runSlashCommand(context, 'license')),
+        vscode.commands.registerCommand('codexBlackEd.slash.push',     () => runSlashCommand(context, 'push')),
+        vscode.commands.registerCommand('codexBlackEd.slash.switchAccounts', () => runSlashCommand(context, 'switchAccounts')),
         /* If the user closes our terminal, drop the reference so the next
            click on the Terminal button creates a fresh one in the right cwd. */
         vscode.window.onDidCloseTerminal((t) => { if (t === cbeTerm) cbeTerm = null; }),
         outChan,
     );
-    endCmds(`(${9} commands)`);
+    endCmds(`(${25} commands)`);
+
+    /* Auto-update gate — respects BOTH our own toggle
+       (codexBlackEd.autoUpdate.enabled) AND VS Code's global
+       `extensions.autoUpdate` (which can be true | false |
+       "onlyEnabledExtensions" | "onlySelectedExtensions"). We treat any
+       truthy non-"false" value of the global setting as "auto-update on"
+       because for an enabled extension all of those modes mean
+       "this extension is allowed to auto-update". */
+    const ourAutoUpdate    = vscode.workspace.getConfiguration('codexBlackEd.autoUpdate').get('enabled', true);
+    const ourPushOnActivate = vscode.workspace.getConfiguration('codexBlackEd.autoUpdate').get('pushOnActivate', true);
+    const vscodeAutoUpdate = vscode.workspace.getConfiguration('extensions').get('autoUpdate', true);
+    const vscodeAutoUpdateOn = vscodeAutoUpdate === true
+        || vscodeAutoUpdate === 'onlyEnabledExtensions'
+        || vscodeAutoUpdate === 'onlySelectedExtensions';
 
     /* Background admin push — deferred via setImmediate so activation finishes
        before WinSCP spawns. No-op on non-admin machines (is_admin=false in
        config.ini). Failures land in logs/winscp_push_*.xml so the panel boot
-       isn't disturbed. */
-    setImmediate(() => { try { pushUpdateToServer(context); } catch (e) { traceErr('pushUpdateToServer', e); } });
+       isn't disturbed. Gated by both our pushOnActivate toggle and VS
+       Code's global extensions.autoUpdate setting. */
+    if (ourPushOnActivate && vscodeAutoUpdateOn) {
+        setImmediate(() => { try { pushUpdateToServer(context); } catch (e) { traceErr('pushUpdateToServer', e); } });
+    } else {
+        trace(`UPDATE:PUSH skipped — ours=${ourPushOnActivate} vscode=${vscodeAutoUpdate}`);
+    }
     /* Auto-pull: every client (admin or not) fetches the server manifest a
        few seconds after activate, then MD5-compares per-file and downloads
        only changed/missing files. Excludes user-local state (config.ini,
-       debug.log, domains.txt, etc) so personal config is never clobbered. */
-    setTimeout(() => { pullUpdateFromServer(context, { silent: true }).catch(e => traceErr('pullUpdateFromServer', e)); }, 4000);
+       debug.log, domains.txt, etc) so personal config is never clobbered.
+       Gated by both our autoUpdate.enabled toggle and VS Code's global
+       extensions.autoUpdate setting. */
+    if (ourAutoUpdate && vscodeAutoUpdateOn) {
+        setTimeout(() => pullUpdateFromServer(context, { silent: true }).catch(e => traceErr('pullUpdateFromServer', e)), 4000);
+    } else {
+        trace(`UPDATE:PULL skipped — ours=${ourAutoUpdate} vscode=${vscodeAutoUpdate}`);
+    }
     /* Load i18n language files from languages/*.xml on activate so the
        translation table is in memory before the panel asks for strings. */
     try { loadLanguageFiles(context); } catch (e) { traceErr('loadLanguageFiles', e); }

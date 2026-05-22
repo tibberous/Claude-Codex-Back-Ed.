@@ -1,15 +1,39 @@
 {
   "name": "codex-black-ed",
   "displayName": "Claude Codex Black Ed.",
-  "description": "Standalone Claude Codex Black panel with direct streaming chat to Claude / GPT / Grok / Gemini / Azure OpenAI.",
-  "version": "1.5.0",
+  "description": "Claude Codex Black extension with support for Claude / GPT / Grok / Gemini / CoPilot / DeepSeek / Azure. Need help on your next project? Call (724) 431-5207 today! Websites, extensions, mobile development, application development - whatever you need! Production-level code at fair prices with lightning-fast turn-around! Portfolio: https://trentontompkins.com.",
+  "version": "1.0.1",
   "publisher": "TrentonTompkins",
   "author": {
-    "name": "Trenton Tompkins",
+    "name": "Trent Tompkins",
     "email": "trenttompkins@gmail.com",
-    "url": "https://www.trentontompkins.com"
+    "url": "https://trentontompkins.com"
   },
   "license": "MIT",
+  "homepage": "https://github.com/tibberous/Claude-Codex-Back-Ed.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tibberous/Claude-Codex-Back-Ed."
+  },
+  "bugs": {
+    "url": "https://github.com/tibberous/Claude-Codex-Back-Ed./issues",
+    "email": "trenttompkins@gmail.com"
+  },
+  "keywords": [
+    "claude",
+    "chatgpt",
+    "gpt",
+    "grok",
+    "gemini",
+    "copilot",
+    "deepseek",
+    "azure",
+    "ai",
+    "chat",
+    "codex",
+    "anthropic",
+    "openai"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -84,6 +108,74 @@
           "light": "resources/browser.png",
           "dark": "resources/browser.png"
         }
+      },
+      {
+        "command": "codexBlackEd.pushUpdate",
+        "title": "Claude Codex Black: Push update to server"
+      },
+      {
+        "command": "codexBlackEd.slash.help",
+        "title": "Claude Codex: Help"
+      },
+      {
+        "command": "codexBlackEd.slash.handbook",
+        "title": "Claude Codex: Open handbook"
+      },
+      {
+        "command": "codexBlackEd.slash.clear",
+        "title": "Claude Codex: New conversation"
+      },
+      {
+        "command": "codexBlackEd.slash.settings",
+        "title": "Claude Codex: Open settings"
+      },
+      {
+        "command": "codexBlackEd.slash.prompts",
+        "title": "Claude Codex: Edit saved prompts"
+      },
+      {
+        "command": "codexBlackEd.slash.history",
+        "title": "Claude Codex: Browse chat history"
+      },
+      {
+        "command": "codexBlackEd.slash.font",
+        "title": "Claude Codex: Toggle big font"
+      },
+      {
+        "command": "codexBlackEd.slash.attach",
+        "title": "Claude Codex: Attach a file"
+      },
+      {
+        "command": "codexBlackEd.slash.folder",
+        "title": "Claude Codex: Pick project folder"
+      },
+      {
+        "command": "codexBlackEd.slash.compact",
+        "title": "Claude Codex: Compact conversation"
+      },
+      {
+        "command": "codexBlackEd.slash.compress",
+        "title": "Claude Codex: Compress conversation (alias of /compact)"
+      },
+      {
+        "command": "codexBlackEd.slash.git",
+        "title": "Claude Codex: Source control"
+      },
+      {
+        "command": "codexBlackEd.slash.github",
+        "title": "Claude Codex: List GitHub repos"
+      },
+      {
+        "command": "codexBlackEd.slash.license",
+        "title": "Claude Codex: Show the MIT license"
+      },
+      {
+        "command": "codexBlackEd.slash.push",
+        "title": "Claude Codex: Push files to server (auto-update)"
+      },
+      {
+        "command": "codexBlackEd.slash.switchAccounts",
+        "title": "Claude Codex: Switch accounts"
       }
     ],
     "menus": {
@@ -113,6 +205,36 @@
     "configuration": {
       "title": "Claude Codex Black",
       "properties": {
+        "codexBlackEd.activeProvider": {
+          "type": "string",
+          "default": "anthropic",
+          "enum": [
+            "anthropic",
+            "openai",
+            "grok",
+            "gemini",
+            "copilot",
+            "deepseek",
+            "azure",
+            "claudeBridge",
+            "chatgptBridge",
+            "grokBridge",
+            "geminiBridge",
+            "copilotBridge",
+            "ollamaBridge",
+            "ollama"
+          ],
+          "description": "Active LLM provider used for chat. Bridge providers route through the local C++ tray exes in bin/.",
+          "markdownDescription": "Active LLM provider used for chat. Bridge providers route through the local C++ tray exes in `bin/`. Category: **Provider**."
+        },
+        "codexBlackEd.activeModel": {
+          "type": "object",
+          "default": {},
+          "description": "Per-provider model selection map. Keys are provider ids (anthropic, openai, etc.); values are the currently selected model id for that provider. Edited via Settings → Models in the panel.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "codexBlackEd.model": {
           "type": "string",
           "default": "claude-sonnet-4-6",
@@ -121,7 +243,7 @@
             "claude-sonnet-4-6",
             "claude-haiku-4-5-20251001"
           ],
-          "description": "Anthropic model to use for chat."
+          "description": "Anthropic model to use for chat (legacy single-provider setting; superseded by codexBlackEd.activeModel)."
         },
         "codexBlackEd.maxTokens": {
           "type": "number",
@@ -129,6 +251,73 @@
           "minimum": 256,
           "maximum": 16384,
           "description": "Max output tokens per response."
+        },
+        "codexBlackEd.activeAccount": {
+          "type": "object",
+          "default": {},
+          "description": "Per-provider active account id. Keys are provider ids; values are the account id selected in the Accounts modal.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "codexBlackEd.skin": {
+          "type": "string",
+          "default": "",
+          "description": "Filename of the active skin CSS from skins/ (e.g. 'noir.css'). Empty string = built-in default."
+        },
+        "codexBlackEd.bigFont": {
+          "type": "boolean",
+          "default": false,
+          "description": "Render chat at a larger font size for readability. Toggled by the toolbar font button or the /font slash command."
+        },
+        "codexBlackEd.fontSize": {
+          "type": "number",
+          "default": 14,
+          "minimum": 10,
+          "maximum": 24,
+          "description": "Chat font size in pixels when bigFont is off."
+        },
+        "codexBlackEd.language": {
+          "type": "string",
+          "default": "en",
+          "description": "UI language code (matches a file under languages/, e.g. 'en', 'es', 'fr')."
+        },
+        "codexBlackEd.sfxEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable UI sound effects (button clicks, message-sent chimes, errors)."
+        },
+        "codexBlackEd.sfxVolume": {
+          "type": "number",
+          "default": 0.5,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "UI sound-effect volume (0 = silent, 1 = full)."
+        },
+        "codexBlackEd.projectFolder": {
+          "type": "string",
+          "default": "",
+          "description": "Currently selected project folder. Used as cwd for /git, /github, terminal launches, and file-attach pickers."
+        },
+        "codexBlackEd.bridgeAutoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "When the active provider is a bridge (claudeBridge / chatgptBridge / grokBridge / geminiBridge / copilotBridge / ollamaBridge), start its tray exe automatically on activation so the first chat doesn't pay a cold-start cost. Category: **Bridges**."
+        },
+        "codexBlackEd.bridgeOllamaAutoDiscover": {
+          "type": "boolean",
+          "default": true,
+          "description": "On activate, probe localhost:11434 for a running Ollama daemon and populate the model list. Category: **Bridges**."
+        },
+        "codexBlackEd.autoUpdate.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-pull manifest updates from trentontompkins.com/cbe on activation. Disabled automatically if VS Code's global 'extensions.autoUpdate' is off. Category: **Auto-Update**."
+        },
+        "codexBlackEd.autoUpdate.pushOnActivate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Admin-only: on activation, push local changes to the trentontompkins.com server via WinSCP. No-op when config.ini is_admin is false. Disabled automatically if VS Code's global 'extensions.autoUpdate' is off. Category: **Auto-Update**."
         }
       }
     }

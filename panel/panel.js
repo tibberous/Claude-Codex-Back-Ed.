@@ -3296,10 +3296,12 @@ const CBE_COMMANDS = [
   { name: '/attach',   desc: 'Attach a file',            run: () => document.getElementById('attachFileBtn').click() },
   { name: '/folder',   desc: 'Pick project folder',      run: () => document.getElementById('projectFolderBtn').click() },
   { name: '/compact',  desc: 'Compact conversation',     run: () => { if (api) api.postMessage({ type: 'compactConversation' }); } },
+  { name: '/compress', desc: 'Compress conversation (alias of /compact)', run: () => { if (api) api.postMessage({ type: 'compactConversation' }); } },
   { name: '/git',      desc: 'Source control',           run: () => { if (api) api.postMessage({ type: 'openGit' }); } },
   { name: '/github',   desc: 'List GitHub repos',        run: () => { const b = document.getElementById('githubBtn'); if (b) b.click(); } },
   { name: '/license',  desc: 'Show the MIT license',     run: () => { if (api) api.postMessage({ type: 'showLicense' }); } },
   { name: '/push',     desc: 'Push files to server (auto-update)', run: () => { if (api) api.postMessage({ type: 'pushUpdate' }); } },
+  { name: '/switch-accounts', desc: 'Switch accounts',   run: () => { const b = document.getElementById('accountsBtn'); if (b) b.click(); } },
 ];
 
 let __cbeCmdMenuEl    = null;
@@ -3536,6 +3538,28 @@ window.addEventListener('message', e => {
      sandboxed iframe to nowhere. */
   if (m && m.type === 'cbe.openExternal' && typeof m.url === 'string') {
     if (api) api.postMessage({ type: 'openExternal', url: m.url });
+    return;
+  }
+  /* runSlash — invoked from the host when a user runs one of the
+     codexBlackEd.slash.* VSCode commands. Map the slash name to its
+     CBE_COMMANDS entry and run it. This lets the Marketplace
+     "Commands" list / Command Palette / keybindings drive the same
+     code path the in-panel "/" menu uses. */
+  if (m && m.type === 'runSlash' && typeof m.name === 'string') {
+    try {
+      const entry = (typeof CBE_COMMANDS !== 'undefined' ? CBE_COMMANDS : [])
+        .find(c => c && c.name === '/' + m.name);
+      if (entry && typeof entry.run === 'function') {
+        entry.run();
+      } else {
+        /* switchAccounts isn't in CBE_COMMANDS under that exact slug
+           (it's "/switch-accounts"); resolve aliases here. */
+        if (m.name === 'switchAccounts') {
+          const b = document.getElementById('accountsBtn');
+          if (b) b.click();
+        }
+      }
+    } catch (err) { /* swallow */ }
     return;
   }
   if (m.type === 'assistantStart') {
@@ -4187,6 +4211,33 @@ window.addEventListener('resize', fitProjectPath);
     });
     menu.appendChild(dev);
 
+    /* Settings — opens the same Settings modal the toolbar settingsBtn
+       opens (provider / model / skin / language / SFX). Reachable from
+       the right-click menu so the user doesn't have to hunt for the
+       toolbar button. (user 2026-05-22.) */
+    var settings = document.createElement('div');
+    settings.className = 'cbe-item';
+    settings.textContent = 'Settings';
+    settings.addEventListener('mousedown', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      removeMenu();
+      if (api) api.postMessage({ type: 'openSettings' });
+    });
+    menu.appendChild(settings);
+
+    /* About — small modal showing version, author, license, contact.
+       (user 2026-05-22: "right clicking the extension panel should give
+       options for settings and about".) */
+    var about = document.createElement('div');
+    about.className = 'cbe-item';
+    about.textContent = 'About';
+    about.addEventListener('mousedown', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      removeMenu();
+      showAboutModal();
+    });
+    menu.appendChild(about);
+
     /* Reload Panel — re-reads panel/index.html + panel.js + lib/* from disk
        with a per-file mtime cache-buster and reassigns panel.webview.html.
        This is the supported way to pick up CSS / JS edits in panel-side
@@ -4373,9 +4424,55 @@ window.addEventListener('resize', fitProjectPath);
     showCtxMenu(e.clientX, e.clientY, codeEl);
   });
 
+  /* About modal — version, author, license, repo, contact. Reached from
+     the right-click menu. Theming via the panel's --cbe-modal-* variables
+     so it picks up the active skin's palette automatically. */
+  function showAboutModal() {
+    /* Reuse the source-modal overlay id so escape/click-outside logic
+       still works; we just paint different content into it. */
+    removeModal();
+    var overlay = document.createElement('div');
+    overlay.id = MODAL_ID;
+    overlay.innerHTML =
+      '<div class="cbe-box" style="max-width:520px;">' +
+        '<div class="cbe-hdr">' +
+          '<span class="cbe-title">About Claude Codex Black</span>' +
+          '<div class="cbe-actions"><button class="cbe-close" type="button" aria-label="Close">×</button></div>' +
+        '</div>' +
+        '<div class="cbe-body" style="padding:18px 22px;font-family:inherit;font-size:13.5px;line-height:1.6;">' +
+          '<p style="margin:0 0 10px;font-size:15px;"><b>Claude Codex — Black Edition</b></p>' +
+          '<p style="margin:0 0 6px;">Standalone VSCode panel for multi-provider AI chat (Claude / GPT / Grok / Gemini / Copilot / DeepSeek / Azure) with direct API + browser bridges, TTS/STT, multi-account, skinning, and a Tamagotchi pet.</p>' +
+          '<table style="margin:14px 0;border-collapse:collapse;width:100%;font-size:13px;">' +
+            '<tr><td style="padding:3px 0;color:var(--cbe-modal-fg);opacity:0.7;width:90px;">Version</td><td>1.0.1</td></tr>' +
+            '<tr><td style="padding:3px 0;color:var(--cbe-modal-fg);opacity:0.7;">Author</td><td>Trent Tompkins &nbsp;<a href="mailto:trenttompkins@gmail.com" style="color:var(--cbe-modal-accent);">&lt;trenttompkins@gmail.com&gt;</a></td></tr>' +
+            '<tr><td style="padding:3px 0;color:var(--cbe-modal-fg);opacity:0.7;">License</td><td>MIT</td></tr>' +
+            '<tr><td style="padding:3px 0;color:var(--cbe-modal-fg);opacity:0.7;">Repo</td><td><a href="https://github.com/tibberous/Claude-Codex-Back-Ed." style="color:var(--cbe-modal-accent);">github.com/tibberous/Claude-Codex-Back-Ed.</a></td></tr>' +
+            '<tr><td style="padding:3px 0;color:var(--cbe-modal-fg);opacity:0.7;">Portfolio</td><td><a href="https://trentontompkins.com" style="color:var(--cbe-modal-accent);">trentontompkins.com</a></td></tr>' +
+            '<tr><td style="padding:3px 0;color:var(--cbe-modal-fg);opacity:0.7;">Contact</td><td>(724) 431-5207</td></tr>' +
+          '</table>' +
+          '<p style="margin:14px 0 0;font-size:12.5px;opacity:0.75;">Need help on your next project? Websites, extensions, mobile development, application development — production-level code at fair prices with lightning-fast turn-around.</p>' +
+        '</div>' +
+      '</div>';
+    /* Close-on-click handlers: backdrop click + × button + Escape. */
+    overlay.addEventListener('mousedown', function(e) {
+      if (e.target === overlay) removeModal();
+    });
+    var closeBtn = overlay.querySelector('.cbe-close');
+    if (closeBtn) closeBtn.addEventListener('mousedown', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      removeModal();
+    });
+    function escClose(e) {
+      if (e.key === 'Escape') { removeModal(); document.removeEventListener('keydown', escClose, true); }
+    }
+    document.addEventListener('keydown', escClose, true);
+    document.body.appendChild(overlay);
+  }
+
   /* Expose for future agents (e.g. DevTools merge). */
   window.__cbeShowSource = showSourceModal;
   window.__cbeShowCtxMenu = showCtxMenu;
+  window.__cbeShowAbout = showAboutModal;
 })();
 
 /* ────────────────────────────────────────────────────────────────────────

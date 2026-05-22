@@ -5,567 +5,586 @@
 <title>Claude Codex — Black Edition · Help</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
+  /* Smooth-scroll for the TOC anchor jumps. */
+  html { scroll-behavior: smooth; }
+
   :root {
-    --bg: #16181d;
-    --surface: #1f2229;
-    --surface-2: #262a33;
-    --border: #353a45;
-    --text: #e7eaef;
-    --muted: #aab1bd;
-    --accent: #4ea8ff;
-    --accent-soft: rgba(78,168,255,0.12);
-    --kbd-bg: #0f1116;
-    --kbd-border: #2b313b;
-    --warn: #ffd84d;
-    --err: #ff8a8a;
-    --ok: #6fd58a;
+    /* Defaults — overridden by panel.js applySkinColors() when a skin is
+       active so the help reads natively under any skin (lime tamagotchi,
+       cream macOS, dark codex-black, etc). */
+    --bg:           var(--cbe-modal-bg,           #16181d);
+    --surface:      var(--cbe-modal-foot-bg,      #1f2229);
+    --surface-2:    var(--cbe-modal-title-bg-1,   #262a33);
+    --border:       var(--cbe-modal-border,       #353a45);
+    --text:         var(--cbe-modal-fg,           #e7eaef);
+    --muted:                                      #aab1bd;
+    --accent:       var(--cbe-modal-accent,       #4ea8ff);
+    --accent-soft:                                rgba(78,168,255,0.12);
+    --kbd-bg:                                     #0f1116;
+    --kbd-border:                                 #2b313b;
+    --warn:                                       #ffd84d;
+    --err:                                        #ff8a8a;
   }
-  * { box-sizing: border-box; }
-  /* .app is included here because CBE inlines this file's body into a <div>
-     inside the panel (no <html>/<body> wrapper) — without .app carrying the
-     dark background + text color, the panel skin's background bleeds through
-     and you get unreadable text. Standalone (real <body>) it's still fine. */
-  html, body, .app { margin: 0; padding: 0; height: 100%; background: var(--bg);
-               color: var(--text); font: 14.5px/1.55 ui-sans-serif, system-ui,
-               -apple-system, "Segoe UI", sans-serif; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  code, kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-  code { background: var(--kbd-bg); padding: 1px 6px; border-radius: 4px;
-         border: 1px solid var(--kbd-border); font-size: 0.92em; }
-  kbd { background: var(--kbd-bg); padding: 1px 7px; border-radius: 4px;
-        border: 1px solid var(--kbd-border); border-bottom-width: 2px;
-        font-size: 0.85em; color: #ffd84d; }
-  pre { background: var(--kbd-bg); border: 1px solid var(--border);
-        border-radius: 6px; padding: 12px 14px; overflow-x: auto;
-        font-size: 12.5px; }
-  /* Layout: fixed TOC sidebar + scrolling content. The content scrolls
-     inside #main, which jQuery smooth-scrolls when TOC links are clicked. */
-  /* height:100% (not 100vh) so the layout fills the modal body when inlined,
-     and the full standalone window when opened as a real page. */
-  .app { display: grid; grid-template-columns: 240px 1fr; height: 100%; }
-  nav.toc { background: var(--surface); border-right: 1px solid var(--border);
-            overflow-y: auto; padding: 18px 0 24px 0; position: sticky; top: 0;
-            height: 100%; }
-  nav.toc h2 { margin: 0 18px 8px 18px; font-size: 11px; letter-spacing: 0.08em;
-               color: var(--muted); text-transform: uppercase; }
-  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: tocnum; }
-  nav.toc ol li { counter-increment: tocnum; }
-  nav.toc ol li > a { display: block; padding: 7px 18px 7px 36px; font-size: 13.5px;
-                       color: var(--text); position: relative; line-height: 1.3;
-                       border-left: 3px solid transparent; }
-  /* Click feedback wired from panel.js: active TOC link gets an accent bar +
-     tint, the landed section flashes a soft accent glow that fades out. */
-  nav.toc ol li > a.cbe-toc-active {
-    border-left-color: var(--accent); background: var(--accent-soft);
-    color: var(--accent);
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
   }
-  @keyframes cbeHelpFlash {
-    0%   { background: var(--accent-soft); }
-    100% { background: transparent; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 28px 32px 80px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 30px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 15px; margin: 18px 0 4px; color: var(--accent); }
+  h4 { font-size: 13px; margin: 12px 0 4px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  p  { margin: 4px 0 10px; }
+  ul, ol { margin: 4px 0 12px; padding-left: 22px; }
+  li { margin: 3px 0; }
+  code, kbd { font-family: Consolas, "Courier New", monospace; font-size: 12.5px; }
+  code { background: var(--surface-2); padding: 1px 5px; border-radius: 3px; }
+  kbd  { background: var(--kbd-bg); border: 1px solid var(--kbd-border); padding: 1px 6px; border-radius: 3px; font-size: 11.5px; }
+  pre  { background: var(--surface-2); padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; }
+  pre code { background: transparent; padding: 0; }
+  .lead { color: var(--muted); margin: 0 0 18px; }
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 14px 0 24px;
   }
-  .cbe-help-flash { animation: cbeHelpFlash 1.1s ease-out 1; border-radius: 6px; }
-  nav.toc ol li > a::before { content: counter(tocnum); position: absolute;
-                              left: 14px; top: 7px; color: var(--muted);
-                              font-family: ui-monospace; font-size: 11px;
-                              min-width: 16px; text-align: right; }
-  nav.toc ol li > a:hover { background: var(--surface-2); text-decoration: none; }
-  nav.toc ol li > a.active { background: var(--accent-soft);
-                              border-left-color: var(--accent); color: var(--accent); }
-  main#main { overflow-y: auto; padding: 28px 36px 80px 36px; height: 100vh; }
-  main#main > header { margin-bottom: 26px; padding-bottom: 14px;
-                       border-bottom: 1px solid var(--border); }
-  main#main > header h1 { margin: 0 0 4px 0; font-size: 24px; font-weight: 600;
-                          letter-spacing: 0.005em; }
-  main#main > header .meta { color: var(--muted); font-size: 13px; }
-  section.help-section { scroll-margin-top: 16px; max-width: 820px;
-                          margin: 0 0 36px 0; padding-top: 6px; }
-  section.help-section h2 { font-size: 19px; margin: 0 0 10px 0; font-weight: 600;
-                            display: flex; align-items: baseline; gap: 10px; }
-  section.help-section h2 .num { color: var(--muted); font: 13px ui-monospace;
-                                  min-width: 1.5em; }
-  section.help-section h3 { font-size: 15px; margin: 18px 0 6px 0; font-weight: 600;
-                            color: var(--text); }
-  section.help-section p { margin: 0 0 10px 0; color: var(--text); }
-  section.help-section ul { margin: 0 0 12px 0; padding-left: 22px; }
-  section.help-section li { margin-bottom: 4px; }
-  section.help-section table { border-collapse: collapse; width: 100%;
-                                margin: 6px 0 14px 0; font-size: 13.5px; }
-  section.help-section th, section.help-section td { border: 1px solid var(--border);
-                                                       padding: 6px 10px; text-align: left;
-                                                       vertical-align: top; }
-  section.help-section th { background: var(--surface-2); font-weight: 600; }
-  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft);
-             padding: 10px 14px; border-radius: 0 4px 4px 0; margin: 10px 0 14px 0; }
-  .callout.warn { border-color: var(--warn); background: rgba(255,216,77,0.08); }
-  .callout.err  { border-color: var(--err);  background: rgba(255,138,138,0.08); }
-  .top-link { float: right; font-size: 12px; color: var(--muted); }
+  .toc h2 { font-size: 13px; margin: 0 0 8px; border: 0; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .toc ul { columns: 2; column-gap: 28px; margin: 0; padding-left: 18px; list-style: square; }
+  .toc a { color: var(--text); text-decoration: none; }
+  .toc a:hover { color: var(--accent); text-decoration: underline; }
+  section { scroll-margin-top: 12px; }
+  .btnrow {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 4px 16px;
+    margin: 6px 0 14px;
+  }
+  .btnrow dt { font-weight: 600; color: var(--accent); padding-top: 2px; }
+  .btnrow dd { margin: 0 0 8px; }
+  .pill {
+    display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px;
+    background: var(--accent-soft); color: var(--accent); margin-left: 6px;
+    border: 1px solid color-mix(in srgb, var(--accent), transparent 60%);
+  }
+  .pill.warn { background: rgba(255,216,77,.10); color: var(--warn); border-color: color-mix(in srgb, var(--warn), transparent 60%); }
+  .note { background: var(--surface); border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: 13px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  details { margin: 6px 0; }
+  summary { cursor: pointer; color: var(--accent); padding: 4px 0; }
+  summary:hover { text-decoration: underline; }
+  .top-link { float: right; font-size: 12px; color: var(--muted); text-decoration: none; font-weight: normal; }
   .top-link:hover { color: var(--accent); }
-  /* Scrollbar */
-  *::-webkit-scrollbar { width: 10px; height: 10px; }
-  *::-webkit-scrollbar-track { background: var(--bg); }
-  *::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 5px; }
-  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
+  a { color: var(--accent); }
 </style>
 </head>
 <body>
-<div class="app">
+<div class="wrap">
 
-  <nav class="toc" aria-label="Table of contents">
-    <h2>Contents</h2>
-    <ol id="toc-list">
-      <li><a href="#welcome">Welcome</a></li>
-      <li><a href="#keyboard">Keyboard shortcuts</a></li>
-      <li><a href="#prompt-box">The prompt box</a></li>
-      <li><a href="#toolbar">Toolbar buttons</a></li>
-      <li><a href="#providers">Models &amp; providers</a></li>
-      <li><a href="#stt">Speech to Text</a></li>
-      <li><a href="#auto-prompt">Auto Prompt</a></li>
-      <li><a href="#tts">Auto Read (TTS)</a></li>
-      <li><a href="#compact">Compact &amp; context usage</a></li>
-      <li><a href="#wake-up">Wake-up response</a></li>
-      <li><a href="#attachments">File attachments</a></li>
-      <li><a href="#git">Git modal</a></li>
-      <li><a href="#github">GitHub repositories</a></li>
-      <li><a href="#domains">NameSilo Domains</a></li>
-      <li><a href="#skins">Skins &amp; themes</a></li>
-      <li><a href="#settings">Settings</a></li>
-      <li><a href="#language">Language</a></li>
-      <li><a href="#monitor">VSCode supervisor</a></li>
-      <li><a href="#auto-update">Auto-update (pull)</a></li>
-      <li><a href="#admin-push">Admin push</a></li>
-      <li><a href="#extensions">Extensions marketplace</a></li>
-      <li><a href="#slash">Slash commands</a></li>
-      <li><a href="#context-menu">Right-click menu</a></li>
-      <li><a href="#trace">Trace channel</a></li>
-      <li><a href="#troubleshooting">Troubleshooting</a></li>
-      <li><a href="#about">About &amp; license</a></li>
-    </ol>
-  </nav>
+<h1>Claude Codex — Black Edition</h1>
+<p class="lead">Standalone AI panel for VSCode. Chat with any LLM provider (direct API or browser bridge), with built-in TTS, STT, attach-to-file, command palette, multi-account, skinning, and a pixel-pet Tamagotchi.</p>
 
-  <main id="main">
-    <header>
-      <h1>Claude Codex — Black Edition</h1>
-      <div class="meta">An offline-first multi-provider AI chat panel for VSCode.
-        Press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd> to toggle.</div>
-    </header>
+<nav class="toc">
+  <h2>Contents</h2>
+  <ul>
+    <li><a href="#quick">Quick start</a></li>
+    <li><a href="#providers">Providers &amp; models</a></li>
+    <li><a href="#sending">Sending messages</a></li>
+    <li><a href="#toolbar">Toolbar buttons</a></li>
+    <li><a href="#rightclick">Right-click menu</a></li>
+    <li><a href="#modals">Modals &amp; dialogs</a></li>
+    <li><a href="#settings">Settings</a></li>
+    <li><a href="#setup">Setup wizard</a></li>
+    <li><a href="#accounts">Accounts &amp; API keys</a></li>
+    <li><a href="#slash">Slash commands</a></li>
+    <li><a href="#tama">Tamagotchi pet</a></li>
+    <li><a href="#skins">Skins</a></li>
+    <li><a href="#extensions">Extensions</a></li>
+    <li><a href="#autoupdate">Auto-update (push/pull)</a></li>
+    <li><a href="#hotreload">Hot reload</a></li>
+    <li><a href="#troubleshooting">Troubleshooting</a></li>
+  </ul>
+</nav>
 
-    <section id="welcome" class="help-section">
-      <h2><span class="num">1.</span> Welcome</h2>
-      <p>Claude Codex Black is a VSCode webview that lets you chat with multiple AI providers
-        (Claude, OpenAI, Gemini, Grok, Azure, local Ollama) from a single, themable panel.
-        Everything that needs a key reads from <code>config.ini</code> at the extension root —
-        no extension settings UI is required, but a Settings modal mirrors the most useful
-        fields for click-only editing.</p>
-      <div class="callout">
-        New here? Start by opening <em>Settings</em> (gear icon), pick your provider, paste
-        your API key, then type a prompt and hit <kbd>Enter</kbd>. Every other feature in
-        this guide is optional.
-      </div>
-    </section>
+<section id="quick">
+<h2>Quick start <a class="top-link" href="#">↑ top</a></h2>
+<ol>
+  <li>Click <b>Setup</b> (wand icon) and walk through the wizard to enter your API keys. They get saved to <code>config.ini</code> (which is gitignored — never committed).</li>
+  <li>Click the <b>provider pill</b> at the bottom-left (currently labeled "Claude Codex — Black Edition") to switch which AI you're talking to.</li>
+  <li>Type into the textarea and press <kbd>Enter</kbd> to send. <kbd>Shift</kbd>+<kbd>Enter</kbd> inserts a newline.</li>
+  <li>Press <kbd>↑</kbd> in an empty textarea to recall previous prompts (PowerShell-style history).</li>
+</ol>
+</section>
 
-    <section id="keyboard" class="help-section">
-      <h2><span class="num">2.</span> Keyboard shortcuts</h2>
-      <table>
-        <thead><tr><th>Key</th><th>Effect</th></tr></thead>
-        <tbody>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd></td><td>Toggle the CBE panel</td></tr>
-          <tr><td><kbd>Enter</kbd></td><td>Send the current prompt</td></tr>
-          <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Newline inside the prompt box</td></tr>
-          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Cycle through your previously-sent prompts (from <code>prompt_history.txt</code>)</td></tr>
-          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Cycle through your curated <code>prompts.txt</code> entries when the caret is at the start/end of the textarea</td></tr>
-          <tr><td><kbd>Esc</kbd></td><td>Close any open modal</td></tr>
-          <tr><td><kbd>/</kbd></td><td>Open the slash-command palette</td></tr>
-        </tbody>
-      </table>
-    </section>
+<section id="providers">
+<h2>Providers &amp; models <a class="top-link" href="#">↑ top</a></h2>
+<p>Two kinds of providers are supported:</p>
 
-    <section id="prompt-box" class="help-section">
-      <h2><span class="num">3.</span> The prompt box</h2>
-      <p>The big editable textarea at the bottom. Type, paste, drag a file, attach via the
-        paperclip — anything you put here is the user turn of the next API call.</p>
-      <p>The font is locked to your VSCode editor's monospace font (via the
-        <code>--vscode-editor-font-family</code> CSS variable) so the panel looks at home
-        inside the editor.</p>
-    </section>
+<h4>Direct API (uses your key)</h4>
+<table>
+  <tr><th>Provider</th><th>Default model</th><th>Where the key goes</th></tr>
+  <tr><td>Anthropic (Claude)</td><td>claude-sonnet-4-6</td><td><code>[api_keys] anthropic_api_key</code></td></tr>
+  <tr><td>OpenAI (ChatGPT)</td><td>gpt-4o</td><td><code>[api_keys] openai_api_key</code></td></tr>
+  <tr><td>Google Gemini</td><td>gemini-2.5-pro</td><td><code>[api_keys] gemini_api_key</code></td></tr>
+  <tr><td>xAI (Grok)</td><td>grok-4</td><td><code>[api_keys] xai_api_key</code></td></tr>
+  <tr><td>DeepSeek</td><td>deepseek-chat</td><td><code>[api_keys] deepseek_api_key</code></td></tr>
+  <tr><td>Azure OpenAI</td><td>(deployment-based)</td><td><code>[azure] api_key</code> + endpoint</td></tr>
+</table>
 
-    <section id="toolbar" class="help-section">
-      <h2><span class="num">4.</span> Toolbar buttons</h2>
-      <p>Bottom row, left to right. Tooltips appear on hover; the panel also reads them out
-        in your selected language (see <a href="#language">Language</a>).</p>
-      <table>
-        <thead><tr><th>Icon</th><th>Function</th></tr></thead>
-        <tbody>
-          <tr><td>🎤 Mic</td><td>Speech-to-Text — Web Speech API with SAPI fallback. See <a href="#stt">§ 6</a>.</td></tr>
-          <tr><td>📎 Attach</td><td>Pick one or more files to inline into the prompt</td></tr>
-          <tr><td>🔁 Wake</td><td>Edit the Auto Prompt wake-up text (lives in <code>wake.txt</code>)</td></tr>
-          <tr><td>⏱ Auto Prompt</td><td>Toggle the inactivity countdown auto-fire</td></tr>
-          <tr><td>📚 Compact</td><td>Truncate the conversation history to the last few turns. Ring shows context-window usage.</td></tr>
-          <tr><td>📁 Git</td><td>Run git commands in the project folder</td></tr>
-          <tr><td>🌐 Domains</td><td>Pull your NameSilo domain list</td></tr>
-          <tr><td>🐙 GitHub</td><td>List your GitHub repos via PAT</td></tr>
-          <tr><td>🎨 Skin</td><td>Pick a panel theme (discovered live from <code>skins/</code>)</td></tr>
-          <tr><td>🧩 Extensions</td><td>Open the marketplace iframe modal. See <a href="#extensions">§ 21</a>.</td></tr>
-          <tr><td>⚙ Settings</td><td>Open the settings modal</td></tr>
-          <tr><td>📜 Handbook</td><td>Open <code>handbook.txt</code> for editing</td></tr>
-          <tr><td>❔ Help</td><td>This document</td></tr>
-          <tr><td>⏹ Stop</td><td>Cancel the in-flight model call</td></tr>
-          <tr><td>📤 Send</td><td>Submit the prompt (same as <kbd>Enter</kbd>)</td></tr>
-        </tbody>
-      </table>
-    </section>
+<h4>Browser bridges (no API key — drives a logged-in browser session)</h4>
+<table>
+  <tr><th>Bridge</th><th>Target</th><th>Port</th></tr>
+  <tr><td>ChatGPT bridge</td><td>chat.openai.com</td><td>8788</td></tr>
+  <tr><td>Grok bridge</td><td>grok.com / x.ai</td><td>8789</td></tr>
+  <tr><td>Copilot bridge</td><td>copilot.microsoft.com</td><td>8790</td></tr>
+  <tr><td>Gemini bridge</td><td>gemini.google.com</td><td>8791</td></tr>
+  <tr><td>Claude bridge</td><td>claude.ai</td><td>8792</td></tr>
+  <tr><td>Ollama (local)</td><td>127.0.0.1:11434</td><td>8793</td></tr>
+  <tr><td>DeepSeek bridge</td><td>chat.deepseek.com</td><td>8794</td></tr>
+</table>
+<p>Each bridge is a small C++ tray exe at <code>bin/CBE-Bridge-&lt;Target&gt;.exe</code> that opens a logged-in Chrome profile, intercepts your prompt, and returns the model's reply. Picking a bridge provider in Settings auto-launches the matching exe. First time you use a bridge you must log into the site in its Chrome window once.</p>
+<div class="note">Bridge chat speaks a line-protocol on TCP: one JSON line in (<code>{action:"chat", target, message, model}</code>), one JSON line out. No api key required.</div>
+</section>
 
-    <section id="providers" class="help-section">
-      <h2><span class="num">5.</span> Models &amp; providers</h2>
-      <p>CBE ships with <strong>11 bridges</strong> as drop-in <code>.bridge</code> plugins under
-        <code>bridges/</code>. Each one is a self-contained zip with manifest.xml + bridge.py
-        + icons. Drop a new <code>.bridge</code> file in and it appears in the cartridge
-        dropdown — no extension code change needed.</p>
-      <h3>Text-chat bridges (7)</h3>
-      <ul>
-        <li><strong>ChatGPT</strong> — chatgpt.com, Plus/Pro subscription</li>
-        <li><strong>Grok</strong> — grok.com, native xAI login (anonymous tier is heavily gated; log in first)</li>
-        <li><strong>Gemini</strong> — gemini.google.com, Google account</li>
-        <li><strong>Claude</strong> — claude.ai, magic-link login (run <code>tools/sign_in_helper.py claude</code> once)</li>
-        <li><strong>Copilot</strong> — copilot.microsoft.com, free Microsoft account</li>
-        <li><strong>DeepSeek</strong> — chat.deepseek.com, native email/password (do NOT use Google SSO)</li>
-        <li><strong>Ollama</strong> — local <code>127.0.0.1:11434</code>, no login required</li>
-      </ul>
-      <h3>Video-generation bridges (4)</h3>
-      <ul>
-        <li><strong>Sora 2</strong> — sora.com, reuses your ChatGPT Plus/Pro login</li>
-        <li><strong>Google Veo</strong> — gemini.google.com (Veo mode), Gemini Advanced subscription</li>
-        <li><strong>Runway Gen-3/4</strong> — app.runwayml.com, separate Runway subscription</li>
-        <li><strong>Bing Video Creator</strong> — bing.com/videos/create, <em>free Sora-2</em> with Microsoft account</li>
-      </ul>
-      <p>Generated videos save to <code>videos/&lt;bridge&gt;/&lt;timestamp&gt;_&lt;prompt-slug&gt;.mp4</code>
-        and auto-play in the Video Library panel (see §Video Library below).</p>
-      <p>Pick a bridge + model from the cartridge dropdown next to the prompt box, or via
-        <em>Settings → General</em>. The selection is per-workspace and persisted in
-        workspaceState. To add a new bridge, see <code>docs/WRITING_BRIDGES.md</code>.</p>
-    </section>
+<section id="sending">
+<h2>Sending messages <a class="top-link" href="#">↑ top</a></h2>
+<dl class="btnrow">
+  <dt>Textarea</dt>
+  <dd>Type your prompt. <kbd>Enter</kbd> sends, <kbd>Shift</kbd>+<kbd>Enter</kbd> inserts a newline. While a reply is streaming, additional prompts are <b>queued</b> and sent in order — the placeholder shows "Queue another message…" during this state.</dd>
 
-    <section id="video-library" class="help-section">
-      <h2><span class="num">5a.</span> Video Library</h2>
-      <p>A dedicated panel for browsing + watching videos generated by the video bridges
-        (Sora, Veo, Runway, Bing Video Creator). Opens via the Command Palette:
-        <em>Claude Codex Black: Open Video Library</em> or the <code>codexBlackEd.openVideoPlayer</code>
-        command.</p>
-      <ul>
-        <li>Sidebar lists every <code>.mp4</code> / <code>.webm</code> / <code>.mov</code> under
-          <code>videos/&lt;bridge&gt;/</code>, grouped by bridge and sorted newest-first.</li>
-        <li>The freshest video auto-plays on first open.</li>
-        <li>The panel watches the <code>videos/</code> dir on a 2-second tick — any newly
-          generated video pops up with a ✨ "Just generated" badge and auto-plays
-          (toggle off via <em>Auto ▶ new</em>).</li>
-        <li>Click <em>📂 Open</em> to reveal the <code>videos/</code> folder in your OS file manager.</li>
-      </ul>
-    </section>
+  <dt>Send button (orb)</dt>
+  <dd>The round button at the right edge of the textarea. Same as <kbd>Enter</kbd>. Visually shows three states (idle / hover / active).</dd>
 
-    <section id="stt" class="help-section">
-      <h2><span class="num">6.</span> Speech to Text</h2>
-      <p>Click the mic, speak, click again to stop (or wait for the silence-timeout).
-        Two engines are tried in order:</p>
-      <ol style="padding-left:22px;">
-        <li><strong>Web Speech API</strong> — Google's cloud recognizer running in the webview.
-          Uses your Gmail/Google session; no extra key needed.</li>
-        <li><strong>Windows SAPI</strong> (fallback) — pre-warmed PowerShell process invoked when
-          the webview blocks mic access. Configurable listen window via
-          <code>[voice] listen_seconds</code> in <code>config.ini</code>.</li>
-      </ol>
-      <div class="callout">
-        SAPI is <em>pre-warmed at extension activate</em> so the first mic click avoids the
-        2-4 second cold start that used to swallow early stop-clicks.
-      </div>
-    </section>
+  <dt>Stop button</dt>
+  <dd>Bottom-right of the composer. Cancels the currently-streaming reply and any queued messages. Streamed text is kept; only the in-flight request is aborted.</dd>
 
-    <section id="auto-prompt" class="help-section">
-      <h2><span class="num">7.</span> Auto Prompt</h2>
-      <p>The badge-with-spinner button. When ON, after N seconds of inactivity the panel
-        auto-sends your configured wake-up text. The countdown digit is rendered in
-        <code>--cbe-highlight-color</code>, which each skin defines.</p>
-      <p>Edit the wake-up text via the 🔁 Wake button — it round-trips <code>wake.txt</code>.</p>
-    </section>
+  <dt>Provider pill</dt>
+  <dd>Bottom-left of the composer. Click for a dropdown of every provider you have configured. Picking a new one auto-starts its bridge (if applicable) and posts a confirmation toast.</dd>
 
-    <section id="tts" class="help-section">
-      <h2><span class="num">8.</span> Auto Read (TTS)</h2>
-      <p>The mouth icon. When ON, every assistant reply is spoken out via the Web Speech
-        synthesizer (Google) or a SAPI fallback. A blue halo glows around the icon while
-        audio is playing.</p>
-    </section>
+  <dt>Prompt history</dt>
+  <dd><kbd>↑</kbd> / <kbd>↓</kbd> in an empty textarea walks backward / forward through the last 500 prompts you've sent (PowerShell-style). History is stored at <code>prompt_history.txt</code> in the extension folder and survives panel reloads.</dd>
+</dl>
+</section>
 
-    <section id="compact" class="help-section">
-      <h2><span class="num">9.</span> Compact &amp; context usage</h2>
-      <p>The conversation array sent to the model grows with every turn. The ring around
-        the Compact icon shows current context-window usage as a conic gradient — empty
-        when fresh, full when close to the model's context limit.</p>
-      <p>Click Compact to truncate history down to the last four turns. The next API call
-        uses the smaller array.</p>
-    </section>
+<section id="toolbar">
+<h2>Toolbar buttons <a class="top-link" href="#">↑ top</a></h2>
+<p>Listed in toolbar order. All tooltips are localizable per-language via <code>languages/*.xml</code>.</p>
 
-    <section id="wake-up" class="help-section">
-      <h2><span class="num">10.</span> Wake-up response</h2>
-      <p>Stored in <code>wake.txt</code> at the extension root. Used by Auto Prompt as the
-        message to send when the inactivity timer fires. Edit via the 🔁 toolbar button.</p>
-    </section>
+<dl class="btnrow">
 
-    <section id="attachments" class="help-section">
-      <h2><span class="num">11.</span> File attachments</h2>
-      <p>Click 📎 to pick one or more files. Hold <kbd>Ctrl</kbd> or <kbd>Shift</kbd> in the
-        picker to multi-select. Each file is inlined into the prompt as a fenced code block
-        with its filename and language. Binary files over 1 MB are skipped with a notice.</p>
-    </section>
+<dt>New conversation <span class="pill">addBtn</span></dt>
+<dd>Clears the current thread, wipes the in-memory conversation state, and starts fresh. The previous thread is preserved on disk under <code>chats/&lt;UTC-date&gt;.log</code> so nothing is lost. Equivalent to <code>/clear</code>.</dd>
 
-    <section id="git" class="help-section">
-      <h2><span class="num">12.</span> Git modal</h2>
-      <p>Click 📁 Git. If no project folder is configured, you get a folder picker first —
-        the chosen path is written to <code>[project] path</code> in <code>config.ini</code>.
-        Subsequent git invocations run with cwd set to that path.</p>
-    </section>
+<dt>Stored prompts <span class="pill">storedPromptsBtn</span></dt>
+<dd>Opens a modal listing every saved prompt template under <code>stored_prompts/</code>. Click one to insert it into the textarea; the "+" button adds a new template. Templates support variable substitution.</dd>
 
-    <section id="github" class="help-section">
-      <h2><span class="num">13.</span> GitHub repositories</h2>
-      <p>Lists every repo accessible to your <code>[github] pat</code>. Click a row to insert
-        its clone URL into the prompt. The list is paginated and cached.</p>
-    </section>
+<dt>Chat history <span class="pill">chatHistoryBtn</span></dt>
+<dd>Browses the on-disk chat log (one file per UTC date under <code>chats/</code>). Pick a date to scroll back through past conversations.</dd>
 
-    <section id="domains" class="help-section">
-      <h2><span class="num">14.</span> NameSilo Domains</h2>
-      <p>Pulls every domain in your NameSilo account using <code>[namesilo] api_key</code>
-        (or <code>[api_keys] namesilo_api_key</code> as fallback). On first open, results are
-        cached to <code>domains.txt</code>; subsequent panel boots serve from cache. Click
-        <em>Reload</em> in the modal to force a fresh fetch.</p>
-      <div class="callout warn">
-        If you ever see "no domains" with a 300 reply code, check the trace channel — empty
-        caches no longer poison future panel boots, but a stale <code>domains.txt</code> in
-        another install path could.
-      </div>
-    </section>
+<dt>Attach file <span class="pill">attachFileBtn</span></dt>
+<dd>Opens a file picker. Selected file is uploaded with the next prompt — images go inline (vision), text/code files become a fenced block in your prompt. Supports multi-attach.</dd>
 
-    <section id="skins" class="help-section">
-      <h2><span class="num">15.</span> Skins &amp; themes</h2>
-      <p>The 🎨 button pops a discovery picker that scans <code>skins/</code> live (not at
-        startup), so dropping a new folder in at runtime is enough. Each skin has a
-        <code>manifest.xml</code> defining its palette — including the
-        <strong>highlight color</strong>, which the Auto Prompt countdown badge, focus rings,
-        and supervisor pulse all key off of.</p>
-      <p>Built-in skins include: <code>gnome</code> (Adwaita gray), <code>terminal</code>
-        (black/green with hot-pink accent), <code>tamagotchi</code> (egg-shell pastels with
-        a sprite mascot panel), <code>blocky</code>, and others.</p>
-    </section>
+<dt>Read aloud (TTS) <span class="pill">ttsBtn</span></dt>
+<dd>Speaks the most recent assistant reply aloud. Uses ElevenLabs (if <code>[elevenlabs] api_key</code> is set) or falls back to Windows SAPI. <b>Right-click</b> toggles <i>auto-read</i> mode where every new reply is spoken automatically — the button gets an animated indicator while active.</dd>
 
-    <section id="settings" class="help-section">
-      <h2><span class="num">16.</span> Settings</h2>
-      <p>Opens from the ⚙ gear. Tabs:</p>
-      <ul>
-        <li><strong>General</strong> — display name, default model, send-on-enter</li>
-        <li><strong>Voice</strong> — mic device, listen_seconds, STT engine pick, TTS auto-read</li>
-        <li><strong>Updates</strong> — <code>is_admin</code> flag, WinSCP session, remote path</li>
-        <li><strong>Keys</strong> — every provider's API key</li>
-        <li><strong>Monitor</strong> — VSCode supervisor toggle, port, poll interval</li>
-        <li><strong>Language</strong> — pick from 39 locales; see <a href="#language">§ 17</a></li>
-      </ul>
-      <p>The modal remembers its size and position between sessions.</p>
-    </section>
+<dt>Speech to text (STT) <span class="pill">sttBtn</span></dt>
+<dd>Records microphone audio and transcribes into the textarea. Tries the webview's Web Speech API first; if that fails (<code>not-allowed</code>, common in VSCode sandboxes), falls back to Windows SAPI (<code>System.Speech.Recognition</code>) launched on the host via PowerShell. Click again to stop.</dd>
 
-    <section id="language" class="help-section">
-      <h2><span class="num">17.</span> Language</h2>
-      <p>The panel ships with translations for the 39 most-spoken languages. Locale files
-        live at <code>languages/&lt;code&gt;.xml</code> and are loaded once at extension
-        activate. Missing keys fall back to English.</p>
-      <p>Pick your language in <em>Settings → Language</em>. A flag icon is shown next to
-        each option (loaded from <code>assets/flags/&lt;code&gt;.svg</code>). The selection
-        is saved to <code>[settings] language</code> in <code>config.ini</code>.</p>
-    </section>
+<dt>Auto Prompt <span class="pill">autoReplyBtn</span></dt>
+<dd>Opens the Auto Prompt modal. Define a prompt + a countdown interval; after every assistant reply the countdown ticks and re-sends the auto-prompt automatically when it hits zero. Useful for "keep going", "next step", repeated tool sessions. Click again to disable.</dd>
 
-    <section id="monitor" class="help-section">
-      <h2><span class="num">18.</span> VSCode supervisor</h2>
-      <p>A Windows service (<code>CBEVSCodeSupervisor</code>) wraps the
-        <code>tools/vscode_supervisor.ps1</code> script via NSSM and binds an HttpListener
-        on <strong>http://127.0.0.1:3434/</strong>. The panel's monitor button glows blue
-        when the supervisor's <code>/status</code> endpoint replies 200 OK.</p>
-      <p>If the HTTP probe fails but the service is installed, the panel's watchdog
-        auto-restarts the service (30-second cool-down so it doesn't restart-storm).</p>
-      <p>Left-click the monitor button to install / start / stop. Right-click to open the
-        trace channel.</p>
-    </section>
+<dt>Wake-up response <span class="pill">wakeUpBtn</span></dt>
+<dd>Edits the wake-up message stored at <code>wake.txt</code>. The wake-up is what Auto Prompt sends if it detects the model has stalled — generally a short ping like "Hey! Continue."</dd>
 
-    <section id="auto-update" class="help-section">
-      <h2><span class="num">19.</span> Auto-update (pull)</h2>
-      <p>4 seconds after extension activate, the panel fetches
-        <code>https://trentontompkins.com/cbe/manifest.xml.php</code> — an MD5+size manifest
-        of the latest published files. For each remote file, the local copy's MD5 is
-        compared; only changed/missing files are downloaded over HTTPS.</p>
-      <p>User-local state (<code>config.ini</code>, <code>debug.log</code>,
-        <code>domains.txt</code>, <code>wake.txt</code>, <code>prompt_history.txt</code>) is
-        on the pull exclusion list and is never overwritten.</p>
-    </section>
+<dt>Show command menu <span class="pill">showCommandsBtn</span></dt>
+<dd>Opens the slash-command palette in a modal. See <a href="#slash">Slash commands</a> for the full list. Same as typing <code>/</code> at the start of the textarea.</dd>
 
-    <section id="admin-push" class="help-section">
-      <h2><span class="num">20.</span> Admin push</h2>
-      <p>Only clients with <code>[updates] is_admin = true</code> ever push to the server.
-        Triggered via:</p>
-      <ul>
-        <li>Command Palette → <em>Claude Codex Black: Push update</em></li>
-        <li>Slash command <code>/push</code></li>
-      </ul>
-      <p>Uses the WinSCP saved session named in <code>[updates] winscp_session</code> (default
-        <code>vps</code>). Pushes via <code>/script=…</code> with the synchronize command and
-        a filemask that excludes secrets &amp; per-machine state.</p>
-    </section>
+<dt>Compact conversation <span class="pill">compactBtn</span></dt>
+<dd>Posts a summarize-and-prune request that replaces the current thread with a condensed recap. Equivalent to <code>/compact</code>. Useful when the conversation has grown long and you want to keep context but stop burning tokens on re-sending the whole history.</dd>
 
-    <section id="extensions" class="help-section">
-      <h2><span class="num">21.</span> Extensions marketplace</h2>
-      <p>Click the 🧩 Extensions button. An iframe modal opens to
-        <code>https://trentontompkins.com/cbe/extension/extension_marketplace.php</code>,
-        which fetches the catalog at
-        <code>extensions.xml.php</code> and renders each available extension as a card with
-        a description, tags, version, file size, MD5, and an <strong>Install</strong> button.</p>
-      <p>An extension is packaged as <code>&lt;id&gt;.ext</code> — a zip archive containing
-        <code>manifest.xml</code> plus the extension code (typically a single
-        <code>extension.html</code>). When you click Install, the marketplace iframe sends
-        a <code>postMessage</code> back to the panel; the panel downloads the
-        <code>.ext</code> file directly from the server and extracts it under
-        <code>extensions/</code> in the extension folder.</p>
-      <p>Three demo extensions ship with the launch catalog:
-        <strong>Calculator</strong>, <strong>Minesweeper</strong>, and an <strong>Emoji
-        Picker</strong>.</p>
-    </section>
+<dt>Handbook <span class="pill">handbookBtn</span></dt>
+<dd>Opens the employee/project handbook modal. Loads <code>handbook.html</code> or whatever document is configured. Used as a system-prompt reference the model can be asked to consult.</dd>
 
-    <section id="slash" class="help-section">
-      <h2><span class="num">22.</span> Slash commands</h2>
-      <p>Type <kbd>/</kbd> in the prompt box to open the slash-command palette. Click a row
-        to <em>insert</em> the command text into your prompt (editable), or press
-        <kbd>Enter</kbd> on a runnable row to fire it immediately.</p>
-      <p>A non-exhaustive list:</p>
-      <table>
-        <thead><tr><th>Command</th><th>Effect</th></tr></thead>
-        <tbody>
-          <tr><td><code>/help</code></td><td>Open this document</td></tr>
-          <tr><td><code>/skin</code></td><td>Pop the skin picker</td></tr>
-          <tr><td><code>/push</code></td><td>Fire the auto-update push (admin only)</td></tr>
-          <tr><td><code>/license</code></td><td>Show <code>LICENSE.TXT</code></td></tr>
-          <tr><td><code>/clear</code></td><td>Clear conversation history</td></tr>
-          <tr><td><code>/domains</code></td><td>Open the NameSilo domains modal</td></tr>
-          <tr><td><code>/git</code></td><td>Open the Git modal</td></tr>
-          <tr><td><code>/wake</code></td><td>Open the wake-up editor</td></tr>
-          <tr><td><code>/memory</code></td><td>Open the project memory index</td></tr>
-        </tbody>
-      </table>
-    </section>
+<dt>Settings <span class="pill">settingsBtn</span></dt>
+<dd>Opens the Settings modal (provider, model, skin, language, SFX). See <a href="#settings">Settings</a>.</dd>
 
-    <section id="context-menu" class="help-section">
-      <h2><span class="num">23.</span> Right-click menu</h2>
-      <p>Right-click anywhere in the panel for a contextual menu (defined as a single XML
-        string in <code>panel.js</code>). Entries include Refresh (reload the panel without
-        touching the extension host — never use <code>reloadWindow</code>), Clear
-        conversation, Open settings, and Inspect (DevTools, debug builds only).</p>
-    </section>
+<dt>Accounts <span class="pill">accountsBtn</span></dt>
+<dd>Opens the multi-account manager. Add / edit / remove API keys per provider, switch between them per session. See <a href="#accounts">Accounts</a>.</dd>
 
-    <section id="trace" class="help-section">
-      <h2><span class="num">24.</span> Trace channel</h2>
-      <p>The extension writes a granular timeline to <code>debug.log</code> next to the
-        extension. Everything noteworthy lands there: provider switches, STT lifecycle,
-        supervisor probes, NameSilo reply codes, panel↔host bridge messages, push/pull
-        manifest counts.</p>
-      <p>Right-click the monitor button for a one-click open of the trace channel.</p>
-    </section>
+<dt>Extensions <span class="pill">extensionsBtn</span></dt>
+<dd>Opens the in-panel extensions browser. Lists what's installed under <code>extensions/</code> (each with a <code>manifest.xml</code> + an <code>entry</code> HTML), lets you pin extensions to the toolbar, install new ones from the public catalog, or remove them.</dd>
 
-    <section id="troubleshooting" class="help-section">
-      <h2><span class="num">25.</span> Troubleshooting</h2>
-      <table>
-        <thead><tr><th>Symptom</th><th>Likely cause</th></tr></thead>
-        <tbody>
-          <tr><td>Prompt box looks proportional, not monospace</td>
-              <td><code>--vscode-editor-font-family</code> not applied; check <code>:root</code> vars</td></tr>
-          <tr><td>Auto Prompt spinner is a black dot</td>
-              <td>Wrong SVG asset; should be <code>auto_read_spinner.svg</code> with drop-shadow halo</td></tr>
-          <tr><td>Compact button does nothing</td>
-              <td>Host handler missing — <code>case 'compactConversation'</code> in extension.js router</td></tr>
-          <tr><td>"0 domains" in Domains modal</td>
-              <td>NameSilo reply.code != 300 (trace channel has it), or stale <code>domains.txt</code></td></tr>
-          <tr><td>STT "no speech detected" instantly</td>
-              <td>You stopped before SAPI bound the mic. The pre-warm now skips that wait — verify with <code>stt: using pre-warmed SAPI</code> in <code>debug.log</code></td></tr>
-          <tr><td>Push fails on path with spaces</td>
-              <td>Using <code>/command=</code> inline; always use <code>/script=tempfile.winscp</code></td></tr>
-          <tr><td>Supervisor blue glow not lighting</td>
-              <td>Service not running. Left-click monitorBtn to install/start, or run <code>Start-Service CBEVSCodeSupervisor</code></td></tr>
-          <tr><td>Reload "fixes" something</td>
-              <td>It didn't. Never use <code>reloadWindow</code>. Use the Refresh context-menu entry instead.</td></tr>
-        </tbody>
-      </table>
-    </section>
+<dt>Project folder <span class="pill">projectFolderBtn</span></dt>
+<dd>Picks the working directory used by Attach File, Terminal, Git, and any tools that need a project root. The current folder is shown next to the provider pill.</dd>
 
-    <section id="about" class="help-section">
-      <h2><span class="num">26.</span> About &amp; license</h2>
-      <p>Claude Codex — Black Edition. MIT-licensed. Source mirror:
-        <a href="https://github.com/tibberous/Claude-Codex-Back-Ed.." target="_blank" rel="noopener">github.com/tibberous/Claude-Codex-Back-Ed..</a>.
-        Official auto-update server: <a href="https://trentontompkins.com/cbe/" target="_blank" rel="noopener">trentontompkins.com/cbe</a>.</p>
-      <p>For feedback or commercial work, contact <a href="https://trentontompkins.com" target="_blank" rel="noopener">trentontompkins.com</a> · (724) 431-5207.</p>
-      <p style="margin-top:24px; color: var(--muted); font-size: 12px;">
-        <em>This help is also iframed into the Help button at the panel toolbar. Source:
-        <code>panel/help.html</code>.</em>
-      </p>
-    </section>
+<dt>Browser <span class="pill">browserBtn</span></dt>
+<dd>Opens a side-by-side QtWebEngine browser pane for quick lookups without leaving the panel.</dd>
 
-  </main>
+<dt>VSCode monitor <span class="pill">monitorBtn</span></dt>
+<dd>Toggles the VSCode supervisor watchdog — a background process that restarts VSCode if it crashes. Left-click toggles run/stop, <b>right-click</b> opens the supervisor's trace channel.</dd>
+
+<dt>Terminal <span class="pill">terminalBtn</span></dt>
+<dd>Opens a VSCode integrated terminal in the project folder. If the project folder isn't set, falls back to your Desktop. Reuses one persistent terminal labeled "CBE".</dd>
+
+<dt>Setup wizard <span class="pill">setupBtn</span></dt>
+<dd>Walks you through every API key + integration the extension knows about (~12 steps). See <a href="#setup">Setup wizard</a>.</dd>
+
+<dt>Git <span class="pill">gitBtn</span></dt>
+<dd>Opens VSCode's Source Control view focused on the current project folder.</dd>
+
+<dt>GitHub <span class="pill">githubBtn</span></dt>
+<dd>Lists your GitHub repos using <code>[github] token</code>. Click a repo to clone / open / browse issues.</dd>
+
+<dt>Domains (NameSilo) <span class="pill">domainsBtn</span></dt>
+<dd>Lists every domain on your NameSilo account with nameservers. Requires <code>[namesilo] api_key</code>. <b>Reload</b> button forces a fresh fetch.</dd>
+
+<dt>Font size <span class="pill">fontSizeBtn</span></dt>
+<dd>Toggles between normal and large font for the chat thread. Same as <code>/font</code>.</dd>
+
+<dt>Help <span class="pill">helpBtn</span></dt>
+<dd>Opens this page. Same as <code>/help</code>.</dd>
+
+<dt>Tamagotchi <span class="pill">tamaBtn</span></dt>
+<dd>Toggles the pixel-pet panel (only visible on the <b>tamagotchi</b> skin, where it docks into the composer corner). See <a href="#tama">Tamagotchi</a>.</dd>
+
+</dl>
+</section>
+
+<section id="rightclick">
+<h2>Right-click menu <a class="top-link" href="#">↑ top</a></h2>
+<p>Right-click on chat text or a code block to get the CBE context menu. Right-click on the prompt textarea now opens the <b>native browser menu</b> (Copy / Cut / Paste / Delete / Select All) instead.</p>
+<dl class="btnrow">
+  <dt>Copy / Copy code block</dt><dd>Copies the current selection. If no selection but you right-clicked on a <code>&lt;pre&gt;&lt;code&gt;</code>, it copies the entire code block.</dd>
+  <dt>View Source</dt><dd>Shows the raw HTML/markdown of the clicked region — either a code block or the whole panel DOM. Useful for debugging skin/CSS issues.</dd>
+  <dt>Open DevTools</dt><dd>Asks VSCode to open its Developer Tools so you can inspect the webview live.</dd>
+  <dt>Settings <span class="pill">new</span></dt><dd>Opens the same Settings modal the toolbar <b>Settings</b> button opens (provider / model / skin / language / SFX). Same as <code>/settings</code>.</dd>
+  <dt>About <span class="pill">new</span></dt><dd>Small in-panel dialog with version, author, license, repo link, portfolio, and contact phone. Closes on backdrop click, × button, or <kbd>Esc</kbd>.</dd>
+  <dt>Reload Panel <span class="pill">new</span></dt><dd>Re-reads <code>panel/index.html</code> + <code>panel.js</code> + <code>skins/*</code> with a per-file <code>?v=&lt;mtime&gt;</code> cache-buster and reassigns <code>panel.webview.html</code>. Picks up CSS/JS edits without rebooting VSCode. The extension host stays alive — terminal, supervisor, chat history all persist.</dd>
+  <dt>Reload Window <span class="pill warn">new</span></dt><dd>Triggers <code>workbench.action.reloadWindow</code>. Use this <i>only</i> when you've edited <code>extension.js</code> (host-side code) and the panel reload isn't enough. It's a full VSCode window reload.</dd>
+</dl>
+</section>
+
+<section id="modals">
+<h2>Modals &amp; dialogs <a class="top-link" href="#">↑ top</a></h2>
+
+<details open><summary><b>Settings modal</b> — provider / model / skin / language / SFX</summary>
+<ul>
+  <li><b>Provider</b>: full dropdown of every direct-API + bridge provider. Picking one switches the active session AND auto-starts the matching bridge exe (if applicable).</li>
+  <li><b>Model</b>: per-provider list of allowed models (e.g. <code>claude-opus-4-7</code>, <code>claude-sonnet-4-6</code>, <code>claude-haiku-4-5</code> for Anthropic).</li>
+  <li><b>Skin</b>: visual theme. See <a href="#skins">Skins</a>.</li>
+  <li><b>Language</b>: 39 locales available. Switching re-pulls the strings map and re-translates every tooltip / label / help button live.</li>
+  <li><b>SFX enabled</b>: toggle UI sound effects (clicks, ticks, modal open/close, etc.).</li>
+  <li><b>SFX volume</b>: 0–100 slider. Previewed live as you drag.</li>
+  <li><b>Cancel</b> reverts any live previews (SFX/skin) you tried; <b>Save</b> persists and emits <code>setProvider</code>.</li>
+</ul>
+</details>
+
+<details><summary><b>Setup wizard</b> — multi-step API key entry</summary>
+<p>Walk-through for every integration. Each step asks for credentials and writes them to <code>config.ini</code>. <b>Skip</b> moves on without writing; <b>Next</b> writes and advances; final step's <b>Done</b> closes. Steps include: Anthropic, OpenAI, Gemini, xAI/Grok, GitHub PAT, Email/SMTP (Gmail app password), Cloudflare, Twilio, ElevenLabs, Stability AI, Runway, SendGrid, NameSilo, and more.</p>
+</details>
+
+<details><summary><b>Accounts modal</b> — multi-account API key manager</summary>
+<p>For each provider, manage multiple labeled accounts (e.g. "personal", "work"). Switch which one is active per-session without overwriting the others. Keys are masked end-to-end and saved per-provider in <code>config.ini</code>.</p>
+</details>
+
+<details><summary><b>Domains modal</b> — NameSilo</summary>
+<p>Lists every domain on your NameSilo account with nameservers + registration dates. The <b>Reload</b> button forces a fresh API fetch (otherwise it caches in <code>domains.txt</code>).</p>
+</details>
+
+<details><summary><b>Handbook modal</b></summary>
+<p>Renders a project handbook HTML (intended as a system-prompt reference the model can consult). Configurable per-project.</p>
+</details>
+
+<details><summary><b>Stored prompts modal</b></summary>
+<p>Insertable prompt templates from <code>stored_prompts/</code>. Each file is one template; filename prefix <code>NN-</code> controls sort order. The "+" button creates a new one.</p>
+</details>
+
+<details><summary><b>Chat history modal</b></summary>
+<p>Pick a UTC date to load the chat log from <code>chats/&lt;date&gt;.log</code>. Read-only.</p>
+</details>
+
+<details><summary><b>Extensions modal</b></summary>
+<p>Cards for every installed extension. Pin to toolbar / unpin, install from the public catalog (<code>extensions.xml.php</code> on the server), or remove from disk.</p>
+</details>
+
+<details><summary><b>Change log modal</b></summary>
+<p>Renders <code>panel/change_log.html</code> — the bundled release notes. Generated via <code>tools/build_changelog.py</code>.</p>
+</details>
+
+<details><summary><b>View Source modal</b></summary>
+<p>Pretty-prints any code block or the panel's full HTML, with Prism syntax highlighting and a Copy button. Reached via right-click → View Source.</p>
+</details>
+
+<details><summary><b>Auto Prompt modal</b></summary>
+<p>Configure a prompt string + countdown interval. After every assistant reply the countdown decrements; when it hits zero CBE auto-sends the configured prompt. Toggled on/off via the Auto Prompt toolbar button.</p>
+</details>
+</section>
+
+<section id="settings">
+<h2>Settings <a class="top-link" href="#">↑ top</a></h2>
+<p>All settings live in one of two places:</p>
+<ul>
+  <li><code>workspaceState</code> (VSCode-managed, per-workspace) — provider, model, skin, language, sfx enabled/volume, font size.</li>
+  <li><code>config.ini</code> (extension root, gitignored) — API keys + per-integration credentials.</li>
+</ul>
+<p>Settings persist across panel reloads automatically. The <b>Settings</b> modal is the safe way to change anything; editing <code>config.ini</code> directly works too.</p>
+</section>
+
+<section id="setup">
+<h2>Setup wizard <a class="top-link" href="#">↑ top</a></h2>
+<p>The Setup wizard (<code>setupBtn</code>) walks through every integration the extension supports. For each step, paste the credential and click <b>Next</b> (writes + advances) or <b>Skip</b> (advances without writing). Steps:</p>
+<table>
+<tr><th>Step</th><th>What it asks for</th><th>Where to get it</th></tr>
+<tr><td>Anthropic (Claude)</td><td>API key</td><td><a href="https://console.anthropic.com/account/keys">console.anthropic.com</a></td></tr>
+<tr><td>OpenAI (ChatGPT)</td><td>API key</td><td><a href="https://platform.openai.com/api-keys">platform.openai.com</a></td></tr>
+<tr><td>Google Gemini</td><td>API key</td><td><a href="https://aistudio.google.com/apikey">aistudio.google.com</a></td></tr>
+<tr><td>xAI (Grok)</td><td>API key</td><td><a href="https://console.x.ai/">console.x.ai</a></td></tr>
+<tr><td>GitHub PAT</td><td>Personal access token with repo / workflow / admin:org / etc.</td><td><a href="https://github.com/settings/tokens/new">github.com/settings/tokens</a></td></tr>
+<tr><td>Email / SMTP</td><td>Account + app password (Gmail recommended)</td><td><a href="https://myaccount.google.com/apppasswords">myaccount.google.com/apppasswords</a></td></tr>
+<tr><td>Cloudflare</td><td>API token (NOT global key)</td><td><a href="https://dash.cloudflare.com/profile/api-tokens">dash.cloudflare.com</a></td></tr>
+<tr><td>Twilio</td><td>Account SID + Auth token + From number</td><td><a href="https://console.twilio.com/">console.twilio.com</a></td></tr>
+<tr><td>ElevenLabs (TTS)</td><td>API key</td><td><a href="https://elevenlabs.io/app/settings/api-keys">elevenlabs.io</a></td></tr>
+<tr><td>Stability AI</td><td>API key</td><td><a href="https://platform.stability.ai/account/keys">platform.stability.ai</a></td></tr>
+<tr><td>Runway</td><td>API key</td><td><a href="https://dev.runwayml.com/">dev.runwayml.com</a></td></tr>
+<tr><td>SendGrid</td><td>API key</td><td><a href="https://app.sendgrid.com/settings/api_keys">app.sendgrid.com</a></td></tr>
+</table>
+<p>Every field is password-masked so shoulder-surfers can't read your keys off the screen.</p>
+</section>
+
+<section id="accounts">
+<h2>Accounts &amp; API keys <a class="top-link" href="#">↑ top</a></h2>
+<p>Each provider can have multiple labeled accounts — useful if you want to switch between personal and work keys, or test a different tier. The Accounts modal lets you:</p>
+<ul>
+  <li>Add a new account with a label + key</li>
+  <li>Edit an existing account (relabel, replace the key)</li>
+  <li>Set which account is active for the current session</li>
+  <li>Remove an account</li>
+</ul>
+<p>Keys are stored masked (visible last-four only) in <code>config.ini</code>. There's no plaintext copy in workspaceState.</p>
+</section>
+
+<section id="slash">
+<h2>Slash commands <a class="top-link" href="#">↑ top</a></h2>
+<p>Type <code>/</code> at the start of the textarea or click <b>Show command menu</b> to pick from:</p>
+<table>
+<tr><th>Command</th><th>What it does</th></tr>
+<tr><td><code>/help</code></td><td>Open this page</td></tr>
+<tr><td><code>/handbook</code></td><td>Open project handbook</td></tr>
+<tr><td><code>/clear</code></td><td>New conversation</td></tr>
+<tr><td><code>/settings</code></td><td>Open Settings modal</td></tr>
+<tr><td><code>/prompts</code></td><td>Edit saved prompt templates</td></tr>
+<tr><td><code>/history</code></td><td>Browse chat history</td></tr>
+<tr><td><code>/font</code></td><td>Toggle big font</td></tr>
+<tr><td><code>/attach</code></td><td>Attach a file to next prompt</td></tr>
+<tr><td><code>/folder</code></td><td>Pick project folder</td></tr>
+<tr><td><code>/compact</code></td><td>Compact the conversation (summarize + prune)</td></tr>
+<tr><td><code>/git</code></td><td>Open Source Control</td></tr>
+<tr><td><code>/github</code></td><td>List GitHub repos</td></tr>
+<tr><td><code>/license</code></td><td>Show the MIT license</td></tr>
+<tr><td><code>/push</code></td><td>Push extension files to the auto-update server (admin only)</td></tr>
+<tr><td><code>/compress</code></td><td>Compress conversation (alias of <code>/compact</code>)</td></tr>
+<tr><td><code>/switch-accounts</code></td><td>Open the Accounts modal to switch which API key is active</td></tr>
+</table>
+</section>
+
+<section id="tama">
+<h2>Tamagotchi pet <a class="top-link" href="#">↑ top</a></h2>
+<p>The Tamagotchi is a pixel-art pet that lives in the panel under the <b>tamagotchi</b> skin. It ages, gets hungry/dirty, can be played with, and dies if neglected long enough. State persists in <code>workspaceState</code>.</p>
+
+<h4>Stats (top of widget)</h4>
+<table>
+<tr><th>Stat</th><th>What it tracks</th></tr>
+<tr><td>🥚 Stage</td><td>Lifecycle: egg → baby → child → teen → adult → senior → dead. Ages with real-time minutes.</td></tr>
+<tr><td>🍖 Hunger</td><td>0–100. Drops over time; <b>Feed</b> raises it. Hits 0 → health drops.</td></tr>
+<tr><td>😀 Happiness</td><td>0–100. Drops over time; <b>Play</b> raises it.</td></tr>
+<tr><td>❤️ Health</td><td>0–100. Drops when sick or starving. <b>Shot</b> heals.</td></tr>
+<tr><td>✨ Cleanliness</td><td>0–100. Drops when the pet poops. <b>Clean</b> raises it.</td></tr>
+<tr><td>⏱ Age</td><td>Minutes since hatch.</td></tr>
+</table>
+
+<h4>In-LCD action buttons (bottom of widget)</h4>
+<table>
+<tr><th>Icon</th><th>Action</th></tr>
+<tr><td>🍖</td><td><b>Feed</b> — cycles meat ↔ eggplant. <b>Select</b> to actually feed.</td></tr>
+<tr><td>🧹</td><td><b>Clean</b> — sweep up the poop.</td></tr>
+<tr><td>⚾</td><td><b>Play</b> — mini-game; raises happiness.</td></tr>
+<tr><td>💉</td><td><b>Shot</b> — heals when sick.</td></tr>
+<tr><td>💡</td><td><b>Light</b> — toggle the LCD lamp; pet sleeps in the dark.</td></tr>
+<tr><td>✅</td><td><b>Select</b> — confirm / proceed (the equivalent of the original Bandai middle button).</td></tr>
+</table>
+<p>The pet's sprite is drawn into a 240×240 (compact: 138×116) canvas. Sprites + life-cycle logic live in <code>panel/dotmatrix-tamagotchi-sprites.js</code> and <code>panel/dotmatrix-tamagotchi-game.js</code>.</p>
+</section>
+
+<section id="skins">
+<h2>Skins <a class="top-link" href="#">↑ top</a></h2>
+<p>Visual themes for the whole panel — buttons, modals, code blocks, even font. Pick one in <b>Settings → Skin</b>. Each skin lives in <code>skins/&lt;id&gt;/</code> with a <code>manifest.xml</code> (declares colors + accent) and a <code>styles.css</code> (overrides CSS variables).</p>
+<ul>
+  <li><b>codex-black</b> (default) — dark, monospace, neon-cyan accent</li>
+  <li><b>glassy</b> — frosted-glass surfaces over a soft backdrop</li>
+  <li><b>tamagotchi</b> — lime-green LCD handheld; auto-shows the pet widget docked in the composer corner</li>
+  <li><b>office</b> — Word-style cream/blue chrome</li>
+  <li><b>macos-color-dock</b> / <b>mint-dock</b> — bottom-dock toolbars with glassy icons</li>
+  <li><b>terminal</b> / <b>arch</b> / <b>kde</b> / <b>gnome</b> / <b>xfce</b> / <b>ubuntu</b> / <b>redhat</b> — Linux desktop themes</li>
+</ul>
+<p>Modal colors come from <code>&lt;colors&gt;</code> entries in each skin's manifest and get pushed onto <code>:root</code> as <code>--cbe-modal-*</code> variables so every modal (including this help) renders in-theme.</p>
+</section>
+
+<section id="extensions">
+<h2>Extensions <a class="top-link" href="#">↑ top</a></h2>
+<p>Mini-apps that live inside CBE. Each is a folder under <code>extensions/&lt;id&gt;/</code> with:</p>
+<ul>
+  <li><code>manifest.xml</code> — id, name, version, author, description, entry HTML, icon (emoji or <code>icon.svg</code>)</li>
+  <li><code>extension.html</code> (or whatever the manifest's <code>&lt;entry&gt;</code> says) — the actual app</li>
+</ul>
+<p>Click <b>Extensions</b> to browse what's installed, pin to the toolbar, install new ones from the public catalog, or remove from disk. Pinned IDs live in <code>extensions/_pinned.json</code>.</p>
+</section>
+
+<section id="autoupdate">
+<h2>Auto-update (push / pull) <a class="top-link" href="#">↑ top</a></h2>
+<p>CBE syncs its source between machines via a WinSCP push + HTTPS pull channel.</p>
+
+<h4>Push (admin only)</h4>
+<p>If <code>[updates] is_admin = true</code> in config.ini, every activation runs a background <code>WinSCP synchronize remote -mirror</code> that pushes the extension folder to <code>/home/trentontompkins.com/cbe</code> on the server. Manual trigger: <code>/push</code> slash command. Excludes per-machine state: <code>data/</code> (1.74 GB Chrome profiles), <code>bridges/</code>, <code>node_modules/</code>, <code>.git/</code>, <code>logs/</code>, <code>chats/</code>, <code>config.ini</code>, <code>prompt_history.txt</code>, <code>domains.txt</code>, <code>wake.txt</code>.</p>
+
+<h4>Pull (every client)</h4>
+<p>4 seconds after activation, every client fetches <code>https://trentontompkins.com/cbe/manifest.xml.php</code> and MD5-compares per-file against local copies. Only changed/missing files get downloaded over plain HTTPS GET. Excluded paths are NEVER pulled: <code>config.ini</code>, <code>data/</code>, <code>bridges/</code>, <code>extension.js</code>, <code>panel/panel.js</code>, <code>panel/index.html</code>, <code>package.json</code>, build tools — the rationale being that source ships via .vsix and the server's older copy mustn't clobber in-progress dev work.</p>
+</section>
+
+<section id="hotreload">
+<h2>Hot reload <a class="top-link" href="#">↑ top</a></h2>
+<p>Two reload paths are exposed via the right-click menu:</p>
+<ul>
+  <li><b>Reload Panel</b> — re-reads <code>panel/index.html</code> + every JS/CSS asset with a per-file <code>?v=&lt;mtime&gt;</code> cache-buster and reassigns <code>panel.webview.html</code>. Picks up panel.js / skin CSS / dotmatrix edits without rebooting VSCode. The extension host stays alive (your terminal, supervisor, message handlers, chat history all persist).</li>
+  <li><b>Reload Window</b> — fires <code>workbench.action.reloadWindow</code>. Use only when you've edited <code>extension.js</code> (host-side code) and Reload Panel isn't enough.</li>
+</ul>
+<p>Skin CSS edits also auto-apply via the panel's existing skin watcher — no menu click needed.</p>
+</section>
+
+<section id="troubleshooting">
+<h2>Troubleshooting <a class="top-link" href="#">↑ top</a></h2>
+
+<details><summary><b>"bridge X chat failed: api key empty in config.ini"</b></summary>
+<p>The smart_bridge.py daemon was caching an old gating check in memory. Fixed in the C++-exe routing pivot. If you still see it, kill stale daemons:</p>
+<pre><code>powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*smart_bridge.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"</code></pre>
+</details>
+
+<details><summary><b>"copilot has no public REST API — use the browser bridge"</b></summary>
+<p>Old extension.js was routing bridge chat through the REST router instead of the actual C++ tray exe. Reload Window to pick up the fixed extension.js, then chat will go straight to <code>bin/CBE-Bridge-Copilot.exe</code>.</p>
+</details>
+
+<details><summary><b>HTTP 404 model: sonnet-4.6</b></summary>
+<p>Outdated short alias in the Claude bridge config. Fixed — full IDs (<code>claude-sonnet-4-6</code>, <code>claude-opus-4-7</code>, <code>claude-haiku-4-5</code>) are now used.</p>
+</details>
+
+<details><summary><b>I edited a file but the panel doesn't show the change</b></summary>
+<ol>
+  <li>If it's <code>panel.js</code> / <code>skins/*.css</code> / <code>index.html</code> → right-click → <b>Reload Panel</b>.</li>
+  <li>If it's <code>extension.js</code> / <code>bridges_cpp/*.py</code> → right-click → <b>Reload Window</b>.</li>
+  <li>If you can't reach the menu (e.g. menu itself isn't loaded yet), launch a fresh VSCode instance with an isolated user-data-dir:<br>
+  <code>code --user-data-dir="$env:USERPROFILE\.cbe-edh" --extensionDevelopmentPath="C:\Users\moren\Desktop\Claude Codex Black"</code></li>
+</ol>
+</details>
+
+<details><summary><b>STT fails with "not-allowed"</b></summary>
+<p>VSCode sandboxes the webview from microphone permission. CBE auto-falls-back to Windows SAPI (<code>System.Speech.Recognition</code>) launched via PowerShell. You may need to grant mic access at the OS level (Settings → Privacy → Microphone).</p>
+</details>
+
+<details><summary><b>Bridge exe missing</b></summary>
+<p>Trace log shows <code>BRIDGE:MISSING target=&lt;t&gt; expected=&lt;path&gt;</code>. The C++ tray exes live in <code>bin/CBE-Bridge-&lt;Pretty&gt;.exe</code>. If yours don't exist, rebuild from <code>bridges_cpp/</code> source (MSVC) or pull a fresh .vsix.</p>
+</details>
+
+</section>
+
+<p style="margin-top: 36px; color: var(--muted); font-size: 12px; text-align: center;">
+Claude Codex — Black Edition · MIT licensed · © 2026 Trent Tompkins · <a href="mailto:trenttompkins@gmail.com" style="color:var(--accent);">trenttompkins@gmail.com</a> · (724) 431-5207
+</p>
+
+<button id="backToTop" type="button" aria-label="Back to top" title="Back to top"
+        style="position:fixed;right:18px;bottom:18px;width:38px;height:38px;border-radius:50%;
+               background:var(--accent);color:var(--bg);border:0;font-size:18px;cursor:pointer;
+               opacity:0;transition:opacity .25s ease;box-shadow:0 4px 14px rgba(0,0,0,.35);z-index:9999;">↑</button>
+
 </div>
 
+<!-- jQuery for animated smooth scroll on TOC anchor clicks. CDN load is
+     attempted first; if the webview CSP blocks it (typical in VSCode), the
+     CSS `scroll-behavior: smooth` rule above already delivers a smooth
+     fallback so the help remains usable. -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"
+        integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
+        crossorigin="anonymous"></script>
 <script>
-/* Native smooth-scroll TOC navigation. jQuery CDN scripts are blocked by the
-   VSCode webview CSP, so this uses plain DOM APIs — scrollIntoView with
-   behavior:'smooth' gives the identical animated scroll without any external
-   dependency. Works inside the webview iframe sandbox. */
-(function () {
-  const main = document.getElementById('main');
-  const tocLinks = Array.prototype.slice.call(document.querySelectorAll('nav.toc a[href^="#"]'));
-  const sections = Array.prototype.slice.call(document.querySelectorAll('section.help-section'));
+(function() {
+  var hasJQ = (typeof window.jQuery !== 'undefined');
 
-  tocLinks.forEach(function (link) {
-    link.addEventListener('click', function (e) {
+  // ── Animated smooth scroll for in-page anchor links (TOC + "↑ top"). ──
+  function jqScrollTo(targetEl, durationMs) {
+    jQuery('html, body').stop(true).animate({
+      scrollTop: targetEl.offsetTop - 14
+    }, durationMs || 550, 'swing');
+  }
+
+  // Vanilla rAF fallback if jQuery never loaded (CSP-blocked CDN).
+  function rafScrollTo(targetEl, durationMs) {
+    var startY = window.pageYOffset;
+    var endY   = (targetEl.getBoundingClientRect().top + startY) - 14;
+    var dist   = endY - startY;
+    var t0     = performance.now();
+    var d      = durationMs || 550;
+    function easeInOut(t) { return t < .5 ? 2*t*t : -1 + (4 - 2*t)*t; }
+    function step(now) {
+      var p = Math.min(1, (now - t0) / d);
+      window.scrollTo(0, startY + dist * easeInOut(p));
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function scrollToHash(hash) {
+    if (!hash || hash === '#') {
+      // "↑ top" links use href="#" — scroll to absolute top.
+      if (hasJQ) jQuery('html, body').stop(true).animate({ scrollTop: 0 }, 550, 'swing');
+      else window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    var el = document.querySelector(hash);
+    if (!el) return;
+    if (hasJQ) jqScrollTo(el, 550);
+    else rafScrollTo(el, 550);
+  }
+
+  // Intercept every in-page anchor click and animate.
+  document.querySelectorAll('a[href^="#"]').forEach(function(a) {
+    a.addEventListener('click', function(e) {
+      var href = a.getAttribute('href');
       e.preventDefault();
-      const id = link.getAttribute('href');
-      const target = document.querySelector(id);
-      if (!target) return;
-      /* scrollIntoView animates within the nearest scroll container (#main,
-         which has overflow:auto). scroll-margin-top on the section handles
-         the small top offset so headings aren't flush against the edge. */
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      try { history.replaceState(null, '', id); } catch (_) {}
+      scrollToHash(href);
+      if (href && href !== '#') {
+        history.replaceState(null, '', href);
+      } else {
+        history.replaceState(null, '', location.pathname + location.search);
+      }
     });
   });
 
-  /* Highlight whichever section is currently scrolled into view. */
-  function syncActive() {
-    const scrollTop = main.scrollTop;
-    const threshold = 80;
-    let activeId = sections.length ? sections[0].id : '';
-    sections.forEach(function (sec) {
-      if (sec.offsetTop - threshold <= scrollTop) activeId = sec.id;
-    });
-    tocLinks.forEach(function (l) {
-      l.classList.toggle('active', l.getAttribute('href') === '#' + activeId);
-    });
+  // ── Back-to-top floating button: fades in past 240px scroll. ──
+  var btn = document.getElementById('backToTop');
+  if (btn) {
+    function syncBtn() {
+      btn.style.opacity = (window.pageYOffset > 240) ? '0.92' : '0';
+      btn.style.pointerEvents = (window.pageYOffset > 240) ? 'auto' : 'none';
+    }
+    window.addEventListener('scroll', syncBtn, { passive: true });
+    btn.addEventListener('click', function() { scrollToHash('#'); });
+    syncBtn();
   }
-  main.addEventListener('scroll', syncActive);
-  syncActive();
-
-  /* External-link bridge. target="_blank" doesn't escape a VSCode webview
-     iframe — the click would just try to navigate the iframe itself. Instead
-     we intercept clicks on absolute http(s) links and postMessage to the
-     parent panel, which forwards to extension.js, which calls
-     vscode.env.openExternal so the user's real default browser opens. */
-  document.addEventListener('click', function (e) {
-    var t = e.target;
-    while (t && t.tagName !== 'A') t = t.parentNode;
-    if (!t || !t.getAttribute) return;
-    var href = t.getAttribute('href') || '';
-    if (!/^https?:\/\//i.test(href)) return;
-    e.preventDefault();
-    try {
-      window.parent.postMessage({ type: 'cbe.openExternal', url: href }, '*');
-    } catch (err) { /* parent missing — fall back to noop */ }
-  }, true);
 })();
 </script>
 </body>
