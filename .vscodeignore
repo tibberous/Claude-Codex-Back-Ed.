@@ -168,3 +168,7 @@ package-lock.json
 #    earlier asset-gen experiment; not used at runtime. Excluding ~50 MB
 #    of unused 1024x1024 PNG icons from the .vsix. ──────────────────────
 assets/*.color.png
+
+# Raw gpt-image-1 backdrop cache (banner.png is built FROM this — only the final banner needs to ship).
+resources/banner_backdrop.png
+
