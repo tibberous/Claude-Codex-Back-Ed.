@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2C2C2E"/>
+      <stop offset="100%" stop-color="#0A0A0A"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.45"/>
+      <stop offset="55%" stop-color="#ffffff" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="bottomGlow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.10"/>
+    </linearGradient>
+    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1.2"/>
+      <feOffset dy="1.5" result="off"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.55"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="6" y="6" width="88" height="88" rx="22" ry="22" fill="url(#base)" filter="url(#dropShadow)"/>
+  <rect x="6.5" y="6.5" width="87" height="87" rx="21.5" ry="21.5" fill="none" stroke="#ffffff" stroke-opacity="0.30" stroke-width="1"/>
+  <rect x="8" y="8" width="84" height="46" rx="20" ry="20" fill="url(#shine)"/>
+  <rect x="8" y="54" width="84" height="38" rx="18" ry="18" fill="url(#bottomGlow)"/>
+  <g>
+    <!-- LCD strip -->
+    <rect x="22" y="22" width="56" height="14" rx="3" fill="#e8e8e8"/>
+    <text x="74" y="33" text-anchor="end" font-family="Helvetica,Arial,sans-serif" font-size="11" font-weight="700" fill="#222">123</text>
+    <!-- key grid -->
+    <g fill="#ffffff" opacity="0.95">
+      <rect x="22" y="42" width="13" height="11" rx="2"/>
+      <rect x="38" y="42" width="13" height="11" rx="2"/>
+      <rect x="54" y="42" width="13" height="11" rx="2"/>
+      <rect x="22" y="57" width="13" height="11" rx="2"/>
+      <rect x="38" y="57" width="13" height="11" rx="2"/>
+      <rect x="54" y="57" width="13" height="11" rx="2"/>
+      <rect x="22" y="72" width="13" height="11" rx="2"/>
+      <rect x="38" y="72" width="13" height="11" rx="2"/>
+      <rect x="54" y="72" width="13" height="11" rx="2"/>
+    </g>
+    <!-- orange operator column -->
+    <g fill="#FF9F0A">
+      <rect x="70" y="42" width="11" height="11" rx="2"/>
+      <rect x="70" y="57" width="11" height="11" rx="2"/>
+      <rect x="70" y="72" width="11" height="11" rx="2"/>
+    </g>
+  </g>
+</svg>

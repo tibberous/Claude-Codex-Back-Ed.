@@ -2004,6 +2004,49 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     content: url("assets/dock_icons/macos/tama.svg") !important;
   }
 
+  /* Generated Mac-dock-style PNGs (gpt-image-1, transparent bg). These four
+     buttons had no dock_icon entry before, so they fell back to monochrome
+     base SVGs that broke the colorful Mac dock aesthetic (user 2026-05-22:
+     "you dont even have them all, see the missing buttons?"). */
+  .skin-macos-color-dock #accountsBtn > img {
+    content: url("assets/dock_icons/macos/accounts.png") !important;
+  }
+  /* Pinned-extension demo buttons (calculator / minesweeper / emoji-picker).
+     They're built by panel.js with a `<span class="cbe-pinned-svg">` wrapping
+     an inline currentColor <svg>, so they can't use the `content: url()` swap
+     the other buttons use. Instead we paint the Mac icon as the span's
+     background and hide the inline glyph. The button itself keeps the
+     `.tool-button` magnification, reflection, and shadow. */
+  .skin-macos-color-dock .tool-button[data-ext-id="calculator"] .cbe-pinned-svg,
+  .skin-macos-color-dock .tool-button[data-ext-id="minesweeper"] .cbe-pinned-svg,
+  .skin-macos-color-dock .tool-button[data-ext-id="emoji-picker"] .cbe-pinned-svg {
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+    width: 44px !important;
+    height: 44px !important;
+  }
+  .skin-macos-color-dock .tool-button[data-ext-id="calculator"]  .cbe-pinned-svg { background-image: url("assets/dock_icons/macos/calculator.png"); }
+  .skin-macos-color-dock .tool-button[data-ext-id="minesweeper"] .cbe-pinned-svg { background-image: url("assets/dock_icons/macos/minesweeper.png"); }
+  .skin-macos-color-dock .tool-button[data-ext-id="emoji-picker"] .cbe-pinned-svg { background-image: url("assets/dock_icons/macos/emojiPicker.png"); }
+  .skin-macos-color-dock .tool-button[data-ext-id="calculator"] .cbe-pinned-svg > svg,
+  .skin-macos-color-dock .tool-button[data-ext-id="minesweeper"] .cbe-pinned-svg > svg,
+  .skin-macos-color-dock .tool-button[data-ext-id="emoji-picker"] .cbe-pinned-svg > svg {
+    display: none !important;
+  }
+
+  /* True floor reflection beneath each dock icon — the single biggest cue
+     missing vs the real Mac dock screenshot. -webkit-box-reflect is fully
+     supported in Chromium/VSCode-webview; mirrors the rendered icon below
+     itself with a top-to-bottom alpha gradient so it fades into the glass. */
+  .skin-macos-color-dock .tool-button img,
+  .skin-macos-color-dock .tool-button .cbe-pinned-svg {
+    -webkit-box-reflect: below 1px linear-gradient(transparent 0%, transparent 60%, rgba(255,255,255,0.28) 100%);
+  }
+  /* The base `.tool-button::after` elliptical glow now competes with the
+     real reflection — kill it on this skin so we don't get a double-shadow. */
+  .skin-macos-color-dock .tool-button::after { display: none; }
+
   /* Mint skin — per-button icon swap (24 rules) */
   .skin-mint-dock #addBtn > img {
     content: url("assets/dock_icons/mint/add.svg") !important;
