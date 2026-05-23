@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<provider>
+  <name>Qwen</name>
+  <key>qwen</key>
+  <version>1.0.0</version>
+  <release_date>2026-05-23</release_date>
+
+  <author>
+    <name>Trent Tompkins</name>
+    <email>trenttompkins@gmail.com</email>
+    <url>https://trentontompkins.com</url>
+    <phone>+1-724-431-5207</phone>
+  </author>
+
+  <license type="MIT"><![CDATA[
+MIT License
+
+Copyright (c) 2026 Trent Tompkins.
+
+Provider manifest is licensed MIT. The embedded Qwen wordmark/logo is
+owned by Alibaba Group and is used here under nominative fair use for
+identification of the provider only — no endorsement, no affiliation.
+Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Qwen_logo.svg.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the "Software"),
+to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED.
+  ]]></license>
+
+  <readme><![CDATA[
+# Qwen — Tongyi Qianwen
+
+Alibaba's open-weight LLM family. The browser bridge drives
+[chat.qwen.ai](https://chat.qwen.ai) — a free, no-key web chat that
+exposes Alibaba's latest reasoning + instruct models.
+
+**Why bridge instead of API:** Qwen's official API (DashScope) requires
+an Alibaba Cloud account with phone verification + Chinese payment
+methods, which most non-CN users can't satisfy. The web UI works with
+a regular email signup.
+
+**Models typically exposed** (subject to discovery on first login — Qwen
+ships new models frequently):
+
+  - Qwen3-Max (235B-A22B) — flagship MoE reasoning
+  - Qwen3 (32B / 7B dense) — fast tier
+  - Qwen2.5-Coder — code-specialized
+
+**First-time setup:** the bridge opens chat.qwen.ai in a hidden offscreen
+WebEngine, GPT-4o handles the signup form (or login if you have an
+account), then writes the per-session script. After that, every chat is
+a direct in-page eval — zero API hits.
+  ]]></readme>
+
+  <urls>
+    <login>https://chat.qwen.ai</login>
+    <chat>https://chat.qwen.ai</chat>
+    <create_account>https://chat.qwen.ai</create_account>
+  </urls>
+
+  <icon mime="image/svg+xml" encoding="base64">PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDIwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+DQo8cGF0aCBkPSJNMTc0LjgyIDEwOC43NUwxNTUuMzggNzVMMTY1LjY0IDU3Ljc1QzE2Ni40NiA1Ni4zMSAxNjYuNDYgNTQuNTMgMTY1LjY0IDUzLjA5TDE1NS4zOCAzNS44NEMxNTQuODYgMzQuOTEgMTUzLjg3IDM0LjMzIDE1Mi43OCAzNC4zM0gxMTQuODhMMTA2LjE0IDE5LjAzQzEwNS42MiAxOC4xIDEwNC42MyAxNy41MiAxMDMuNTQgMTcuNTJIODMuM0M4Mi4yMSAxNy41MiA4MS4yMiAxOC4xIDgwLjcgMTkuMDNMNjEuMjYgNTIuNzdINDEuMDJDMzkuOTMgNTIuNzcgMzguOTQgNTMuMzUgMzguNDIgNTQuMjhMMjguMTYgNzEuNTNDMjcuMzQgNzIuOTcgMjcuMzQgNzQuNzUgMjguMTYgNzYuMTlMNDUuNTIgMTA3LjVMMzYuNzggMTIyLjhDMzUuOTYgMTI0LjI0IDM1Ljk2IDEyNi4wMiAzNi43OCAxMjcuNDZMNDcuMDQgMTQ0LjcxQzQ3LjU2IDE0NS42NCA0OC41NSAxNDYuMjIgNDkuNjQgMTQ2LjIySDg3LjU0TDk2LjI4IDE2MS41MkM5Ni44IDE2Mi40NSA5Ny43OSAxNjMuMDMgOTguODggMTYzLjAzSDExOS4xMkMxMjAuMjEgMTYzLjAzIDEyMS4yIDE2Mi40NSAxMjEuNzIgMTYxLjUyTDE0MS4xNiAxMjcuNzhIMTU4LjUyQzE1OS42MSAxMjcuNzggMTYwLjYgMTI3LjIgMTYxLjEyIDEyNi4yN0wxNzEuMzggMTA5LjAyQzE3Mi4yIDEwNy41OCAxNzIuMiAxMDUuOCAxNzEuMzggMTA0LjM2TDE3NC44MiAxMDguNzVaIiBmaWxsPSJ1cmwoI3BhaW50MF9yYWRpYWwpIi8+DQo8cGF0aCBkPSJNMTE5LjEyIDE2My4wM0g5OC44OEw4Ny41NCAxNDQuNzFINDkuNjRMNjEuMjYgMTI2LjM5SDgwLjdMMzguNDIgNTUuMjlINjEuMjZMODMuMyAxOS4wM0w5My41NiAzNy4zNUw4My4zIDU1LjI5SDE2MS41OEwxNTEuMzIgNzIuNTRMMTcwLjc2IDEwNi4yOEgxNTEuMzJMMTQxLjE2IDg4LjM0TDEwMS4xOCAxNjMuMDNIMTE5LjEyWiIgZmlsbD0id2hpdGUiLz4NCjxwYXRoIGQ9Ik0xMjcuODYgNzkuODNINzYuMTRMMTAxLjE4IDEyMi4xMUwxMjcuODYgNzkuODNaIiBmaWxsPSJ1cmwoI3BhaW50MV9yYWRpYWwpIi8+DQo8ZGVmcz4NCjxyYWRpYWxHcmFkaWVudCBpZD0icGFpbnQwX3JhZGlhbCIgY3g9IjAiIGN5PSIwIiByPSIxIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgZ3JhZGllbnRUcmFuc2Zvcm09InRyYW5zbGF0ZSgxMDAgMTAwKSByb3RhdGUoOTApIHNjYWxlKDEwMCkiPg0KPHN0b3Agc3RvcC1jb2xvcj0iIzY2NUNFRSIvPg0KPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMzMyRTkxIi8+DQo8L3JhZGlhbEdyYWRpZW50Pg0KPHJhZGlhbEdyYWRpZW50IGlkPSJwYWludDFfcmFkaWFsIiBjeD0iMCIgY3k9IjAiIHI9IjEiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIiBncmFkaWVudFRyYW5zZm9ybT0idHJhbnNsYXRlKDEwMCAxMDApIHJvdGF0ZSg5MCkgc2NhbGUoMTAwKSI+DQo8c3RvcCBzdG9wLWNvbG9yPSIjNjY1Q0VFIi8+DQo8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMzMzJFOTEiLz4NCjwvcmFkaWFsR3JhZGllbnQ+DQo8L2RlZnM+DQo8L3N2Zz4=</icon>
+</provider>
