@@ -1857,6 +1857,48 @@ async function _cleanStaleCBEVersions(context) {
         path.dirname(context.extensionPath),
     ]);
 
+    // Step 0 — on Windows, kill any CBE-Bridge-*.exe tray process whose
+    // ExecutablePath sits inside a foreign CBE folder (current OR already
+    // .disabled). Without this the tray keeps listening on its TCP port
+    // and the dev folder's freshly-rebuilt tray refuses to spawn ("port
+    // already bound, reusing existing bridge") — meaning code changes to
+    // the C++ tray don't take effect even after a panel reload. Each tray
+    // has a KILL_ON_JOB_CLOSE JobObject so killing it atomically nukes
+    // its entire chrome tree too. Wrapped — failure (e.g. missing perms)
+    // just leaves the process alone and falls through to the folder
+    // rename step.
+    if (process.platform === 'win32') {
+        const isStaleTrayPath = (p) =>
+            p && isCBE(p) &&
+            path.normalize(p).toLowerCase().indexOf(ourPath) !== 0;  // not in our extension dir
+        try {
+            const ps = cp.spawnSync('powershell.exe',
+                ['-NoProfile', '-NonInteractive', '-Command',
+                 "Get-CimInstance Win32_Process -Filter \"Name LIKE 'CBE-Bridge-%'\" | " +
+                 "Select-Object ProcessId,ExecutablePath | ConvertTo-Json -Compress"],
+                { encoding: 'utf8', windowsHide: true, timeout: 8000 });
+            let procs = [];
+            try {
+                const parsed = JSON.parse(ps.stdout || 'null');
+                procs = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+            } catch (_) { /* no procs / non-JSON */ }
+            for (const proc of procs) {
+                if (!isStaleTrayPath(proc.ExecutablePath)) continue;
+                try {
+                    cp.spawnSync('taskkill', ['/F', '/PID', String(proc.ProcessId)],
+                                 { windowsHide: true, timeout: 5000 });
+                    cleaned++;
+                    console.log('[CBE cleaner] killed stale tray pid=' + proc.ProcessId
+                                + ' path=' + proc.ExecutablePath);
+                } catch (e) {
+                    console.warn('[CBE cleaner] taskkill failed for pid', proc.ProcessId, e.message);
+                }
+            }
+        } catch (e) {
+            console.warn('[CBE cleaner] tray enumeration failed:', e.message);
+        }
+    }
+
     // Step 1 — rename foreign CBE folders so VSCode stops loading them.
     for (const root of roots) {
         let entries;
