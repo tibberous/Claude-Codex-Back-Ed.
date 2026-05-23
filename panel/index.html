@@ -2120,6 +2120,36 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   .skin-mint-dock #tamaBtn > img {
     content: url("assets/dock_icons/mint/tama.svg") !important;
   }
+
+  /* Mint-dock counterparts of the 4 generated Mac-style icons — same gpt-
+     image-1 pass, Numix/Mint palette (teal/charcoal/green/amber). */
+  .skin-mint-dock #accountsBtn > img {
+    content: url("assets/dock_icons/mint/accounts.png") !important;
+  }
+  .skin-mint-dock .tool-button[data-ext-id="calculator"] .cbe-pinned-svg,
+  .skin-mint-dock .tool-button[data-ext-id="minesweeper"] .cbe-pinned-svg,
+  .skin-mint-dock .tool-button[data-ext-id="emoji-picker"] .cbe-pinned-svg {
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+    width: 44px !important;
+    height: 44px !important;
+  }
+  .skin-mint-dock .tool-button[data-ext-id="calculator"]  .cbe-pinned-svg { background-image: url("assets/dock_icons/mint/calculator.png"); }
+  .skin-mint-dock .tool-button[data-ext-id="minesweeper"] .cbe-pinned-svg { background-image: url("assets/dock_icons/mint/minesweeper.png"); }
+  .skin-mint-dock .tool-button[data-ext-id="emoji-picker"] .cbe-pinned-svg { background-image: url("assets/dock_icons/mint/emojiPicker.png"); }
+  .skin-mint-dock .tool-button[data-ext-id="calculator"] .cbe-pinned-svg > svg,
+  .skin-mint-dock .tool-button[data-ext-id="minesweeper"] .cbe-pinned-svg > svg,
+  .skin-mint-dock .tool-button[data-ext-id="emoji-picker"] .cbe-pinned-svg > svg {
+    display: none !important;
+  }
+  /* Floor reflection (parity with macOS) — mint dock has a glossy panel
+     floor too, mirror each icon below itself fading to transparent. */
+  .skin-mint-dock .tool-button img,
+  .skin-mint-dock .tool-button .cbe-pinned-svg {
+    -webkit-box-reflect: below 1px linear-gradient(transparent 0%, transparent 60%, rgba(255,255,255,0.22) 100%);
+  }
+  .skin-mint-dock .tool-button::after { display: none; }
   /* === END DOCK ICON SWAP === */
   </style>
 
