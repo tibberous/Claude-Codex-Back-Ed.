@@ -1,0 +1,13 @@
+# Claude Codex Black — runtime Python dependencies.
+#
+# CORE — auto-installed by the extension's prerequisite checker on first
+# launch (extension.js -> _ensurePrerequisites). Keep this list tight:
+# every package here is `pip install`d for the user without prompting per
+# package. Heavy / niche deps (PySide6, playwright, sqlalchemy) stay
+# opt-in — they're only needed for specific features and get a separate
+# install path when those features are first used.
+requests
+psutil
+cryptography
+websocket-client
+pywin32 ; platform_system == "Windows"

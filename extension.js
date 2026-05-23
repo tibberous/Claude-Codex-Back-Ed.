@@ -1915,6 +1915,160 @@ async function _cleanStaleCBEVersions(context) {
     }
 }
 
+/* ── Prerequisite checker ─────────────────────────────────────────────── */
+/**
+ * Verify every external program/library CBE shells out to at runtime is
+ * present and current. If anything's missing or too old, surface a single
+ * unified toast with a "Install all" button that runs the installers in a
+ * visible VSCode terminal. Cached in globalState for 24h so we don't
+ * re-probe every launch.
+ *
+ * Currently checks: Python ≥ 3.10, Git, PowerShell (Win), pip packages
+ * listed in requirements.txt. PowerShell is a built-in on Windows so the
+ * probe is verification-only — no install path; if it's actually missing
+ * the user has bigger problems than this extension.
+ */
+async function _ensurePrerequisites(context) {
+    const fs   = require('fs');
+    const path = require('path');
+    const cp   = require('child_process');
+
+    const CHECK_KEY = '_cbePrereqCheck';
+    const TTL_MS = 24 * 60 * 60 * 1000;
+    const last = context.globalState.get(CHECK_KEY);
+    if (typeof last === 'number' && Date.now() - last < TTL_MS) return; // recent OK
+
+    // ── tiny promisified spawners ───────────────────────────────────────
+    const run = (cmd, args) => new Promise(resolve => {
+        let out = '';
+        let proc;
+        try { proc = cp.spawn(cmd, args, { windowsHide: true }); }
+        catch (e) { return resolve({ ok: false, reason: 'spawn-throw: ' + e.message, out: '' }); }
+        proc.stdout && proc.stdout.on('data', d => out += d);
+        proc.stderr && proc.stderr.on('data', d => out += d);
+        proc.on('error', e => resolve({ ok: false, reason: e.code || e.message, out }));
+        proc.on('close', code => resolve({ ok: code === 0, reason: 'exit ' + code, out, code }));
+    });
+
+    const missing = [];
+
+    // ── Python ≥ 3.10 ──────────────────────────────────────────────────
+    const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
+    const pyProbe = await run(pyCmd, ['--version']);
+    let pythonOk = false;
+    if (pyProbe.ok) {
+        const m = /Python (\d+)\.(\d+)\.(\d+)/.exec(pyProbe.out);
+        if (m) {
+            const major = +m[1], minor = +m[2];
+            pythonOk = major > 3 || (major === 3 && minor >= 10);
+            if (!pythonOk) missing.push({
+                what: 'Python ≥ 3.10 (found ' + m[0] + ' — too old)',
+                winget: 'Python.Python.3.12',
+                brew: 'python@3.12',
+                aptHint: 'sudo apt install python3.12 python3.12-venv',
+            });
+        }
+    } else {
+        missing.push({
+            what: 'Python (not installed)',
+            winget: 'Python.Python.3.12',
+            brew: 'python@3.12',
+            aptHint: 'sudo apt install python3 python3-pip python3-venv',
+        });
+    }
+
+    // ── pip packages from requirements.txt (only if Python is OK) ──────
+    const pipPackages = [];
+    if (pythonOk) {
+        const reqPath = path.join(context.extensionPath, 'requirements.txt');
+        if (fs.existsSync(reqPath)) {
+            const required = fs.readFileSync(reqPath, 'utf8').split(/\r?\n/)
+                .map(l => l.replace(/#.*$/, '').trim())
+                .filter(Boolean)
+                .map(l => ({
+                    raw: l,
+                    name: l.split(/[<>=;\s]/)[0].trim().toLowerCase(),
+                }))
+                .filter(p => p.name);
+            const pipList = await run(pyCmd, ['-3', '-m', 'pip', 'list', '--format=freeze', '--disable-pip-version-check']);
+            const installed = new Set(
+                (pipList.out || '').split(/\r?\n/)
+                    .map(l => l.split('==')[0].trim().toLowerCase())
+                    .filter(Boolean)
+            );
+            for (const p of required) if (!installed.has(p.name)) pipPackages.push(p.raw);
+        }
+        if (pipPackages.length) {
+            missing.push({ what: pipPackages.length + ' Python packages (requirements.txt)', pipArgs: pipPackages });
+        }
+    }
+
+    // ── Git (used by the GitHub button + git-blame integrations) ───────
+    const gitProbe = await run('git', ['--version']);
+    if (!gitProbe.ok) missing.push({
+        what: 'Git', winget: 'Git.Git', brew: 'git', aptHint: 'sudo apt install git',
+    });
+
+    // ── PowerShell (Windows only — verification only, no install path) ─
+    if (process.platform === 'win32') {
+        const psProbe = await run('powershell.exe', ['-NoProfile', '-Command', '$PSVersionTable.PSVersion.Major']);
+        if (!psProbe.ok) missing.push({
+            what: 'PowerShell (built into Windows; if missing, run Windows Update)',
+            noInstaller: true,
+        });
+    }
+
+    // ── Nothing missing? Cache OK and bail ─────────────────────────────
+    if (missing.length === 0) {
+        context.globalState.update(CHECK_KEY, Date.now());
+        return;
+    }
+
+    // ── Build a single unified toast ───────────────────────────────────
+    const summary = missing.map(m => '• ' + m.what).join('  ');
+    const action = await vscode.window.showWarningMessage(
+        'Claude Codex Black: missing prerequisites — ' + summary,
+        { modal: false },
+        'Install all',
+        'Later',
+        'Skip permanently',
+    );
+
+    if (action === 'Skip permanently') {
+        // Sentinel: far future, treat as "don't ask again."
+        context.globalState.update(CHECK_KEY, Date.now() + 100 * 365 * TTL_MS);
+        return;
+    }
+    if (action !== 'Install all') {
+        // "Later" or dismissed — re-ask in an hour (don't burn the whole 24h TTL).
+        context.globalState.update(CHECK_KEY, Date.now() - TTL_MS + 60 * 60 * 1000);
+        return;
+    }
+
+    // ── Run installers in a visible terminal so the user can watch ─────
+    const term = vscode.window.createTerminal({ name: 'CBE prerequisites' });
+    term.show(true);
+    const isWin = process.platform === 'win32';
+    const isMac = process.platform === 'darwin';
+    for (const m of missing) {
+        if (m.noInstaller) continue;
+        if (m.pipArgs) {
+            const py = isWin ? 'py' : 'python3';
+            term.sendText(`${py} -3 -m pip install --upgrade ${m.pipArgs.map(a => '"' + a + '"').join(' ')}`);
+        } else if (isWin && m.winget) {
+            term.sendText(`winget install ${m.winget} --accept-package-agreements --accept-source-agreements`);
+        } else if (isMac && m.brew) {
+            term.sendText(`brew install ${m.brew}`);
+        } else if (m.aptHint) {
+            term.sendText(m.aptHint);
+        }
+    }
+    term.sendText('echo "=== CBE prerequisites: install commands queued — review output, then reload window ==="');
+
+    // Don't cache OK — let the NEXT activation re-probe so we confirm
+    // installs actually took.
+}
+
 /* ── Activation ───────────────────────────────────────────────────────── */
 
 async function activate(context) {
@@ -1924,6 +2078,12 @@ async function activate(context) {
     // Wrapped in try/catch — a cleanup failure must not block activation.
     try { await _cleanStaleCBEVersions(context); }
     catch (e) { console.warn('[CBE cleaner] top-level fail:', e); }
+    // Verify Python / pip packages / Git / PowerShell are present and
+    // current. If anything's missing, surfaces a single unified toast with
+    // an "Install all" button that runs winget/brew/apt + pip in a visible
+    // terminal. Cached for 24h so we don't probe on every reload.
+    try { await _ensurePrerequisites(context); }
+    catch (e) { console.warn('[CBE prereq] top-level fail:', e); }
     outChan = vscode.window.createOutputChannel('Claude Codex Black');
     /* Clear stale entries from a previous activation so each run's timing
        is readable on its own. (VS Code keeps the OutputChannel alive across
