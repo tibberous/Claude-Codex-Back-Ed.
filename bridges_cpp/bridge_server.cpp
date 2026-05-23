@@ -614,33 +614,51 @@ static void spawnPythonBridge() {
     // Target name on the python side is always lowercase (matches start.py's
     // --target choices).
     // Build the chrome.exe command line. Matches what
-    // tools/cdp_minicomputer.py launches in offscreen mode, so attach()
-    // sees the same chrome it would have spawned itself.
+    // tools/cdp_minicomputer.py launches, so attach() sees the same chrome
+    // it would have spawned itself.
+    //   --headless=new                          Chromium 109+ TRUE headless:
+    //                                            no visible window, no
+    //                                            taskbar entry. Page.
+    //                                            captureScreenshot still
+    //                                            works (renders the DOM,
+    //                                            not the screen). 2026-05-23:
+    //                                            replaces the old
+    //                                            --window-position=5000,5000
+    //                                            off-screen hack — that left
+    //                                            a phantom taskbar entry per
+    //                                            target that the user could
+    //                                            click but never bring to
+    //                                            screen ("can't unminimize").
     //   --remote-debugging-port=<g_childPort>   per-target CDP port
     //   --user-data-dir=<profileDir>            persistent login cookies
-    //   --window-position=5000,5000             past visible desktop, but
-    //                                            NOT -32000 (that triggers
-    //                                            Chromium's "fully off-screen"
-    //                                            render-suspend path)
     //   --window-size=1400,1000                 viewport for vision pilot
+    //                                            (still honored under
+    //                                            --headless=new)
     //   --no-first-run --no-default-browser-check  quiet startup
     //   --disable-extensions --disable-sync
+    //   --disable-gpu                           recommended companion to
+    //                                            --headless=new on Windows;
+    //                                            avoids a transient GPU
+    //                                            process flash and trims
+    //                                            startup time
     //   --password-store=basic --disable-features=LockProfileCookieDatabase
     //                                            unblock Chrome 127+ App-Bound
     //                                            Encryption cookie reads
     wchar_t cmd[4096];
     swprintf_s(cmd, _countof(cmd),
-        L"\"%ls\" --remote-debugging-port=%d --user-data-dir=\"%ls\" "
-        L"--window-position=5000,5000 --window-size=1400,1000 "
+        L"\"%ls\" --headless=new --disable-gpu "
+        L"--remote-debugging-port=%d --user-data-dir=\"%ls\" "
+        L"--window-size=1400,1000 "
         L"--no-first-run --no-default-browser-check "
         L"--disable-extensions --disable-sync "
         // 2026-05-19: --disable-popup-blocking was REMOVED. SSO popups
-        // (Claude → Continue with Google) opened as separate visible
-        // chrome windows that bypassed --window-position=5000,5000 and
-        // were visible to the user. The offscreen contract beats SSO
-        // convenience. Claude becomes "one-time manual login required"
-        // — the user logs in once in a regular browser, copies cookies
-        // into the persistent profile, future runs are authenticated.
+        // (Claude → Continue with Google) used to open as separate visible
+        // chrome windows that bypassed our off-screen flag and surfaced
+        // to the user. With --headless=new that's moot (no window can
+        // surface anyway), but the comment stays because Claude still
+        // requires the one-time manual login flow: log in once in a
+        // regular browser, copy cookies into the persistent profile,
+        // future headless runs are authenticated.
         L"--disable-blink-features=AutomationControlled "  // hide the navigator.webdriver bot signal
         L"--password-store=basic --disable-features=LockProfileCookieDatabase",
         chrome.c_str(), g_childPort, profileDir);
