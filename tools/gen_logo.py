@@ -36,21 +36,28 @@ def load_bold_font(size):
             continue
     return ImageFont.load_default()
 
-def draw_splat(draw, cx, cy, R, r):
-    """Anthropic-style 8-point sparkle. Matches the en.svg orange polygon."""
-    pts = []
-    for i in range(16):
-        angle = math.pi * 2 * i / 16 - math.pi / 2
-        rad = R if i % 2 == 0 else r
-        pts.append((cx + rad * math.cos(angle), cy + rad * math.sin(angle)))
-    draw.polygon(pts, fill=ORANGE)
-    # inner highlight
-    pts2 = []
-    for i in range(16):
-        angle = math.pi * 2 * i / 16 - math.pi / 2
-        rad = (R * 0.55) if i % 2 == 0 else (r * 0.55)
-        pts2.append((cx + rad * math.cos(angle), cy + rad * math.sin(angle)))
-    draw.polygon(pts2, fill=SPLAT_HI)
+def draw_splat(draw, cx, cy, R, r=None):
+    """Anthropic-style 5-bladed Claude sparkle: five elongated lozenges
+    radiating at 72° apart (pentagonal symmetry). The PREVIOUS version had
+    8 blades (4 cardinal + 4 diagonal) which read as a generic 16-point
+    asterisk — user 2026-05-22: '5 blade, its like 16'. Five-fold symmetry
+    is the actual Claude mark silhouette."""
+    blade_w  = R * 0.22         # half-width of each blade at its widest
+    bulge_at = R * 0.32         # how far from center the widest point sits
+    for axis in range(5):
+        angle = axis * math.pi * 2 / 5 - math.pi / 2   # 5 blades, first one straight up
+        ux, uy = math.cos(angle), math.sin(angle)
+        px, py = -uy, ux                                # perpendicular for side bulges
+        tip   = (cx + R        * ux,             cy + R        * uy)
+        side1 = (cx + bulge_at * ux + blade_w * px,
+                 cy + bulge_at * uy + blade_w * py)
+        side2 = (cx + bulge_at * ux - blade_w * px,
+                 cy + bulge_at * uy - blade_w * py)
+        center = (cx, cy)
+        draw.polygon([tip, side1, center, side2], fill=ORANGE)
+    # Small center highlight where the five blades overlap
+    hl = max(2, R // 6)
+    draw.ellipse([cx - hl, cy - hl, cx + hl, cy + hl], fill=SPLAT_HI)
 
 def center_text(draw, y, text, font, fill):
     bbox = draw.textbbox((0, 0), text, font=font)
@@ -114,14 +121,44 @@ def main():
     size = min(font_top.size, font_bot.size)
     font = load_bold_font(size)
 
-    # Layout inside the plate: CODEX top, splat middle, BLACK bottom.
+    # Layout: CODEX hugs the top edge, BLACK hugs the bottom edge, the
+    # Claude-style splat fills the entire middle gap (previous version had
+    # the splat at R=12, ~24 px, which looked like a stray asterisk in a
+    # sea of dead space — user 2026-05-22: "vertical spacing is off, its
+    # an asterisk not a Claude"). The splat radius is now derived from the
+    # gap between the two text baselines so it fully fills the middle band.
     bbox = draw.textbbox((0, 0), "CODEX", font=font)
     th = bbox[3] - bbox[1]
-    top_y = PAD + 8
-    bot_y = H - PAD - 8 - th
+    top_y = PAD + 2
+    bot_y = H - PAD - 2 - th
+    gap   = bot_y - (top_y + th)                    # empty middle height
     mid_y = (top_y + th + bot_y) // 2
+    splat_R = max(18, gap // 2 + 4)                 # fill the gap + slight overlap
 
-    draw_splat(draw, W // 2, mid_y, R=12, r=5)
+    # Use the saved on-brand splat image (chunky-petal orange splash from
+    # ChatGPT, lives at assets/claude-splat.png). Falls back to the
+    # procedural draw_splat if the image is missing. The image is the
+    # single source of truth for the Claude splat anywhere we need one;
+    # update assets/claude-splat.png to change the splat everywhere.
+    splat_path = ROOT / "assets" / "claude-splat.png"
+    if splat_path.exists():
+        splat = Image.open(splat_path).convert("RGBA")
+        # Trim the transparent margin so the visible orange shape is the
+        # actual bounding box we resize against. Without this the source
+        # PNG's ~25% transparent border pushes the visible mark larger
+        # than the gap, overlapping the text.
+        bbox = splat.getbbox()
+        if bbox:
+            splat = splat.crop(bbox)
+        # Leave 4 px breathing room above + below so the splat sits cleanly
+        # between the two text rows instead of overlapping them.
+        target = max(28, min(gap - 8, 44))
+        splat.thumbnail((target, target), Image.Resampling.LANCZOS)
+        sx = (W - splat.width) // 2
+        sy = mid_y - splat.height // 2
+        img.paste(splat, (sx, sy), splat)             # alpha-composite
+    else:
+        draw_splat(draw, W // 2, mid_y, R=splat_R)
     center_text(draw, top_y, "CODEX", font, WHITE)
     center_text(draw, bot_y, "BLACK", font, WHITE)
 

@@ -3187,19 +3187,19 @@ function renderPinnedExtensionButtons() {
       btn.innerHTML =
         '<span class="cbe-pinned-svg" aria-hidden="true" style="' +
           'display:inline-flex;align-items:center;justify-content:center;' +
-          'width:30px;height:30px;color:#ccc;' +
+          'width:40px;height:40px;color:#ccc;' +
         '">' + rawSvg + '</span>';
     } else if (rawIcon) {
       btn.innerHTML =
         '<span class="cbe-pinned-emoji" aria-hidden="true" style="' +
           'display:inline-flex;align-items:center;justify-content:center;' +
-          'width:30px;height:30px;font-size:26px;line-height:1;' +
+          'width:40px;height:40px;font-size:34px;line-height:1;' +
           'font-family:\'Segoe UI Emoji\',\'Noto Color Emoji\',\'Apple Color Emoji\',sans-serif;' +
           'text-shadow:0 2px 3px rgba(0,0,0,0.55);' +
         '">' + escapeHtmlExt(rawIcon) + '</span>';
     } else {
       btn.innerHTML =
-        '<span style="display:inline-flex;width:30px;height:30px;align-items:center;' +
+        '<span style="display:inline-flex;width:40px;height:40px;align-items:center;' +
         'justify-content:center;color:#fff;">' + CBE_EXT_ICONS.open + '</span>';
     }
     btn.addEventListener('click', () => {
@@ -3585,7 +3585,7 @@ window.addEventListener('message', e => {
     if (!__cbeStatusEl || !__cbeStatusEl.isConnected) {
       __cbeStatusEl = addMsg('', 'info cbe-progress');
     }
-    /* Use the loading_blue.svg spinner instead of a ⏳ emoji prefix. Consolas
+    /* Use the loading_orange.svg spinner instead of a ⏳ emoji prefix. Consolas
        (and the webview's monospace stack) has no glyph for U+23F3, so it
        rendered as a tofu box — user 2026-05-22: "magic boxing" / "see that
        square under yo?". An SVG icon + the existing .cbe-spinner animation
@@ -3594,7 +3594,7 @@ window.addEventListener('message', e => {
     const __ab = String(window.__cbeAssetsBase || '').replace(/\/$/, '');
     if (__ab) {
       const __sp = document.createElement('img');
-      __sp.src = __ab + '/loading_blue.svg';
+      __sp.src = __ab + '/loading_orange.svg';
       __sp.alt = '';
       __sp.className = 'cbe-spinner';
       __sp.style.cssText = 'width:13px;height:13px;vertical-align:-2px;margin-right:6px;';

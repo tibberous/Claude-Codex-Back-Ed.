@@ -602,6 +602,26 @@ def driveBridgeChat(target: str, prompt: str, max_steps: int = 20) -> dict[str, 
     result = plugin.drive_chat(mini, prompt,
                                 email=creds.get("email", ""),
                                 password=creds.get("password", "")) or {}
+
+    # If the fast selector-based plugin path failed — e.g. the site showed a
+    # login wall / CAPTCHA / changed its DOM so the composer selector never
+    # matched ("post-login composer never appeared") — escalate to the GPT-4o
+    # VISION pilot. It screenshots the page and lets GPT navigate it like a
+    # human would (find the composer wherever it moved, dismiss banners, etc.).
+    # This is what "send the screen to ChatGPT like the other bridges" means
+    # (user 2026-05-22). The selector path stays primary because it's faster +
+    # cheaper when it works; vision is the robust fallback. api-mode bridges
+    # (ollama) have no screen, so they never fall back.
+    if not result.get("ok") and plugin.manifest.kind != "api":
+        print(f"BRIDGE:PLUGIN-FAILED target={canon} err={result.get('error')!r} "
+              f"-> escalating to GPT-4o vision pilot", file=sys.stderr, flush=True)
+        visionResult = driveBridgeChatViaVisionPilot(target, prompt, max_steps=max_steps)
+        # Prefer the vision result whenever it did better than the plugin.
+        if visionResult.get("ok") or not result.get("response"):
+            visionResult["summary"] = (visionResult.get("summary") or "vision-pilot") + \
+                f" (selector-fallback from plugin:{plugin.manifest.name})"
+            return visionResult
+
     # Normalize to the existing response shape callers expect.
     return {
         "ok": bool(result.get("ok")),

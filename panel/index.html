@@ -25,9 +25,9 @@
      extension's JS via #promptBox / #sendBtn / #addBtn / #sttBtn / #ttsBtn /
      #label-pill / #storedPromptsBtn / #autoReplyBtn) ──────────────────── */
 :root {
-  --shell-radius: 28px;
-  --input-radius: 20px;
-  --button-radius: 15px;
+  --shell-radius: 14px;
+  --input-radius: 10px;
+  --button-radius: 10px;
   --orange-1: #ffcc00;
   --orange-2: #ff8b00;
   --orange-3: #ff5b00;
@@ -134,6 +134,12 @@ body {
 
 .prompt-input-wrap {
   position: relative;
+  /* Center the textarea vertically inside the wrap so the prompt text never
+     sits jammed against the top edge when a skin makes the wrap taller than
+     the textarea's own height (user 2026-05-22: "prompt text is up too
+     high"). The send button is position:absolute so it stays out of flow. */
+  display: flex;
+  align-items: center;
   margin-bottom: 17px;
   border-radius: var(--input-radius);
   border: 2px solid rgba(52, 52, 52, 0.95);
@@ -156,7 +162,12 @@ body {
 
 .prompt-input {
   width: 100%;
-  min-height: 46px;
+  /* min-height kept tight (single text line) so the textarea collapses to
+     its content; the wrap's `display:flex; align-items:center` then keeps
+     the text vertically centered in the pill instead of hugging the top
+     (user 2026-05-22: "prompt text is up too high"). Multi-line input still
+     auto-grows up to max-height via the resize JS. */
+  min-height: 30px;
   max-height: 240px;
   resize: none;
   overflow: hidden;
@@ -218,8 +229,9 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   position: absolute;
   top: 50%;
   right: 16px;
-  width: 61px;
-  height: 65px;
+  width: 44px;
+  height: 44px;
+  opacity: 0.8;
   margin: 0;
   transform: translateY(-50%);
   border: 0;
@@ -264,6 +276,24 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 .send-button.is-active::before {
   /* slight push-in feedback on click so the arrow tracks the press */
   transform: translateY(1px) scale(0.97);
+}
+
+/* SEND BUTTON — universal lock. ID specificity (#sendBtn) beats every skin's
+   `.send-button { ... !important }` rule, so this wins regardless of the
+   active skin. Keeps the button SQUARE (no circular orb), a touch smaller,
+   and stacked above the panel chrome so it never gets clipped behind the
+   prompt-shell (user 2026-05-22: "send button should be square",
+   "smaller and not behind the panel"). */
+#sendBtn {
+  width: 38px !important;
+  height: 38px !important;
+  border-radius: 4px !important;
+  opacity: 0.9 !important;
+  z-index: 6 !important;
+}
+#sendBtn::before {
+  -webkit-mask-size: 58% 58%;
+          mask-size: 58% 58%;
 }
 
 /* Attachments row — sits between the input and the toolbar. Each chip
@@ -353,7 +383,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   min-width: 0;
   margin: 0 auto;
   padding: 10px 16px 18px 16px;
-  border-radius: 22px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.16);
   backdrop-filter: blur(22px) saturate(180%);
   -webkit-backdrop-filter: blur(22px) saturate(180%);
@@ -522,6 +552,18 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   user-select: none;
 }
 
+/* Pinned-extension buttons (calculator / minesweeper / emoji-picker, plus
+   any user-pinned extension) carry the same `.tool-button` class as every
+   other dock icon, but their glyph lives in an inline-styled <span> wrapper.
+   Force that wrapper's inner <svg> to fill the 40px slot so these buttons
+   match the rest of the toolbar instead of rendering visibly smaller
+   (user 2026-05-22: "the last 4 buttons are too small"). */
+.cbe-pinned-ext .cbe-pinned-svg svg {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
 /* Mirror-flipped icon reflection beneath each dock icon. Uses the same
    <img> the button already contains, cloned via ::after's content:''
    trick: we paint an inverted, faded copy positioned just below the icon
@@ -589,7 +631,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 #monitorBtn.is-monitoring .cbe-spinner { opacity: 1; }
 #monitorBtn.is-monitoring > img:first-of-type {
   opacity: 0.45;
-  filter: brightness(0) invert(1) drop-shadow(0 0 6px rgba(78,168,255,0.6));
+  filter: brightness(0) invert(1) drop-shadow(0 0 6px rgba(255,139,0,0.65));
 }
 
 /* Auto Prompt button — visually identical to the TTS auto-read pulsing
@@ -1514,7 +1556,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
             <!-- Blue spinner overlay shown while #sttBtn.is-recording. Same
                  pattern as #monitorBtn so the user gets clear feedback that
                  the host-side SAPI mic is actively listening. -->
-            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_blue.svg" alt="" />
+            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_orange.svg" alt="" />
           </button>
           <button id="autoReplyBtn" class="tool-button" type="button" data-tooltip="Auto Prompt" data-i18n-tip="tooltip.autoprompt" aria-label="Auto Prompt">
             <img src="{{ASSETS_BASE}}/auto_reply.svg" alt="" />
@@ -1541,13 +1583,16 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
           <button id="settingsBtn" class="tool-button" type="button" data-tooltip="Settings" data-i18n-tip="tooltip.settings" aria-label="Settings">
             <img src="{{ASSETS_BASE}}/settings.svg" alt="" />
           </button>
-          <!-- Accounts manager — per-provider API-key rotation. Uses an inline
-               person-silhouette data-URI <img> (no asset file needed) so it
-               renders in the same 40px dock-icon slot as the other buttons.
-               Opens #accountsModal; the multi-account plumbing already lives in
-               extension.js ([accounts] section + getAccounts/add/edit/etc). -->
+          <!-- Accounts manager — per-provider API-key rotation. Uses a real
+               accounts.svg asset (currentColor person-silhouette) so it picks
+               up every skin's `.tool-button img` icon filter exactly like the
+               other buttons. The previous inline data-URI <img> rendered blank
+               in the webview (raw <> in a `;utf8,` data URI is rejected) — that
+               left the Accounts button invisible (user 2026-05-22: "Accounts
+               and Browser buttons are missing"). Opens #accountsModal; the
+               multi-account plumbing lives in extension.js ([accounts]). -->
           <button id="accountsBtn" class="tool-button" type="button" data-tooltip="Accounts — manage API keys" data-i18n-tip="tooltip.accounts" aria-label="Accounts">
-            <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='8' r='4' fill='%23e8e8e8'/><path d='M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7Z' fill='%23e8e8e8'/></svg>" alt="" />
+            <img src="{{ASSETS_BASE}}/accounts.svg" alt="" />
           </button>
           <button id="extensionsBtn" class="tool-button" type="button" data-tooltip="Extensions" data-i18n-tip="tooltip.extensions" aria-label="Extensions">
             <img src="{{ASSETS_BASE}}/extensions.svg" alt="" />
@@ -1555,12 +1600,16 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
           <button id="projectFolderBtn" class="tool-button" type="button" data-tooltip="Project folder" data-i18n-tip="tooltip.project_folder" aria-label="Project folder">
             <img src="{{ASSETS_BASE}}/project_folder.svg" alt="" />
           </button>
+          <!-- Browser — uses the lightweight currentColor browser.svg (the old
+               browser.png was a 122 KB raster that rendered blank, leaving the
+               Browser button invisible — user 2026-05-22). SVG matches every
+               other toolbar icon and recolors under each skin's icon filter. -->
           <button id="browserBtn" class="tool-button" type="button" data-tooltip="Browser" data-i18n-tip="tooltip.browser" aria-label="Browser">
-            <img src="{{ASSETS_BASE}}/browser.png" alt="" />
+            <img src="{{ASSETS_BASE}}/browser.svg" alt="" />
           </button>
           <button id="monitorBtn" class="tool-button" type="button" data-tooltip="VSCode monitor" data-i18n-tip="tooltip.monitor" aria-label="VSCode monitor">
             <img src="{{ASSETS_BASE}}/vscode_monitor.svg" alt="" />
-            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_blue.svg" alt="" />
+            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_orange.svg" alt="" />
           </button>
           <button id="terminalBtn" class="tool-button" type="button" data-tooltip="Terminal" data-i18n-tip="tooltip.terminal" aria-label="Terminal">
             <img src="{{ASSETS_BASE}}/terminal.svg" alt="" />
@@ -1841,7 +1890,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
         rgba(255, 255, 255, 0.08) 100%) !important;
     backdrop-filter: blur(20px) saturate(180%) !important;
     -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
-    border-radius: 22px !important;
+    border-radius: 12px !important;
     border: 1px solid rgba(255, 255, 255, 0.30) !important;
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.35),
@@ -1862,7 +1911,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
         rgba(10, 10, 10, 0.80) 100%) !important;
     backdrop-filter: blur(20px) saturate(140%) !important;
     -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
-    border-radius: 22px !important;
+    border-radius: 12px !important;
     border-top: 1px solid rgba(255, 255, 255, 0.25) !important;
     border-left: 1px solid rgba(255, 255, 255, 0.10) !important;
     border-right: 1px solid rgba(255, 255, 255, 0.10) !important;
