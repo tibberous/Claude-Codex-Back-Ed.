@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<provider>
+  <name>Grok (xAI)</name>
+  <key>grok</key>
+  <version>1.0.0</version>
+  <release_date>2026-05-23</release_date>
+
+  <author>
+    <name>Trent Tompkins</name>
+    <email>trenttompkins@gmail.com</email>
+    <url>https://trentontompkins.com</url>
+    <phone>+1-724-431-5207</phone>
+  </author>
+
+  <license type="MIT"><![CDATA[
+MIT License
+
+Copyright (c) 2026 Trent Tompkins.
+
+Provider manifest is licensed MIT. The embedded "X" mark is owned by
+X Corp. / xAI Corp. and is used here under nominative fair use for
+identification of the provider only — no endorsement, no affiliation.
+Source: Wikimedia Commons / SimpleIcons (x.svg).
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the "Software"),
+to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED.
+  ]]></license>
+
+  <readme><![CDATA[
+# Grok — xAI
+
+xAI's flagship chat web UI at [grok.com](https://grok.com). The browser
+bridge drives the logged-in X/Premium session — your existing X Premium
+subscription is the rate limiter, no xAI API key required.
+
+**Models typically exposed** (subject to discovery on first login):
+
+  - Grok 4 — flagship reasoning ("Think" mode)
+  - Grok 4 Heavy — multi-agent reasoning (Premium+ tier)
+  - Grok 4 Fast — low-latency default
+
+**First-time setup:** sign in with your existing X account; Grok inherits
+that auth. Premium / Premium+ / SuperGrok subscriptions unlock the higher
+reasoning tiers.
+  ]]></readme>
+
+  <urls>
+    <login>https://grok.com</login>
+    <chat>https://grok.com</chat>
+    <create_account>https://grok.com</create_account>
+  </urls>
+
+  <icon mime="image/svg+xml" encoding="base64">PHN2ZyBmaWxsPSIjMDAwMDAwIiByb2xlPSJpbWciIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+WDwvdGl0bGU+PHBhdGggZD0iTTE0LjIzNCAxMC4xNjIgMjIuOTc3IDBoLTIuMDcybC03LjU5MSA4LjgyNEw3LjI1MSAwSC4yNThsOS4xNjggMTMuMzQzTC4yNTggMjRIMi4zM2w4LjAxNi05LjMxOEwxNi43NDkgMjRoNi45OTN6bS0yLjgzNyAzLjI5OS0uOTI5LTEuMzI5TDMuMDc2IDEuNTZoMy4xODJsNS45NjUgOC41MzIuOTI5IDEuMzI5IDcuNzU0IDExLjA5aC0zLjE4MnoiLz48L3N2Zz4=</icon>
+</provider>

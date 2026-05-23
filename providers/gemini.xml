@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<provider>
+  <name>Google Gemini</name>
+  <key>gemini</key>
+  <version>1.0.0</version>
+  <release_date>2026-05-23</release_date>
+
+  <author>
+    <name>Trent Tompkins</name>
+    <email>trenttompkins@gmail.com</email>
+    <url>https://trentontompkins.com</url>
+    <phone>+1-724-431-5207</phone>
+  </author>
+
+  <license type="MIT"><![CDATA[
+MIT License
+
+Copyright (c) 2026 Trent Tompkins.
+
+Provider manifest is licensed MIT. The embedded Gemini four-point star
+mark is owned by Google LLC and is used here under nominative fair use
+for identification of the provider only — no endorsement, no affiliation.
+Source: Wikimedia Commons / SimpleIcons (googlegemini.svg).
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the "Software"),
+to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED.
+  ]]></license>
+
+  <readme><![CDATA[
+# Google Gemini
+
+Google's flagship chat web UI at [gemini.google.com](https://gemini.google.com).
+The browser bridge drives the logged-in Google account session — your
+existing Google One AI / Workspace subscription is the rate limiter, no
+per-token API fees and no Google AI Studio key required.
+
+**Models typically exposed** (subject to discovery on first login):
+
+  - Gemini 2.5 Pro — flagship reasoning + 2M-token context
+  - Gemini 2.5 Flash — fast, low-latency tier
+  - Gemini 2.5 Deep Research — multi-step web research
+
+**First-time setup:** sign in once with your regular Google account; the
+bridge reuses the cookies on every subsequent chat. No phone verification
+beyond what Google itself requires.
+  ]]></readme>
+
+  <urls>
+    <login>https://gemini.google.com</login>
+    <chat>https://gemini.google.com</chat>
+    <create_account>https://gemini.google.com</create_account>
+  </urls>
+
+  <icon mime="image/svg+xml" encoding="base64">PHN2ZyBmaWxsPSIjOEU3NUIyIiByb2xlPSJpbWciIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+R29vZ2xlIEdlbWluaTwvdGl0bGU+PHBhdGggZD0iTTExLjA0IDE5LjMyUTEyIDIxLjUxIDEyIDI0cTAtMi40OS45My00LjY4Ljk2LTIuMTkgMi41OC0zLjgxdDMuODEtMi41NVEyMS41MSAxMiAyNCAxMnEtMi40OSAwLTQuNjgtLjkzYTEyLjMgMTIuMyAwIDAgMS0zLjgxLTIuNTggMTIuMyAxMi4zIDAgMCAxLTIuNTgtMy44MVExMiAyLjQ5IDEyIDBxMCAyLjQ5LS45NiA0LjY4LS45MyAyLjE5LTIuNTUgMy44MWExMi4zIDEyLjMgMCAwIDEtMy44MSAyLjU4UTIuNDkgMTIgMCAxMnEyLjQ5IDAgNC42OC45NiAyLjE5LjkzIDMuODEgMi41NXQyLjU1IDMuODEiLz48L3N2Zz4=</icon>
+</provider>
