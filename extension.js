@@ -1899,7 +1899,26 @@ async function _cleanStaleCBEVersions(context) {
         }
     }
 
-    // Step 1 — rename foreign CBE folders so VSCode stops loading them.
+    // Step 1 — rename foreign CBE folders out of VSCode's load path, then
+    // immediately delete the bytes. The rename-first is defensive: even if
+    // the recursive delete partially fails (an antivirus scan opens a
+    // file mid-delete), VSCode won't try to load whatever's left because
+    // it's no longer at a recognized .vscode/extensions path. Old binaries
+    // would otherwise pile up forever — every VSIX side-load left ~25 MB
+    // behind that the user had to manually rm.
+    //
+    // Also sweeps any pre-existing .disabled-* CBE folders (from prior
+    // cleaner runs or manual rename ops) — they're already excluded from
+    // the VSCode load path but still occupy disk.
+    const wipeDir = (p) => {
+        try {
+            fs.rmSync(p, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+            return true;
+        } catch (e) {
+            console.warn('[CBE cleaner] delete failed:', p, e.message);
+            return false;
+        }
+    };
     for (const root of roots) {
         let entries;
         try { entries = fs.readdirSync(root, { withFileTypes: true }); }
@@ -1907,14 +1926,26 @@ async function _cleanStaleCBEVersions(context) {
         for (const entry of entries) {
             if (!entry.isDirectory()) continue;
             if (!isCBE(entry.name)) continue;
-            if (/\.disabled(-[\w\-:T]+)?$/i.test(entry.name)) continue;
             const p = path.join(root, entry.name);
             if (path.normalize(p).toLowerCase() === ourPath) continue;
+            const alreadyDisabled = /\.disabled(-[\w\-:T]+)?$/i.test(entry.name);
+            if (alreadyDisabled) {
+                // Pre-existing disabled folder — straight to delete.
+                if (wipeDir(p)) cleaned++;
+                continue;
+            }
+            // Live foreign CBE — rename first (instant takeoff from VSCode's
+            // load path), then delete the bytes.
+            const disabled = p + '.disabled-' + stamp;
             try {
-                fs.renameSync(p, p + '.disabled-' + stamp);
+                fs.renameSync(p, disabled);
                 cleaned++;
+                wipeDir(disabled);  // best-effort; cleaned++ already counted the rename
             } catch (e) {
                 console.warn('[CBE cleaner] rename failed:', p, e.message);
+                // Even if rename failed, try a direct recursive delete — the
+                // folder may be partly writable.
+                if (wipeDir(p)) cleaned++;
             }
         }
     }
