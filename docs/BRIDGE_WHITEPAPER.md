@@ -2,37 +2,41 @@
 
 **Status:** design doc, supersedes v1.
 **Author:** Trent + Claude, 2026-05-23.
-**Audience:** anyone touching `bridges_cpp/`, `tools/gpt_vision_pilot.py`,
-or `extension.js` bridge code.
+**Audience:** anyone touching `bridges_py/`, `providers/`, `start.py`'s
+offscreen pipeline, or `extension.js` bridge code.
 
 ---
 
 ## 0. What a "bridge" is, in one sentence
 
 A bridge is a piece of software that drives **the actual chatgpt.com (or
-claude.ai / gemini / grok / copilot / deepseek) website** from outside
-the browser, so the CBE panel can pretend the web UI is just another
-chat completion endpoint. It is **NOT** an API client. The whole point is
-to use the free / paid-flat-rate web UI instead of paying per-token API
-fees.
+claude.ai / gemini / grok / copilot / deepseek / qwen) website** from
+outside the browser, so the CBE panel can pretend the web UI is just
+another chat completion endpoint. It is **NOT** an API client. The whole
+point is to use the free / paid-flat-rate web UI instead of paying
+per-token API fees.
 
 The user already has a paid ChatGPT Plus / Claude Pro account. The bridge
 turns that monthly fee into "unlimited API access" by automating the
 button-clicking a human would otherwise do.
 
 The OpenAI API is involved **only** as the brain that figures out which
-buttons to click. And v2 exists because in v1 we call that brain on
-**every single message**, which burns more API credits than we save.
+buttons to click, and only on first contact per session. After that, the
+hot path is pure in-page JavaScript — zero API hits.
 
 ---
 
-## 1. Why v1 is broken (the bug we are fixing)
+## 1. Why v1 was broken (the bug we are fixing)
 
-Today, every chat through `bridge_chat` does this:
+The old design (v1) was a fleet of per-target C++ tray exes
+(`bridges_cpp/CBE-Bridge-*.exe`), each spawning a headless Chrome via
+`--headless=new` and driving it through CDP. Every chat through
+`bridge_chat` did this:
 
 ```
 user types message
   -> bridge_pilot.py spawned by CBE-Bridge-<Target>.exe
+  -> chrome.exe --headless=new on its own CDP port
   -> Page.captureScreenshot via CDP
   -> POST api.openai.com/v1/chat/completions  (gpt-4o vision)  ← API HIT
   -> gpt-4o returns "click selector X, type Y"
@@ -43,119 +47,235 @@ user types message
   -> bridge returns answer to panel
 ```
 
-Per message we make **2–6 vision-API calls** (screenshot + decide + verify
-reply landed + sometimes re-check during streaming). At gpt-4o-mini vision
-prices that's already $0.01–$0.05 per chat. At gpt-4o it's $0.05–$0.20.
+Per message: **2–6 vision-API calls** (screenshot + decide + verify reply
+landed + sometimes re-check during streaming). At gpt-4o vision prices
+that's $0.05–$0.20 per chat. For a power user that's $5–$50/day routed
+through OpenAI just to drive chatgpt.com. **Defeats the entire purpose
+of having a Plus subscription.**
 
-For a power user that's $5–$50/day routed through OpenAI just to drive
-chatgpt.com. **Defeats the entire purpose of having a Plus subscription.**
+Worse, the layout doesn't change between messages. We were paying gpt-4o
+to re-discover the same `<button data-testid="send">` over and over.
+And every target needed its own C++ binary, its own .rc file, its own
+build line in `build_bridges.ps1`. Adding a provider was a code change.
 
-The page layout doesn't change between messages. We are paying gpt-4o to
-re-discover the same `<button class="send-button">` over and over. The fix
-is obvious: discover it once, write down what we found, and stop asking.
+v2 fixes all of this.
 
 ---
 
-## 2. The v2 insight
+## 2. The v2 insight (two-part)
 
-> **Use gpt-4o once to write the automation script, then run the script.
-> Only call gpt-4o again when the script breaks.**
+> **(a) Use gpt-4o once to write the automation script, then run the
+> script. Only call gpt-4o again when the script breaks.**
+>
+> **(b) Targets are data, not code. One unified Python service drives
+> every target. Each target is one XML manifest in `providers/`.**
 
-Concretely, every target gets a small JavaScript "contract" injected into
-the page that the bridge calls directly. The contract is **authored by
-gpt-4o on first contact** and persisted to disk. After that, every chat
-turn is a pair of in-page `eval_js` calls — no API hit at all.
+Concretely:
+
+1. Every target gets a small JavaScript "contract" injected into the page
+   that the bridge calls directly. The contract is **authored by gpt-4o
+   on first contact** and persisted to disk. After that, every chat turn
+   is a pair of in-page `runJavaScript()` calls — no API hit at all.
+
+2. Adding a new provider = dropping `providers/<key>.xml` into the repo
+   and shipping. The unified Python service picks it up; the help docs,
+   marketplace UI, and asset materialiser all read the manifest. No
+   recompile, no second binary, no .rc file.
 
 When the page layout changes (chatgpt.com pushes a redesign, a selector
-breaks, a CAPTCHA appears) the bridge detects it and re-invokes gpt-4o to
-patch the script. The script lives in `bridge_scripts/<target>.js` and is
-version-controlled per target.
+breaks, a CAPTCHA appears) the bridge detects it and re-invokes gpt-4o
+to patch the script. Patched script is saved to
+`state/providers/<key>.script.js` and reused on next session.
 
-Expected cost: **2 API hits per session** (login + first message) plus
-~1 hit per layout-break event (weeks apart in practice). Down from
-**2–6 hits per message**. ~100× cheaper.
+Expected cost: **2 API hits per session** (login + first message)
+plus ~1 hit per layout-break event (weeks apart in practice). Down from
+**2–6 hits per message**. ~33× cheaper — see § 11.
 
 ---
 
-## 3. The bridge state machine
+## 3. Process topology
 
-A target has four states. Transitions are driven by what the JS contract
-returns or fails to return.
+**One unified Python+PySide6 service.** `bridges_py/bridge_service.py`
+handles all targets. The C++ tray (`bridges_cpp/`) is **deprecated** and
+will be removed once v2 ships.
+
+The service delegates browser work to `start.py`'s existing offscreen
+QWebEngine pipeline. `start.py` already implements 8 offscreen modes
+(constants at lines 857–864: `AUTO`, `HIDDEN`, `OFFSCREEN_WINDOW`,
+`MINIMIZED`, `QT`, `XVFB`, `XDUMMY`, `XPRA`) and a factory
+`getMiniComputer(target, offscreen=True, autostart=True)`. The bridge
+service shells into:
 
 ```
-                         ┌─────────────┐
-                         │   COLD      │  no profile cookies, no script
-                         └──────┬──────┘
-                            login flow
-                                ▼
-                         ┌─────────────┐
-                         │   WARM      │  logged in, no script yet
-                         └──────┬──────┘
-                            first chat
-                                ▼
-                         ┌─────────────┐
-                         │   HOT       │  script installed, zero API hits
-                         └──────┬──────┘
+py start.py --serve-bridge --target <key> --offscreen --offscreen-mode=auto
+```
+
+…which returns a handle the service uses to call `runJavaScript()`,
+`QWidget.grab()`, navigate, and read the URL bar.
+
+**Hard rules:**
+
+- **No `chrome.exe` spawning.** No Chrome subprocess of any kind.
+- **No `--headless=new` flag.** That's a v1 ghost — gone.
+- **No CDP wire.** Qt's `runJavaScript()` for JS, `QWidget.grab()` for
+  screenshots, `QWebEngineUrlRequestInterceptor` for network capture.
+- **One process, many tabs.** Each target is a `QWebEngineView` inside
+  the unified service, isolated by a per-target `QWebEngineProfile`
+  pointed at `bridge_profiles/<key>/`.
+
+---
+
+## 4. The bridge state machine
+
+A target moves through **six** states. Transitions are driven by what
+the JS contract returns, what the page URL says, or what the page DOM
+shows.
+
+```
+                       ┌─────────────────────────┐
+                       │         COLD            │  no profile, no script
+                       └──────────┬──────────────┘
+                          launched, no cookies
+                                  ▼
+                       ┌─────────────────────────┐
+                       │      REGISTERING        │  no account; signup flow
+                       └──────────┬──────────────┘
+                            account created
+                                  ▼
+                       ┌─────────────────────────┐
+                       │         WARM            │  logged in, no script yet
+                       └──────────┬──────────────┘
+                              first chat
+                                  ▼
+                       ┌─────────────────────────┐
+                       │          HOT            │  script installed, 0 API hits
+                       └──────────┬──────────────┘
                             script error
-                                ▼
-                         ┌─────────────┐
-                         │   PATCHING  │  one API hit to repair, back to HOT
-                         └─────────────┘
+                                  ▼
+                       ┌─────────────────────────┐
+                       │       PATCHING          │  1 API hit to repair, → HOT
+                       └──────────┬──────────────┘
+                          hard human-touch wall
+                                  ▼
+                       ┌─────────────────────────┐
+                       │  BLOCKED_NEEDS_HUMAN    │  toast user, await "I did it"
+                       └─────────────────────────┘
 ```
 
-### COLD → WARM (login)
-1. Open target URL in headless chrome (`--headless=new`, per-target
-   profile dir at `~/.cbe/profiles/<target>/`).
-2. Screenshot.
-3. Single API call to gpt-4o vision with the **login system prompt**
-   (§ 6.1) — gpt-4o either drives the login form or says "magic-link
-   sent, waiting for user to click email link" (then we surface a toast).
-4. On success, cookies persist in the profile dir. Next launch reuses
-   them and skips this state entirely.
+### 4.1 COLD → REGISTERING (no account yet)
 
-### WARM → HOT (script bootstrap)
+Triggered when the user enables a provider for the first time AND the
+login page is reached AND no saved credentials exist in
+`config.ini` `[bridge_credentials.<key>]`.
+
+1. Bridge generates a random username + 32-char strong password.
+2. Persists immediately to `config.ini`:
+
+   ```ini
+   [bridge_credentials.chatgpt]
+   username = cbe_a7f3@trentontompkins.com
+   password = <random 32 chars>
+   created  = 2026-05-23T14:22:01Z
+   ```
+
+3. Opens `<urls><create_account>` from the manifest.
+4. Calls gpt-4o with the **signup prompt** (§ 7.1) and the new
+   credentials in the system message. gpt-4o drives the signup form via
+   the standard tool set.
+5. If verification email is required, gpt-4o calls `read_verification_email(<addr>)`,
+   which polls IMAP via `hooks/gmail_api_hook.py` for up to 90 s,
+   returning the verification URL once it arrives. Bridge navigates to
+   the URL and continues the flow.
+6. Success → WARM. Failure (phone verification, CAPTCHA, geo-block) →
+   BLOCKED_NEEDS_HUMAN.
+
+### 4.2 COLD → WARM (login, credentials exist)
+
+1. Service opens `<urls><login>` in the per-target offscreen view.
+2. Screenshot.
+3. Single API call with the **login prompt** (§ 7.2). gpt-4o drives the
+   login form using the credentials from `config.ini`, or — if the page
+   already shows the chat UI because cookies survived — replies
+   `LOGIN_OK` immediately and we transition with zero typing.
+4. On success, cookies persist in the per-target Qt profile under
+   `bridge_profiles/<key>/`. Next launch skips this state entirely.
+
+### 4.3 WARM → HOT (script bootstrap)
+
 1. User sends first message of session.
-2. Screenshot.
-3. Single API call with the **bootstrap system prompt** (§ 6.2) +
-   embedded screenshot. gpt-4o is told to:
-   - Read the page
-   - Type the user's message into the input
-   - Submit
-   - Watch the reply stream until done
-   - Capture the final reply text
-   - **Then write a `window.__cbeBridge` object containing the four
-     functions in § 4 and call `install_bridge_script(<source>)`**
-4. We save the script to `bridge_scripts/<target>.js`.
+2. Source-capture pipeline (§ 6) is already streaming page network
+   responses into `bridge_sources/<key>/<session_id>/`.
+3. Screenshot.
+4. Single API call with the **bootstrap prompt** (§ 7.3). gpt-4o is told
+   to do all of this in ONE shot:
 
-### HOT (no API hits)
-On every subsequent message:
-1. Eval `window.__cbeBridge.send(<user_message>)` in the page.
-2. Poll `window.__cbeBridge.poll()` every 250 ms until it returns
-   `{state: "done", text: "..."}` or `{state: "error", reason: "..."}`.
-3. Return the text. **Zero API hits.**
+   - Read the page (and the captured sources — JS bundles especially).
+   - **Discover models** by `grep_sources` over the JS bundles for
+     hardcoded model arrays. Call `register_models(<list>)` once.
+   - Type the user's message into the input, submit, watch the reply
+     stream to completion, capture the final text.
+   - Author `window.__cbeBridge` (§ 5) and call
+     `install_bridge_script(<source>)`.
 
-### HOT → PATCHING (error recovery)
+5. Script is saved to `state/providers/<key>.script.js`.
+
+### 4.4 HOT (no API hits, the hot path)
+
+On every subsequent message of every subsequent session:
+
+1. `runJavaScript("window.__cbeBridge.send(<json-quoted-text>)")`
+2. Poll `runJavaScript("window.__cbeBridge.poll()")` every 250 ms until
+   it returns `{state: "done", text: "..."}` or
+   `{state: "error", reason: "..."}`.
+3. Return the text. **Zero API hits.** Hot path is O(1) DOM ops, target
+   <50 ms per chat turn.
+
+### 4.5 HOT → PATCHING (error recovery)
+
 Trigger conditions (any of):
+
 - `poll()` returns `{state: "error", reason: …}` for >2 consecutive polls
 - `poll()` returns `{state: "loading"}` for >120 s with no progress
-- `send()` throws (e.g. selector not found)
-- Page URL changed unexpectedly (likely auth expired or redesign)
+- `send()` throws (selector not found)
+- Page URL changed unexpectedly (auth expired? redesign?)
 
 When triggered:
-1. Screenshot.
-2. Single API call with the **patch system prompt** (§ 6.3) — gives
-   gpt-4o the current script source, the failing call, and the error.
-3. gpt-4o returns a patched script.
-4. Validate (syntax check + smoke test: `__cbeBridge.healthCheck()`).
-5. Save and re-enter HOT for the original message.
 
-If patching fails 3× in a row, give up: drop the saved script, return
-the original error to the user with "Bridge needs manual attention. See
-`feedback.log`".
+1. Screenshot + fresh source capture for the current page.
+2. Single API call with the **patch prompt** (§ 7.4) — gives gpt-4o the
+   current script, the failing call, the error, and the new sources.
+3. gpt-4o returns a patched script. Validate (syntax check + smoke test:
+   `__cbeBridge.healthCheck()`).
+4. Save and re-enter HOT for the original message.
+
+If patching fails 3× in a row, drop to BLOCKED_NEEDS_HUMAN.
+
+### 4.6 PATCHING → BLOCKED_NEEDS_HUMAN
+
+Some failures are not script bugs:
+
+- Hard CAPTCHA (Cloudflare Turnstile, hCaptcha image grid).
+- Magic-link that requires the user touching their phone (Authenticator
+  app, SMS, push prompt).
+- Account suspension banner.
+- Hard rate-limit with a multi-hour cooldown.
+
+When detected (gpt-4o calls `leave_feedback(severity="blocked", ...)`
+during PATCHING, or three patch attempts fail), the service:
+
+1. Sets the target's state to `BLOCKED_NEEDS_HUMAN`.
+2. Pushes a toast to the panel via the extension WebSocket:
+   *"Claude (claude.ai) needs your attention — tap to handle."*
+3. Surfaces an **"I did it"** button. When the user clicks it, the
+   service transitions back to PATCHING for one more try (or directly to
+   HOT if the script smoke-test passes).
+
+The user is the unblocker. The bridge never burns more API calls
+guessing past a wall.
 
 ---
 
-## 4. The JavaScript contract
+## 5. The JavaScript contract
 
 Every target script MUST install `window.__cbeBridge` with exactly these
 methods. gpt-4o is given this shape as the bootstrap target.
@@ -170,284 +290,255 @@ window.__cbeBridge = {
     bornAt: "2026-05-23T...",
 
     // Smoke test — verify the page is in a state this script can drive.
-    // Return {ok: true} or {ok: false, reason: "..."}.
-    healthCheck() { ... },
+    healthCheck() { ... },                       // -> {ok: true} | {ok: false, reason}
 
-    // Submit a user message. Synchronous DOM ops only — DO NOT await
+    // Submit a user message. Synchronous DOM ops only — do NOT await
     // the assistant reply here. Returns {ok: true} or throws.
     send(messageText) { ... },
 
     // Poll for assistant progress. Called every 250 ms after send().
-    // Return one of:
-    //   {state: "loading"}                          — still streaming
-    //   {state: "done", text: "<final reply>"}     — complete
-    //   {state: "error", reason: "<why>"}          — UI error visible
-    poll() { ... },
+    poll() { ... },                              // -> {state: "loading"}
+                                                 //  | {state: "done", text}
+                                                 //  | {state: "error", reason}
 
-    // Optional: get the conversation as the page sees it. Used by the
-    // panel's "import history" feature.
-    getHistory() { ... },
+    // Optional: get the conversation as the page sees it.
+    getHistory() { ... },                        // -> [{role, text}, ...]
+
+    // Optional: switch the active model. text matches one of the strings
+    // GPT-4o passed to register_models() at bootstrap.
+    selectModel(modelName) { ... },              // -> {ok: true} | {ok: false}
 };
 ```
 
 That's it. No DOM-specific helpers, no per-target shape, no inheritance.
-Every target gets ONE file at `bridge_scripts/<target>.js` whose only
-job is to define this object. gpt-4o is the author; the bridge runtime
-is the consumer.
+Every target gets ONE file at `state/providers/<key>.script.js` whose
+only job is to define this object.
+
+**Distillation discipline.** The bootstrap prompt (§ 7.3) is explicit:
+the functions GPT-4o writes MUST be hardcoded distillations of what it
+learned during bootstrap. They must NOT do runtime re-discovery. No
+`fetch()` calls. No broad `document.querySelectorAll('*')` scans. No
+greps. If the cached selector breaks, that's PATCHING's problem — not a
+runtime fallback.
 
 ---
 
-## 5. Tools exposed to gpt-4o
+## 6. Source-capture pipeline
 
-When we call the OpenAI API in COLD / WARM / PATCHING states, gpt-4o
-needs to actually drive the browser. We give it real OpenAI **function
-calling** tools — not a chat-fiction "describe the click" pattern.
-Every tool below maps to a real CDP call on the per-target headless
-chrome.
+The biggest reliability win in v2: gpt-4o doesn't squint at screenshots
+to guess at model names. It reads the actual JavaScript bundles.
 
-### `get_offscreen_screenshot()`
-Return the current page as a base64 PNG. gpt-4o uses this to see what
-the page looks like RIGHT NOW (after an action). No params.
+When a target's offscreen view first navigates to the chat URL, we
+install a `QWebEngineUrlRequestInterceptor` (or hook the response
+profile, depending on what Qt 6.x exposes cleanly) that tees every
+response body to disk:
 
-```json
-{"type": "function", "function": {
-  "name": "get_offscreen_screenshot",
-  "description": "Capture a fresh PNG of the current target page state. Use this AFTER every send_click / send_key / eval_js to verify the action took effect. Returns a base64-encoded PNG attached as an image in the next turn.",
-  "parameters": {"type": "object", "properties": {}, "required": []}
-}}
+```
+bridge_sources/<key>/<session_id>/
+    manifest.json          # url -> file mapping, mime, status, ts
+    01_index.html
+    02_main.<hash>.js
+    03_chunk.<hash>.js
+    04_models.json
+    05_styles.<hash>.css
+    ...
 ```
 
-### `send_click(target)`
-Click. `target` is either `{selector: "..."}` (preferred — survives
-zoom/layout) or `{x: N, y: N}` (fallback — pixel coords from the
-screenshot).
+`manifest.json` looks like:
 
 ```json
-{"type": "function", "function": {
-  "name": "send_click",
-  "description": "Click an element. Prefer 'selector' (CSS selector) when you can identify the element by class/id/data attribute — it survives zoom and minor layout shifts. Use 'xy' (viewport pixel coordinates from the latest screenshot) only when no stable selector exists.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "selector": {"type": "string", "description": "CSS selector, e.g. 'button[data-testid=\"send\"]'"},
-      "x": {"type": "integer"},
-      "y": {"type": "integer"}
-    }
-  }
-}}
+{
+  "session_id": "2026-05-23T142201-chatgpt",
+  "captured_at": "2026-05-23T14:22:01Z",
+  "entries": [
+    {"file": "01_index.html",        "url": "https://chatgpt.com/",                "mime": "text/html",        "status": 200},
+    {"file": "02_main.a1b2c3.js",    "url": "https://chatgpt.com/_next/static/...","mime": "application/js",   "status": 200},
+    {"file": "04_models.json",       "url": "https://chatgpt.com/backend-api/...", "mime": "application/json", "status": 200}
+  ]
+}
 ```
 
-### `send_key(key)`
-Press a non-character key. `key` is one of: `Enter`, `Tab`, `Escape`,
-`Backspace`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Space`.
+GPT-4o gets three new tools to work with the capture:
 
-```json
-{"type": "function", "function": {
-  "name": "send_key",
-  "description": "Press a single non-character key (Enter, Tab, Escape, Backspace, arrow keys, Space). For typing text, use send_text instead.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "key": {"type": "string", "enum": ["Enter","Tab","Escape","Backspace","ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"]}
-    },
-    "required": ["key"]
-  }
-}}
+- `list_sources(glob)` — list files matching a glob.
+- `grep_sources(pattern)` — ripgrep across all captured files, returns
+  filename + line.
+- `read_source(path)` — read one file from the capture.
+
+This is how **model discovery** works in v2. Instead of asking GPT-4o
+to look at a dropdown screenshot and guess, the bootstrap prompt tells
+it to:
+
+```
+grep_sources('"gpt-[45]')         # ChatGPT hardcoded model strings
+grep_sources('"claude-')          # Claude Pro model strings
+grep_sources('"qwen[-\\d]')       # Qwen
 ```
 
-### `send_text(text)`
-Type literal text into the currently focused element. Faster than
-sending each character as a key.
+Find the JS module that hardcodes the model array, read it, call
+`register_models([...])`. Done in one shot — far more reliable than
+DOM-querying a dropdown that may not even be open.
 
-```json
-{"type": "function", "function": {
-  "name": "send_text",
-  "description": "Type a string of text into whatever element currently has focus. Click the input first with send_click if focus isn't already there.",
-  "parameters": {
-    "type": "object",
-    "properties": {"text": {"type": "string"}},
-    "required": ["text"]
-  }
-}}
-```
-
-### `eval_js(code)`
-Run arbitrary JS in the page context. Returns the JSON-serialized result
-of the last expression. This is the tool gpt-4o uses to test
-candidate `__cbeBridge` implementations and to introspect the DOM
-(`document.querySelectorAll('button').length` and so on).
-
-```json
-{"type": "function", "function": {
-  "name": "eval_js",
-  "description": "Evaluate JavaScript in the page. Returns the JSON-serialized result of the last expression. Use this to probe the DOM (e.g. document.querySelector('...').outerHTML) and to test candidate __cbeBridge functions before you install them.",
-  "parameters": {
-    "type": "object",
-    "properties": {"code": {"type": "string"}},
-    "required": ["code"]
-  }
-}}
-```
-
-### `install_bridge_script(source)`
-Persist the final `__cbeBridge` implementation to
-`bridge_scripts/<target>.js` and inject it into the page. This is how
-you exit the bootstrap loop and put the bridge into HOT state.
-
-```json
-{"type": "function", "function": {
-  "name": "install_bridge_script",
-  "description": "Persist a __cbeBridge implementation to disk and inject it into the page. Call this ONCE at the end of bootstrap, after you have verified all four methods (healthCheck, send, poll, getHistory) work via eval_js. The script you pass MUST be a complete self-contained JavaScript file that defines window.__cbeBridge.",
-  "parameters": {
-    "type": "object",
-    "properties": {"source": {"type": "string"}},
-    "required": ["source"]
-  }
-}}
-```
-
-### `leave_feedback(message)`
-Append a line to `feedback.log`. Yes — this is functionally identical to
-the bridge runtime doing `fs.appendFileSync('feedback.log', message)`
-after the model returns. We expose it as a real tool anyway because:
-1. It's a clear, named affordance gpt-4o sees in the tool list — it
-   doesn't have to guess that "leave feedback" is even an option.
-2. It can be called mid-task without ending the response (a free-text
-   "note to self" pattern works differently in tool-calling agents).
-3. Telemetry: we log every feedback call with the surrounding context
-   automatically. A bare `echo` wouldn't carry that.
-
-```json
-{"type": "function", "function": {
-  "name": "leave_feedback",
-  "description": "Append a note to feedback.log for the human to read later. Use this for: questions you would have asked if a human were here, suggestions for improving the bridge, edge cases you noticed, anything else you would normally say in a conversation. The human will NOT respond — just write it down and keep working.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "message": {"type": "string"},
-      "severity": {"type": "string", "enum": ["info", "concern", "question", "idea"], "default": "info"}
-    },
-    "required": ["message"]
-  }
-}}
-```
+**Hygiene.** `bridge_sources/<key>/` keeps the **last 2 sessions** per
+target. Older sessions are deleted on bridge boot.
 
 ---
 
-## 6. System prompts (verbatim)
+## 7. System prompts (verbatim)
 
 These are the ACTUAL strings that go in `messages[0]` of the API call.
 Not paraphrased — what gpt-4o reads.
 
-### 6.1 Login prompt (COLD → WARM)
+### 7.1 Signup prompt (COLD → REGISTERING → WARM)
+
+```
+You are an automation assistant helping your buddy create a brand-new
+account on {target_label} ({create_account_url}). You're alone — no human
+is watching this run. Any attempt to ask a question to the user will
+break the script. Concerns / ideas / questions go in leave_feedback.
+
+Credentials your buddy has already chosen for this account (use exactly
+these — do NOT invent your own):
+
+    username / email : {username}
+    password         : {password}
+
+Your job RIGHT NOW: drive the signup form using those credentials. Click
+the email field, type the username, click the password field, type the
+password, accept any terms checkbox, submit.
+
+If {target_label} sends a verification email, call
+read_verification_email(<the username/email above>) — it will block up
+to 90 seconds waiting for the email to arrive and return the
+verification URL. Navigate to that URL and continue.
+
+If signup requires a phone number, payment method, CAPTCHA, or any other
+human-only input, STOP immediately. Reply: BLOCKED: <one-line reason>
+and call leave_feedback(severity="blocked", ...). The bridge will
+surface a toast to the user.
+
+When the signup is complete and the chat UI is visible, reply: SIGNUP_OK
+and stop.
+
+Finish the task. Don't narrate. Use the tools.
+```
+
+### 7.2 Login prompt (COLD → WARM)
 
 ```
 You are an automation assistant helping your buddy automate a logged-in
-session on {target_label} ({target_url}). You're alone — there is no
-human watching this run and no one to answer questions. Any attempt to
-ask a question to the user will break the script. If you have questions,
-concerns, or improvement ideas, use the leave_feedback tool — your
-buddy will read them later.
+session on {target_label} ({login_url}). You're alone — no human is
+watching. Asking will break the script. Concerns / ideas / questions go
+in leave_feedback.
+
+Credentials (use exactly these — do NOT invent or substitute):
+
+    username / email : {username}
+    password         : {password}
 
 Your job RIGHT NOW: get this browser session into a state where
 {target_label} considers the user logged in. The user's profile cookies
-are persistent — once you successfully log in, you will not have to do
-this again on future runs.
+are persistent — once you succeed, future runs skip this state entirely.
 
 What you have:
-  - A real, off-screen, headless chromium pointed at {target_url}.
+  - A real offscreen QWebEngine view pointed at {login_url}.
   - The tools: get_offscreen_screenshot, send_click, send_key, send_text,
-    eval_js, leave_feedback.
-  - The user's saved credentials are in the page's password manager IF
-    they have used this browser before. Try clicking the email field
-    first to see if autofill offers anything.
+    eval_js, read_source, grep_sources, list_sources, leave_feedback.
+  - The page may already be logged in if cookies survived. Screenshot
+    first — if you see the chat UI, just reply LOGIN_OK and stop.
 
 What you don't have:
-  - A human. Don't ask questions. Don't say "let me know if..." —
-    there's no one to tell you.
-  - Magic-link access. If {target_label} sends a code/link to email,
-    leave_feedback("magic-link required: <details>") and stop. The
-    bridge runtime will surface a toast to the user.
+  - A human. Don't ask questions.
+  - The ability to satisfy 2FA that requires a phone. If the page asks
+    for a code from an authenticator app or SMS, reply:
+        BLOCKED: 2fa-human-required
+    and stop. The bridge will toast the user.
 
-When you believe the session is logged in:
-  1. Take a fresh screenshot to confirm you see the main chat UI
-     (not a login form).
-  2. Reply with the literal text: LOGIN_OK
-  3. Stop.
-
-If you cannot log in (CAPTCHA, magic link, 2FA without an authenticator
-the user must touch), reply: LOGIN_BLOCKED: <one-line reason> and stop.
+When the session is logged in, reply LOGIN_OK and stop.
+If the page is a CAPTCHA wall or hard rate-limit, reply
+LOGIN_BLOCKED: <reason> and stop.
 
 Finish the task. Don't narrate. Use the tools.
 ```
 
-### 6.2 Bootstrap prompt (WARM → HOT)
+### 7.3 Bootstrap prompt (WARM → HOT)
 
 ```
-You are an automation assistant helping your buddy automate sending
-chat messages to {target_label}. You are alone — no human is watching
-and no one can answer questions. Asking will break the script.
-Concerns / ideas / questions go in leave_feedback.
+You are an automation assistant helping your buddy automate sending chat
+messages to {target_label}. You are alone. No human. Asking breaks the
+script. Concerns / ideas / questions → leave_feedback.
 
-Your job has two parts:
+═══════════════════════════════════════════════════════════════════════
+READ THIS TWICE. IT IS THE WHOLE JOB.
 
-PART A — Send this one message and get the reply:
+You are doing model discovery and structural analysis EXACTLY NOW, ONCE
+PER LOGIN. The functions you write below MUST be HARDCODED DISTILLATIONS
+of what you learn here — NOT runtime re-discovery.
+
+The hot path that runs after you finish is O(1) DOM ops, target <50 ms
+per chat turn. Your script will be called for EVERY chat message the
+user sends, possibly thousands of times. It MUST:
+
+    - Use cached selectors. No re-greps. No broad DOM scans.
+    - NOT call fetch().
+    - NOT call document.querySelectorAll('*') or similar broad queries.
+    - Read ONE DOM subtree by a stable selector you discovered today.
+
+If a selector you cache stops working tomorrow, the PATCHING flow will
+re-invoke me to fix it. That is the contract. Don't try to be clever and
+add runtime fallbacks — they will mask real breakage and inflate cost.
+═══════════════════════════════════════════════════════════════════════
+
+PART A — discover what models {target_label} offers.
+
+The page's network responses are captured to disk. Browse them:
+
+    list_sources("*.js")                    # find the JS bundles
+    grep_sources('"gpt-')                   # or "claude-", "qwen", etc.
+    read_source("02_main.a1b2c3.js")        # read the hits
+
+Find the array of model identifiers the page uses. Call
+register_models([{name: "GPT-5", id: "gpt-5"}, ...]) ONCE.
+
+PART B — send this message and get the reply:
   ---
   {user_message}
   ---
-  Take a screenshot. Use send_click + send_text + send_key to put the
-  message in the input box and submit it. Watch the page until
-  {target_label} finishes streaming the assistant reply. Capture the
-  final reply text (use eval_js on the assistant message's container).
+  Screenshot. send_click + send_text + send_key the message in, submit.
+  Watch the page until the assistant finishes streaming. Capture the
+  final reply text via eval_js on the message container.
 
-PART B — Write a __cbeBridge script so we never have to call you for a
-plain message again:
+PART C — author window.__cbeBridge.
 
-  Author a JavaScript object literal `window.__cbeBridge` with exactly
-  these methods:
+Write a JavaScript object literal with these methods:
 
-    healthCheck() -> {ok: true} OR {ok: false, reason: "..."}
-       Verify the page is in the chat UI (not login, not error page).
-
-    send(messageText) -> {ok: true}
-       Put messageText into the input and submit. Synchronous DOM ops
-       only. Do NOT wait for the reply here.
-
+    healthCheck() -> {ok: true} | {ok: false, reason: "..."}
+    send(messageText) -> {ok: true}    (synchronous; no awaiting reply)
     poll() -> {state: "loading"} | {state: "done", text: "..."} | {state: "error", reason: "..."}
-       Read the page state. Return the FINAL assistant reply text when
-       streaming is done. Return "loading" while streaming. Return
-       "error" if the page is in an error state (rate limit, network
-       failure, etc).
-
     getHistory() -> [{role: "user"|"assistant", text: "..."}, ...]
-       Optional. Return the conversation as the page renders it.
+    selectModel(modelName) -> {ok: true} | {ok: false}   (optional)
 
-  Test EACH method via eval_js before installing. Specifically:
-  1. eval_js("window.__cbeBridge.healthCheck()") must return ok:true
-  2. eval_js("window.__cbeBridge.poll()") on the just-completed chat
-     must return {state: "done", text: "<the reply from Part A>"}.
-  3. eval_js("window.__cbeBridge.getHistory()") must include the user
-     message from Part A and the assistant reply.
+Test EACH method via eval_js before installing:
+  1. window.__cbeBridge.healthCheck() returns {ok:true}
+  2. window.__cbeBridge.poll() on the just-completed chat returns
+     {state:"done", text:"<reply from Part B>"}
+  3. window.__cbeBridge.getHistory() includes Part B's user + assistant.
 
-When all three tests pass, call install_bridge_script(source) with the
-COMPLETE self-contained script. Then reply with the assistant text
-from Part A, prefixed with "REPLY: ".
+When all three pass, call install_bridge_script(source) with the
+COMPLETE self-contained script. Then reply: "REPLY: <text from Part B>".
 
-If you cannot author a reliable script (page is too dynamic, selectors
-change per render, etc.), reply "REPLY: <text>" with just Part A's
-answer, then leave_feedback("script-author-failed: <reason>"). The
-bridge will fall back to using you on every message — expensive, but
-functional. Try to avoid this.
+If you cannot author a reliable script, reply REPLY with the Part B text
+and leave_feedback("script-author-failed: <reason>"). The bridge will
+fall back to per-message GPT-4o (expensive but functional).
 
 Finish the task. Don't narrate. Use the tools.
 ```
 
-### 6.3 Patch prompt (HOT → PATCHING → HOT)
+### 7.4 Patch prompt (HOT → PATCHING → HOT)
 
 ```
 You are repairing a broken bridge script for {target_label}. You're
-alone — no human, no questions, leave_feedback for anything you can't
-do silently.
+alone — no human, no questions. leave_feedback for anything else.
 
 The current script lives in window.__cbeBridge and was written
 {age_human} ago. It broke. Details:
@@ -462,34 +553,261 @@ The current script source is:
   {current_script_source}
   ```
 
-A fresh screenshot of the page is attached.
+A fresh screenshot of the page is attached. A fresh source capture is
+on disk — list_sources / grep_sources / read_source to investigate.
 
-Your job: figure out what changed (page redesigned? selector renamed?
-the user got logged out? rate-limit screen? CAPTCHA?), and either:
+REMEMBER the distillation contract from bootstrap: the patched script
+must still be O(1) DOM ops on the hot path. No runtime fallbacks. If
+the page is now in a state no static script can drive (CAPTCHA, account
+suspended), BLOCK — don't paper over it with a slow retry loop.
+
+Your job: figure out what changed and either:
 
   (a) PATCH — fix the script. eval_js to verify the fix works on the
       current page state. install_bridge_script(<new source>) to
       persist. Reply: "PATCHED: <one-line summary of what changed>".
 
-  (b) BLOCK — if the page is in a state no script can drive (CAPTCHA,
-      account suspended, hard rate-limit with a cooldown), don't patch.
-      Reply: "BLOCKED: <one-line reason>" and leave_feedback with the
-      full context. The bridge runtime will surface a toast to the user.
+  (b) BLOCK — page is in a state no script can drive. Reply:
+      "BLOCKED: <one-line reason>" and call leave_feedback(
+      severity="blocked", ...). Bridge will toast the user.
 
-If (a) and you do install, also retry the user's original message: call
+If (a), also retry the user's original message: call
 window.__cbeBridge.send({user_message}), poll until done, include the
-result text in your reply as "PATCHED: ... | REPLY: <text>".
+result in your reply as "PATCHED: ... | REPLY: <text>".
 
 Finish the task. Don't narrate.
 ```
 
 ---
 
-## 7. How screenshots actually move around
+## 8. Tools exposed to gpt-4o
 
-1. **Capture**: bridge runtime sends CDP `Page.captureScreenshot
-   {format: "png"}` to the per-target chrome on its CDP port
-   (9788–9794). Returns base64.
+When we call the OpenAI API in REGISTERING / COLD / WARM / PATCHING
+states, gpt-4o needs to actually drive the page. We give it real OpenAI
+**function-calling** tools, not a chat-fiction "describe the click"
+pattern. Every tool maps to a real `runJavaScript()` / `QWidget.grab()`
+/ filesystem op on the per-target offscreen view.
+
+### Original seven
+
+| Tool | Purpose |
+|---|---|
+| `get_offscreen_screenshot()` | `QWidget.grab()` → base64 PNG. Use AFTER any action to verify. |
+| `send_click({selector\|xy})` | Click an element. Prefer selector, fall back to viewport pixel coords. |
+| `send_key(key)` | Press Enter / Tab / Escape / Backspace / Arrow / Space. |
+| `send_text(text)` | Type literal text into the focused element. |
+| `eval_js(code)` | `runJavaScript()`. Returns JSON-serialized last expression. Used for DOM probing + testing the candidate `__cbeBridge`. |
+| `install_bridge_script(source)` | Persist to `state/providers/<key>.script.js` and inject. Exits bootstrap loop. |
+| `leave_feedback(message, severity)` | Append a line to `feedback.log`. Severities: `info`, `concern`, `question`, `idea`, `blocked`. |
+
+### New in v2
+
+| Tool | Purpose |
+|---|---|
+| `list_sources(glob)` | List files in the current session's `bridge_sources/<key>/<session>/` matching a glob. |
+| `grep_sources(pattern)` | Ripgrep across captured sources, returns `file:line:text`. |
+| `read_source(path)` | Read one captured file. Honour size limit — truncate >256 KB with a note. |
+| `register_models(list)` | Persist the discovered model list to `state/providers/<key>.json`. Called once during bootstrap. |
+| `set_credentials(username, password)` | Write to `config.ini` `[bridge_credentials.<key>]`. Used during REGISTERING if gpt-4o decides to deviate from the defaults the bridge generated (rare — usually it just uses what it was given). |
+| `read_verification_email(addr)` | Poll the IMAP inbox via `hooks/gmail_api_hook.py` for up to 90 s; return the verification URL once it arrives. Used during REGISTERING. |
+
+All tool JSON schemas live in `bridges_py/openai_tools.py` — same shape
+as v1, just expanded.
+
+---
+
+## 9. Provider manifest XML schema
+
+This is the single source of truth for "what does a provider look like".
+One XML file per provider, dropped in `providers/`. Everything else
+(help docs, marketplace cards, asset paths, runtime config) is derived
+from this file.
+
+### 9.1 Schema
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<provider>
+  <name>Human-readable name (shows in UI)</name>
+  <key>lowercase-machine-key</key>            <!-- matches filename -->
+  <core>true</core>                            <!-- optional, see § 10 -->
+  <version>1.0.0</version>
+  <release_date>2026-05-23</release_date>
+
+  <author>
+    <name>...</name>
+    <email>...</email>
+    <url>...</url>
+    <phone>...</phone>                         <!-- optional -->
+  </author>
+
+  <license type="MIT"><![CDATA[
+    Full license text inline.
+  ]]></license>
+
+  <readme><![CDATA[
+    # Provider Name
+
+    Markdown that renders in the help section and marketplace card.
+    Mention which models the bridge typically exposes, why a bridge
+    instead of an API, and any setup gotchas.
+  ]]></readme>
+
+  <urls>
+    <login>https://...</login>
+    <chat>https://...</chat>                   <!-- main chat URL after login -->
+    <create_account>https://...</create_account>
+  </urls>
+
+  <icon mime="image/svg+xml" encoding="base64">
+    <!-- base64-encoded SVG (preferred) or PNG -->
+  </icon>
+</provider>
+```
+
+### 9.2 Canonical examples in this repo
+
+- `providers/qwen.xml` — third-party-style extension provider (not
+  `<core>`, can be uninstalled).
+- `providers/chatgpt.xml` — first-party `<core>true</core>` provider,
+  preinstalled, cannot be uninstalled.
+
+Read those two files to see a fully-fleshed manifest with real license
+text, real readme prose, and a base64'd SVG icon.
+
+### 9.3 Asset materialisation
+
+At extension activate, the bridge service walks `providers/*.xml` and
+for each manifest:
+
+1. Decodes `<icon>` into bytes.
+2. If `assets/providers/<key>.svg` (or `.png` / `.ico` per the
+   declared mime) is missing, writes it.
+3. For SVG icons, also rasterises a 64×64 `.png` and a 256×256 `.ico`
+   for tray-icon use.
+
+This means manifests are self-contained — `git clone` + activate → all
+icons appear on disk. Third-party providers don't need to ship a
+separate assets folder.
+
+---
+
+## 10. Two-extension-type taxonomy
+
+The marketplace UI now has two tabs:
+
+| Tab | Folder | Purpose | Examples |
+|---|---|---|---|
+| **Apps** | `extensions/` | Self-contained mini-apps in the panel. | `calculator/`, `emoji-picker/`, `minesweeper/` |
+| **Providers** | `providers/` | Bridge target manifests. | `chatgpt.xml`, `qwen.xml` |
+
+Apps are folders with their own `manifest.json` + JS/HTML. Providers
+are single XML files (with the icon embedded as base64).
+
+### Core providers
+
+A provider with `<core>true</core>` is:
+
+- **Preinstalled.** Ships in `providers/` in the repo.
+- **Not uninstallable** from the marketplace UI — the "Uninstall" button
+  is replaced with a "Core provider" badge.
+- **Required for the out-of-box experience.** ChatGPT is currently the
+  only one; Claude is a likely future addition.
+
+Third-party providers (no `<core>` element) are user-installable and
+user-uninstallable via the marketplace.
+
+---
+
+## 11. State / runtime split (on-disk layout)
+
+Manifests are immutable distributable artifacts. Runtime state is
+gpt-4o-generated and per-machine. Keep them in separate trees.
+
+```
+providers/<key>.xml                       # distributable, in git, immutable
+assets/providers/<key>.{svg,png,ico}      # materialised at activate
+                                          # (in git for built-in; generated for 3rd-party)
+
+state/providers/<key>.json                # GPT-4o-discovered models
+                                          # written by register_models()
+state/providers/<key>.script.js           # GPT-4o-authored __cbeBridge impl
+                                          # written by install_bridge_script()
+
+bridge_sources/<key>/<session>/           # captured page network responses
+                                          # last 2 sessions per target retained
+bridge_profiles/<key>/                    # Qt's persistent profile
+                                          # cookies, IndexedDB, Local Storage
+bridge_logs/                              # debug traces when BRIDGE_TRACE=1
+                                          # 7-day rotation
+feedback.log                              # GPT-4o's notes to the human
+```
+
+### `.gitignore` and `.vscodeignore`
+
+```
+bridge_sources/
+bridge_profiles/
+bridge_logs/
+state/
+feedback.log
+```
+
+The `state/` folder is ignored deliberately — GPT-4o's discovered models
+and authored scripts are per-machine. Two users on the same provider
+may get different `__cbeBridge` implementations (selector hashes vary
+by A/B bucket), and that's fine.
+
+### Disk hygiene
+
+- `bridge_sources/`: prune to the last 2 sessions per target on bridge
+  boot. A single session can be 20–50 MB of JS bundles; we don't need
+  more than the two most recent for debugging + PATCHING context.
+- `bridge_profiles/<key>/Cache/`, `Code Cache/`, `GPUCache/`: cleared
+  when the per-profile cache exceeds **500 MB**. Cookies, IndexedDB,
+  and Local Storage are **preserved** — losing those triggers a fresh
+  login.
+- `bridge_logs/`: 7-day rotation. Stamps in filenames; delete anything
+  older.
+
+---
+
+## 12. Help docs auto-generation
+
+`panel/help.html` has a `#providers` section. Its contents are
+generated at panel load from `providers/*.xml`, one card per manifest:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ [icon]  ChatGPT                                                 │
+│         OpenAI's flagship chat web UI at chatgpt.com...         │
+│         (rendered from <readme>)                                │
+│                                                                  │
+│         Login:  https://chatgpt.com/auth/login                  │
+│         Chat:   https://chatgpt.com                             │
+│                                                                  │
+│         Discovered models (from state/providers/chatgpt.json):  │
+│           - GPT-5                                                │
+│           - GPT-4o                                               │
+│           - o3 / o3-mini                                         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+The card is **static across all 39 language files** — the readme is in
+the manifest, not localised. Only the **live model list** at the bottom
+is dynamic (read from `state/providers/<key>.json`).
+
+This keeps localisation cheap and the help docs honest. The list of
+models the user actually sees in the dropdown matches the list shown
+in help, because they read the same file.
+
+---
+
+## 13. How screenshots actually move around
+
+1. **Capture**: bridge service calls `widget.grab()` on the per-target
+   `QWebEngineView`, gets a `QPixmap`, saves to PNG bytes in memory,
+   base64-encodes.
 
 2. **Send to gpt-4o**: embedded in the OpenAI API call as a multimodal
    user message:
@@ -507,9 +825,9 @@ Finish the task. Don't narrate.
    }
    ```
 
-3. **`get_offscreen_screenshot` tool**: when gpt-4o calls the tool, the
-   bridge runtime captures fresh, then includes the result image in the
-   tool message:
+3. **`get_offscreen_screenshot` tool**: when gpt-4o calls it, the
+   service captures fresh and returns the result image in the tool
+   message:
 
    ```json
    {
@@ -522,35 +840,32 @@ Finish the task. Don't narrate.
    }
    ```
 
-   Note: tool result messages with image content are supported on
-   `gpt-4o` and `gpt-4o-mini` (verified working as of 2026-05).
+   Tool result messages with image content are supported on `gpt-4o`
+   and `gpt-4o-mini` (verified working as of 2026-05).
 
-4. **No retention on disk**. Screenshots are passed through memory. We
-   write them to `bridge_logs/screenshots/<ts>.png` only when
+4. **No retention on disk** by default. Screenshots flow through memory.
+   We write to `bridge_logs/screenshots/<ts>.png` only when
    `BRIDGE_TRACE=1` is set, for debugging.
 
 ---
 
-## 8. `leave_feedback` script
+## 14. `leave_feedback` — yes, it's a real tool
 
-Yes, this is the silly part. The user explicitly called it out, so:
-
-The model COULD trivially do this with `eval_js("...")` or by us just
+The model COULD trivially do this with `eval_js("...")` or by us
 parsing free text out of the model's reply. We expose it as a real tool
 anyway because:
 
-- Named tools in the tool list make the affordance visible. A model
-  that doesn't see a `leave_feedback` tool will not know that "write a
-  note to your buddy" is something it's allowed to do. It will instead
-  try to ask the user — which we explicitly forbid in the prompt.
-- Tool calls give us a clean structured log (timestamp, severity,
-  surrounding tool call sequence) that we can grep later. A free-text
-  "I have a concern about X" buried in a `REPLY:` would never get
-  surfaced.
-- It costs zero extra prompt tokens to expose. The tool list lives in
-  the API payload either way.
+- **Named tools are visible affordances.** A model that doesn't see a
+  `leave_feedback` tool will not know that "write a note to your buddy"
+  is something it's allowed to do. It will instead try to ask the user
+  — which we explicitly forbid in the prompts.
+- **Structured logs.** Tool calls give us timestamp + severity +
+  surrounding tool sequence we can grep later. A free-text "I have a
+  concern about X" buried in a `REPLY:` would never surface.
+- **Zero token cost.** The tool list lives in the API payload either
+  way.
 
-The actual implementation in the bridge runtime is one line:
+The implementation is one function:
 
 ```python
 def leave_feedback(message: str, severity: str = "info") -> dict:
@@ -562,87 +877,118 @@ def leave_feedback(message: str, severity: str = "info") -> dict:
     return {"ok": True, "logged_to": str(FEEDBACK_LOG)}
 ```
 
-That's it. The "script" is the same eight lines.
-
-We also ship a CLI version at `tools/leave_feedback.py` so a developer
-can manually log a note in the same format:
+CLI mirror at `tools/leave_feedback.py` for humans writing notes in the
+same format:
 
 ```bash
 py tools/leave_feedback.py --target claude --severity concern "the share dialog stopped opening"
 ```
 
-Identical effect to gpt-4o calling the tool — same file, same line
-format. Keeps the on-disk log uniform whether the entry came from the
-model or a human.
+Identical effect — same file, same line format.
 
 ---
 
-## 9. Cost analysis (back-of-envelope)
+## 15. Cost analysis (back-of-envelope)
 
 Assume a heavy user: 200 chat turns/day, evenly across 3 bridge targets.
 
-### v1 (today)
+### v1 (deprecated)
 - ~3 API calls per turn (screenshot in, decide, sometimes verify)
 - gpt-4o at vision pricing: ~$0.04 per call avg
 - **600 calls/day × $0.04 = $24/day = $720/month**
 
-### v2 (this proposal)
-- ~2 API calls per session per target (login if needed + first message)
-- Sessions: ~3/day per target (morning, afternoon, evening), 3 targets
-- = 9 sessions × 2 calls = 18 calls/day at $0.04 = $0.72/day
-- Plus occasional patching: assume 1 break/week/target = ~0.4 calls/day at $0.04
+### v2 (this design)
+- ~2 API calls per session per target (login if needed + bootstrap)
+- Sessions: ~3/day per target (morning, afternoon, evening) × 3 targets
+- = 9 sessions × 2 calls = 18 calls/day @ $0.04 = $0.72/day
+- Plus occasional patching: ~1 break/week/target = ~0.4 calls/day @ $0.04
+- Plus one-time REGISTERING per new target: amortises to ~0 over time
 - **~$0.75/day = $22/month**
 
 **~33× cheaper.** The math is approximate but the order of magnitude is
-the point.
+the point. Cost is **per session, not per message** — that's the whole
+v2 thesis.
 
 ---
 
-## 10. Files this changes
+## 16. Files this changes
 
 ```
 NEW:
-  bridges_cpp/bridge_pilot_v2.py        runtime that implements the state machine
-  bridge_scripts/                       per-target __cbeBridge sources
-  bridge_scripts/.gitkeep
-  feedback.log                          appended-to by leave_feedback tool
-  tools/leave_feedback.py               CLI version of the tool
+  bridges_py/bridge_service.py          unified PySide6 service, replaces all bridges_cpp exes
+  bridges_py/openai_tools.py            OpenAI function-calling tool definitions
+  bridges_py/source_capture.py          QWebEngineUrlRequestInterceptor + tee-to-disk
+  bridges_py/state_machine.py           the 6-state FSM
+  bridges_py/imap_verifier.py           wraps hooks/gmail_api_hook.py for read_verification_email
+  providers/                            XML manifests (one per provider)
+  providers/chatgpt.xml                 first-party core provider
+  providers/qwen.xml                    third-party-style provider
+  state/                                runtime state, gitignored
+  state/providers/<key>.json            discovered models per provider
+  state/providers/<key>.script.js       authored __cbeBridge per provider
+  bridge_sources/                       captured page responses, gitignored
+  bridge_profiles/                      Qt profiles, gitignored
+  bridge_logs/                          debug traces, gitignored
+  feedback.log                          gitignored
+  tools/leave_feedback.py               CLI version of leave_feedback tool
   docs/BRIDGE_WHITEPAPER.md             this file
 
 MODIFIED:
-  bridges_cpp/bridge_server.cpp         shell out to bridge_pilot_v2.py
-                                        instead of bridge_pilot.py
-  extension.js                          surface PATCHING toasts + BLOCKED toasts
-  tools/gpt_vision_pilot.py             gutted — superseded by bridge_pilot_v2
-  panel/panel.js                        no change — same wire shape
+  start.py                              expose --serve-bridge entrypoint, reuse offscreen pipeline
+  extension.js                          surface PATCHING + BLOCKED_NEEDS_HUMAN toasts
+                                        wire "I did it" button
+  panel/help.html                       #providers section auto-generates from providers/*.xml
+  panel/marketplace.html                two tabs: Apps + Providers
+  .gitignore                            add: bridge_sources/, bridge_profiles/, bridge_logs/,
+                                             state/, feedback.log
+  .vscodeignore                         same additions
 
-DELETED (after migration verified):
-  tools/gpt_vision_pilot.py
-  bridges_cpp/bridge_pilot.py
+DEPRECATED (delete after v2 ships and the C++ tray is unused):
+  bridges_cpp/                          entire directory — gone
+  tools/gpt_vision_pilot.py             superseded by bridges_py/bridge_service.py
 ```
 
 ---
 
-## 11. Open questions for the implementer
+## 17. Open questions for the implementer
 
 Not blockers; flag in `feedback.log` if you hit them:
 
 1. **gpt-4o vs gpt-4o-mini for patching.** Mini is 1/15th the price and
    probably adequate for "the selector changed from `.foo` to `.bar`".
-   Default to mini, escalate to full only if mini's patch fails its
-   own healthCheck.
+   Default to mini for PATCHING + REGISTERING form-filling, escalate to
+   full only if mini's patch fails its own healthCheck.
 
-2. **Script invalidation on Chrome major version updates.** Chrome
-   pushes monthly. Some patches change DOM. Should we automatically
-   invalidate all scripts and re-bootstrap on detected Chrome version
-   change? Probably yes — adds at most 6 API calls/month/target.
+2. **Script invalidation on Qt / Chromium upgrades.** Qt 6 bumps its
+   bundled Chromium with each minor. Some bumps change DOM. Should we
+   automatically invalidate all scripts and re-bootstrap on detected
+   Chromium-version change? Probably yes — adds at most 6 API
+   calls/upgrade-cycle/target.
 
-3. **Multi-conversation state.** Today `poll()` reads the last
-   assistant message. If the user is in a SHARED session in another
-   tab, that read could pick up content the user typed elsewhere. v2
-   should namespace conversations by giving each chat its own
-   `data-cbe-msg-id` injected at send time. Defer until someone hits it.
+3. **Multi-conversation state.** Today `poll()` reads the last assistant
+   message. If the user has the same provider open in another window,
+   that read could pick up content typed elsewhere. v2 should namespace
+   conversations by giving each chat its own `data-cbe-msg-id` injected
+   at send time. Defer until someone hits it.
 
-4. **Streaming chunks to the panel.** v1 returns the final reply only.
-   v2 could stream by having `poll()` return cumulative text and the
+4. **Streaming chunks to the panel.** v2 returns the final reply only.
+   v3 could stream by having `poll()` return cumulative text and the
    bridge runtime forwarding the diff. Nice-to-have, not v2-blocking.
+
+5. **REGISTERING email provider strategy.** First implementation polls
+   the IMAP inbox via `hooks/gmail_api_hook.py`. If the user doesn't
+   have a Gmail / Google Workspace account configured, REGISTERING falls
+   through to BLOCKED_NEEDS_HUMAN. Reasonable for v2; v3 could add
+   plus-addressing tricks or disposable-mail providers.
+
+6. **Source-capture privacy.** The captured JS bundles include
+   localStorage-bound user-state in some cases. We gitignore
+   `bridge_sources/` but if a user posts a traceback that includes the
+   path, they might leak. Worth a one-line `[redacted]` filter for
+   anything that looks like a session token.
+
+7. **`<core>` provider list growth.** Today only ChatGPT is core. As
+   more provider manifests get added, the "preinstalled and required"
+   list will grow. Need a clear policy — probably "the bridge ships
+   working out of the box with at least one provider", so whichever
+   provider best satisfies that gets the badge.
