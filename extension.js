@@ -5757,6 +5757,55 @@ function killOtherBridgeTrays(keepTarget) {
     }
 }
 
+/* Check whether the unified Python bridge service (bridges_py/) is enabled.
+   Per BRIDGE_WHITEPAPER.md v2, the v2 service is OFF by default — flip
+   `[bridge] use_python = true` in config.ini to route through it instead of
+   the per-target C++ tray exes. The Python service is also gated on the
+   bridges_py/ directory + bridge_service.py existing on disk, so a clone
+   that hasn't received the scaffold yet falls back to v1 automatically. */
+function _isPythonBridgeEnabled(context) {
+    try {
+        const cfg = Config.get(context && context.extensionPath);
+        const bridgeSec = (cfg && cfg.bridge) || {};
+        const flag = String(bridgeSec.use_python || bridgeSec.usePython || '').toLowerCase();
+        if (flag !== 'true' && flag !== '1' && flag !== 'yes') return false;
+        const scriptPath = path.join(context.extensionPath, 'bridges_py', 'bridge_service.py');
+        return fs.existsSync(scriptPath);
+    } catch (_) {
+        return false;
+    }
+}
+
+/* Spawn `py -3 -m bridges_py.bridge_service ...` detached + hidden. Single
+   process owns ALL provider ports; once running, every subsequent target's
+   ensureBridge() short-circuits because the port probe already responds.
+
+   Mirrors _spawnBridge() but for the unified Python service. _runningBridges
+   gets a synthetic 'bridges_py' entry so we don't try to re-spawn it. */
+function _spawnPythonBridgeService(context) {
+    const cp = require('child_process');
+    const extPath = context.extensionPath;
+    /* `py -3` is the standard Windows Python launcher. Fall back to `python`
+       if py isn't on PATH (e.g. a venv-only setup). */
+    const child = cp.spawn('py', ['-3', '-m', 'bridges_py.bridge_service',
+        '--providers', path.join(extPath, 'providers'),
+        '--repo-root', extPath,
+    ], {
+        cwd: extPath,
+        stdio: 'ignore',
+        windowsHide: true,
+        detached: true,
+    });
+    child.on('error', (e) => trace(`BRIDGE-PY:SPAWN error ${e && e.message}`));
+    child.on('exit', (code, signal) => {
+        trace(`BRIDGE-PY:EXIT code=${code} signal=${signal || 'none'}`);
+        _runningBridges.delete('bridges_py');
+    });
+    child.unref();
+    _runningBridges.set('bridges_py', { pid: child.pid, startedAt: Date.now() });
+    return child;
+}
+
 /* Ensure the tray-exe bridge for `target` is running. If not, spawn it +
    wait for its TCP port. Returns { ok, port, pid?, reason? }. Idempotent —
    safe to call from activate(), setProvider, and the chat dispatch path. */
@@ -5764,9 +5813,22 @@ async function ensureBridge(context, target, opts) {
     opts = opts || {};
     const port = BRIDGE_PORTS[target];
     if (!port) return { ok: false, reason: `unknown bridge target: ${target}` };
-    /* 1. Already responding? Done. */
+    /* 1. Already responding? Done — covers both the C++ tray AND the Python
+       service since they share BRIDGE_PORTS by design. */
     if (await _probeTcpPort('127.0.0.1', port, 500)) {
         return { ok: true, port, alreadyRunning: true };
+    }
+    /* 1a. Python-bridge path (off by default; gated on config + scaffold). */
+    if (_isPythonBridgeEnabled(context)) {
+        trace(`BRIDGE-PY:SPAWN target=${target} port=${port}`);
+        const child = _spawnPythonBridgeService(context);
+        const ok = await _waitForPort('127.0.0.1', port, opts.timeoutMs || 12000);
+        if (!ok) {
+            trace(`BRIDGE-PY:TIMEOUT target=${target} port=${port} pid=${child && child.pid} — service spawned but never bound`);
+            return { ok: false, port, pid: child && child.pid, reason: `bridges_py spawned (pid ${child && child.pid}) but did not bind port ${port} within ${opts.timeoutMs || 12000}ms` };
+        }
+        trace(`BRIDGE-PY:READY target=${target} port=${port} pid=${child && child.pid}`);
+        return { ok: true, port, pid: child && child.pid, spawned: true, python: true };
     }
     /* 2. Find the exe. */
     const exePath = _bridgeExePath(context.extensionPath, target);
