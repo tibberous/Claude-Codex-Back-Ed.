@@ -1820,10 +1820,110 @@ function setStatus(text, busy, providerId) {
     statusBar.show();
 }
 
+/* ── Stale-install self-cleaner ───────────────────────────────────────── */
+/**
+ * Find and disable older copies of CBE that VSCode left behind. Causes:
+ *   - Publisher rename (TrentonTompkins -> Trent-Tompkins) — VSCode treats
+ *     pre/post-rename as DIFFERENT extensions, both stay installed, both
+ *     try to register `codexBlackEd.openPanel` -> "command already exists".
+ *   - rmdir failure on Windows when the active extension's own files are
+ *     open (process holds handles) -> new VSIX installer can't fully
+ *     remove the old folder.
+ *   - User-side .bak duplicates under ~/.vscode/extensions/.
+ *
+ * Renames stale folders to `<name>.disabled-<stamp>` (out of VSCode's load
+ * path) and prunes the matching entries from extensions.json. Idempotent
+ * and best-effort; failures don't block activation. If anything was cleaned,
+ * a toast offers a one-click reload to finalize.
+ */
+async function _cleanStaleCBEVersions(context) {
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+
+    const ourId = String(context.extension?.id || '').toLowerCase();
+    const ourPath = path.normalize(context.extensionPath).toLowerCase();
+    const isCBE = (s) => /codex-black-ed/i.test(String(s || ''));
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    let cleaned = 0;
+
+    // Scan every standard install root + the parent of our own folder
+    // (covers the --extensionDevelopmentPath case where we run from
+    // outside ~/.vscode/extensions/). Set dedupes overlap.
+    const roots = new Set([
+        path.join(os.homedir(), '.vscode', 'extensions'),
+        path.join(os.homedir(), '.vscode-insiders', 'extensions'),
+        path.join(os.homedir(), '.vscode-oss', 'extensions'),
+        path.dirname(context.extensionPath),
+    ]);
+
+    // Step 1 — rename foreign CBE folders so VSCode stops loading them.
+    for (const root of roots) {
+        let entries;
+        try { entries = fs.readdirSync(root, { withFileTypes: true }); }
+        catch (e) { continue; }
+        for (const entry of entries) {
+            if (!entry.isDirectory()) continue;
+            if (!isCBE(entry.name)) continue;
+            if (/\.disabled(-[\w\-:T]+)?$/i.test(entry.name)) continue;
+            const p = path.join(root, entry.name);
+            if (path.normalize(p).toLowerCase() === ourPath) continue;
+            try {
+                fs.renameSync(p, p + '.disabled-' + stamp);
+                cleaned++;
+            } catch (e) {
+                console.warn('[CBE cleaner] rename failed:', p, e.message);
+            }
+        }
+    }
+
+    // Step 2 — drop matching entries from extensions.json so the registry
+    // doesn't keep listing folders that are now `.disabled-*` (VSCode would
+    // log warnings for missing paths on every launch otherwise).
+    for (const root of roots) {
+        const regPath = path.join(root, 'extensions.json');
+        if (!fs.existsSync(regPath)) continue;
+        try {
+            const data = JSON.parse(fs.readFileSync(regPath, 'utf8'));
+            if (!Array.isArray(data)) continue;
+            const before = data.length;
+            const kept = data.filter(e => {
+                const id  = String(e?.identifier?.id || '').toLowerCase();
+                const loc = String(e?.location?.fsPath || e?.location?.path || '').toLowerCase();
+                if (!isCBE(id) && !isCBE(loc)) return true;          // not CBE
+                if (ourId && id === ourId) return true;              // it's us by id
+                if (loc && loc.includes(path.basename(ourPath))) return true; // by path
+                return false;                                        // stale -> drop
+            });
+            if (kept.length !== before) {
+                fs.writeFileSync(regPath, JSON.stringify(kept, null, 2));
+                cleaned += (before - kept.length);
+            }
+        } catch (e) {
+            console.warn('[CBE cleaner] registry prune failed:', regPath, e.message);
+        }
+    }
+
+    if (cleaned > 0) {
+        const msg = `Codex Black: cleaned ${cleaned} stale install${cleaned === 1 ? '' : 's'}. Reload window to finalize.`;
+        vscode.window.showInformationMessage(msg, 'Reload now').then(answer => {
+            if (answer === 'Reload now') {
+                vscode.commands.executeCommand('workbench.action.reloadWindow');
+            }
+        });
+        console.log('[CBE cleaner] cleaned', cleaned, 'stale entries/folders');
+    }
+}
+
 /* ── Activation ───────────────────────────────────────────────────────── */
 
 async function activate(context) {
     extensionContext = context;
+    // Self-clean stale CBE installs BEFORE we register any command so future
+    // launches don't hit "command 'codexBlackEd.openPanel' already exists".
+    // Wrapped in try/catch — a cleanup failure must not block activation.
+    try { await _cleanStaleCBEVersions(context); }
+    catch (e) { console.warn('[CBE cleaner] top-level fail:', e); }
     outChan = vscode.window.createOutputChannel('Claude Codex Black');
     /* Clear stale entries from a previous activation so each run's timing
        is readable on its own. (VS Code keeps the OutputChannel alive across
