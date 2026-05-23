@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<provider>
+  <name>ChatGPT</name>
+  <key>chatgpt</key>
+  <core>true</core>
+  <version>1.0.0</version>
+  <release_date>2026-05-23</release_date>
+
+  <author>
+    <name>Trent Tompkins</name>
+    <email>trenttompkins@gmail.com</email>
+    <url>https://trentontompkins.com</url>
+    <phone>+1-724-431-5207</phone>
+  </author>
+
+  <license type="MIT"><![CDATA[
+MIT License
+
+Copyright (c) 2026 Trent Tompkins.
+
+Provider manifest is licensed MIT. The embedded mark is an
+original "Thinking..." composition designed for CBE; it is NOT
+the OpenAI corporate logo and implies no endorsement or
+affiliation with OpenAI / ChatGPT.
+
+Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software to deal in the Software
+without restriction.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+  ]]></license>
+
+  <readme><![CDATA[
+# ChatGPT
+
+OpenAI's flagship chat web UI at [chatgpt.com](https://chatgpt.com).
+The bridge drives the logged-in browser session — no per-token API
+fees, your existing Plus/Pro subscription is the rate limiter.
+
+**Models typically exposed** (subject to discovery on first login):
+
+  - GPT-5
+  - GPT-4o
+  - o3 / o3-mini (reasoning)
+  - GPT-4.1
+
+Core provider — preinstalled and required for the extension to ship
+a working out-of-box experience. Cannot be uninstalled from the
+provider marketplace.
+  ]]></readme>
+
+  <urls>
+    <login>https://chatgpt.com/auth/login</login>
+    <chat>https://chatgpt.com</chat>
+    <create_account>https://chatgpt.com/auth/login</create_account>
+  </urls>
+
+  <icon mime="image/svg+xml" encoding="base64">PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4NCjxzdmcgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgdmlld0JveD0iMCAwIDUxMiA1MTIiIGZpbGw9Im5vbmUiPg0KICA8dGl0bGU+Q2hhdEdQVCDigJQgdGhpbmtpbmc8L3RpdGxlPg0KICA8ZyBmaWxsPSIjMDAwMDAwIj4NCiAgICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSg0Ny41MCwxMDIuODApIj4NCiAgICAgIDxwYXRoIGQ9Ik0xMTcxIDExNzFINzYyVjBINDM4VjExNzFIMzFWMTQzNEgxMTcxWiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMC4wMCwwKSBzY2FsZSgwLjA0Mzk1LC0wLjA0Mzk1KSIvPjxwYXRoIGQ9Ik0xMTE2IDBIODAxVjU4MlE4MDEgODA3IDYzNyA4MDdRNTUzIDgwNyA1MDEuMCA3NDQuMFE0NDkgNjgxIDQ0OSA1ODRWMEgxMzNWMTUxNkg0NDlWODcySDQ1M1E1NjkgMTA0OSA3NjggMTA0OVExMTE2IDEwNDkgMTExNiA2MjlaIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg1Mi43MywwKSBzY2FsZSgwLjA0Mzk1LC0wLjA0Mzk1KSIvPjxwYXRoIGQ9Ik0yOTMgMTE4NlEyMTMgMTE4NiAxNjIuMCAxMjMzLjVRMTExIDEyODEgMTExIDEzNTBRMTExIDE0MjEgMTYyLjAgMTQ2Ni4wUTIxMyAxNTExIDI5MyAxNTExUTM3NCAxNTExIDQyNC41IDE0NjYuMFE0NzUgMTQyMSA0NzUgMTM1MFE0NzUgMTI3OCA0MjQuNSAxMjMyLjBRMzc0IDExODYgMjkzIDExODZaTTQ0OSAwSDEzM1YxMDI0SDQ0OVoiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDEwNi45MiwwKSBzY2FsZSgwLjA0Mzk1LC0wLjA0Mzk1KSIvPjxwYXRoIGQ9Ik0xMTIyIDBIODA3VjU2OVE4MDcgODA3IDYzNyA4MDdRNTU1IDgwNyA1MDIuMCA3NDQuMFE0NDkgNjgxIDQ0OSA1ODRWMEgxMzNWMTAyNEg0NDlWODYySDQ1M1E1NjYgMTA0OSA3ODIgMTA0OVExMTIyIDEwNDkgMTEyMiA2MjdaIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxMzIuNTAsMCkgc2NhbGUoMC4wNDM5NSwtMC4wNDM5NSkiLz48cGF0aCBkPSJNMTE1OSAwSDc4MEw0NTMgNTA4SDQ0OVYwSDEzM1YxNTE2SDQ0OVY1NTFINDUzTDc1OCAxMDI0SDExMzNMNzY2IDU0M1oiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE4Ni45NCwwKSBzY2FsZSgwLjA0Mzk1LC0wLjA0Mzk1KSIvPjxwYXRoIGQ9Ik0yOTMgMTE4NlEyMTMgMTE4NiAxNjIuMCAxMjMzLjVRMTExIDEyODEgMTExIDEzNTBRMTExIDE0MjEgMTYyLjAgMTQ2Ni4wUTIxMyAxNTExIDI5MyAxNTExUTM3NCAxNTExIDQyNC41IDE0NjYuMFE0NzUgMTQyMSA0NzUgMTM1MFE0NzUgMTI3OCA0MjQuNSAxMjMyLjBRMzc0IDExODYgMjkzIDExODZaTTQ0OSAwSDEzM1YxMDI0SDQ0OVoiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDIzNy4yNiwwKSBzY2FsZSgwLjA0Mzk1LC0wLjA0Mzk1KSIvPjxwYXRoIGQ9Ik0xMTIyIDBIODA3VjU2OVE4MDcgODA3IDYzNyA4MDdRNTU1IDgwNyA1MDIuMCA3NDQuMFE0NDkgNjgxIDQ0OSA1ODRWMEgxMzNWMTAyNEg0NDlWODYySDQ1M1E1NjYgMTA0OSA3ODIgMTA0OVExMTIyIDEwNDkgMTEyMiA2MjdaIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgyNjIuODQsMCkgc2NhbGUoMC4wNDM5NSwtMC4wNDM5NSkiLz48cGF0aCBkPSJNMTEzNyAxMTdRMTEzNyAtMTY4IDk3Mi4wIC0zMjQuNVE4MDcgLTQ4MSA0OTQgLTQ4MVEyODcgLTQ4MSAxNjYgLTQyMlYtMTU2UTMyNCAtMjQ4IDQ4NSAtMjQ4UTY0NSAtMjQ4IDczMy4wIC0xNjMuNVE4MjEgLTc5IDgyMSA2NlYxNDdIODE3UTcwOSAtMjUgNDk4IC0yNVEzMDIgLTI1IDE4Ny4wIDExMy4wUTcyIDI1MSA3MiA0ODNRNzIgNzQzIDIwMC4wIDg5Ni4wUTMyOCAxMDQ5IDUzNyAxMDQ5UTcyNCAxMDQ5IDgxNyA5MDVIODIxVjEwMjRIMTEzN1pNODI1IDQ5MlY1NzNRODI1IDY3MCA3NjcuNSA3MzguNVE3MTAgODA3IDYxOCA4MDdRNTEzIDgwNyA0NTMuMCA3MjUuMFEzOTMgNjQzIDM5MyA0OTRRMzkzIDM2NiA0NTAuMCAyOTEuNVE1MDcgMjE3IDYwNiAyMTdRNzA0IDIxNyA3NjQuNSAyOTIuNVE4MjUgMzY4IDgyNSA0OTJaIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgzMTcuMjksMCkgc2NhbGUoMC4wNDM5NSwtMC4wNDM5NSkiLz4NCiAgICA8L2c+DQogICAgPGNpcmNsZSBjeD0iNDI5LjUwIiBjeT0iOTcuODAiIHI9IjUiIC8+DQogICAgPGNpcmNsZSBjeD0iNDQ0LjUwIiBjeT0iOTcuODAiIHI9IjUiIC8+DQogICAgPGNpcmNsZSBjeD0iNDU5LjUwIiBjeT0iOTcuODAiIHI9IjUiIC8+DQogICAgPGNpcmNsZSBjeD0iMjU2LjAiIGN5PSIzMzQuODAiIHI9IjEzNiIgLz4NCiAgPC9nPg0KPC9zdmc+DQo=</icon>
+</provider>
