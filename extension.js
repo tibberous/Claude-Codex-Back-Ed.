@@ -1502,6 +1502,90 @@ async function cacheRecentEmails(context) {
     return summary;
 }
 
+/* Scan <ext>/emails/*.eml for an Anthropic magic-login link addressed to
+   `emailAddress`, optionally fetch (consume) the newest match to obtain a
+   claude.ai session cookie. Powers the [[codexBlackEd.email.consumeMagicLink]]
+   command and the Claude.ai-Subscription auto-login shortcut on the
+   /switch auth picker.
+
+   IMPORTANT: --fetch consumes the magic-link token (claude.ai marks it
+   used). We never auto-fire on activate — only on explicit user trigger.
+
+   opts: { fetch:bool=false, max:int=10 }
+   Returns the parsed JSON payload from tools/anthropic_magic_link.py,
+   plus we side-effect-write the cookies to
+       <ext>/emails/<emailAddress>.claude-cookies.json
+   when fetch succeeds (v1 cut — bridge profile cookie-jar import lands
+   in a follow-up). */
+async function findAndConsumeClaudeMagicLink(context, emailAddress, opts = {}) {
+    const { fetch = false, max = 10 } = opts;
+    const cacheDir = path.join(context.extensionPath, 'emails');
+    const script   = path.join(context.extensionPath, 'tools', 'anthropic_magic_link.py');
+    if (!fs.existsSync(script)) {
+        throw new Error(`anthropic_magic_link.py missing at ${script}`);
+    }
+    if (!fs.existsSync(cacheDir)) {
+        return { matches: [], note: 'no emails cache yet (cacheRecentEmails has not run)' };
+    }
+    const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
+    const args  = ['-3', script, '--eml-dir', cacheDir, '--max', String(max)];
+    if (emailAddress) args.push('--for-email', emailAddress);
+    if (fetch)        args.push('--fetch');
+
+    const result = await new Promise((resolve) => {
+        const proc = spawn(pyCmd, args, {
+            cwd: context.extensionPath,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
+        });
+        let stdout = '', stderr = '';
+        proc.stdout.on('data', d => { stdout += d.toString('utf8'); });
+        proc.stderr.on('data', d => { stderr += d.toString('utf8'); });
+        proc.on('error', err => resolve({ ok: false, error: String(err), matches: [] }));
+        proc.on('close', code => {
+            // Pick the first { ... } block in stdout (the script also prints
+            // human-readable diagnostics on stderr).
+            const start = stdout.indexOf('{');
+            const end   = stdout.lastIndexOf('}');
+            if (start < 0 || end < start) {
+                resolve({ ok: false, error: `exit=${code} stderr=${stderr.slice(0, 200)}`, matches: [] });
+                return;
+            }
+            try {
+                const payload = JSON.parse(stdout.slice(start, end + 1));
+                payload.ok = true;
+                resolve(payload);
+            } catch (e) {
+                resolve({ ok: false, error: `bad JSON: ${e.message}`, matches: [] });
+            }
+        });
+    });
+
+    // Side-effect: dump cookies to disk on successful fetch so a future
+    // bridge launch can pick them up. v1 cut — proper Cookies.db import
+    // into bridge_profiles/claude/ lands in a follow-up.
+    if (fetch && result && result.fetched && result.fetched.ok) {
+        try {
+            const slug = (emailAddress || result.fetched.email || 'unknown')
+                .toLowerCase().replace(/[^a-z0-9._-]+/g, '_');
+            const outFile = path.join(cacheDir, `${slug}.claude-cookies.json`);
+            fs.writeFileSync(outFile, JSON.stringify({
+                email:     result.fetched.email,
+                token:     result.fetched.token,
+                status:    result.fetched.status,
+                final_url: result.fetched.final_url,
+                cookies:   result.fetched.cookies,
+                consumedAt: new Date().toISOString(),
+            }, null, 2), 'utf8');
+            result.cookieFile = outFile;
+            trace(`EMAIL:MAGIC consumed token=${result.fetched.token} email=${result.fetched.email} -> ${outFile}`);
+        } catch (e) {
+            traceErr('findAndConsumeClaudeMagicLink:writeCookies', e);
+        }
+    }
+    return result;
+}
+
 /* Spawn tools/email_watch.py — long-poll an inbox until a matching message
    arrives, then return { ok, found, links, ... }. Designed for the bridge
    magic-link flow: extension shells out, gets the claude.ai sign-in URL
@@ -3532,6 +3616,54 @@ async function activate(context) {
             } catch (e) {
                 traceErr('email.addAccount', e);
                 vscode.window.showErrorMessage('Add email account failed: ' + (e.message || String(e)));
+            }
+        }),
+        /* Consume an Anthropic magic-login link from the .eml cache to obtain
+           a claude.ai session cookie. User-triggered; never auto-fires from
+           activate. Quick-picks across configured Anthropic-capable accounts
+           if --for-email isn't supplied. */
+        vscode.commands.registerCommand('codexBlackEd.email.consumeMagicLink', async () => {
+            try {
+                const accounts = getEmailAccounts(context);
+                let targetEmail = '';
+                if (accounts.length) {
+                    const pick = await vscode.window.showQuickPick(
+                        accounts.map(a => ({ label: a.label || a.email, description: `${a.provider} — ${a.email}`, email: a.email })),
+                        { title: 'Which email received the Anthropic magic link?', ignoreFocusOut: true });
+                    if (!pick) return;
+                    targetEmail = pick.email;
+                } else {
+                    targetEmail = (await vscode.window.showInputBox({
+                        title: 'Email address that received the Anthropic magic link',
+                        ignoreFocusOut: true, placeHolder: 'you@example.com',
+                    }) || '').trim();
+                    if (!targetEmail) return;
+                }
+                // Scan-only first so we can show the user what we found before consuming.
+                const scan = await findAndConsumeClaudeMagicLink(context, targetEmail, { fetch: false });
+                const hits = (scan && scan.matches) || [];
+                if (!hits.length) {
+                    vscode.window.showWarningMessage(
+                        `No Anthropic magic-link found in cache for ${targetEmail}. ` +
+                        `Trigger "Login with email" on claude.ai first, then wait for the next email-cache tick.`);
+                    return;
+                }
+                const choice = await vscode.window.showWarningMessage(
+                    `Found magic-link for ${hits[0].email} (token ${hits[0].token.slice(0, 8)}…). ` +
+                    `Fetching this URL will CONSUME the link — you can't use it again. Proceed?`,
+                    { modal: true }, 'Consume + login', 'Cancel');
+                if (choice !== 'Consume + login') return;
+                const result = await findAndConsumeClaudeMagicLink(context, targetEmail, { fetch: true });
+                if (result && result.fetched && result.fetched.ok) {
+                    vscode.window.showInformationMessage(
+                        `Logged in as ${result.fetched.email}. Cookies dumped to ${result.cookieFile || '(memory only)'}.`);
+                } else {
+                    const err = (result && result.fetched && result.fetched.error) || (result && result.error) || 'unknown failure';
+                    vscode.window.showErrorMessage(`Magic-link consume failed: ${err}`);
+                }
+            } catch (e) {
+                traceErr('email.consumeMagicLink', e);
+                vscode.window.showErrorMessage('Magic-link consume failed: ' + (e.message || String(e)));
             }
         }),
         vscode.commands.registerCommand('codexBlackEd.email.readInbox', async () => {

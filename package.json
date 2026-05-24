@@ -208,6 +208,10 @@
       {
         "command": "codexBlackEd.email.removeAccount",
         "title": "Claude Codex Email: Remove account"
+      },
+      {
+        "command": "codexBlackEd.email.consumeMagicLink",
+        "title": "Claude Codex Email: Consume Anthropic magic-link (auto-login)"
       }
     ],
     "menus": {
