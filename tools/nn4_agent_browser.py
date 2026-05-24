@@ -77,7 +77,14 @@ DEFAULT_H = 800
 # the same so a single auth-save unlocks both paths.
 _LIBRARY_CACHE_DIR = Path.home() / ".claude" / "projects" / "C--Users-moren" / "library-cache"
 _AUTH_COOKIES_PATH = _LIBRARY_CACHE_DIR / "auth_cookies.json"
-_NN4_PROFILE_DIR = _LIBRARY_CACHE_DIR / "nn4-profile"
+# NN4_PROFILE_DIR env var lets the claude_login_orchestrator point each
+# spawn at its own per-account profile dir (bridge_profiles/claude/<slug>/).
+# Without it we fall back to the original shared library-cache profile.
+_NN4_PROFILE_DIR_ENV = os.environ.get("NN4_PROFILE_DIR", "").strip()
+if _NN4_PROFILE_DIR_ENV:
+    _NN4_PROFILE_DIR = Path(_NN4_PROFILE_DIR_ENV)
+else:
+    _NN4_PROFILE_DIR = _LIBRARY_CACHE_DIR / "nn4-profile"
 
 
 def _seedChatgptCookiesFromJson(profile, cookies_json_path) -> tuple[int, int]:

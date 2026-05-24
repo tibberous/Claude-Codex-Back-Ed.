@@ -3126,6 +3126,8 @@ function openAuthPicker() {
         '<div style="' + subStyle + '">How do you want to log in?</div>' +
         '<button class="cbe-ap-claude"    type="button" style="' + btnStyle + '">Claude.ai Subscription</button>' +
         '<div style="' + subStyle + '">Use your Claude Pro, Team, or Enterprise subscription (browser bridge).</div>' +
+        '<button class="cbe-ap-autologin" type="button" style="' + btnStyle + 'background:var(--cbe-modal-bg,#22262d);border-color:var(--cbe-modal-border,#3a414c);">Auto-login all accounts (Vision Pilot)</button>' +
+        '<div style="' + subStyle + '">Cycle every seeded Claude.ai email, screenshot the login page, ask ChatGPT what to click, poll IMAP for magic links, persist cookies per account.</div>' +
         '<button class="cbe-ap-anthropic" type="button" style="' + btnStyle + '">Anthropic Console</button>' +
         '<div style="' + subStyle + '">Pay for API usage through your Console account (API key).</div>' +
         '<button class="cbe-ap-bedrock"   type="button" style="' + btnStyle + '">Bedrock, Foundry, or Vertex</button>' +
@@ -3141,6 +3143,15 @@ function openAuthPicker() {
        so the user lands directly in the "add bridge login" form. */
     __cbeAmProvider = 'claudeBridge';
     openAccountsModal();
+  });
+  overlay.querySelector('.cbe-ap-autologin').addEventListener('click', () => {
+    close();
+    /* Hand off to the host — see codexBlackEd.claude.autoLoginAllAccounts.
+       The host spawns tools/claude_login_orchestrator.py which screenshots
+       claude.ai/login, asks GPT-4o for the next click, polls IMAP for the
+       magic-link, and persists cookies per account profile dir. Progress
+       lines come back as `info`/`error` messages and surface in the chat. */
+    if (api) api.postMessage({ type: 'claudeAutoLoginAll' });
   });
   overlay.querySelector('.cbe-ap-anthropic').addEventListener('click', () => {
     close();

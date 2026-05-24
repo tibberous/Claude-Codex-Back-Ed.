@@ -3789,6 +3789,105 @@ async function activate(context) {
                 vscode.window.showErrorMessage('Remove account failed: ' + (e.message || String(e)));
             }
         }),
+        /* Vision-pilot login for every Claude.ai account. Spawns
+           tools/claude_login_orchestrator.py which cycles ALL_GMAILS +
+           EXTRA_CLAUDE_EMAILS, drives nn4_agent_browser per-account into
+           bridge_profiles/claude/<slug>/, uses ChatGPT (vision) to click
+           through the login form, polls IMAP for the magic-link, persists
+           cookies in the profile dir. v1 target: at least one account end
+           to end (trent + admin@acquisitioninvest both have real app
+           passwords today). The orchestrator streams JSON-line progress
+           on stdout — we forward each event to the panel as info/error. */
+        vscode.commands.registerCommand('codexBlackEd.claude.autoLoginAllAccounts', async (opts) => {
+            try {
+                const out = vscode.window.createOutputChannel('CBE Claude Auto-Login');
+                out.show(true);
+                out.appendLine(`[${new Date().toISOString()}] autoLoginAllAccounts: collecting roster…`);
+
+                /* Build a per-account JSON row carrying email + provider +
+                   IMAP env-var name. We materialise the password into a
+                   uniquely-named env var for the child process (NEVER
+                   --password on argv — that's visible in tasklist). */
+                const accounts = getEmailAccounts(context);
+                if (!accounts.length) {
+                    vscode.window.showWarningMessage('No email accounts seeded yet — open the Email panel first.');
+                    return;
+                }
+                const onlyEmail = (opts && typeof opts.email === 'string') ? opts.email.trim() : '';
+                const filtered  = onlyEmail
+                    ? accounts.filter(a => (a.email || '').toLowerCase() === onlyEmail.toLowerCase())
+                    : accounts;
+                if (!filtered.length) {
+                    vscode.window.showWarningMessage(`No account row found for ${onlyEmail}.`);
+                    return;
+                }
+
+                const childEnv = Object.assign({}, process.env);
+                const argsAccounts = [];
+                for (let i = 0; i < filtered.length; i++) {
+                    const a   = filtered[i];
+                    const pw  = await getEmailPassword(context, a.id);
+                    const env = `CBE_IMAP_PWD_${i}`;
+                    if (pw) childEnv[env] = pw;
+                    argsAccounts.push(JSON.stringify({
+                        email:    a.email,
+                        provider: a.provider,
+                        imap_password_env: pw ? env : '',
+                    }));
+                }
+
+                const py = (function findPython() {
+                    /* Prefer the bundled CPython if present, else fall back to py launcher. */
+                    const bundled = path.join(context.extensionPath, 'resources', 'python', 'python.exe');
+                    try { if (fs.existsSync(bundled)) return bundled; } catch (_) {}
+                    return process.platform === 'win32' ? 'py' : 'python3';
+                })();
+                const script = path.join(context.extensionPath, 'tools', 'claude_login_orchestrator.py');
+                const cwd    = context.extensionPath;
+                const argv   = (py === 'py' ? ['-3', script] : [script]);
+                for (const a of argsAccounts) argv.push('--account', a);
+                if (opts && opts.dryRun) argv.push('--dry-run');
+
+                out.appendLine(`[${new Date().toISOString()}] spawning: ${py} ${script} (${argsAccounts.length} accounts${opts && opts.dryRun ? ', dry-run' : ''})`);
+
+                const { spawn } = require('child_process');
+                const child = spawn(py, argv, { cwd, env: childEnv });
+                let stdoutBuf = '';
+                child.stdout.on('data', (chunk) => {
+                    stdoutBuf += chunk.toString('utf8');
+                    let idx;
+                    while ((idx = stdoutBuf.indexOf('\n')) >= 0) {
+                        const line = stdoutBuf.slice(0, idx).trim();
+                        stdoutBuf = stdoutBuf.slice(idx + 1);
+                        if (!line) continue;
+                        out.appendLine(line);
+                        try {
+                            const evt = JSON.parse(line);
+                            const panel = (typeof activePanel !== 'undefined') ? activePanel : null;
+                            if (panel && panel.webview) {
+                                const isErr = evt && evt.event === 'account_done' && evt.ok === false;
+                                panel.webview.postMessage({
+                                    type: isErr ? 'error' : 'info',
+                                    text: 'Claude auto-login: ' + line,
+                                });
+                            }
+                        } catch (_) { /* not JSON; already printed */ }
+                    }
+                });
+                child.stderr.on('data', (chunk) => out.append('[err] ' + chunk.toString('utf8')));
+                child.on('close', (code) => {
+                    out.appendLine(`[${new Date().toISOString()}] orchestrator exit code=${code}`);
+                    if (code === 0) {
+                        vscode.window.showInformationMessage('Claude auto-login: orchestrator finished — see CBE Claude Auto-Login output for per-account results.');
+                    } else {
+                        vscode.window.showWarningMessage(`Claude auto-login: orchestrator exited ${code}. Check the output channel.`);
+                    }
+                });
+            } catch (e) {
+                traceErr('claude.autoLoginAllAccounts', e);
+                vscode.window.showErrorMessage('Auto-login failed: ' + (e.message || String(e)));
+            }
+        }),
         /* If the user closes our terminal, drop the reference so the next
            click on the Terminal button creates a fresh one in the right cwd. */
         vscode.window.onDidCloseTerminal((t) => { if (t === cbeTerm) cbeTerm = null; }),
@@ -6615,6 +6714,14 @@ function bindPanel(context, panel) {
                        Mirrors Claude Code's login screen but stays inside CBE
                        per [[feedback-never-touch-anthropic-dir]]. */
                     panel.webview.postMessage({ type: 'showAuthPicker' });
+                    break;
+                }
+                case 'claudeAutoLoginAll': {
+                    /* Auth-picker → "Auto-login all accounts (Vision Pilot)".
+                       Defers to the registered command so the same code path
+                       fires from Command Palette, slash, or panel button. */
+                    try { await vscode.commands.executeCommand('codexBlackEd.claude.autoLoginAllAccounts', msg && msg.opts); }
+                    catch (e) { traceErr('claudeAutoLoginAll', e); }
                     break;
                 }
                 case 'showLicense': {
