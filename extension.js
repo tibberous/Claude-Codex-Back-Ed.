@@ -7384,6 +7384,22 @@ const NATIVE_TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        type: 'function',
+        function: {
+            name: 'download_file',
+            description: 'Receive a file: fetch it from an HTTP(S) url OR retrieve a previously-uploaded OpenAI file by file_id, and save the bytes to disk. The inverse of upload_file/send_file. Returns {ok, path, bytes, source}. Provide exactly one of url or file_id.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    url: { type: 'string', description: 'HTTP(S) URL to download. Mutually exclusive with file_id.' },
+                    file_id: { type: 'string', description: 'OpenAI Files API file id (e.g. "file-abc123") to retrieve via /v1/files/{id}/content. Mutually exclusive with url.' },
+                    path: { type: 'string', description: 'Destination path on disk. If a directory or omitted, a filename is derived from the url/file_id and saved under cwd.' },
+                },
+                required: [],
+            },
+        },
+    },
 ];
 
 /* MIME type sniffer from file extension. Conservative — anything not in
@@ -7582,6 +7598,58 @@ async function executeNativeToolCall(tc, opts = {}) {
             const body = await res.json();
             if (!res.ok) return JSON.stringify({ ok: false, error: body.error && body.error.message || `HTTP ${res.status}`, path: absPath });
             return JSON.stringify({ ok: true, file_id: body.id, path: absPath, bytes: stat.size, mime, purpose });
+        } catch (e) {
+            return JSON.stringify({ ok: false, error: e.message || String(e), path: absPath });
+        }
+    }
+    if (name === 'download_file') {
+        const url = String(args.url || '').trim();
+        const fileId = String(args.file_id || '').trim();
+        if (!url && !fileId) return JSON.stringify({ ok: false, error: 'provide url or file_id' });
+        if (url && fileId) return JSON.stringify({ ok: false, error: 'provide exactly one of url or file_id, not both' });
+        const baseDir = opts.cwd || os.homedir();
+        /* Derive a destination filename when caller gave a dir or nothing. */
+        let rawPath = String(args.path || '').trim();
+        const deriveName = () => {
+            if (url) {
+                try { const u = new URL(url); const b = path.basename(u.pathname); if (b) return b; } catch (e) { /* fall through */ }
+                return 'download.bin';
+            }
+            return fileId.replace(/[^A-Za-z0-9._-]/g, '_') || 'download.bin';
+        };
+        let absPath;
+        if (!rawPath) {
+            absPath = path.resolve(baseDir, deriveName());
+        } else {
+            absPath = path.isAbsolute(rawPath) ? path.resolve(rawPath) : path.resolve(baseDir, rawPath);
+            let isDir = false;
+            try { isDir = fs.statSync(absPath).isDirectory(); } catch (e) { isDir = /[\\/]$/.test(rawPath); }
+            if (isDir) absPath = path.join(absPath, deriveName());
+        }
+        if (_isAnthropicPath(absPath)) return JSON.stringify({ ok: false, error: 'refused: anthropic dir is off-limits', path: absPath });
+        try {
+            let res, source;
+            if (url) {
+                if (!/^https?:\/\//i.test(url)) return JSON.stringify({ ok: false, error: 'only http(s) urls are allowed', url });
+                res = await fetch(url);
+                source = url;
+            } else {
+                const apiKey = opts.context ? getProviderKey(opts.context, 'openai') : (process.env.OPENAI_API_KEY || null);
+                if (!apiKey) return JSON.stringify({ ok: false, error: 'no openai key configured (needed for file_id)' });
+                res = await fetch(`https://api.openai.com/v1/files/${encodeURIComponent(fileId)}/content`, {
+                    headers: { 'Authorization': `Bearer ${apiKey}` },
+                });
+                source = `openai:${fileId}`;
+            }
+            if (!res.ok) {
+                let detail = `HTTP ${res.status}`;
+                try { const j = await res.json(); if (j && j.error && j.error.message) detail = j.error.message; } catch (e) { /* non-json body */ }
+                return JSON.stringify({ ok: false, error: detail, source });
+            }
+            const buf = Buffer.from(await res.arrayBuffer());
+            fs.mkdirSync(path.dirname(absPath), { recursive: true });
+            fs.writeFileSync(absPath, buf);
+            return JSON.stringify({ ok: true, path: absPath, bytes: buf.length, source });
         } catch (e) {
             return JSON.stringify({ ok: false, error: e.message || String(e), path: absPath });
         }
@@ -8591,17 +8659,67 @@ async function* chatStream(context, providerId, model, messages, maxTokens, onPr
 
 /* ── Chat dispatch ────────────────────────────────────────────────────── */
 
+/* Parse the human "resets …" hint Claude prints on a cap into a disableMs
+   (ms from now until the reset). Handles both forms the client emits:
+     "resets 3:10am (America/New_York)"        — clock time today/tomorrow
+     "resets May 25, 12am (America/New_York)"  — explicit month/day
+   Wall-clock times are interpreted in local time (this machine runs ET, the
+   same zone the message quotes). Returns NaN if no parsable hint. */
+function parseResetHint(msg) {
+    if (!msg) return NaN;
+    const now = new Date();
+    /* Explicit "<Mon> <day>, <h>[:mm]<am|pm>" first (weekly cap form). */
+    let m = msg.match(/resets\s+([A-Z][a-z]{2,8})\s+(\d{1,2}),?\s+(\d{1,2})(?::(\d{2}))?\s*([ap]m)/i);
+    if (m) {
+        const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+        const mon = months.indexOf(m[1].slice(0, 3).toLowerCase());
+        if (mon >= 0) {
+            let hr = parseInt(m[3], 10) % 12;
+            if (/pm/i.test(m[5])) hr += 12;
+            const min = m[4] ? parseInt(m[4], 10) : 0;
+            let yr = now.getFullYear();
+            let target = new Date(yr, mon, parseInt(m[2], 10), hr, min, 0, 0);
+            if (target.getTime() < now.getTime() - 86400000) target = new Date(yr + 1, mon, parseInt(m[2], 10), hr, min, 0, 0);
+            const ms = target.getTime() - now.getTime();
+            return ms > 0 ? ms : NaN;
+        }
+    }
+    /* Plain "<h>[:mm]<am|pm>" clock time (session cap form). */
+    m = msg.match(/resets\s+(\d{1,2})(?::(\d{2}))?\s*([ap]m)/i);
+    if (m) {
+        let hr = parseInt(m[1], 10) % 12;
+        if (/pm/i.test(m[3])) hr += 12;
+        const min = m[2] ? parseInt(m[2], 10) : 0;
+        let target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hr, min, 0, 0);
+        if (target.getTime() <= now.getTime()) target = new Date(target.getTime() + 86400000); /* already passed today → tomorrow */
+        const ms = target.getTime() - now.getTime();
+        return ms > 0 ? ms : NaN;
+    }
+    return NaN;
+}
+
 /* Classify a thrown stream error as a rate-limit / weekly-cap hit. The
    fetch-based streamers throw `HTTP 429 ...`; the Anthropic SDK throws an
    error carrying .status === 429. We also pattern-match the error vocabulary
    ("rate limit", "weekly limit", "usage limit", "quota") because some
    providers wrap 429s in a 200 SSE error frame or a 400 with that text.
+   The Claude client also surfaces caps as a plain sentence with no 429 status:
+   "You've hit your session limit · resets 3:10am (America/New_York)" or
+   "You've hit your weekly limit · resets May 25, 12am" — match those too so a
+   session/weekly cap rotates the account instead of stalling the chat.
    Returns { isRateLimit, weekly, disableMs } — disableMs is parsed from a
-   Retry-After-style hint when present (NaN otherwise). */
+   Retry-After header, else from the "resets …" hint (NaN otherwise). */
 function classifyRateLimit(err) {
     const msg = String((err && err.message) || err || '');
     const status = err && (err.status || err.statusCode);
     const is429 = status === 429 || /HTTP\s+429\b/i.test(msg) || /\b429\b/.test(msg);
+    /* The session/weekly cap sentence Claude prints (no 429 status attached). */
+    const hitYourLimit =
+        /hit your (?:session|weekly|usage|current|daily)?\s*limit/i.test(msg) ||
+        /\bsession limit\b/i.test(msg) ||
+        /\bmessage limit\b/i.test(msg) ||         /* claude.ai bridge: "reached your message limit" */
+        /reached your .*\blimit\b/i.test(msg) ||
+        /\blimit\b.*\bresets\b/i.test(msg);       /* "...limit · resets 12am (America/...)" */
     const vocab =
         /rate[_\s-]?limit/i.test(msg) ||
         /\bweekly\b/i.test(msg) ||
@@ -8609,9 +8727,12 @@ function classifyRateLimit(err) {
         /\bquota\b/i.test(msg) ||
         /too many requests/i.test(msg) ||
         /\boverloaded\b/i.test(msg) ||
-        /\binsufficient_quota\b/i.test(msg);
+        /\binsufficient_quota\b/i.test(msg) ||
+        hitYourLimit;
     const isRateLimit = is429 || vocab;
-    const weekly = /\bweek/i.test(msg);  /* "weekly limit", "this week" */
+    /* "session limit" is a short cap and must NOT be treated as weekly. */
+    const session = /\bsession limit\b/i.test(msg) || /hit your session/i.test(msg);
+    const weekly = !session && /\bweek/i.test(msg);  /* "weekly limit", "this week" */
     /* Retry-After can be seconds or an explicit header echoed in the body. */
     let disableMs = NaN;
     const retryHeaderObj = err && err.headers && (err.headers['retry-after'] || err.headers['Retry-After']);
@@ -8620,6 +8741,8 @@ function classifyRateLimit(err) {
         const secs = parseInt(m[1], 10);
         if (Number.isFinite(secs) && secs > 0) disableMs = secs * 1000;
     }
+    /* No Retry-After header → fall back to the printed "resets …" wall-clock. */
+    if (!Number.isFinite(disableMs)) disableMs = parseResetHint(msg);
     return { isRateLimit, weekly, disableMs };
 }
 
@@ -9126,6 +9249,12 @@ async function handleSendText(context, panel, text, images) {
         if (rl.isRateLimit && rotateCount < 12) {
             const accounts = getProviderAccounts(context, providerId);
             if (accounts.length >= 1) {
+                /* The user-visible cue the cap was hit and we're cycling. The
+                   full email→magic-link→offscreen-OAuth login for accounts that
+                   need it runs inside ensureClaudeAccountLogin (account_switch.js)
+                   once rotation picks the next account. */
+                panel.webview.postMessage({ type: 'status', text: 'Switching accounts…' });
+                panel.webview.postMessage({ type: 'accountSwitching', reason: rl.weekly ? 'weekly' : 'session' });
                 const res = await rotateOnRateLimit(context, providerId, {
                     weekly: rl.weekly,
                     disableMs: rl.disableMs,
@@ -9134,6 +9263,22 @@ async function handleSendText(context, panel, text, images) {
                 if (activePanel) activePanel.webview.postMessage({ type: 'accountsState', ...buildAccountsPayload(context, providerId) });
                 if (res.rotated) {
                     const fromLabel = res.from ? res.from.label : '(unknown)';
+                    /* If the target account has no usable API key (email/magic-link
+                       account), drive the offscreen sign-in before retrying. The
+                       module is optional: if it isn't present yet, we fall through
+                       to the plain key-swap retry (api_key accounts need no login). */
+                    try {
+                        const accountSwitch = require('./account_switch.js');
+                        if (accountSwitch && typeof accountSwitch.ensureClaudeAccountLogin === 'function'
+                            && res.to && !res.to.apiKey) {
+                            await accountSwitch.ensureClaudeAccountLogin(context, res.to, {
+                                extensionPath: context.extensionPath,
+                                postStatus: (t) => panel.webview.postMessage({ type: 'status', text: t }),
+                            });
+                        }
+                    } catch (loginErr) {
+                        trace(`ACCOUNTS:LOGIN-FLOW skipped/failed: ${(loginErr && loginErr.message) || loginErr}`);
+                    }
                     panel.webview.postMessage({ type: 'info', text: `Account ${fromLabel} hit its limit — switched to ${res.to.label}` });
                     panel.webview.postMessage({ type: 'accountToast', from: fromLabel, to: res.to.label });
                     /* Pop the user turn we appended so the retry doesn't double it. */
