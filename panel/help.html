@@ -103,6 +103,7 @@
     <li><a href="#modals">Modals &amp; dialogs</a></li>
     <li><a href="#settings">Settings</a></li>
     <li><a href="#setup">Setup wizard</a></li>
+    <li><a href="#buy-credits">Buy API credits</a></li>
     <li><a href="#accounts">Accounts &amp; API keys</a></li>
     <li><a href="#slash">Slash commands</a></li>
     <li><a href="#tama">Tamagotchi pet</a></li>
@@ -139,19 +140,64 @@
   <tr><td>Azure OpenAI</td><td>(deployment-based)</td><td><code>[azure] api_key</code> + endpoint</td></tr>
 </table>
 
-<h4>Browser bridges (no API key — drives a logged-in browser session)</h4>
+<h4>Browser bridges <span class="pill">.bridge XML</span> (no API key — drives a logged-in browser session)</h4>
+<p>Every browser bridge is declared by a <code>.bridge</code> XML file in <code>extensions/</code> (one file per provider). Scanned at activation, registered as a provider automatically. Delete the file to remove the provider; toggle <code>&lt;enabled&gt;true|false&lt;/enabled&gt;</code> to flip it on/off.</p>
+
+<h4>Enabled by default</h4>
 <table>
-  <tr><th>Bridge</th><th>Target</th><th>Port</th></tr>
-  <tr><td>ChatGPT bridge</td><td>chat.openai.com</td><td>8788</td></tr>
-  <tr><td>Grok bridge</td><td>grok.com / x.ai</td><td>8789</td></tr>
-  <tr><td>Copilot bridge</td><td>copilot.microsoft.com</td><td>8790</td></tr>
-  <tr><td>Gemini bridge</td><td>gemini.google.com</td><td>8791</td></tr>
-  <tr><td>Claude bridge</td><td>claude.ai</td><td>8792</td></tr>
-  <tr><td>Ollama (local)</td><td>127.0.0.1:11434</td><td>8793</td></tr>
-  <tr><td>DeepSeek bridge</td><td>chat.deepseek.com</td><td>8794</td></tr>
+  <tr><th>Bridge</th><th>Target</th><th>Port</th><th>File</th></tr>
+  <tr><td>ChatGPT</td><td>chatgpt.com</td><td>8788</td><td><code>extensions/chatgpt.bridge</code></td></tr>
+  <tr><td>Grok</td><td>grok.com / x.ai</td><td>8789</td><td><code>extensions/grok.bridge</code></td></tr>
+  <tr><td>Copilot</td><td>copilot.microsoft.com</td><td>8790</td><td><code>extensions/copilot.bridge</code></td></tr>
+  <tr><td>Gemini</td><td>gemini.google.com</td><td>8791</td><td><code>extensions/gemini.bridge</code></td></tr>
+  <tr><td>Claude</td><td>claude.ai</td><td>8792</td><td><code>extensions/claude.bridge</code></td></tr>
+  <tr><td>Ollama (local)</td><td>127.0.0.1:11434</td><td>8793</td><td><code>extensions/ollama.bridge</code></td></tr>
+  <tr><td>DeepSeek</td><td>chat.deepseek.com</td><td>8794</td><td><code>extensions/deepseek.bridge</code></td></tr>
 </table>
-<p>Each bridge is a small C++ tray exe at <code>bin/CBE-Bridge-&lt;Target&gt;.exe</code> that opens a logged-in Chrome profile, intercepts your prompt, and returns the model's reply. Picking a bridge provider in Settings auto-launches the matching exe. First time you use a bridge you must log into the site in its Chrome window once.</p>
-<div class="note">Bridge chat speaks a line-protocol on TCP: one JSON line in (<code>{action:"chat", target, message, model}</code>), one JSON line out. No api key required.</div>
+
+<h4>Disabled by default <span class="pill warn">flip <code>&lt;enabled&gt;true&lt;/enabled&gt;</code> to use</span></h4>
+<table>
+  <tr><th>Bridge</th><th>Target</th><th>Port</th><th>File</th></tr>
+  <tr><td>Perplexity</td><td>perplexity.ai</td><td>8795</td><td><code>extensions/perplexity.bridge</code></td></tr>
+  <tr><td>Mistral / Le Chat</td><td>chat.mistral.ai</td><td>8796</td><td><code>extensions/mistral.bridge</code></td></tr>
+  <tr><td>Pi (Inflection)</td><td>pi.ai</td><td>8797</td><td><code>extensions/pi.bridge</code></td></tr>
+  <tr><td>HuggingChat</td><td>huggingface.co/chat</td><td>8798</td><td><code>extensions/huggingchat.bridge</code></td></tr>
+  <tr><td>Google Veo</td><td>labs.google (video gen)</td><td>8799</td><td><code>extensions/google_veo.bridge</code></td></tr>
+  <tr><td>Runway</td><td>runwayml.com (video gen)</td><td>8800</td><td><code>extensions/runway.bridge</code></td></tr>
+  <tr><td>Luma Dream Machine</td><td>lumalabs.ai (video gen)</td><td>8801</td><td><code>extensions/luma.bridge</code></td></tr>
+  <tr><td>Kling AI</td><td>klingai.com (video gen)</td><td>8802</td><td><code>extensions/kling.bridge</code></td></tr>
+  <tr><td>fal.ai</td><td>fal.ai (inference)</td><td>8803</td><td><code>extensions/fal_ai.bridge</code></td></tr>
+  <tr><td>Replicate</td><td>replicate.com (inference)</td><td>8804</td><td><code>extensions/replicate.bridge</code></td></tr>
+  <tr><td>OpenRouter</td><td>openrouter.ai (LLM routing)</td><td>8805</td><td><code>extensions/openrouter.bridge</code></td></tr>
+  <tr><td>Groq</td><td>chat.groq.com (LPU inference)</td><td>8806</td><td><code>extensions/groq.bridge</code></td></tr>
+  <tr><td>Pika</td><td>pika.art (video gen)</td><td>8807</td><td><code>extensions/pika.bridge</code></td></tr>
+</table>
+
+<p>Each enabled bridge is a small C++ tray exe at <code>bin/CBE-Bridge-&lt;Target&gt;.exe</code> that opens a logged-in Chrome profile, intercepts your prompt, and returns the model's reply. Picking a bridge provider in Settings auto-launches the matching exe. First time you use a bridge you must log into the site in its Chrome window once.</p>
+
+<div class="note">Bridge chat speaks a line-protocol on TCP: one JSON line in (<code>{action:"chat", target, message, model}</code>), one JSON line out. No API key required.</div>
+
+<h4>Anatomy of a <code>.bridge</code> file</h4>
+<pre><code>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;bridge id="deepseek"&gt;
+  &lt;name&gt;DeepSeek&lt;/name&gt;
+  &lt;author&gt;Claude Opus 4.7&lt;/author&gt;
+  &lt;released&gt;2026-05-24&lt;/released&gt;
+  &lt;version&gt;1.0.0&lt;/version&gt;
+  &lt;description&gt;DeepSeek V3 + R1 via chat.deepseek.com.&lt;/description&gt;
+  &lt;mainUrl&gt;https://chat.deepseek.com/&lt;/mainUrl&gt;
+  &lt;loginUrl&gt;https://chat.deepseek.com/sign_in&lt;/loginUrl&gt;
+  &lt;createAccountUrl&gt;https://chat.deepseek.com/sign_up&lt;/createAccountUrl&gt;
+  &lt;bridgePort&gt;8794&lt;/bridgePort&gt;
+  &lt;cdpPort&gt;9794&lt;/cdpPort&gt;
+  &lt;exeName&gt;CBE-Bridge-DeepSeek.exe&lt;/exeName&gt;
+  &lt;iconFile&gt;icons/deepseek.png&lt;/iconFile&gt;
+  &lt;enabled&gt;true&lt;/enabled&gt;
+  &lt;defaultModel&gt;deepseek-chat&lt;/defaultModel&gt;
+  &lt;model&gt;deepseek-chat&lt;/model&gt;
+  &lt;model&gt;deepseek-reasoner&lt;/model&gt;
+&lt;/bridge&gt;</code></pre>
+<p>Drop a new <code>.bridge</code> file in <code>extensions/</code> and reload — it shows up in Providers, the Accounts modal, and the Extensions marketplace card grid.</p>
 </section>
 
 <section id="sending">
@@ -359,6 +405,20 @@
 <p>Every field is password-masked so shoulder-surfers can't read your keys off the screen.</p>
 </section>
 
+<section id="buy-credits">
+<h2>Buy API credits <a class="top-link" href="#">↑ top</a></h2>
+<p>Direct API providers bill prepaid usage credits — top up before your balance runs dry. (Browser bridges and Ollama don't use API credits.)</p>
+<table>
+<tr><th>Provider</th><th>Buy credits / billing</th></tr>
+<tr><td>Anthropic (Claude)</td><td><a target="_blank" rel="noopener" href="https://console.anthropic.com/settings/billing">console.anthropic.com/settings/billing</a></td></tr>
+<tr><td>OpenAI (ChatGPT)</td><td><a target="_blank" rel="noopener" href="https://platform.openai.com/settings/organization/billing/overview">platform.openai.com/settings/organization/billing</a></td></tr>
+<tr><td>Google Gemini</td><td><a target="_blank" rel="noopener" href="https://aistudio.google.com/app/billing">aistudio.google.com/app/billing</a></td></tr>
+<tr><td>xAI (Grok)</td><td><a target="_blank" rel="noopener" href="https://console.x.ai/">console.x.ai</a> → Billing → API spend management</td></tr>
+<tr><td>DeepSeek</td><td><a target="_blank" rel="noopener" href="https://platform.deepseek.com/top_up">platform.deepseek.com/top_up</a></td></tr>
+</table>
+<div class="note">Anthropic, OpenAI &amp; Gemini credits expire 1 year after purchase; DeepSeek's topped-up balance does not expire. All four support auto-reload when the balance drops below a threshold.</div>
+</section>
+
 <section id="accounts">
 <h2>Accounts &amp; API keys <a class="top-link" href="#">↑ top</a></h2>
 <p>Each provider can have multiple labeled accounts — useful if you want to switch between personal and work keys, or test a different tier. The Accounts modal lets you:</p>
@@ -391,7 +451,10 @@
 <tr><td><code>/license</code></td><td>Show the MIT license</td></tr>
 <tr><td><code>/push</code></td><td>Push extension files to the auto-update server (admin only)</td></tr>
 <tr><td><code>/compress</code></td><td>Compress conversation (alias of <code>/compact</code>)</td></tr>
-<tr><td><code>/switch-accounts</code></td><td>Open the Accounts modal to switch which API key is active</td></tr>
+<tr><td><code>/switch</code></td><td>Open CBE's auth picker (Claude.ai Subscription / Anthropic Console / Bedrock,Foundry,Vertex)</td></tr>
+<tr><td><code>/switch account</code></td><td>Alias of <code>/switch</code> — same auth picker</td></tr>
+<tr><td><code>/switch-accounts</code></td><td>Alias of <code>/switch</code> — same auth picker</td></tr>
+<tr><td><code>/email</code></td><td>Open the multi-account email inbox panel</td></tr>
 </table>
 </section>
 
@@ -439,12 +502,21 @@
 
 <section id="extensions">
 <h2>Extensions <a class="top-link" href="#">↑ top</a></h2>
-<p>Mini-apps that live inside CBE. Each is a folder under <code>extensions/&lt;id&gt;/</code> with:</p>
+<p>CBE supports <b>two flavors</b> of extension, both discovered automatically from the <code>extensions/</code> directory at activation.</p>
+
+<h4>1. Panel extensions <span class="pill">.ext bundle</span></h4>
+<p>Mini-apps that render an HTML page inside CBE — calculators, emoji pickers, games, dashboards. Each is a folder under <code>extensions/&lt;id&gt;/</code> with:</p>
 <ul>
   <li><code>manifest.xml</code> — id, name, version, author, description, entry HTML, icon (emoji or <code>icon.svg</code>)</li>
   <li><code>extension.html</code> (or whatever the manifest's <code>&lt;entry&gt;</code> says) — the actual app</li>
 </ul>
-<p>Click <b>Extensions</b> to browse what's installed, pin to the toolbar, install new ones from the public catalog, or remove from disk. Pinned IDs live in <code>extensions/_pinned.json</code>.</p>
+
+<h4>2. Bridge chat extensions <span class="pill">.bridge XML</span></h4>
+<p>Browser-bridge LLM providers (chat / inference / video gen). Each is a single XML file at <code>extensions/&lt;id&gt;.bridge</code> + a logo PNG at <code>extensions/icons/&lt;id&gt;.png</code>. Author once, drop in, restart — the provider shows up in Settings, the Accounts modal, and the marketplace card grid with its logo.</p>
+<p>20 ship in the box (7 enabled + 13 disabled). See <a href="#providers">Providers &amp; models</a> for the full list and a sample <code>.bridge</code> file.</p>
+
+<h4>Marketplace</h4>
+<p>Click <b>Extensions</b> in the toolbar to browse what's installed, pin to the toolbar, install new ones from the public catalog, or remove from disk. Bridge entries carry a blue <span class="pill">bridge</span> badge. Pinned IDs live in <code>extensions/_pinned.json</code>.</p>
 </section>
 
 <section id="autoupdate">

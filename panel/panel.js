@@ -2086,6 +2086,7 @@ function openSettings(payload) {
     +   '</div>'
     +   '<div class="cbe-foot">'
     +     '<button type="button" class="cbe-btn cbe-cancel" data-act="cancel">Cancel</button>'
+    +     '<button type="button" class="cbe-btn"            data-act="apply">Apply</button>'
     +     '<button type="button" class="cbe-btn cbe-save"   data-act="save">Save</button>'
     +   '</div>'
     + '</div>';
@@ -2381,7 +2382,7 @@ function openSettings(payload) {
       closeSettings();
       return;
     }
-    if (act === 'save') {
+    if (act === 'save' || act === 'apply') {
       const provider = overlay.querySelector('#cbe-set-provider').value;
       const model    = overlay.querySelector('#cbe-set-model').value;
       __cbeActiveProvider = provider;
@@ -2394,6 +2395,9 @@ function openSettings(payload) {
       const skinSel = overlay.querySelector('#cbe-set-skin');
       const skin    = (skinSel && skinSel.value) || '';
       __cbeActiveSkin = skin;
+      /* Update the saved-at-open snapshot so a subsequent Apply→Cancel
+         doesn't revert the values we just persisted. */
+      __cbeSavedSkinAtOpen = skin;
       const langWrap = overlay.querySelector('#cbe-set-language-wrap');
       const language = (langWrap && langWrap.dataset && langWrap.dataset.value) || 'en';
       /* Collect tool-call settings from the Tool calls section. Empty
@@ -2420,7 +2424,8 @@ function openSettings(payload) {
         skin, language,
         toolCall,
       });
-      closeSettings();
+      /* Save closes; Apply persists but keeps the modal open. */
+      if (act === 'save') closeSettings();
     }
   });
   document.addEventListener('keydown', escClose, true);

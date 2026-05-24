@@ -1,39 +1,52 @@
-![Claude Codex Black](resources/banner.png)
+# Claude Codex Black Ed.
 
-# Claude Codex Black
+Standalone VSCode extension for chatting with any LLM — direct API or browser bridge — without leaving your editor. Multi-account, multi-language, pluggable bridges, TTS/STT, attach-file, skins, pixel-pet, the works.
 
-Claude Codex Black extension with support for Claude / GPT / Grok / Gemini / CoPilot / DeepSeek / Azure. Need help on your next project? Call (724) 431-5207 today! Websites, extensions, mobile development, application development - whatever you need! Production-level code at fair prices with lightning-fast turn-around! Portfolio: https://trentontompkins.com.
-
-This extension is fully self-contained. It does not modify, hook, or depend on any other VS Code extension at runtime.
-
-**Copyright 2026 Trent Tompkins — trentontompkins.com**
+**Copyright 2026 Trenton Tompkins — [trentontompkins.com](https://trentontompkins.com)** · MIT license
 
 ## Install
 
+Download `codex-black-ed-<version>.vsix` from the [Releases page](https://github.com/tibberous/Claude-Codex-Back-Ed./releases) and run:
+
 ```
-code --install-extension codex-black-ed-1.5.3.vsix
+code --install-extension codex-black-ed-1.6.0.vsix
 ```
+
+Or in VSCode: Extensions panel → ⋯ menu → **Install from VSIX…** → pick the file.
 
 ## Use
 
-Run the command **Claude Codex Black: Open Panel** from the command palette, or press `Ctrl+Alt+B` (`Cmd+Alt+B` on macOS).
+Open the panel with **Claude Codex Black: Open Panel** from the command palette, or `Ctrl+Shift+B` (`Cmd+Shift+B` on macOS). Type a prompt, hit Enter. Type `/` for slash commands. Click the provider pill at the bottom-left to switch LLMs.
 
-A panel titled **Claude Codex Black** opens in a side column and renders the chat workbench. Every slash command (`/help`, `/handbook`, `/clear`, `/settings`, `/prompts`, `/history`, `/font`, `/attach`, `/folder`, `/compact`, `/compress`, `/git`, `/github`, `/license`, `/push`, `/switch-accounts`) also has a matching VS Code command available from the Command Palette.
+## Features
 
-## Build
+- **20 chat / inference / video bridges** out of the box — Claude, ChatGPT, Gemini, Grok, Copilot, DeepSeek, Ollama (enabled by default) + Perplexity, Mistral, Pi, HuggingChat, Veo, Runway, Luma, Kling, fal.ai, Replicate, OpenRouter, Groq, Pika (disabled by default; flip `<enabled>true</enabled>` to use).
+- **Direct API providers** — Anthropic, OpenAI, Google, xAI, DeepSeek, Azure (drop your key in Settings).
+- **Pluggable `.bridge` XML extensions** — drop a file in `extensions/`, get a new provider. See [help](panel/help.html#extensions).
+- **Panel extensions (`.ext`)** — mini-apps inside the panel (calculator, emoji picker, minesweeper bundled; install more from the catalog).
+- **Multi-account** — multiple API keys per provider, switch on the fly via `/switch`.
+- **TTS / STT** — read replies aloud (ElevenLabs / SAPI), dictate prompts (Web Speech / SAPI).
+- **Skins** — codex-black (default), tamagotchi (with pixel pet!), glassy, office, several Linux desktop themes.
+- **Languages** — translated UI strings for 50+ locales.
+- **Compact / compress** — summarize-and-prune the conversation to keep token costs down.
+- **Hot reload** — edit `panel/*.js` or `panel/*.html` and refresh without a full VSCode reload.
+
+## Slash commands
+
+Type `/` at the start of the textarea, pick from:
+`/help`, `/handbook`, `/clear`, `/settings`, `/prompts`, `/history`, `/font`, `/attach`, `/folder`, `/compact`, `/git`, `/github`, `/license`, `/push`, `/switch`, `/switch account`, `/email`.
+
+## Build from source
 
 ```
+git clone https://github.com/tibberous/Claude-Codex-Back-Ed..git
+cd Claude-Codex-Back-Ed.
 npm install
-npx vsce package
+python tools/pack_release.py
 ```
 
-## Trademark notice
+The packed `.vsix` lands in `dist/`.
 
-"Claude" is a trademark of Anthropic, PBC. "Codex" is a trademark of OpenAI.
-This extension is an independent, unofficial third-party tool that integrates
-with Claude, ChatGPT, Grok, Gemini, GitHub Copilot, DeepSeek, and Azure OpenAI
-via each provider's own published APIs. It is not affiliated with, endorsed by,
-or sponsored by Anthropic, OpenAI, xAI, Google, GitHub/Microsoft, DeepSeek, or
-any other trademark holder. All product names are used in their descriptive /
-nominative sense for the sole purpose of identifying which service the
-extension can talk to.
+## Where to file bugs
+
+[github.com/tibberous/Claude-Codex-Back-Ed./issues](https://github.com/tibberous/Claude-Codex-Back-Ed./issues)

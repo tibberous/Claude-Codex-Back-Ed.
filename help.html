@@ -37,7 +37,7 @@
 <body>
 
 <h1>Claude Codex — Black Edition</h1>
-<p class="subtitle">Standalone webview for Claude, OpenAI, Gemini, and SuperGrok bridges.</p>
+<p class="subtitle">Standalone VSCode panel for any LLM — direct API or browser bridge. 20 chat / inference / video bridges shipped, pluggable via <code>.bridge</code> XML files.</p>
 
 <h2>Keyboard</h2>
 <table>
@@ -74,8 +74,19 @@
 <h2>API keys</h2>
 <p>The first time you send, the extension prompts for an API key for the active provider. Keys live in VSCode&#39;s secrets store — never in code, never in <code>config.ini</code>, never committed to git. Use the Settings modal to change providers; each one has its own slot.</p>
 
-<h2>SuperGrok bridges</h2>
-<p>For providers that authenticate through a browser (Gemini Web, ChatGPT Web, Grok Web), click the Codex pill → choose the provider → an external Chromium window opens for sign-in. Close that window once signed in; the bridge keeps the session.</p>
+<h2>Browser bridges (the <code>.bridge</code> system)</h2>
+<p>For providers that authenticate through a browser (Claude.ai, ChatGPT, Gemini, Grok, Copilot, DeepSeek, Perplexity, Mistral, Pi, HuggingChat, Veo, Runway, Luma, Kling, fal.ai, Replicate, OpenRouter, Groq, Pika, Ollama-local), click the Codex pill → choose the provider → an external Chromium window opens for sign-in. Close that window once signed in; the bridge keeps the session.</p>
+<p>Each bridge is declared by a <code>.bridge</code> XML file in <code>extensions/</code>. 7 ship enabled by default (Claude, ChatGPT, Gemini, Grok, Copilot, DeepSeek, Ollama). 13 ship disabled — flip <code>&lt;enabled&gt;true&lt;/enabled&gt;</code> in the file to use them. Drop your own <code>.bridge</code> XML in <code>extensions/</code> to add a new provider; the panel picks it up on next activate.</p>
+
+<h2>Slash commands</h2>
+<p>Type <code>/</code> at the start of the textarea or hit the command-menu button. Useful ones:</p>
+<ul>
+  <li><code>/switch</code> — auth picker (Claude.ai Subscription / Anthropic Console / Bedrock,Foundry,Vertex)</li>
+  <li><code>/clear</code> — new conversation</li>
+  <li><code>/compact</code> — summarize-and-prune the running thread</li>
+  <li><code>/attach</code> — pick a file to send with the next prompt</li>
+  <li><code>/settings</code>, <code>/history</code>, <code>/prompts</code>, <code>/help</code>, <code>/handbook</code>, <code>/git</code>, <code>/github</code>, <code>/license</code>, <code>/font</code>, <code>/folder</code>, <code>/email</code></li>
+</ul>
 
 <h2>Logs &amp; troubleshooting</h2>
 <ul>
