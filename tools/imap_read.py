@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import email
+import hashlib
 import imaplib
 import json
 import os
@@ -95,18 +96,40 @@ def search_recent(conn: imaplib.IMAP4_SSL, since_minutes: int, from_filter: str 
 
 
 def fetch_msg(conn: imaplib.IMAP4_SSL, msg_id: bytes):
-    """Return the parsed email.message.EmailMessage for msg_id, or None on
-    fetch failure."""
+    """Return (parsed message, raw RFC822 bytes) for msg_id, or (None, None)
+    on fetch failure. Raw bytes are kept so callers writing `.eml` files
+    don't have to re-serialise the parsed message (which loses byte-for-byte
+    fidelity — re-serialisation rewraps headers, normalises Content-Transfer
+    encodings, etc.)."""
     status, data = conn.fetch(msg_id, "(RFC822)")
     if status != "OK" or not data:
-        return None
+        return None, None
     raw = None
     for part in data:
         if isinstance(part, tuple) and len(part) >= 2:
             raw = part[1]; break
     if not raw:
-        return None
-    return email.message_from_bytes(raw, policy=email_policy)
+        return None, None
+    return email.message_from_bytes(raw, policy=email_policy), raw
+
+
+def _eml_key(msg) -> str:
+    """Return the md5 used as the .eml filename. Prefers md5(Message-ID
+    header, brackets+whitespace stripped); falls back to md5(from+date+
+    subject) if Message-ID is missing. Always lowercase hex."""
+    mid = (msg.get("Message-ID", "") or msg.get("Message-Id", "") or "").strip()
+    # strip surrounding <>, then any embedded whitespace
+    mid = mid.lstrip("<").rstrip(">").strip()
+    mid = re.sub(r"\s+", "", mid)
+    if mid:
+        return hashlib.md5(mid.encode("utf-8", errors="replace")).hexdigest()
+    # fallback — Message-ID missing or malformed
+    fallback = "|".join([
+        (msg.get("From", "") or ""),
+        (msg.get("Date", "") or ""),
+        (msg.get("Subject", "") or ""),
+    ])
+    return hashlib.md5(fallback.encode("utf-8", errors="replace")).hexdigest()
 
 
 def extract_text(msg) -> str:
@@ -179,6 +202,12 @@ def main() -> int:
                          "(e.g. 'https://claude\\.ai/[^ \"<>]+').")
     ap.add_argument("--max", type=int, default=10,
                     help="Cap returned emails (most recent kept).")
+    ap.add_argument("--dump-eml", default="",
+                    help="If set, write each fetched message as raw RFC 822 "
+                         "bytes to <dir>/<md5>.eml (md5 of Message-ID header, "
+                         "falling back to md5(from+date+subject) when "
+                         "Message-ID is missing). Directory is created if it "
+                         "does not exist. JSON stdout is unchanged.")
     args = ap.parse_args()
 
     # password resolution: env var wins, then literal --password, then fail
@@ -215,11 +244,22 @@ def main() -> int:
             _emit({"ok": False, "error": f"bad --extract-links regex: {e}"})
             return 1
 
+    dump_dir = args.dump_eml.strip()
+    if dump_dir:
+        try:
+            os.makedirs(dump_dir, exist_ok=True)
+        except Exception as e:
+            try: conn.logout()
+            except Exception: pass
+            _emit({"ok": False, "error": f"could not create --dump-eml dir: {e}"})
+            return 1
+    dumped = 0
+    fallback_used = 0
     try:
         ids = search_recent(conn, args.since_minutes, args.from_filter)
         # most recent first; cap at --max
         for msg_id in reversed(ids[-args.max:]):
-            msg = fetch_msg(conn, msg_id)
+            msg, raw = fetch_msg(conn, msg_id)
             if msg is None:
                 continue
             subj = msg.get("Subject", "") or ""
@@ -229,18 +269,41 @@ def main() -> int:
             links = []
             if rx is not None:
                 links = list(dict.fromkeys(rx.findall(body)))[:10]
-            out.append({
-                "from": msg.get("From", "") or "",
-                "subject": subj,
-                "date": msg.get("Date", "") or "",
-                "links": links,
+            entry = {
+                "messageId":   (msg.get("Message-ID", "") or msg.get("Message-Id", "") or ""),
+                "from":        msg.get("From", "") or "",
+                "to":          msg.get("To", "") or "",
+                "subject":     subj,
+                "date":        msg.get("Date", "") or "",
+                "links":       links,
                 "body_preview": body[:500],
-            })
+            }
+            if dump_dir and raw:
+                try:
+                    key = _eml_key(msg)
+                    # Track fallback usage so callers can log TODOs.
+                    mid_check = (msg.get("Message-ID", "") or msg.get("Message-Id", "") or "").strip()
+                    if not mid_check.lstrip("<").rstrip(">").strip():
+                        fallback_used += 1
+                    fp = os.path.join(dump_dir, f"{key}.eml")
+                    with open(fp, "wb") as fh:
+                        fh.write(raw)
+                    entry["eml"] = fp
+                    entry["emlKey"] = key
+                    dumped += 1
+                except Exception as e:
+                    entry["emlError"] = f"{type(e).__name__}: {e}"
+            out.append(entry)
     finally:
         try: conn.logout()
         except Exception: pass
 
-    _emit({"ok": True, "count": len(out), "emails": out})
+    payload = {"ok": True, "count": len(out), "emails": out}
+    if dump_dir:
+        payload["dumped"] = dumped
+        payload["dumpFallback"] = fallback_used
+        payload["dumpDir"] = dump_dir
+    _emit(payload)
     return 0
 
 

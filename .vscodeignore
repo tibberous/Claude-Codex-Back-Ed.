@@ -47,6 +47,9 @@ bridges/
 logs/
 chats/
 reports/
+# Cached per-account .eml inbox dump (populated on activate by
+# cacheRecentEmails()) — per-machine, contains real email bodies, never ship.
+emails/
 *.log
 debug.log
 session.log

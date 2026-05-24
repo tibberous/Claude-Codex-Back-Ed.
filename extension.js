@@ -1408,6 +1408,100 @@ async function fetchEmailInbox(context, accountId, { max = 30, sinceMinutes = 60
     });
 }
 
+/* Walk every configured email account on activate, fetch the 30 most-recent
+   messages per account, and dump each one to <ext>/emails/<md5>.eml.
+   Powers the bridge auto-login flow (scan cached inboxes for magic-link
+   codes from Anthropic / Google / etc.).
+
+   Behaviour:
+   - Skips accounts whose stored password is still DEFAULT_BRIDGE_PASSWORD
+     AND that have no override in EMAIL_APP_PASSWORDS (they would IMAP-fail
+     noisily — login rejected with "Application-specific password required").
+   - Re-uses tools/imap_read.py's new --dump-eml flag.
+   - Per-account failures are logged + swallowed — one bad inbox must not
+     stop the rest.
+   - Designed to be fire-and-forget from activate(): caller wraps in
+     setImmediate so the panel paints first.
+   Returns { accounts:N, ok:N, skipped:N, failed:N, dumped:N }. */
+async function cacheRecentEmails(context) {
+    const cacheDir = path.join(context.extensionPath, 'emails');
+    try { fs.mkdirSync(cacheDir, { recursive: true }); }
+    catch (e) { traceErr('cacheRecentEmails:mkdir', e); return null; }
+
+    const accounts = getEmailAccounts(context);
+    const known    = new Set(Object.keys(EMAIL_APP_PASSWORDS).map(k => k.toLowerCase()));
+    let ok = 0, skipped = 0, failed = 0, dumped = 0;
+
+    trace(`EMAIL:CACHE start accounts=${accounts.length} dir=${cacheDir}`);
+
+    for (const acc of accounts) {
+        const lowEmail = (acc.email || '').toLowerCase();
+        const hasApp   = known.has(lowEmail);
+        let pw = '';
+        try { pw = await getEmailPassword(context, acc.id) || ''; }
+        catch (e) { /* fall through */ }
+
+        if (!hasApp && (!pw || pw === DEFAULT_BRIDGE_PASSWORD)) {
+            trace(`EMAIL:CACHE:SKIP ${acc.email} (no app-password configured)`);
+            skipped++;
+            continue;
+        }
+        if (!pw) {
+            trace(`EMAIL:CACHE:SKIP ${acc.email} (no password in secrets)`);
+            skipped++;
+            continue;
+        }
+
+        const script = path.join(context.extensionPath, 'tools', 'imap_read.py');
+        if (!fs.existsSync(script)) {
+            traceErr('cacheRecentEmails', new Error(`imap_read.py missing at ${script}`));
+            failed++;
+            continue;
+        }
+        const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
+        try {
+            const res = await new Promise((resolve) => {
+                const proc = spawn(pyCmd, ['-3', script,
+                    '--provider',     acc.provider,
+                    '--email',        acc.email,
+                    '--password-env', 'IMAP_PASSWORD',
+                    '--since-minutes', String(60 * 24 * 365 * 5), /* ~5y window — caps via --max */
+                    '--max',          '30',
+                    '--dump-eml',     cacheDir,
+                ], {
+                    cwd: context.extensionPath,
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                    windowsHide: true,
+                    env: { ...process.env, IMAP_PASSWORD: pw },
+                });
+                let stdout = '', stderr = '';
+                proc.stdout.on('data', d => { stdout += d.toString('utf8'); });
+                proc.stderr.on('data', d => { stderr += d.toString('utf8'); });
+                proc.on('error', err => resolve({ ok: false, error: String(err) }));
+                proc.on('close', code => {
+                    const line = stdout.split('\n').find(l => l.trim().startsWith('{')) || stdout.trim();
+                    try { resolve(JSON.parse(line)); }
+                    catch (_) { resolve({ ok: false, error: `exit=${code} stderr=${stderr.slice(0,200)}` }); }
+                });
+            });
+            if (res && res.ok) {
+                ok++;
+                dumped += (res.dumped || 0);
+                trace(`EMAIL:CACHE:OK ${acc.email} dumped=${res.dumped || 0} count=${res.count || 0}`);
+            } else {
+                failed++;
+                trace(`EMAIL:CACHE:FAIL ${acc.email} ${res && res.error ? res.error : '(unknown)'}`);
+            }
+        } catch (e) {
+            failed++;
+            traceErr(`cacheRecentEmails:${acc.email}`, e);
+        }
+    }
+    const summary = { accounts: accounts.length, ok, skipped, failed, dumped };
+    trace(`EMAIL:CACHE done ${JSON.stringify(summary)}`);
+    return summary;
+}
+
 /* Spawn tools/email_watch.py — long-poll an inbox until a matching message
    arrives, then return { ok, found, links, ... }. Designed for the bridge
    magic-link flow: extension shells out, gets the claude.ai sign-in URL
@@ -3251,6 +3345,16 @@ async function activate(context) {
        re-doing what's already there. */
     seedAllEmailAccounts(context).catch(e =>
         console.warn('[CBE email-bulk-seed] top-level fail:', e));
+
+    /* Fire-and-forget: cache the 30 most-recent .eml files per configured
+       email account under <ext>/emails/<md5>.eml. Powers the bridge
+       auto-login flow (scans cached inboxes for magic-link codes from
+       Anthropic / Google / etc.). Deferred via setImmediate so the panel
+       paints first; runs once per activate(). */
+    setImmediate(() => {
+        cacheRecentEmails(context).catch(e =>
+            console.warn('[CBE email-cache] top-level fail:', e));
+    });
 
     const endStatusBar = timeStep('  createStatusBarItem');
     statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
