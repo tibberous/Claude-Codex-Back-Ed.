@@ -12,7 +12,7 @@
 
   <bridgePort>8793</bridgePort>
   <cdpPort>9793</cdpPort>
-  <exeName>CBE-Bridge-Ollama.exe</exeName>
+  <exeName>CBE-Bridge.exe</exeName>
   <iconFile>icons/ollama.png</iconFile>
 
   <defaultModel>llama3.2:3b</defaultModel>

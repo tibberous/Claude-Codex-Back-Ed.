@@ -101,14 +101,21 @@ const BRIDGE_PORTS = {
     /* deepseek: registered by loadBridgeExtensions() from extensions/deepseek.bridge */
 };
 
-/* Pretty exe filename per bridge target — bin/CBE-Bridge-<Pretty>.exe. */
+/* Consolidated 2026-05-24: every browser bridge target now uses the SAME
+   unified bin/CBE-Bridge.exe, launched with `--target <name> --port <n>`.
+   Was 7 per-target exes (CBE-Bridge-Claude.exe, CBE-Bridge-ChatGPT.exe, …)
+   each compiled with a different TARGET_NAME #define. Switched to one exe
+   so Azure Trusted Signing only has to cover a single binary identity.
+   The map is kept as a per-target lookup in case a future bridge ships its
+   own separate exe (the .bridge XML's <exeName> still overrides per id). */
+const UNIFIED_BRIDGE_EXE = 'CBE-Bridge.exe';
 const BRIDGE_EXE_NAME = {
-    chatgpt:  'CBE-Bridge-ChatGPT.exe',
-    grok:     'CBE-Bridge-Grok.exe',
-    copilot:  'CBE-Bridge-Copilot.exe',
-    gemini:   'CBE-Bridge-Gemini.exe',
-    claude:   'CBE-Bridge-Claude.exe',
-    ollama:   'CBE-Bridge-Ollama.exe',
+    chatgpt:  UNIFIED_BRIDGE_EXE,
+    grok:     UNIFIED_BRIDGE_EXE,
+    copilot:  UNIFIED_BRIDGE_EXE,
+    gemini:   UNIFIED_BRIDGE_EXE,
+    claude:   UNIFIED_BRIDGE_EXE,
+    ollama:   UNIFIED_BRIDGE_EXE,
     /* deepseek: registered by loadBridgeExtensions() from extensions/deepseek.bridge */
 };
 
@@ -2558,7 +2565,10 @@ async function _cleanStaleCBEVersions(context) {
         try {
             const ps = cp.spawnSync('powershell.exe',
                 ['-NoProfile', '-NonInteractive', '-Command',
-                 "Get-CimInstance Win32_Process -Filter \"Name LIKE 'CBE-Bridge-%'\" | " +
+                 /* Match BOTH the legacy per-target exes (CBE-Bridge-Claude.exe
+                    etc., still on disk in old installs) AND the unified
+                    CBE-Bridge.exe — single trailing wildcard covers both. */
+                 "Get-CimInstance Win32_Process -Filter \"Name LIKE 'CBE-Bridge%'\" | " +
                  "Select-Object ProcessId,ExecutablePath | ConvertTo-Json -Compress"],
                 { encoding: 'utf8', windowsHide: true, timeout: 8000 });
             let procs = [];
@@ -7343,7 +7353,11 @@ function _spawnBridge(target, exePath, credentials) {
            the tray can pre-fill the login form even without auto-submit. */
         if (credentials.password) env.CBE_BRIDGE_PASSWORD = String(credentials.password);
     }
-    const child = cp.spawn(exePath, [String(port)], {
+    /* Unified CBE-Bridge.exe needs `--target <name>` so it knows which icon
+       + default model + (legacy compatibility) bridge persona to load.
+       --port stays explicit so a single binary can serve every target on
+       its registered port. */
+    const child = cp.spawn(exePath, ['--target', target, '--port', String(port)], {
         cwd: path.dirname(exePath),
         stdio: 'ignore',
         windowsHide: true,

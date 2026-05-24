@@ -12,7 +12,7 @@
 
   <bridgePort>8788</bridgePort>
   <cdpPort>9788</cdpPort>
-  <exeName>CBE-Bridge-ChatGPT.exe</exeName>
+  <exeName>CBE-Bridge.exe</exeName>
   <iconFile>icons/chatgpt.png</iconFile>
 
   <defaultModel>gpt-4o</defaultModel>

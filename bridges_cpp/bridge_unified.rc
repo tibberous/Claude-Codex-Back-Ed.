@@ -1,0 +1,13 @@
+/* Consolidated icon table for the unified CBE-Bridge.exe. Each target's
+   icon lives at the resource id that matches g_iconId in bridge_server.cpp
+   (see TargetSpec table). Id 1 is the default — Windows picks the lowest-
+   numbered icon for the exe's File Explorer / taskbar appearance, so we
+   point it at claude.ico to keep the brand consistent. */
+1   ICON "..\\assets\\models\\claude.ico"
+101 ICON "..\\assets\\models\\chatgpt.ico"
+102 ICON "..\\assets\\models\\grok.ico"
+103 ICON "..\\assets\\models\\copilot.ico"
+104 ICON "..\\assets\\models\\gemini.ico"
+105 ICON "..\\assets\\models\\claude.ico"
+106 ICON "..\\assets\\models\\ollama.ico"
+107 ICON "..\\assets\\models\\deepseek.ico"

@@ -142,7 +142,7 @@ REQUIRED_DIRS: tuple[str, ...] = (
     "bridge",
 )
 # Native bridge exes — at least one must exist (we use a glob).
-REQUIRED_BRIDGE_GLOB = "bin/CBE-Bridge-*.exe"
+REQUIRED_BRIDGE_GLOB = "bin/CBE-Bridge*.exe"  # consolidated 2026-05-24: one CBE-Bridge.exe instead of 7 per-target
 
 
 # Patterns for DB files we'll move aside pre-pack and restore post-pack.
@@ -182,7 +182,7 @@ def verifyRequiredFiles() -> None:
     for relPath in REQUIRED_DIRS:
         if not (ROOT / relPath).is_dir():
             missing.append(f"dir:  {relPath}")
-    bridgeExes = sorted((ROOT / "bin").glob("CBE-Bridge-*.exe"))
+    bridgeExes = sorted((ROOT / "bin").glob("CBE-Bridge*.exe"))
     if not bridgeExes:
         missing.append(f"glob: {REQUIRED_BRIDGE_GLOB} (need at least one)")
     if missing:

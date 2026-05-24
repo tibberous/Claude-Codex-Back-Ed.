@@ -12,7 +12,7 @@
 
   <bridgePort>8791</bridgePort>
   <cdpPort>9791</cdpPort>
-  <exeName>CBE-Bridge-Gemini.exe</exeName>
+  <exeName>CBE-Bridge.exe</exeName>
   <iconFile>icons/gemini.png</iconFile>
 
   <defaultModel>gemini-2.5-pro</defaultModel>

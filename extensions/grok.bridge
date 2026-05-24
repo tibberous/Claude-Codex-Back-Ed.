@@ -12,7 +12,7 @@
 
   <bridgePort>8789</bridgePort>
   <cdpPort>9789</cdpPort>
-  <exeName>CBE-Bridge-Grok.exe</exeName>
+  <exeName>CBE-Bridge.exe</exeName>
   <iconFile>icons/grok.png</iconFile>
 
   <defaultModel>grok-4</defaultModel>

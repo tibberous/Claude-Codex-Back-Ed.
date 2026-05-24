@@ -12,7 +12,7 @@
 
   <bridgePort>8790</bridgePort>
   <cdpPort>9790</cdpPort>
-  <exeName>CBE-Bridge-Copilot.exe</exeName>
+  <exeName>CBE-Bridge.exe</exeName>
   <iconFile>icons/copilot.png</iconFile>
 
   <defaultModel>gpt-4</defaultModel>

@@ -12,7 +12,7 @@
 
   <bridgePort>8794</bridgePort>
   <cdpPort>9794</cdpPort>
-  <exeName>CBE-Bridge-DeepSeek.exe</exeName>
+  <exeName>CBE-Bridge.exe</exeName>
   <iconFile>icons/deepseek.png</iconFile>
   <enabled>true</enabled>
 

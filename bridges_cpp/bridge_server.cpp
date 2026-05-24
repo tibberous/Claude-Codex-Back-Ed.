@@ -49,12 +49,36 @@
 // and the Status dialog never paints.
 #pragma comment(linker, "\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
-#ifndef TARGET_NAME
-#define TARGET_NAME "unknown"
-#endif
-#ifndef DEFAULT_PORT
-#define DEFAULT_PORT 8767
-#endif
+/* Consolidated 2026-05-24: was 7 per-target exes (CBE-Bridge-Claude.exe,
+   CBE-Bridge-ChatGPT.exe, ...) each compiled with a different TARGET_NAME
+   #define so they could be signed independently. Switched to ONE
+   CBE-Bridge.exe with `--target <name>` parsed at wWinMain entry — the
+   target name and tray-icon resource id are now runtime, not compile-time.
+   The macro TARGET_NAME still resolves to a `const char*` so the 50+
+   existing printf-style call sites keep working unchanged. */
+static std::string g_targetName  = "unknown";
+static int         g_iconId      = 1;          /* resource id of this target's tray icon */
+#define TARGET_NAME (g_targetName.c_str())
+static const int   DEFAULT_PORT  = 8767;       /* fallback when --port not given */
+
+/* Default port per target — kept in sync with BRIDGE_PORTS in extension.js
+   and start.py. Returned by targetDefaultPort() when --port is omitted. */
+struct TargetSpec { const char* name; int port; int iconId; };
+static const TargetSpec g_targetTable[] = {
+    { "ChatGPT",  8788, 101 },
+    { "Grok",     8789, 102 },
+    { "Copilot",  8790, 103 },
+    { "Gemini",   8791, 104 },
+    { "Claude",   8792, 105 },
+    { "Ollama",   8793, 106 },
+    { "DeepSeek", 8794, 107 },
+};
+static const TargetSpec* findTarget(const std::string& name) {
+    for (const auto& t : g_targetTable) {
+        if (_stricmp(t.name, name.c_str()) == 0) return &t;
+    }
+    return NULL;
+}
 
 #define WM_TRAYICON        (WM_USER + 1)
 #define IDM_STATUS         1001
@@ -1543,10 +1567,10 @@ static void showStatusDialog(HWND parent) {
     tdc.dwCommonButtons  = TDCBF_OK_BUTTON;
     tdc.pfCallback       = statusTaskDialogCallback;
     // Use the same icon Shell_NotifyIcon uses (resource id 1, embedded by rc.exe).
-    tdc.pszMainIcon      = MAKEINTRESOURCEW(1);
+    tdc.pszMainIcon      = MAKEINTRESOURCEW(g_iconId);
     tdc.dwFlags         |= TDF_USE_HICON_MAIN;
     tdc.hMainIcon        = (HICON)LoadImageW(GetModuleHandleW(NULL),
-                                MAKEINTRESOURCEW(1), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+                                MAKEINTRESOURCEW(g_iconId), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
 
     TaskDialogIndirect(&tdc, NULL, NULL, NULL);
     if (tdc.hMainIcon) DestroyIcon(tdc.hMainIcon);
@@ -1583,7 +1607,7 @@ static void addTrayIcon(HINSTANCE hInst) {
     g_nid.uID = 1;
     g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     g_nid.uCallbackMessage = WM_TRAYICON;
-    g_nid.hIcon = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(1), IMAGE_ICON,
+    g_nid.hIcon = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(g_iconId), IMAGE_ICON,
                                     GetSystemMetrics(SM_CXSMICON),
                                     GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
     if (!g_nid.hIcon) g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
@@ -1727,13 +1751,48 @@ static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmdLine, int) {
-    int port = DEFAULT_PORT;
+    /* Parse `--target <name> [--port <n>]` from the command line.
+       Backwards-compat: a bare numeric arg (e.g. `8792`) is still accepted
+       as a port override so older scripts that called per-target exes with
+       just a port keep working. Target defaults to "Claude" when omitted so
+       a double-click launch picks something reasonable. */
+    std::string argTarget;
+    int         argPort = -1;
     if (cmdLine && *cmdLine) {
-        char narrow[64] = {0};
-        WideCharToMultiByte(CP_UTF8, 0, cmdLine, -1, narrow, sizeof(narrow) - 1, NULL, NULL);
-        port = parsePort(narrow, DEFAULT_PORT);
+        int wargc = 0;
+        LPWSTR* wargv = CommandLineToArgvW(cmdLine, &wargc);
+        for (int i = 0; i < wargc; i++) {
+            char narrow[128] = {0};
+            WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, narrow, sizeof(narrow) - 1, NULL, NULL);
+            std::string a = narrow;
+            if ((a == "--target" || a == "-t") && i + 1 < wargc) {
+                char nv[64] = {0};
+                WideCharToMultiByte(CP_UTF8, 0, wargv[++i], -1, nv, sizeof(nv) - 1, NULL, NULL);
+                argTarget = nv;
+            } else if ((a == "--port" || a == "-p") && i + 1 < wargc) {
+                char nv[16] = {0};
+                WideCharToMultiByte(CP_UTF8, 0, wargv[++i], -1, nv, sizeof(nv) - 1, NULL, NULL);
+                argPort = parsePort(nv, -1);
+            } else if (argPort < 0 && !a.empty() && a[0] >= '0' && a[0] <= '9') {
+                /* Legacy bare-port arg from the pre-consolidation callers. */
+                argPort = parsePort(a.c_str(), -1);
+            }
+        }
+        if (wargv) LocalFree(wargv);
     }
-    g_port = port;
+    if (argTarget.empty()) argTarget = "Claude";
+
+    const TargetSpec* spec = findTarget(argTarget);
+    if (!spec) {
+        wchar_t err[256];
+        swprintf_s(err, L"Unknown --target '%hs'. Valid: ChatGPT, Grok, Copilot, Gemini, Claude, Ollama, DeepSeek.", argTarget.c_str());
+        MessageBoxW(NULL, err, L"Bridge start failed", MB_OK | MB_ICONERROR);
+        return 2;
+    }
+    g_targetName = spec->name;
+    g_iconId     = spec->iconId;
+    int port     = (argPort > 0) ? argPort : spec->port;
+    g_port       = port;
 
     if (!startServer(port)) {
         wchar_t err[256];
