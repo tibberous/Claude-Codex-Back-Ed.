@@ -1266,7 +1266,33 @@ const EMAIL_SEED_FLAG = 'emailAccountsSeeded_v1';
    because that's the IMAP server they actually use), *@yahoo.com → yahoo,
    *@hotmail.com / *@outlook.com / *@live.com → outlook. Password starts
    at DEFAULT_BRIDGE_PASSWORD — the user rotates from there in the panel. */
-const EMAIL_BULK_SEED_FLAG = 'emailAccountsBulkSeeded_v1';
+/* Bumped to v2 on 2026-05-24 when EMAIL_APP_PASSWORDS landed — the v1 seed
+   had stamped every gmail/yahoo row with DEFAULT_BRIDGE_PASSWORD, which
+   Google/Yahoo's IMAP rejects with "Application-specific password
+   required". v2 re-runs the seed so addresses with an override pick up
+   their real app password; addEmailAccount dedupes by (provider,email) so
+   the row count stays the same. */
+const EMAIL_BULK_SEED_FLAG = 'emailAccountsBulkSeeded_v2';
+
+/* Per-address IMAP password overrides. Gmail + Yahoo no longer accept the
+   regular account password for IMAP — each address needs an "app password"
+   (16-char string from accounts.google.com → Security → 2FA → App
+   passwords, or login.yahoo.com → Account info → Generate app password).
+   Two Gmail app passwords found in the user's existing infra
+   (admin@acquisitioninvest.com from /home/acquisitioninvest.com/config.php
+   + tristate.digital cms config; trenttompkins@gmail.com from
+   C:\TrioDesktop\config.ini [smtp]). Addresses not listed fall back to
+   DEFAULT_BRIDGE_PASSWORD — they'll show in the dropdown but IMAP will
+   fail until the user generates app passwords and rotates them in the
+   panel. */
+const EMAIL_APP_PASSWORDS = {
+    'trenttompkins@gmail.com':        'mtnxqiwnyjeoqwbo',
+    'admin@acquisitioninvest.com':    'aljwhrgbouirjfow',
+    /* TODO once user generates them: fullpriceexit@gmail.com,
+       fidiumpa@gmail.com, flopcoinai@gmail.com, acquisitioninvest@gmail.com,
+       corey.pletcher@gmail.com, fullpriceexit@yahoo.com, tibberous@yahoo.com,
+       tibberous@hotmail.com, acquisitioninvest@yahoo.com */
+};
 
 async function seedAllEmailAccounts(context) {
     try {
@@ -1287,9 +1313,10 @@ async function seedAllEmailAccounts(context) {
         for (const addr of [...ALL_GMAILS, ...EXTRA_CLAUDE_EMAILS]) {
             const provider = pickProvider(addr);
             if (!provider) { trace(`EMAIL:BULK_SEED:SKIP unknown provider for ${addr}`); continue; }
+            const password = EMAIL_APP_PASSWORDS[addr.toLowerCase()] || DEFAULT_BRIDGE_PASSWORD;
             try {
                 await addEmailAccount(context, {
-                    provider, email: addr, password: DEFAULT_BRIDGE_PASSWORD, label: addr,
+                    provider, email: addr, password, label: addr,
                 });
                 added++;
             } catch (e) {
