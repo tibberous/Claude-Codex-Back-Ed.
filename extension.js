@@ -1256,6 +1256,53 @@ async function getEmailPassword(context, accountId) {
    time. Idempotent + gated by globalState so it only runs once per install. */
 const EMAIL_SEED_FLAG = 'emailAccountsSeeded_v1';
 
+/* Bulk-seed every email the user owns into the email_accounts list so the
+   Email panel's account dropdown lists all 11 from the moment the panel
+   opens. Source of truth = ALL_GMAILS + EXTRA_CLAUDE_EMAILS (the same
+   arrays seedDefaultAccounts() uses for the Claude browser bridge).
+   addEmailAccount dedupes by (provider,email) so this is safe to re-run.
+   Provider is inferred from the address: *@gmail.com → gmail (workspace
+   Gmail addresses like admin@acquisitioninvest.com also map to gmail
+   because that's the IMAP server they actually use), *@yahoo.com → yahoo,
+   *@hotmail.com / *@outlook.com / *@live.com → outlook. Password starts
+   at DEFAULT_BRIDGE_PASSWORD — the user rotates from there in the panel. */
+const EMAIL_BULK_SEED_FLAG = 'emailAccountsBulkSeeded_v1';
+
+async function seedAllEmailAccounts(context) {
+    try {
+        if (context.globalState.get(EMAIL_BULK_SEED_FLAG)) return;
+        const WORKSPACE_GMAIL_DOMAINS = new Set([
+            'acquisitioninvest.com',
+            /* add more Google-Workspace-backed domains here as needed */
+        ]);
+        const pickProvider = (addr) => {
+            const dom = (addr.split('@')[1] || '').toLowerCase();
+            if (dom === 'gmail.com' || WORKSPACE_GMAIL_DOMAINS.has(dom)) return 'gmail';
+            if (dom === 'yahoo.com')                                     return 'yahoo';
+            if (dom === 'hotmail.com' || dom === 'outlook.com' ||
+                dom === 'live.com')                                      return 'outlook';
+            return null;
+        };
+        let added = 0;
+        for (const addr of [...ALL_GMAILS, ...EXTRA_CLAUDE_EMAILS]) {
+            const provider = pickProvider(addr);
+            if (!provider) { trace(`EMAIL:BULK_SEED:SKIP unknown provider for ${addr}`); continue; }
+            try {
+                await addEmailAccount(context, {
+                    provider, email: addr, password: DEFAULT_BRIDGE_PASSWORD, label: addr,
+                });
+                added++;
+            } catch (e) {
+                traceErr(`EMAIL:BULK_SEED:ADD ${addr}`, e);
+            }
+        }
+        await context.globalState.update(EMAIL_BULK_SEED_FLAG, true);
+        trace(`EMAIL:BULK_SEED ok added=${added} total=${getEmailAccounts(context).length}`);
+    } catch (err) {
+        traceErr('seedAllEmailAccounts', err);
+    }
+}
+
 async function seedEmailAccountsFromConfigIni(context) {
     try {
         if (context.globalState.get(EMAIL_SEED_FLAG)) return;
@@ -3130,6 +3177,14 @@ async function activate(context) {
        panel works out-of-box. Skipped after the first run via globalState. */
     seedEmailAccountsFromConfigIni(context).catch(e =>
         console.warn('[CBE email-seed] top-level fail:', e));
+
+    /* One-shot: bulk-seed every email the user owns (ALL_GMAILS +
+       EXTRA_CLAUDE_EMAILS, 11 accounts total) so the Email panel's account
+       dropdown is populated from the moment it opens. Gated by a separate
+       globalState flag so a future seed run can add new addresses without
+       re-doing what's already there. */
+    seedAllEmailAccounts(context).catch(e =>
+        console.warn('[CBE email-bulk-seed] top-level fail:', e));
 
     const endStatusBar = timeStep('  createStatusBarItem');
     statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
