@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src {{CSP_SOURCE}} 'unsafe-inline'; script-src {{CSP_SOURCE}} 'unsafe-inline'; img-src {{CSP_SOURCE}} data:; connect-src {{CSP_SOURCE}}; font-src {{CSP_SOURCE}};">
+<title>CBE Email</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  background: #000; color: #d4d4d4;
+  font: 12px/1.45 Consolas, "Cascadia Code", "Courier New", monospace;
+  display: grid;
+  grid-template-rows: 36px 1fr;
+  grid-template-columns: 320px 1fr;
+  grid-template-areas: "toolbar toolbar" "list read";
+}
+header {
+  grid-area: toolbar;
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 10px;
+  background: #0a0a0a; border-bottom: 1px solid #222;
+}
+header select {
+  background: #111; color: #d4d4d4;
+  border: 1px solid #2a2a2e;
+  padding: 4px 8px; height: 24px;
+  font: inherit;
+  flex: 1; max-width: 360px;
+}
+header button {
+  background: #111; color: #d4d4d4;
+  border: 1px solid #2a2a2e;
+  padding: 3px 10px;
+  font: inherit; cursor: pointer;
+  height: 24px;
+}
+header button:hover { background: #1a1a1a; border-color: #3a3a3e; }
+header .spacer { flex: 1; }
+header .status { color: #777; font-size: 11px; }
+
+#list {
+  grid-area: list;
+  overflow-y: auto;
+  border-right: 1px solid #222;
+  background: #050505;
+}
+#list .empty {
+  padding: 14px; color: #666; font-style: italic;
+}
+.row {
+  padding: 8px 10px;
+  border-bottom: 1px solid #161616;
+  cursor: pointer;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.row:hover { background: #111; }
+.row.selected { background: #1a1a2e; border-left: 2px solid #5b9dd9; padding-left: 8px; }
+.row .from {
+  color: #cfcfcf; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.row .subj {
+  color: #9ec5fe;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.row .date { color: #666; font-size: 11px; }
+.row .lbadge {
+  display: inline-block; margin-left: 6px;
+  color: #5b9dd9; font-size: 11px;
+}
+
+#read {
+  grid-area: read;
+  overflow-y: auto;
+  padding: 14px 18px;
+  background: #000;
+}
+#read .placeholder { color: #555; font-style: italic; padding-top: 30px; text-align: center; }
+#read .headers {
+  border-bottom: 1px solid #222;
+  padding-bottom: 8px; margin-bottom: 10px;
+  color: #9ec5fe;
+}
+#read .headers .h { display: flex; gap: 8px; padding: 1px 0; }
+#read .headers .k { color: #777; width: 70px; flex-shrink: 0; }
+#read .headers .v { color: #d4d4d4; word-break: break-word; }
+#read .body {
+  white-space: pre-wrap; word-wrap: break-word;
+  font-family: inherit; color: #cfcfcf;
+}
+#read .links {
+  margin-top: 12px; padding-top: 8px;
+  border-top: 1px solid #222;
+}
+#read .links a {
+  display: block; color: #5b9dd9; text-decoration: none;
+  word-break: break-all; padding: 2px 0;
+}
+#read .links a:hover { color: #9ec5fe; }
+#error {
+  position: fixed; bottom: 8px; left: 8px; right: 8px;
+  background: #2a0a0a; color: #ff6b6b;
+  border: 1px solid #5b1010; padding: 8px 12px;
+  display: none; max-width: 600px;
+}
+</style>
+</head>
+<body>
+<header>
+  <select id="acct" title="Account"><option value="">— no accounts —</option></select>
+  <button id="refresh" title="Refresh inbox">Refresh</button>
+  <button id="add" title="Add account">+ Account</button>
+  <button id="remove" title="Remove selected account" style="color:#a66;">−</button>
+  <div class="spacer"></div>
+  <div class="status" id="status">idle</div>
+</header>
+
+<div id="list"><div class="empty">Add an email account to get started.</div></div>
+<div id="read"><div class="placeholder">Select a message to read.</div></div>
+<div id="error"></div>
+
+<script>
+(() => {
+  const vscode = acquireVsCodeApi();
+  const acctEl  = document.getElementById('acct');
+  const listEl  = document.getElementById('list');
+  const readEl  = document.getElementById('read');
+  const statusEl= document.getElementById('status');
+  const errEl   = document.getElementById('error');
+
+  let accounts = [];
+  let emails   = [];
+  let selectedAcctId = null;
+  let selectedMsgIx  = -1;
+
+  const escapeHtml = (s) => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+  let _errTimer = null;
+  function showError(msg, opts) {
+    /* opts.sticky = don't auto-hide (for credential errors that need user
+       action). opts.helpUrl = render a clickable link the user can open. */
+    opts = opts || {};
+    if (_errTimer) { clearTimeout(_errTimer); _errTimer = null; }
+    errEl.innerHTML = '';
+    const span = document.createElement('span');
+    span.textContent = msg;
+    errEl.appendChild(span);
+    if (opts.helpUrl) {
+      const a = document.createElement('a');
+      a.href = '#';
+      a.setAttribute('data-href', opts.helpUrl);
+      a.textContent = '  [open app-password page]';
+      a.style.color = '#9ec5fe';
+      a.style.marginLeft = '6px';
+      errEl.appendChild(a);
+    }
+    errEl.style.display = 'block';
+    if (!opts.sticky) {
+      _errTimer = setTimeout(() => { errEl.style.display = 'none'; }, 6000);
+    }
+  }
+
+  function setStatus(s) { statusEl.textContent = s; }
+
+  function renderAccounts() {
+    acctEl.innerHTML = '';
+    if (!accounts.length) {
+      const opt = document.createElement('option');
+      opt.value = ''; opt.textContent = '— no accounts —';
+      acctEl.appendChild(opt);
+      return;
+    }
+    for (const a of accounts) {
+      const opt = document.createElement('option');
+      opt.value = a.id;
+      /* mark accounts without a known app password with ⚠ so user knows
+         IMAP will fail until they generate one. hasAppPassword arrives
+         from the host (extension.js sendAccounts). */
+      const warn = a.hasAppPassword ? '' : ' ⚠';
+      opt.textContent = `${a.label || a.email} (${a.provider})${warn}`;
+      acctEl.appendChild(opt);
+    }
+    if (selectedAcctId && accounts.find(a => a.id === selectedAcctId)) {
+      acctEl.value = selectedAcctId;
+    } else {
+      selectedAcctId = accounts[0].id;
+      acctEl.value = selectedAcctId;
+    }
+  }
+
+  function renderList() {
+    if (!emails || !emails.length) {
+      listEl.innerHTML = '<div class="empty">Inbox empty (or not yet fetched).</div>';
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    emails.forEach((m, i) => {
+      const row = document.createElement('div');
+      row.className = 'row' + (i === selectedMsgIx ? ' selected' : '');
+      row.dataset.ix = String(i);
+      const lcount = (m.links && m.links.length) ? m.links.length : 0;
+      const lbadge = lcount ? ' <span class="lbadge" title="' + lcount + ' link(s)">🔗 ' + lcount + '</span>' : '';
+      row.innerHTML =
+        '<div class="from">' + escapeHtml(m.from || '(no sender)') + lbadge + '</div>' +
+        '<div class="subj">' + escapeHtml(m.subject || '(no subject)') + '</div>' +
+        '<div class="date">' + escapeHtml(m.date || '') + '</div>';
+      row.addEventListener('click', () => { selectMsg(i); });
+      frag.appendChild(row);
+    });
+    listEl.innerHTML = '';
+    listEl.appendChild(frag);
+  }
+
+  function renderRead() {
+    if (selectedMsgIx < 0 || !emails[selectedMsgIx]) {
+      readEl.innerHTML = '<div class="placeholder">Select a message to read.</div>';
+      return;
+    }
+    const m = emails[selectedMsgIx];
+    const linksHtml = (m.links && m.links.length)
+      ? '<div class="links"><strong style="color:#777">Links:</strong>' +
+        m.links.map(l => '<a href="#" data-href="' + escapeHtml(l) + '">' + escapeHtml(l) + '</a>').join('') + '</div>'
+      : '';
+    readEl.innerHTML =
+      '<div class="headers">' +
+        '<div class="h"><div class="k">From:</div>   <div class="v">' + escapeHtml(m.from) + '</div></div>' +
+        '<div class="h"><div class="k">Date:</div>   <div class="v">' + escapeHtml(m.date) + '</div></div>' +
+        '<div class="h"><div class="k">Subject:</div><div class="v">' + escapeHtml(m.subject) + '</div></div>' +
+      '</div>' +
+      '<div class="body">' + escapeHtml(m.body_preview || '') + '</div>' +
+      linksHtml;
+  }
+
+  function selectMsg(i) {
+    selectedMsgIx = i;
+    renderList();
+    renderRead();
+  }
+
+  function refreshInbox() {
+    if (!selectedAcctId) { showError('No account selected.'); return; }
+    setStatus('fetching inbox-30…');
+    emails = [];
+    selectedMsgIx = -1;
+    listEl.innerHTML = '<div class="empty">Loading…</div>';
+    readEl.innerHTML = '<div class="placeholder">Select a message to read.</div>';
+    vscode.postMessage({ type: 'cbe-email-fetch-inbox', accountId: selectedAcctId, max: 30 });
+  }
+
+  acctEl.addEventListener('change', () => {
+    selectedAcctId = acctEl.value || null;
+    refreshInbox();
+  });
+  document.getElementById('refresh').addEventListener('click', refreshInbox);
+  document.getElementById('add').addEventListener('click', () => {
+    vscode.postMessage({ type: 'cbe-email-add-account' });
+  });
+  document.getElementById('remove').addEventListener('click', () => {
+    if (!selectedAcctId) return;
+    vscode.postMessage({ type: 'cbe-email-remove-account', accountId: selectedAcctId });
+  });
+  /* Intercept link clicks in the read pane — webviews block external nav,
+     so route the URL through the host which calls vscode.env.openExternal.
+     Same handler also catches the [app-password page] link rendered in
+     the error banner so the user can jump straight to provider settings. */
+  function _routeHrefClicks(rootId) {
+    document.getElementById(rootId).addEventListener('click', (e) => {
+      const a = e.target && e.target.closest && e.target.closest('a[data-href]');
+      if (!a) return;
+      e.preventDefault();
+      const url = a.getAttribute('data-href') || '';
+      if (url) vscode.postMessage({ type: 'cbe-email-open-link', url });
+    });
+  }
+  _routeHrefClicks('read');
+  _routeHrefClicks('error');
+
+  window.addEventListener('message', (ev) => {
+    const m = ev.data;
+    if (!m || typeof m !== 'object') return;
+    if (m.type === 'cbe-email-accounts') {
+      accounts = Array.isArray(m.accounts) ? m.accounts : [];
+      renderAccounts();
+      if (selectedAcctId) refreshInbox();
+      return;
+    }
+    if (m.type === 'cbe-email-inbox') {
+      if (!m.ok) {
+        setStatus('error');
+        /* needsAppPassword errors stick on screen + render an "open
+           app-password page" link instead of disappearing in 6s. */
+        showError('Fetch failed: ' + (m.error || 'unknown'),
+                  { sticky: !!m.needsAppPassword, helpUrl: m.helpUrl || '' });
+        listEl.innerHTML = m.needsAppPassword
+          ? '<div class="empty">Account needs an app password — see banner below.</div>'
+          : '<div class="empty">Fetch failed.</div>';
+        return;
+      }
+      emails = Array.isArray(m.emails) ? m.emails : [];
+      setStatus(`${m.count || emails.length} messages`);
+      renderList();
+      return;
+    }
+    if (m.type === 'cbe-email-error') {
+      setStatus('error');
+      showError(m.error || 'unknown error');
+      return;
+    }
+  });
+
+  /* Boot — ask the host for the account list. */
+  vscode.postMessage({ type: 'cbe-email-list-accounts' });
+})();
+</script>
+</body>
+</html>

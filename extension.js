@@ -1908,8 +1908,14 @@ async function loadEmailPanelHtml(context, panel) {
 
     const sendAccounts = () => {
         try {
+            /* hasAppPassword flag tells the panel which accounts are wired
+               with a real provider app-password vs which will fail IMAP
+               login with "Invalid credentials" until the user generates +
+               rotates an app password. Source of truth = EMAIL_APP_PASSWORDS. */
+            const knownApp = new Set(Object.keys(EMAIL_APP_PASSWORDS).map(k => k.toLowerCase()));
             const accounts = getEmailAccounts(context).map(a => ({
                 id: a.id, label: a.label, provider: a.provider, email: a.email,
+                hasAppPassword: knownApp.has(String(a.email || '').toLowerCase()),
             }));
             panel.webview.postMessage({ type: 'cbe-email-accounts', accounts });
         } catch (e) {
@@ -1932,7 +1938,40 @@ async function loadEmailPanelHtml(context, panel) {
                     panel.webview.postMessage({ type: 'cbe-email-inbox', ok: false, error: 'no accountId' });
                     return;
                 }
-                const res = await fetchEmailInbox(context, accountId, { max });
+                /* If the script throws (spawn fail / py missing / Python
+                   traceback) we don't want the catch-all "email panel msg"
+                   handler to swallow it as a generic cbe-email-error toast
+                   that the empty-list keeps stuck on "Loading…". Wrap +
+                   forward the failure to the panel as a structured
+                   cbe-email-inbox failure so the list renders "Fetch
+                   failed" instead of an indefinite spinner. */
+                let res;
+                try {
+                    res = await fetchEmailInbox(context, accountId, { max });
+                } catch (err) {
+                    res = { ok: false, error: String(err && err.message || err) };
+                }
+                /* Decorate auth errors with the actionable next step so the
+                   panel's red banner tells the user EXACTLY what to do
+                   (generate app pwd) instead of just echoing the cryptic
+                   IMAP protocol message. Same pattern Gmail itself does
+                   in its web UI when IMAP fails. */
+                if (!res.ok && typeof res.error === 'string' &&
+                    /AUTHENTICATIONFAILED|Invalid credentials|LOGIN failed|Application-specific password required/i.test(res.error)) {
+                    const acc = getEmailAccounts(context).find(a => a.id === accountId);
+                    const provider = (acc && acc.provider) || 'gmail';
+                    const helpUrl = {
+                        gmail:   'https://myaccount.google.com/apppasswords',
+                        yahoo:   'https://login.yahoo.com/account/security/app-passwords',
+                        hotmail: 'https://account.live.com/proofs/AppPassword',
+                        outlook: 'https://account.live.com/proofs/AppPassword',
+                    }[provider] || '';
+                    res.needsAppPassword = true;
+                    res.helpUrl = helpUrl;
+                    res.error = `IMAP rejected the saved password for ${(acc && acc.email) || 'this account'}. ` +
+                                `${provider} needs an app password — generate one at ${helpUrl} ` +
+                                `and re-add the account via the + button.`;
+                }
                 panel.webview.postMessage({ type: 'cbe-email-inbox', ...res });
                 return;
             }
