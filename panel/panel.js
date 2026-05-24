@@ -394,11 +394,41 @@ function setBusy(b) {
      anymore — the periodic monitorStatus probe owns that class. */
 }
 
+/* Shared teardown for the chat send lifecycle. Called from EVERY exit path:
+     • assistantDone (happy path)
+     • error from the host
+     • cancelled / Stop button
+     • imageResult / imageError
+   Without a single funnel like this the inFlight flag can leak set forever
+   if the host posts a message we don't handle, or if a partial bubble is
+   left in the DOM after an error. Idempotent — safe to call twice. */
+function teardownChatLifecycle(opts) {
+  opts = opts || {};
+  try {
+    if (__cbeStatusEl) { try { __cbeStatusEl.remove(); } catch (e) {} __cbeStatusEl = null; }
+  } catch (_e) {}
+  try {
+    if (streamingEl) {
+      streamingEl.classList.remove('streaming');
+      if (opts.cancelled) {
+        const cancelTag = document.createElement('span');
+        cancelTag.className = 'cbe-cancelled-tag';
+        cancelTag.style.cssText = 'opacity:.6;font-style:italic;margin-left:6px;font-size:11px;';
+        cancelTag.textContent = ' (cancelled)';
+        streamingEl.appendChild(cancelTag);
+      }
+      streamingEl = null;
+    }
+  } catch (_e) {}
+  setBusy(false);
+}
+
 function send() {
   if (busy) return;
   const txt = (ti.value || '').trim();
   const attachBlock = buildAttachmentBlocks();
-  if (!txt && !attachBlock) return;
+  const images = buildAttachmentImages();
+  if (!txt && !attachBlock && !images.length) return;
   const fullText = attachBlock ? (txt + (txt ? '\n' : '') + attachBlock) : txt;
   /* Display the user-typed line only, plus a small chip summary if there
      are attachments — keep the chat compact, no need to re-paste content. */
@@ -408,7 +438,11 @@ function send() {
     displayText = (txt ? txt + '\n\n' : '') + names;
   }
   addMsg(displayText, 'sent');
-  if (api) api.postMessage({ type: 'sendText', text: fullText });
+  if (api) {
+    const msg = { type: 'sendText', text: fullText };
+    if (images.length) msg.images = images;
+    api.postMessage(msg);
+  }
   if (api) api.postMessage({ type: 'logChatTurn', role: 'USER', text: fullText });
   historyPush(txt);   /* history stores the user's typed line, not attachments */
   historyReset();
@@ -921,7 +955,19 @@ function renderAccountsList(payload) {
     const used = a.lastUsedAt ? ` · used ${_acctEsc(_acctWhen(a.lastUsedAt))}` : '';
     const info = document.createElement('div');
     info.style.cssText = 'flex:1;min-width:0;font-size:12px;line-height:1.35;';
-    info.innerHTML = `${dot} <b>${_acctEsc(a.label)}</b><br><code style="opacity:.8;">${_acctEsc(a.maskedKey)}</code>${used}${dis}`;
+    /* Either api_key or email_password — both now carry an optional `email`
+       identity tag (the gmail that owns this account). For api_key rows we
+       show "email · maskedKey" when present, else just maskedKey. For
+       email_password rows we show "email · maskedPassword". */
+    let secondary;
+    if (a.type === 'email_password') {
+      secondary = `${_acctEsc(a.email || '')} &middot; ${_acctEsc(a.maskedPassword || '****')}`;
+    } else if (a.email) {
+      secondary = `${_acctEsc(a.email)} &middot; ${_acctEsc(a.maskedKey || '')}`;
+    } else {
+      secondary = _acctEsc(a.maskedKey || '');
+    }
+    info.innerHTML = `${dot} <b>${_acctEsc(a.label)}</b><br><code style="opacity:.8;">${secondary}</code>${used}${dis}`;
     row.appendChild(info);
     const mkBtn = (txt, type, extra) => {
       const b = document.createElement('button');
@@ -964,28 +1010,69 @@ function _amShowError(text) {
   if (err) { err.textContent = text || ''; err.style.display = text ? 'block' : 'none'; }
 }
 
-/* Populate the provider <select> with NON-bridge providers only — bridge
-   providers authenticate in the browser and have no API key to manage. */
+/* Default account type for a provider id. Mirrors extension.js
+   defaultAccountType — the panel uses this to decide which Add-form fields to
+   show before the host's accountsState reply (which carries the authoritative
+   accountType) lands. */
+function _amProviderType(providerId) {
+  if (providerId === 'ollama' || providerId === 'ollamaBridge') return 'none';
+  const p = (__cbeProviders || []).find(x => x.id === providerId);
+  return (p && p.bridge) ? 'email_password' : 'api_key';
+}
+
+/* Populate the provider <select> with every provider that has an account
+   concept. Direct-API providers take API keys; browser-bridge providers take
+   email+password. Ollama is local-only and hidden — no account UI applies. */
 function _amPopulateProviders() {
   const sel = _amEl('accountsProvider');
   if (!sel) return;
   const prev = __cbeAmProvider;
   sel.innerHTML = '';
-  const choices = (__cbeProviders || []).filter(p => !p.bridge);
+  /* Exclude ollama/ollamaBridge — local-only, no account. Every other provider
+     (direct + bridge) shows up. */
+  const choices = (__cbeProviders || []).filter(p =>
+    p.id !== 'ollama' && p.id !== 'ollamaBridge');
   choices.forEach(p => {
     const o = document.createElement('option');
     o.value = p.id;
-    o.textContent = p.label + (p.haveKey ? '' : '  (no key)');
+    const suffix = p.bridge ? '  (browser login)' : (p.haveKey ? '' : '  (no key)');
+    o.textContent = p.label + suffix;
     sel.appendChild(o);
   });
-  /* Prefer the previously-shown provider, else the active provider if it's
-     non-bridge, else the first non-bridge provider. */
+  /* Prefer the previously-shown provider, else the active provider, else the
+     first available choice. */
   let want = prev;
   if (!choices.some(p => p.id === want)) {
     want = (choices.some(p => p.id === __cbeActive)) ? __cbeActive : (choices[0] ? choices[0].id : null);
   }
   if (want) sel.value = want;
   __cbeAmProvider = sel.value || want || null;
+  _amUpdateAddFormMode();
+}
+
+/* Toggle Add-form field visibility based on the selected provider's type.
+   api_key: show #cbe-am-key, hide #cbe-am-email + #cbe-am-password
+   email_password: hide #cbe-am-key, show email + password
+   none: hide the entire add form (shouldn't happen — ollama is filtered out). */
+function _amUpdateAddFormMode() {
+  const t = _amProviderType(__cbeAmProvider);
+  const keyRow   = _amEl('cbe-am-key-row');
+  const emailRow = _amEl('cbe-am-email-row');
+  const pwRow    = _amEl('cbe-am-password-row');
+  const formWrap = document.querySelector('#accountsModal .cbe-am-addform');
+  const hint     = _amEl('cbe-am-cred-hint');
+  if (formWrap) formWrap.style.display = (t === 'none') ? 'none' : '';
+  if (keyRow)   keyRow.style.display   = (t === 'api_key') ? '' : 'none';
+  if (emailRow) emailRow.style.display = (t === 'email_password') ? '' : 'none';
+  if (pwRow)    pwRow.style.display    = (t === 'email_password') ? '' : 'none';
+  if (hint) {
+    if (t === 'email_password') {
+      hint.textContent = 'Passwords are stored locally; they drive the browser bridge login.';
+      hint.style.display = '';
+    } else {
+      hint.style.display = 'none';
+    }
+  }
 }
 
 function openAccountsModal() {
@@ -993,8 +1080,10 @@ function openAccountsModal() {
   if (!modal) return;
   __cbeAmEditingId = null;
   _amShowError('');
-  const lbl = _amEl('cbe-am-label'); if (lbl) lbl.value = '';
-  const key = _amEl('cbe-am-key');   if (key) key.value = '';
+  const lbl   = _amEl('cbe-am-label');    if (lbl)   lbl.value   = '';
+  const key   = _amEl('cbe-am-key');      if (key)   key.value   = '';
+  const email = _amEl('cbe-am-email');    if (email) email.value = '';
+  const pw    = _amEl('cbe-am-password'); if (pw)    pw.value    = '';
   _amPopulateProviders();
   modal.classList.add('show');
   if (__cbeAmProvider && api) api.postMessage({ type: 'listAccounts', provider: __cbeAmProvider });
@@ -1019,18 +1108,28 @@ function renderAccountsModalList(payload) {
   const list = _amEl('cbe-am-list');
   if (!list) return;
   /* A fresh state push means any pending add succeeded — clear the form. */
-  const lbl = _amEl('cbe-am-label'); const key = _amEl('cbe-am-key');
-  if (lbl && document.activeElement !== lbl) lbl.value = '';
-  if (key) key.value = '';
+  const lbl   = _amEl('cbe-am-label');
+  const key   = _amEl('cbe-am-key');
+  const email = _amEl('cbe-am-email');
+  const pw    = _amEl('cbe-am-password');
+  if (lbl   && document.activeElement !== lbl)   lbl.value   = '';
+  if (key)   key.value   = '';
+  if (email && document.activeElement !== email) email.value = '';
+  if (pw)    pw.value    = '';
   _amShowError('');
+  /* Refresh the Add-form mode whenever payload arrives — the panel may have
+     been opened before __cbeProviders was hydrated. */
+  _amUpdateAddFormMode();
   const accounts = (payload && payload.accounts) || [];
   const countEl = _amEl('cbe-am-count');
   if (countEl) countEl.textContent = accounts.length ? `(${accounts.length})` : '(none yet)';
   list.innerHTML = '';
-  if (payload && payload.bridge) {
+  /* `hasAccounts === false` means the provider has no account concept (Ollama).
+     Show a neutral note instead of the empty-list message. */
+  if (payload && payload.hasAccounts === false) {
     const note = document.createElement('div');
     note.style.cssText = 'opacity:.6;font-size:12px;padding:4px 2px;';
-    note.textContent = 'Bridge providers authenticate in the browser — no API key to manage.';
+    note.textContent = 'Local — no account needed for this provider.';
     list.appendChild(note);
     return;
   }
@@ -1045,29 +1144,66 @@ function renderAccountsModalList(payload) {
     const row = document.createElement('div');
     row.className = 'cbe-am-row';
     if (a.disabled) row.style.opacity = '.5';
+    const accType = a.type === 'email_password' ? 'email_password' : 'api_key';
 
     if (__cbeAmEditingId === a.id) {
-      /* Inline-edit mode: label + key inputs + Save / Cancel. */
+      /* Inline-edit mode. The fields shown depend on the row's account type:
+           api_key       → Label + new API key
+           email_password → Label + Email + new Password (blank password keeps current) */
       const editWrap = document.createElement('div');
       editWrap.style.cssText = 'flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;';
       const lblIn = document.createElement('input');
       lblIn.type = 'text'; lblIn.value = a.label || ''; lblIn.placeholder = 'Label';
       lblIn.setAttribute('data-am-edit-label', '1');
-      const keyIn = document.createElement('input');
-      keyIn.type = 'password'; keyIn.placeholder = 'New API key (leave blank to keep current)';
-      keyIn.autocomplete = 'off'; keyIn.spellcheck = false;
-      keyIn.setAttribute('data-am-edit-key', '1');
       editWrap.appendChild(lblIn);
-      editWrap.appendChild(keyIn);
+      let keyIn = null, emailIn = null, pwIn = null;
+      if (accType === 'email_password') {
+        emailIn = document.createElement('input');
+        emailIn.type = 'text'; emailIn.value = a.email || ''; emailIn.placeholder = 'Email';
+        emailIn.autocomplete = 'off'; emailIn.spellcheck = false;
+        emailIn.setAttribute('data-am-edit-email', '1');
+        pwIn = document.createElement('input');
+        pwIn.type = 'password'; pwIn.placeholder = 'New password (leave blank to keep current)';
+        pwIn.autocomplete = 'off'; pwIn.spellcheck = false;
+        pwIn.setAttribute('data-am-edit-password', '1');
+        editWrap.appendChild(emailIn);
+        editWrap.appendChild(pwIn);
+      } else {
+        /* api_key rows ALSO get an email tag field — identity-tag only, not a
+           credential. Blank means "no gmail associated"; the field is sent on
+           save only if it differs from the current value. */
+        emailIn = document.createElement('input');
+        emailIn.type = 'text'; emailIn.value = a.email || ''; emailIn.placeholder = 'Email (identity tag — gmail that owns this key)';
+        emailIn.autocomplete = 'off'; emailIn.spellcheck = false;
+        emailIn.setAttribute('data-am-edit-email', '1');
+        editWrap.appendChild(emailIn);
+        keyIn = document.createElement('input');
+        keyIn.type = 'password'; keyIn.placeholder = 'New API key (leave blank to keep current)';
+        keyIn.autocomplete = 'off'; keyIn.spellcheck = false;
+        keyIn.setAttribute('data-am-edit-key', '1');
+        editWrap.appendChild(keyIn);
+      }
       row.appendChild(editWrap);
       const saveBtn = document.createElement('button');
       saveBtn.type = 'button'; saveBtn.className = 'cbe-am-btn'; saveBtn.textContent = 'Save';
       saveBtn.addEventListener('click', () => {
-        const newLabel = lblIn.value.trim();
-        const newKey = keyIn.value.trim();
         const msg = { type: 'editAccount', provider: __cbeAmProvider, accountId: a.id };
+        const newLabel = lblIn.value.trim();
         if (newLabel) msg.label = newLabel;
-        if (newKey) msg.apiKey = newKey;
+        if (accType === 'email_password') {
+          const newEmail = (emailIn && emailIn.value || '').trim();
+          const newPw    = (pwIn && pwIn.value || '');
+          if (newEmail && newEmail !== (a.email || '')) msg.email = newEmail;
+          if (newPw) msg.password = newPw;
+        } else {
+          /* api_key: send email only when it changed. Blank clears the tag —
+             host treats hasEmail=false on blank, so user can't actually clear
+             via this UI today (intentional: tag is opt-in). */
+          const newEmail = (emailIn && emailIn.value || '').trim();
+          const newKey   = (keyIn && keyIn.value || '').trim();
+          if (newEmail && newEmail !== (a.email || '')) msg.email = newEmail;
+          if (newKey) msg.apiKey = newKey;
+        }
         __cbeAmEditingId = null;
         if (api) api.postMessage(msg);
       });
@@ -1086,9 +1222,26 @@ function renderAccountsModalList(payload) {
 
     const dot = a.active ? '<span title="active" style="color:#4ade80;">&#9679;</span>' : '<span style="color:#555;">&#9675;</span>';
     const dis = a.disabled ? ` &middot; <span style="color:#ff6b6b;">limited</span>` : '';
+    /* Type badge — "API" (blue) for api_key, "LOGIN" (purple) for email_password.
+       Gives the user an at-a-glance sense of which rows are key-based vs
+       browser-login. */
+    const badge = accType === 'email_password'
+      ? '<span style="display:inline-block;margin-right:6px;padding:1px 5px;font-size:9px;font-weight:700;background:#6d28d9;color:#fff;border-radius:3px;letter-spacing:.05em;" title="email + password (browser bridge)">LOGIN</span>'
+      : '<span style="display:inline-block;margin-right:6px;padding:1px 5px;font-size:9px;font-weight:700;background:#1d4ed8;color:#fff;border-radius:3px;letter-spacing:.05em;" title="API key">API</span>';
+    /* Secondary line: "email · maskedPassword" for email_password, or
+       "email · maskedKey" / just "maskedKey" for api_key (depending on
+       whether the row has been tagged with a gmail). */
+    let secondary;
+    if (accType === 'email_password') {
+      secondary = `<code style="opacity:.8;">${_acctEsc(a.email || '')} &middot; ${_acctEsc(a.maskedPassword || '****')}</code>`;
+    } else if (a.email) {
+      secondary = `<code style="opacity:.8;">${_acctEsc(a.email)} &middot; ${_acctEsc(a.maskedKey || '')}</code>`;
+    } else {
+      secondary = `<code style="opacity:.8;">${_acctEsc(a.maskedKey || '')}</code>`;
+    }
     const info = document.createElement('div');
     info.className = 'cbe-am-info';
-    info.innerHTML = `${dot} <b>${_acctEsc(a.label)}</b><br><code style="opacity:.8;">${_acctEsc(a.maskedKey)}</code>${dis}`;
+    info.innerHTML = `${dot} ${badge}<b>${_acctEsc(a.label)}</b><br>${secondary}${dis}`;
     row.appendChild(info);
 
     const mk = (txt, cls, onClick) => {
@@ -1145,6 +1298,7 @@ function _amStartDelete(account, row) {
     __cbeAmEditingId = null;
     if (__cbeAmUndo) { clearTimeout(__cbeAmUndo.timer); __cbeAmUndo = null; }
     _amShowError('');
+    _amUpdateAddFormMode();
     if (__cbeAmProvider && api) api.postMessage({ type: 'listAccounts', provider: __cbeAmProvider });
   });
   const closeBtn = _amEl('cbe-am-close');
@@ -1156,15 +1310,34 @@ function _amStartDelete(account, row) {
   if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeAccountsModal(); });
   const addBtn = _amEl('cbe-am-add');
   if (addBtn) addBtn.addEventListener('click', () => {
-    const label = (_amEl('cbe-am-label') || {}).value || '';
-    const key   = (_amEl('cbe-am-key') || {}).value || '';
-    if (!key.trim()) { _amShowError('Enter an API key.'); return; }
     if (!__cbeAmProvider) { _amShowError('Pick a provider first.'); return; }
-    if (api) api.postMessage({ type: 'addAccount', provider: __cbeAmProvider, label: label.trim(), apiKey: key.trim() });
+    const t = _amProviderType(__cbeAmProvider);
+    if (t === 'none') { _amShowError('This provider is local — no account needed.'); return; }
+    const label = ((_amEl('cbe-am-label') || {}).value || '').trim();
+    const payload = { type: 'addAccount', provider: __cbeAmProvider, label };
+    if (t === 'email_password') {
+      const email = ((_amEl('cbe-am-email')    || {}).value || '').trim();
+      const pw    =  (_amEl('cbe-am-password') || {}).value || '';
+      if (!email) { _amShowError('Enter an email.'); return; }
+      if (!pw)    { _amShowError('Enter a password.'); return; }
+      payload.accountType = 'email_password';
+      payload.email = email;
+      payload.password = pw;
+    } else {
+      const key = ((_amEl('cbe-am-key') || {}).value || '').trim();
+      if (!key) { _amShowError('Enter an API key.'); return; }
+      payload.accountType = 'api_key';
+      payload.apiKey = key;
+    }
+    if (api) api.postMessage(payload);
   });
-  /* Enter in the key field submits the add form. */
-  const keyIn = _amEl('cbe-am-key');
-  if (keyIn) keyIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (addBtn) addBtn.click(); } });
+  /* Enter in any add-form field submits the form. */
+  ['cbe-am-key', 'cbe-am-email', 'cbe-am-password', 'cbe-am-label'].forEach(id => {
+    const el = _amEl(id);
+    if (el) el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); if (addBtn) addBtn.click(); }
+    });
+  });
 })();
 let __cbeActiveSkin = '';  /* bare filename, e.g. 'noir.css'. '' = no skin */
 let __cbeSkinsList  = null;/* null = not yet discovered for this session; [] = scanned, empty */
@@ -1882,6 +2055,34 @@ function openSettings(payload) {
     +       '<label for="cbe-set-sfx-volume">Volume <span id="cbe-set-sfx-volume-pct" style="opacity:.65;font-weight:400;">55%</span></label>'
     +       '<input type="range" id="cbe-set-sfx-volume" min="0" max="100" step="1" value="55" style="width:100%;accent-color:var(--cbe-modal-accent);cursor:pointer;">'
     +     '</div>'
+    +     /* Tool calls section — controls daisy-chain command execution for
+           bridge chat. mode=off disables; allowlist runs only safe commands
+           without prompting (everything else prompts); confirm always prompts;
+           auto runs everything without prompting. */
+    +     '<div id="cbe-tc-section" style="margin-top:8px;padding:8px;border:1px solid var(--cbe-modal-border,#444);border-radius:5px;">'
+    +       '<div style="font-weight:600;margin-bottom:6px;">Tool calls (bridge daisy-chain)</div>'
+    +       '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
+    +         '<label style="margin:0;flex:1;" for="cbe-tc-mode">Mode</label>'
+    +         '<select id="cbe-tc-mode" style="flex:2;">'
+    +           '<option value="off">off (disable)</option>'
+    +           '<option value="allowlist">allowlist (safe commands no prompt)</option>'
+    +           '<option value="confirm">confirm (always ask)</option>'
+    +           '<option value="auto">auto (no prompt, run everything)</option>'
+    +         '</select>'
+    +       '</div>'
+    +       '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
+    +         '<label style="margin:0;flex:1;" for="cbe-tc-maxsteps">Max chain steps</label>'
+    +         '<input type="number" id="cbe-tc-maxsteps" min="1" max="50" step="1" value="10" style="flex:2;">'
+    +       '</div>'
+    +       '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
+    +         '<label style="margin:0;flex:1;" for="cbe-tc-timeout">Per-command timeout (s)</label>'
+    +         '<input type="number" id="cbe-tc-timeout" min="1" max="600" step="1" value="60" style="flex:2;">'
+    +       '</div>'
+    +       '<div>'
+    +         '<label for="cbe-tc-allowlist">Allowlist (one per line)</label>'
+    +         '<textarea id="cbe-tc-allowlist" rows="6" spellcheck="false" style="width:100%;font:12px Consolas,monospace;background:#000;color:#dcdcdc;border:1px solid var(--cbe-modal-border,#444);border-radius:4px;padding:6px;box-sizing:border-box;"></textarea>'
+    +       '</div>'
+    +     '</div>'
     +   '</div>'
     +   '<div class="cbe-foot">'
     +     '<button type="button" class="cbe-btn cbe-cancel" data-act="cancel">Cancel</button>'
@@ -2135,6 +2336,20 @@ function openSettings(payload) {
     applySkinColors(colors);
   });
 
+  /* Tool-call settings — hydrate from payload.toolCall (extension's
+     loadToolCallConfig). Form persists on Save via setProvider.toolCall. */
+  try {
+    const tc = (payload && payload.toolCall) || { mode: 'allowlist', maxSteps: 10, timeoutS: 60, allowlist: [] };
+    const modeEl = overlay.querySelector('#cbe-tc-mode');
+    const maxEl  = overlay.querySelector('#cbe-tc-maxsteps');
+    const toEl   = overlay.querySelector('#cbe-tc-timeout');
+    const alEl   = overlay.querySelector('#cbe-tc-allowlist');
+    if (modeEl) modeEl.value = ['off','allowlist','confirm','auto'].includes(tc.mode) ? tc.mode : 'allowlist';
+    if (maxEl)  maxEl.value  = String(tc.maxSteps || 10);
+    if (toEl)   toEl.value   = String(tc.timeoutS || 60);
+    if (alEl)   alEl.value   = (Array.isArray(tc.allowlist) ? tc.allowlist : []).join('\n');
+  } catch (e) { /* swallow */ }
+
   /* SFX controls. Hydrate from current window state, wire live preview so
      user hears the volume change while dragging the slider; persistence
      fires on Save. */
@@ -2181,10 +2396,29 @@ function openSettings(payload) {
       __cbeActiveSkin = skin;
       const langWrap = overlay.querySelector('#cbe-set-language-wrap');
       const language = (langWrap && langWrap.dataset && langWrap.dataset.value) || 'en';
+      /* Collect tool-call settings from the Tool calls section. Empty
+         allowlist is allowed (means no commands are auto-allowed in
+         allowlist mode). */
+      let toolCall = null;
+      try {
+        const modeEl = overlay.querySelector('#cbe-tc-mode');
+        const maxEl  = overlay.querySelector('#cbe-tc-maxsteps');
+        const toEl   = overlay.querySelector('#cbe-tc-timeout');
+        const alEl   = overlay.querySelector('#cbe-tc-allowlist');
+        const allowLines = (alEl && alEl.value || '')
+          .split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+        toolCall = {
+          mode: (modeEl && modeEl.value) || 'allowlist',
+          maxSteps: Number((maxEl && maxEl.value) || 10),
+          timeoutS: Number((toEl && toEl.value) || 60),
+          allowlist: allowLines,
+        };
+      } catch (e) { /* swallow */ }
       if (api) api.postMessage({
         type: 'setProvider', provider, model,
         sfxEnabled: sfxEnabledVal, sfxVolume: sfxVolumeVal,
         skin, language,
+        toolCall,
       });
       closeSettings();
     }
@@ -2853,6 +3087,70 @@ function openNag(run) {
   document.body.appendChild(overlay);
 }
 
+/* ── /switch auth picker ──────────────────────────────────────────────────
+   CBE's rebranded clone of Claude Code's login screen. Three big buttons:
+   Claude.ai Subscription / Anthropic Console / Bedrock, Foundry, or Vertex.
+   Stays inside CBE per [[feedback-never-touch-anthropic-dir]] — we don't
+   modify the stock Claude Code webview, we render our own. Each button maps
+   to a CBE account flow (browser bridge / API key / external docs). */
+function openAuthPicker() {
+  const old = document.getElementById('cbe-authpicker-modal');
+  if (old) old.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'cbe-authpicker-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:flex;' +
+    'align-items:center;justify-content:center;background:rgba(0,0,0,0.55);';
+  const btnStyle = 'display:block;width:100%;padding:12px 16px;margin:6px 0;border-radius:6px;' +
+    'border:1px solid var(--cbe-modal-border,#3a414c);background:var(--cbe-modal-accent,#173050);' +
+    'color:var(--cbe-modal-title-fg,#e7eaef);font:600 14px/1.3 system-ui,sans-serif;cursor:pointer;text-align:center;';
+  const subStyle = 'opacity:.65;font:13px/1.5 system-ui,sans-serif;color:var(--cbe-modal-fg,#e7eaef);margin:4px 0 14px 0;';
+  overlay.innerHTML =
+    '<div class="cbe-box" role="dialog" aria-modal="true" aria-label="Switch account" ' +
+      'style="width:480px;max-width:92vw;background:var(--cbe-modal-bg,#1c1f24);' +
+      'border:2px solid var(--cbe-modal-border,#353a45);border-radius:12px;' +
+      'box-shadow:0 18px 60px rgba(0,0,0,.7);overflow:hidden;">' +
+      '<div class="cbe-hdr" style="padding:14px 18px;background:linear-gradient(90deg,' +
+        'var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);' +
+        'font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
+        '<span style="font-size:15px;">Switch account</span>' +
+        '<button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)" ' +
+          'style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:20px;cursor:pointer;line-height:1;">×</button>' +
+      '</div>' +
+      '<div style="padding:18px 22px;color:var(--cbe-modal-fg,#e7eaef);font:14px/1.55 system-ui,sans-serif;">' +
+        '<div style="margin-bottom:6px;">Claude Codex Black Ed. can be used with your Claude subscription or billed based on API usage through your Console account.</div>' +
+        '<div style="' + subStyle + '">How do you want to log in?</div>' +
+        '<button class="cbe-ap-claude"    type="button" style="' + btnStyle + '">Claude.ai Subscription</button>' +
+        '<div style="' + subStyle + '">Use your Claude Pro, Team, or Enterprise subscription (browser bridge).</div>' +
+        '<button class="cbe-ap-anthropic" type="button" style="' + btnStyle + '">Anthropic Console</button>' +
+        '<div style="' + subStyle + '">Pay for API usage through your Console account (API key).</div>' +
+        '<button class="cbe-ap-bedrock"   type="button" style="' + btnStyle + '">Bedrock, Foundry, or Vertex</button>' +
+        '<div style="' + subStyle + '">Instructions on how to use API keys or third-party providers.</div>' +
+      '</div>' +
+    '</div>';
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('.cbe-x').addEventListener('click', close);
+  overlay.querySelector('.cbe-ap-claude').addEventListener('click', () => {
+    close();
+    /* Pre-target the standalone Accounts modal at the Claude browser bridge
+       so the user lands directly in the "add bridge login" form. */
+    __cbeAmProvider = 'claudeBridge';
+    openAccountsModal();
+  });
+  overlay.querySelector('.cbe-ap-anthropic').addEventListener('click', () => {
+    close();
+    __cbeAmProvider = 'anthropic';
+    openAccountsModal();
+  });
+  overlay.querySelector('.cbe-ap-bedrock').addEventListener('click', () => {
+    close();
+    if (api) api.postMessage({ type: 'openExternal', url: 'https://docs.anthropic.com/en/api/claude-on-amazon-bedrock' });
+  });
+  const onEsc = (e) => { if (e.key === 'Escape' && document.getElementById('cbe-authpicker-modal')) { close(); document.removeEventListener('keydown', onEsc); } };
+  document.addEventListener('keydown', onEsc);
+  document.body.appendChild(overlay);
+}
+
 /* ── Change Log modal — separate from Help so closing Change Log returns the
    user to the open Help modal. Same srcdoc-iframe pattern: extension.js
    reads panel/change_log.html on activate and ships the body as
@@ -3031,17 +3329,29 @@ function renderExtensionsCatalog(items, error) {
         'border-radius:3px;padding:1px 5px;margin-left:6px;">✓ Installed</span>'
       : '';
     const iconGlyph = String((ext.icon || '')).trim();
-    const iconHtml = iconGlyph
-      ? '<span aria-hidden="true" style="font-size:18px;line-height:1;margin-right:6px;' +
+    const iconUri   = String((ext.iconUri || '')).trim();
+    /* Prefer an image icon (bridge_chat extensions ship a logo PNG resolved
+       to a webview URI). Fall back to the emoji glyph for legacy .ext
+       extensions. Both render in the same 18px slot. */
+    let iconHtml = '';
+    if (iconUri) {
+      iconHtml = '<img src="' + escapeHtmlExt(iconUri) + '" alt="" aria-hidden="true" ' +
+        'style="width:18px;height:18px;object-fit:contain;margin-right:6px;vertical-align:-3px;border-radius:3px;background:rgba(255,255,255,.05);" />';
+    } else if (iconGlyph) {
+      iconHtml = '<span aria-hidden="true" style="font-size:18px;line-height:1;margin-right:6px;' +
         'font-family:\'Segoe UI Emoji\',\'Noto Color Emoji\',\'Apple Color Emoji\',sans-serif;">' +
-        escapeHtmlExt(iconGlyph) + '</span>'
+        escapeHtmlExt(iconGlyph) + '</span>';
+    }
+    const typeBadge = ext.type === 'bridge_chat'
+      ? '<span style="background:rgba(120,160,255,.12);color:#9fbcff;border:1px solid #3a5b9e;' +
+        'border-radius:3px;padding:1px 5px;margin-left:6px;font-size:11px;font-family:ui-monospace,monospace;">bridge</span>'
       : '';
     return (
       '<div class="cbe-ext-card" data-ext-id="' + escapeHtmlExt(ext.id) + '" ' +
         'style="background:rgba(255,255,255,.05);border:1px solid var(--cbe-modal-border,#3a414c);' +
         'border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px;">' +
         '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">' +
-          '<strong style="font-size:15px;">' + iconHtml + escapeHtmlExt(ext.name) + stateBadge + '</strong>' +
+          '<strong style="font-size:15px;">' + iconHtml + escapeHtmlExt(ext.name) + typeBadge + stateBadge + '</strong>' +
           '<span style="opacity:.6;font-size:11px;font-family:ui-monospace,monospace;">v' + escapeHtmlExt(ext.version) + '</span>' +
         '</div>' +
         '<div style="opacity:.65;font-size:12px;">by ' + escapeHtmlExt(ext.author || 'unknown') +
@@ -3314,7 +3624,14 @@ const CBE_COMMANDS = [
   { name: '/github',   desc: 'List GitHub repos',        run: () => { const b = document.getElementById('githubBtn'); if (b) b.click(); } },
   { name: '/license',  desc: 'Show the MIT license',     run: () => { if (api) api.postMessage({ type: 'showLicense' }); } },
   { name: '/push',     desc: 'Push files to server (auto-update)', run: () => { if (api) api.postMessage({ type: 'pushUpdate' }); } },
-  { name: '/switch-accounts', desc: 'Switch accounts',   run: () => { const b = document.getElementById('accountsBtn'); if (b) b.click(); } },
+  /* /switch and /switch account / /switch-accounts ALL open CBE's own
+     auth picker (openAuthPicker) — a rebranded clone of Claude Code's
+     login screen. Stays inside CBE per [[feedback-never-touch-anthropic-dir]];
+     we don't dispatch claude-vscode.logout or touch the stock webview. */
+  { name: '/switch',          desc: 'Switch account (Claude.ai / Console / Bedrock)', run: () => openAuthPicker() },
+  { name: '/switch account',  desc: 'Switch account (Claude.ai / Console / Bedrock)', run: () => openAuthPicker() },
+  { name: '/switch-accounts', desc: 'Switch account (Claude.ai / Console / Bedrock)', run: () => openAuthPicker() },
+  { name: '/email',    desc: 'Open multi-account inbox', run: () => { if (api) api.postMessage({ type: 'openEmail' }); } },
 ];
 
 let __cbeCmdMenuEl    = null;
@@ -3635,15 +3952,142 @@ window.addEventListener('message', e => {
          user knows the reply is ready to read. */
       playSfx('popup');
     }
-    setBusy(false);
+    /* Funnel everything through the shared teardown so future bugs that
+       skip setBusy(false) can't sneak in — every exit path uses the same
+       cleanup primitive. */
+    teardownChatLifecycle();
     ti.focus();
   } else if (m.type === 'error') {
-    if (__cbeStatusEl) { try { __cbeStatusEl.remove(); } catch (e) {} __cbeStatusEl = null; }
-    if (streamingEl) { streamingEl.classList.remove('streaming'); streamingEl = null; }
     addMsg('⚠ ' + (m.message || 'error'), 'error');
-    setBusy(false);
+    teardownChatLifecycle();
+  } else if (m.type === 'cancelled') {
+    /* Stop button feedback from extension.js cancelInFlight. Mark the
+       in-flight assistant bubble as "(cancelled)" rather than removing
+       it, so partial output is preserved. */
+    teardownChatLifecycle({ cancelled: true });
+  } else if (m.type === 'imageResult') {
+    /* Real image-gen result from extension.js -> tryHandleImageGeneration.
+       Render the PNG inline (data:URI) with a Save-as link. Replaces the
+       broken hallucinated-URL <img> markdown that text-only chat models
+       were emitting (e.g. Gemini Pro returning the fake oaidalle URL). */
+    try { renderGeneratedImage(m); } catch (e) {
+      addMsg('⚠ image render failed: ' + (e && e.message), 'error');
+    }
+    teardownChatLifecycle();
+    try { playSfx('popup'); } catch (_) {}
+  } else if (m.type === 'imageError') {
+    /* Image-gen failure: red error block with full error text so debugging
+       is possible. Used for both API failures AND the friendly "this provider
+       doesn't have an image-gen endpoint" message for Anthropic/DeepSeek. */
+    const wrap = document.createElement('div');
+    wrap.className = 'msg error cbe-image-error';
+    wrap.style.cssText = 'background:#ffeaea;color:#c33;padding:8px 10px;border-radius:6px;white-space:pre-wrap;';
+    wrap.textContent = '⚠ ' + (m.message || 'image-gen failed');
+    thread.appendChild(wrap);
+    thread.scrollTop = thread.scrollHeight;
+    try { playSfx('error'); } catch (_) {}
+    teardownChatLifecycle();
   } else if (m.type === 'info') {
     addMsg(m.text || '', 'info');
+  } else if (m.type === 'toolExec') {
+    /* Bridge daisy-chain — host is about to execute a command extracted
+       from the bridge model's reply. Yellow system-style block clearly
+       marks it as an auto-action (not user-typed, not assistant text). */
+    try {
+      const wrap = document.createElement('div');
+      wrap.className = 'msg cbe-tool-exec';
+      wrap.style.cssText = 'background:#fff8e0;color:#5a3a00;border-left:4px solid #c93;'
+        + 'padding:6px 10px;border-radius:4px;font-family:Consolas,monospace;'
+        + 'font-size:12px;white-space:pre-wrap;margin:4px 0;';
+      const head = document.createElement('div');
+      head.style.cssText = 'font-weight:600;margin-bottom:2px;';
+      head.textContent = `▶ tool-exec [${m.lang || 'cmd'}] (${m.kind || 'fence'}, mode=${m.mode || '?'})`;
+      const body = document.createElement('div');
+      body.textContent = m.cmdShort || (m.command || '').slice(0, 200);
+      wrap.appendChild(head);
+      wrap.appendChild(body);
+      thread.appendChild(wrap);
+      thread.scrollTop = thread.scrollHeight;
+    } catch (e) { addMsg(`▶ exec ${m.cmdShort || m.command || ''}`, 'info'); }
+  } else if (m.type === 'toolResult') {
+    /* Output of a bridge tool-call. Same yellow block, with stdout/stderr
+       collapsed visually. denied=true uses a slightly redder tint. */
+    try {
+      const wrap = document.createElement('div');
+      wrap.className = 'msg cbe-tool-result';
+      const bg = m.denied ? '#ffeaea' : '#fff8e0';
+      const border = m.denied ? '#c33' : '#c93';
+      wrap.style.cssText = `background:${bg};color:#3a2a00;border-left:4px solid ${border};`
+        + 'padding:6px 10px;border-radius:4px;font-family:Consolas,monospace;'
+        + 'font-size:12px;white-space:pre-wrap;margin:4px 0;';
+      const head = document.createElement('div');
+      head.style.cssText = 'font-weight:600;margin-bottom:2px;';
+      const stdoutN = (m.stdout || '').length;
+      const stderrN = (m.stderr || '').length;
+      head.textContent = m.denied
+        ? `✗ tool-denied: ${m.reason || 'denied'}`
+        : `◀ tool-result rc=${m.rc} stdout=${stdoutN}B stderr=${stderrN}B ms=${m.durationMs}${m.truncated ? ' (truncated)' : ''}`;
+      const body = document.createElement('div');
+      const lines = [];
+      lines.push(`cmd: ${m.cmdShort || m.command || ''}`);
+      if (m.stdout) lines.push('--- stdout ---\n' + m.stdout.replace(/\r?\n$/, ''));
+      if (m.stderr) lines.push('--- stderr ---\n' + m.stderr.replace(/\r?\n$/, ''));
+      body.textContent = lines.join('\n');
+      wrap.appendChild(head);
+      wrap.appendChild(body);
+      thread.appendChild(wrap);
+      thread.scrollTop = thread.scrollHeight;
+    } catch (e) { addMsg(`◀ rc=${m.rc} ${m.cmdShort || ''}`, 'info'); }
+  } else if (m.type === 'toolConfirm') {
+    /* Confirmation prompt — yellow block with ✓/✗ buttons. Posts back
+       toolConfirmResponse with the user's decision. Only one prompt is
+       expected at a time; the host waits up to 5 minutes. */
+    try {
+      const wrap = document.createElement('div');
+      wrap.className = 'msg cbe-tool-confirm';
+      wrap.style.cssText = 'background:#fff8e0;color:#5a3a00;border-left:4px solid #c93;'
+        + 'padding:8px 10px;border-radius:4px;font-family:Consolas,monospace;'
+        + 'font-size:12px;white-space:pre-wrap;margin:4px 0;';
+      const head = document.createElement('div');
+      head.style.cssText = 'font-weight:600;margin-bottom:4px;';
+      head.textContent = `? Run this ${m.lang || 'cmd'}? (${m.kind || 'fence'}, mode=${m.mode || '?'})`;
+      const body = document.createElement('div');
+      body.style.cssText = 'margin-bottom:6px;';
+      body.textContent = m.command || '';
+      const btns = document.createElement('div');
+      btns.style.cssText = 'display:flex;gap:6px;';
+      const allowBtn = document.createElement('button');
+      allowBtn.type = 'button';
+      allowBtn.textContent = '✓ Allow';
+      allowBtn.className = 'cbe-btn';
+      allowBtn.style.cssText = 'background:#6a3;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;';
+      const denyBtn = document.createElement('button');
+      denyBtn.type = 'button';
+      denyBtn.textContent = '✗ Deny';
+      denyBtn.className = 'cbe-btn';
+      denyBtn.style.cssText = 'background:#c33;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;';
+      let answered = false;
+      const reply = (allow) => {
+        if (answered) return;
+        answered = true;
+        allowBtn.disabled = true;
+        denyBtn.disabled = true;
+        head.textContent = allow ? '✓ Allowed' : '✗ Denied';
+        if (api) api.postMessage({ type: 'toolConfirmResponse', id: m.id, allow });
+      };
+      allowBtn.addEventListener('click', () => reply(true));
+      denyBtn.addEventListener('click', () => reply(false));
+      btns.appendChild(allowBtn);
+      btns.appendChild(denyBtn);
+      wrap.appendChild(head);
+      wrap.appendChild(body);
+      wrap.appendChild(btns);
+      thread.appendChild(wrap);
+      thread.scrollTop = thread.scrollHeight;
+    } catch (e) {
+      /* Failsafe: deny on render error so the chain doesn't hang. */
+      if (api) api.postMessage({ type: 'toolConfirmResponse', id: m.id, allow: false });
+    }
   } else if (m.type === 'bridgeStatus') {
     /* Bridge auto-start telemetry from extension.js. Renders a one-line
        banner in #thread; if the EXE is missing we render an explicit
@@ -3687,6 +4131,11 @@ window.addEventListener('message', e => {
     /* Host hit a run-count trigger (3/6/10/20, then every 30). Random
        pick of the three support/promo cards — see CBE_NAGS. */
     openNag(m.run);
+  } else if (m.type === 'showAuthPicker') {
+    /* Host-side trigger for the /switch auth picker — invoked when the
+       user runs codexBlackEd.slash.switchAccounts from the Command Palette
+       or keybinding. Same code path as typing "/switch" in the chat. */
+    openAuthPicker();
   } else if (m.type === 'helpHtml') {
     /* Host re-shipped help.html after a language change. Update the
        cache so the next Help-button click renders the new locale.
@@ -3940,16 +4389,109 @@ window.addEventListener('message', e => {
     }
   } else if (m.type === 'attachFile') {
     /* Queue the file as a chip below the input. send() will splice the
-       file content into the outgoing prompt at submit time. */
+       file content into the outgoing prompt at submit time. kind/mime/
+       base64/dataUri are MIME-aware fields added 2026-05-23 so binary
+       and image attachments don't get pasted as garbage text. */
     pushAttachment({
-      name:  m.name || 'attachment',
-      ext:   (m.ext || '').toLowerCase(),
-      text:  m.text || '',
-      path:  m.path || '',
-      bytes: m.bytes || 0,
+      name:    m.name || 'attachment',
+      ext:     (m.ext || '').toLowerCase(),
+      text:    m.text || '',
+      path:    m.path || '',
+      bytes:   m.bytes || 0,
+      mime:    m.mime || '',
+      kind:    m.kind || 'text',
+      base64:  m.base64 || '',
+      dataUri: m.dataUri || '',
     });
+  } else if (m.type === 'fileDownload') {
+    /* send_file tool delivery: render a downloadable attachment bubble in
+       the chat. dataUri (under 2MB) or webview uri (>= 2MB). */
+    renderFileDownload(m);
   }
 });
+
+/* Render a generated image (from extension.js -> tryHandleImageGeneration) as
+   an inline assistant message: data:URI <img> + a Save-as link. The PNG bytes
+   are passed as base64 in m.b64 so nothing ever leaves the webview. */
+function renderGeneratedImage(m) {
+  const mime = String(m.mime || 'image/png');
+  const b64 = String(m.b64 || '');
+  if (!b64) {
+    addMsg('⚠ image-gen returned no bytes', 'error');
+    return;
+  }
+  const dataUri = 'data:' + mime + ';base64,' + b64;
+  const wrap = document.createElement('div');
+  wrap.className = 'msg assistant rendered cbe-image-result';
+
+  /* Caption: provider + prompt + (optional) quality. */
+  const cap = document.createElement('div');
+  cap.style.cssText = 'font-size:12px;opacity:0.75;margin-bottom:6px;';
+  const promptTxt = m.prompt ? ('"' + String(m.prompt).slice(0, 200) + '"') : '';
+  const qTxt = m.quality ? (' · ' + m.quality) : '';
+  cap.textContent = '🖼 ' + (m.providerLabel || m.provider || 'image-gen') + qTxt + (promptTxt ? ' — ' + promptTxt : '');
+  wrap.appendChild(cap);
+
+  /* The image itself. */
+  const img = document.createElement('img');
+  img.src = dataUri;
+  img.alt = String(m.prompt || 'generated image');
+  img.style.cssText = 'display:block;max-width:512px;border-radius:6px;';
+  wrap.appendChild(img);
+
+  /* Save-as link. <a download> triggers the browser's save dialog with the
+     data URI as the source — works in VSCode's webview without any host
+     round-trip. Default filename includes provider + a timestamp slug. */
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const ext = (mime.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '');
+  const fname = 'cbe-' + (m.provider || 'image') + '-' + ts + '.' + ext;
+  const saveLink = document.createElement('a');
+  saveLink.href = dataUri;
+  saveLink.setAttribute('download', fname);
+  saveLink.textContent = 'Save as…';
+  saveLink.style.cssText = 'display:inline-block;margin-top:6px;font-size:12px;color:#4ec9b0;text-decoration:underline;';
+  wrap.appendChild(saveLink);
+
+  thread.appendChild(wrap);
+  thread.scrollTop = thread.scrollHeight;
+}
+
+/* Render a file-download bubble in the chat for the send_file tool. */
+function renderFileDownload(m) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg recv file-download';
+  const name = String(m.name || 'file');
+  const mime = String(m.mime || 'application/octet-stream');
+  const bytes = Number(m.bytes || 0);
+  const href = m.dataUri || m.uri || '';
+  const sizeStr = fmtBytes(bytes);
+  const link = document.createElement('a');
+  link.href = href;
+  link.setAttribute('download', name);
+  link.textContent = 'Download';
+  link.style.marginLeft = '8px';
+  link.style.color = '#4ec9b0';
+  link.style.textDecoration = 'underline';
+  const label = document.createElement('span');
+  label.textContent = '📎 ' + name + ' (' + sizeStr + ', ' + mime + ')';
+  wrap.appendChild(label);
+  wrap.appendChild(link);
+  /* If image and small enough, inline a thumbnail preview. */
+  if (m.dataUri && /^image\//.test(mime)) {
+    const img = document.createElement('img');
+    img.src = m.dataUri;
+    img.alt = name;
+    img.style.display = 'block';
+    img.style.marginTop = '6px';
+    img.style.maxWidth = '320px';
+    img.style.maxHeight = '240px';
+    img.style.borderRadius = '4px';
+    wrap.appendChild(img);
+  }
+  const chat = document.getElementById('chat') || document.body;
+  chat.appendChild(wrap);
+  try { chat.scrollTop = chat.scrollHeight; } catch (e) { /* not fatal */ }
+}
 
 /* ── Attachments (file chips queued below the input) ───────────────────
    The host's attachFile picker posts back the file content; we keep an
@@ -4017,14 +4559,47 @@ function buildAttachmentBlocks() {
   if (!__cbeAttachments.length) return '';
   const parts = ['']; /* leading blank line */
   for (const a of __cbeAttachments) {
+    const kind = a.kind || 'text';
     const lang = a.ext || '';
-    parts.push(`📎 ${a.name}`);
-    parts.push('```' + lang);
-    parts.push(a.text);
-    parts.push('```');
-    parts.push('');
+    if (kind === 'image') {
+      /* Image: emit a labeled marker. The actual image_url payload is
+         carried out-of-band in the sendText message.images[] array (see
+         send()) so vision-capable providers can attach it natively. */
+      parts.push(`--- FILE: ${a.name} (${a.mime || 'image'}, ${a.bytes} bytes) ---`);
+      parts.push(`[image attached: ${a.name}]`);
+      parts.push('--- END ---');
+      parts.push('');
+    } else if (kind === 'binary') {
+      /* Binary non-image: emit base64 inline. The model can still ask the
+         user to decode/inspect it but won't see garbage bytes that break
+         tokenization. */
+      parts.push(`--- FILE: ${a.name} (${a.mime || 'application/octet-stream'}, base64, ${a.bytes} bytes) ---`);
+      parts.push(a.base64 || '(no base64 payload)');
+      parts.push('--- END ---');
+      parts.push('');
+    } else {
+      /* Text (or text-classified file): keep the original fenced block. */
+      parts.push(`--- FILE: ${a.name} ---`);
+      parts.push('```' + lang);
+      parts.push(a.text || '');
+      parts.push('```');
+      parts.push('--- END ---');
+      parts.push('');
+    }
   }
   return parts.join('\n');
+}
+
+/* Collect image attachments for the out-of-band images[] channel on the
+   sendText message. Each entry: { name, mime, dataUri }. */
+function buildAttachmentImages() {
+  const imgs = [];
+  for (const a of __cbeAttachments) {
+    if ((a.kind || 'text') === 'image' && a.dataUri) {
+      imgs.push({ name: a.name, mime: a.mime || 'image/png', dataUri: a.dataUri });
+    }
+  }
+  return imgs;
 }
 
 /* ── Project folder pill ────────────────────────────────────────────────
@@ -4518,16 +5093,20 @@ window.addEventListener('resize', fitProjectPath);
      and `help` are the user-facing hints. */
   const STEPS = [
     { title: 'Anthropic (Claude)',
-      desc:  'API key for direct Claude calls. Get one at <a href="https://console.anthropic.com/account/keys">console.anthropic.com</a>.',
+      desc:  'API key for direct Claude calls. Get one at <a href="https://console.anthropic.com/account/keys">console.anthropic.com</a>. ' +
+             'Buy credits: <a href="https://console.anthropic.com/settings/billing">console.anthropic.com/settings/billing</a>.',
       fields: [{ section:'api_keys', key:'anthropic_api_key', label:'API Key', placeholder:'sk-ant-…', password:true }] },
     { title: 'OpenAI (ChatGPT)',
-      desc:  'API key for GPT models. Get one at <a href="https://platform.openai.com/api-keys">platform.openai.com</a>.',
+      desc:  'API key for GPT models. Get one at <a href="https://platform.openai.com/api-keys">platform.openai.com</a>. ' +
+             'Buy credits: <a href="https://platform.openai.com/settings/organization/billing/overview">platform.openai.com/settings/organization/billing</a>.',
       fields: [{ section:'api_keys', key:'openai_api_key', label:'API Key', placeholder:'sk-proj-…', password:true }] },
     { title: 'Google Gemini',
-      desc:  'API key for Gemini. Get one at <a href="https://aistudio.google.com/apikey">aistudio.google.com</a>.',
+      desc:  'API key for Gemini. Get one at <a href="https://aistudio.google.com/apikey">aistudio.google.com</a>. ' +
+             'Buy credits: <a href="https://aistudio.google.com/app/billing">aistudio.google.com/app/billing</a>.',
       fields: [{ section:'api_keys', key:'gemini_api_key', label:'API Key', placeholder:'AIza…', password:true }] },
     { title: 'xAI (Grok)',
-      desc:  'API key for Grok direct API. Get one at <a href="https://console.x.ai/">console.x.ai</a>.',
+      desc:  'API key for Grok direct API. Get one at <a href="https://console.x.ai/">console.x.ai</a>. ' +
+             'Buy credits: <a href="https://console.x.ai/">console.x.ai</a> → Billing → API spend management.',
       fields: [{ section:'api_keys', key:'xai_api_key', label:'API Key', placeholder:'xai-…', password:true }] },
     { title: 'GitHub Personal Access Token',
       desc:  'PAT for repos, issues, PRs, releases, workflows, packages, secrets, webhooks. ' +

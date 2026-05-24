@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="pi">
+  <name>Pi</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>Pi from Inflection AI — conversational personal AI via pi.ai using a logged-in browser session.</description>
+  <enabled>false</enabled>
+
+  <mainUrl>https://pi.ai/</mainUrl>
+  <loginUrl>https://pi.ai/talk</loginUrl>
+  <createAccountUrl>https://pi.ai/onboarding</createAccountUrl>
+
+  <bridgePort>8797</bridgePort>
+  <cdpPort>9797</cdpPort>
+  <exeName>CBE-Bridge-Pi.exe</exeName>
+  <iconFile>icons/pi.png</iconFile>
+
+  <defaultModel>pi-2</defaultModel>
+  <model>pi-2</model>
+</bridge>

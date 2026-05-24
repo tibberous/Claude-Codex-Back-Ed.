@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="gemini">
+  <name>Gemini</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>Google Gemini (2.5 Pro, 2.5 Flash) via gemini.google.com using a logged-in Google browser session.</description>
+
+  <mainUrl>https://gemini.google.com/</mainUrl>
+  <loginUrl>https://accounts.google.com/ServiceLogin?continue=https://gemini.google.com/</loginUrl>
+  <createAccountUrl>https://accounts.google.com/signup</createAccountUrl>
+
+  <bridgePort>8791</bridgePort>
+  <cdpPort>9791</cdpPort>
+  <exeName>CBE-Bridge-Gemini.exe</exeName>
+  <iconFile>icons/gemini.png</iconFile>
+
+  <defaultModel>gemini-2.5-pro</defaultModel>
+  <model>gemini-2.5-pro</model>
+  <model>gemini-2.5-flash</model>
+</bridge>

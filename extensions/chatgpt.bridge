@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="chatgpt">
+  <name>ChatGPT</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>OpenAI ChatGPT (GPT-4o, GPT-4.1, GPT-5, o3 series) via chatgpt.com using a logged-in browser session.</description>
+
+  <mainUrl>https://chatgpt.com/</mainUrl>
+  <loginUrl>https://chatgpt.com/auth/login</loginUrl>
+  <createAccountUrl>https://chatgpt.com/auth/login?screen_hint=signup</createAccountUrl>
+
+  <bridgePort>8788</bridgePort>
+  <cdpPort>9788</cdpPort>
+  <exeName>CBE-Bridge-ChatGPT.exe</exeName>
+  <iconFile>icons/chatgpt.png</iconFile>
+
+  <defaultModel>gpt-4o</defaultModel>
+  <model>gpt-4o</model>
+  <model>gpt-4.1</model>
+  <model>gpt-5</model>
+  <model>o3</model>
+  <model>o3-mini</model>
+</bridge>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="fal_ai">
+  <name>fal.ai</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>fal.ai generative-media inference engine (FLUX, Kling, Hailuo, 1000+ models) via fal.ai. Unified API for image, video, audio, and 3D generation.</description>
+
+  <mainUrl>https://fal.ai/</mainUrl>
+  <loginUrl>https://fal.ai/login</loginUrl>
+  <createAccountUrl>https://fal.ai/login</createAccountUrl>
+
+  <bridgePort>8803</bridgePort>
+  <cdpPort>9803</cdpPort>
+  <exeName>CBE-Bridge-FalAi.exe</exeName>
+  <iconFile>icons/fal_ai.png</iconFile>
+  <enabled>false</enabled>
+
+  <defaultModel>flux-pro</defaultModel>
+  <model>flux-pro</model>
+  <model>flux-dev</model>
+  <model>flux-schnell</model>
+  <model>kling-video</model>
+  <model>hailuo-video</model>
+</bridge>

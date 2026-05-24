@@ -80,7 +80,9 @@ const PROVIDERS = {
     geminiBridge:  { label: 'Gemini (browser bridge)',  bridge: true, bridgeTarget: 'gemini',  defaultModel: 'gemini-2.5-pro', models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
     claudeBridge:  { label: 'Claude (browser bridge)',  bridge: true, bridgeTarget: 'claude',  defaultModel: 'claude-sonnet-4-6', models: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'] },
     ollamaBridge:  { label: 'Ollama (local)',           bridge: true, bridgeTarget: 'ollama',  defaultModel: 'llama3.2:3b',    models: ['llama3.2:3b', 'llama3.2', 'qwen2.5', 'mistral'] },
-    deepseekBridge:{ label: 'DeepSeek (browser bridge)',bridge: true, bridgeTarget: 'deepseek',defaultModel: 'deepseek-chat',  models: ['deepseek-chat', 'deepseek-reasoner'] },
+    /* deepseekBridge is registered dynamically from extensions/deepseek.bridge
+       via loadBridgeExtensions() at activation. Add other browser-bridge
+       providers the same way — drop a *.bridge XML in extensions/. */
 };
 
 const DEFAULT_PROVIDER = 'anthropic';
@@ -96,7 +98,7 @@ const BRIDGE_PORTS = {
     gemini:   8791,
     claude:   8792,
     ollama:   8793,
-    deepseek: 8794,
+    /* deepseek: registered by loadBridgeExtensions() from extensions/deepseek.bridge */
 };
 
 /* Pretty exe filename per bridge target — bin/CBE-Bridge-<Pretty>.exe. */
@@ -107,12 +109,122 @@ const BRIDGE_EXE_NAME = {
     gemini:   'CBE-Bridge-Gemini.exe',
     claude:   'CBE-Bridge-Claude.exe',
     ollama:   'CBE-Bridge-Ollama.exe',
-    deepseek: 'CBE-Bridge-DeepSeek.exe',
+    /* deepseek: registered by loadBridgeExtensions() from extensions/deepseek.bridge */
 };
 
 /* Track which bridges THIS extension instance has already spawned so we
    don't re-fork them on every chat. Map of target -> { pid, startedAt }. */
 const _runningBridges = new Map();
+
+/* Module-level cache of the last bridge-extension scan result (set by
+   activate() once loadBridgeExtensions runs). Used by the marketplace
+   catalog handler to surface .bridge entries alongside .ext extensions. */
+let _bridgeExtensionsLoaded = [];
+
+/* ── Bridge extension scanner ─────────────────────────────────────────────
+   Loads pluggable browser-bridge providers from extensions/*.bridge XML
+   files at activation time. Each .bridge file declares a provider id,
+   bridge port, exe name, default model, and model list — same fields the
+   hardcoded entries above carry. New entries are added to PROVIDERS,
+   BRIDGE_PORTS, and BRIDGE_EXE_NAME so the rest of the system treats them
+   identically to the built-in bridges. Format:
+       <bridge id="deepseek">
+         <name>DeepSeek</name>
+         <author>Claude Opus 4.7</author>
+         <released>2026-05-24</released>
+         <loginUrl>...</loginUrl>
+         <bridgePort>8794</bridgePort>
+         <exeName>CBE-Bridge-DeepSeek.exe</exeName>
+         <defaultModel>deepseek-chat</defaultModel>
+         <model>deepseek-chat</model>
+         <model>deepseek-reasoner</model>
+       </bridge>
+*/
+function loadBridgeExtensions(extensionPath) {
+    const dir = path.join(extensionPath, 'extensions');
+    if (!fs.existsSync(dir)) return [];
+    let files;
+    try { files = fs.readdirSync(dir).filter(f => f.toLowerCase().endsWith('.bridge')); }
+    catch (e) { return []; }
+    const loaded = [];
+    const childText = (body, tag) => {
+        const m = body.match(new RegExp('<' + tag + '\\b[^>]*>([\\s\\S]*?)</' + tag + '>', 'i'));
+        return m ? m[1].trim() : '';
+    };
+    const childAll = (body, tag) => {
+        const out = [];
+        const re = new RegExp('<' + tag + '\\b[^>]*>([\\s\\S]*?)</' + tag + '>', 'gi');
+        let mm;
+        while ((mm = re.exec(body)) !== null) out.push(mm[1].trim());
+        return out;
+    };
+    for (const f of files) {
+        const full = path.join(dir, f);
+        let xml;
+        try { xml = fs.readFileSync(full, 'utf8'); }
+        catch (e) { trace('BRIDGE_EXT:read_fail file=' + f + ' err=' + (e.message || e)); continue; }
+        const idMatch = xml.match(/<bridge[^>]*\bid\s*=\s*"([^"]+)"/i);
+        const id = idMatch ? idMatch[1].trim() : path.basename(f, '.bridge');
+        const name        = childText(xml, 'name') || id;
+        const author      = childText(xml, 'author') || '';
+        const released    = childText(xml, 'released') || '';
+        const version     = childText(xml, 'version') || '';
+        const description = childText(xml, 'description') || '';
+        const mainUrl     = childText(xml, 'mainUrl') || childText(xml, 'homeUrl') || '';
+        const loginUrl    = childText(xml, 'loginUrl') || '';
+        const createAccountUrl = childText(xml, 'createAccountUrl') || '';
+        const bridgePort  = parseInt(childText(xml, 'bridgePort'), 10);
+        const cdpPortRaw  = parseInt(childText(xml, 'cdpPort'), 10);
+        const cdpPort     = Number.isFinite(cdpPortRaw) ? cdpPortRaw : (bridgePort + 1000);
+        const exeName     = childText(xml, 'exeName') || ('CBE-Bridge-' + name + '.exe');
+        const iconFile    = childText(xml, 'iconFile') || '';
+        const defaultModel = childText(xml, 'defaultModel') || '';
+        const models      = childAll(xml, 'model');
+        /* <enabled> defaults to TRUE when the tag is missing — the 6 stock
+           bridges ship without it and stay live. New off-by-default
+           extensions declare <enabled>false</enabled> explicitly. */
+        const enabledRaw  = childText(xml, 'enabled');
+        const enabled     = enabledRaw === '' ? true : !/^(false|0|no|off)$/i.test(enabledRaw);
+        if (!id || !Number.isFinite(bridgePort)) {
+            trace('BRIDGE_EXT:invalid file=' + f + ' (missing id or bridgePort)');
+            continue;
+        }
+        const meta = {
+            id, providerId: id + 'Bridge', file: f, name, author, released, version, description,
+            port: bridgePort, cdpPort, exeName, iconFile,
+            mainUrl, loginUrl, createAccountUrl,
+            enabled,
+            models, defaultModel,
+        };
+        if (!enabled) {
+            /* Disabled bridges are catalogued for the marketplace UI but NOT
+               registered as live providers. Users flip them on by editing
+               the .bridge file (or via a future Install action that rewrites
+               <enabled>true</enabled>). */
+            loaded.push(meta);
+            continue;
+        }
+        PROVIDERS[meta.providerId] = {
+            label: name + ' (browser bridge)',
+            bridge: true,
+            bridgeTarget: id,
+            defaultModel: defaultModel || (models[0] || ''),
+            models: models.length ? models : (defaultModel ? [defaultModel] : []),
+            __source: 'bridge_extension',
+            __file: f,
+            __author: author,
+            __released: released,
+            __mainUrl: mainUrl,
+            __loginUrl: loginUrl,
+            __createAccountUrl: createAccountUrl,
+            __iconFile: iconFile,
+        };
+        BRIDGE_PORTS[id] = bridgePort;
+        BRIDGE_EXE_NAME[id] = exeName;
+        loaded.push(meta);
+    }
+    return loaded;
+}
 
 /* ── Config singleton ─────────────────────────────────────────────────────
    `config.ini` is parsed ONCE per activation and stored in `Config`. Every
@@ -468,9 +580,13 @@ function _writePinnedExtensions(context, list) {
    30 runs after that (50, 80, 110, …). Run count lives in config.ini under
    [stats] run_count so it survives restarts. The panel picks which of the
    three nag messages to show at random — see CBE_NAGS in panel.js. */
-const NAG_FIXED_TRIGGERS = [3, 6, 10, 20];
-const NAG_PERIODIC_INTERVAL = 30;
-const NAG_PERIODIC_START = NAG_FIXED_TRIGGERS[NAG_FIXED_TRIGGERS.length - 1] + NAG_PERIODIC_INTERVAL; // 50
+/* 50% more frequent than the prior 30-run cadence per user 2026-05-24 —
+   periodic interval dropped to 20 (next fires at 40, 60, 80, ...) and a
+   couple of extra early-life triggers (4, 8, 15) interleaved with the
+   original 3 / 6 / 10 / 20 set. Total density ≈ 1.5×. */
+const NAG_FIXED_TRIGGERS = [3, 4, 6, 8, 10, 15, 20];
+const NAG_PERIODIC_INTERVAL = 20;
+const NAG_PERIODIC_START = NAG_FIXED_TRIGGERS[NAG_FIXED_TRIGGERS.length - 1] + NAG_PERIODIC_INTERVAL; // 40
 
 function shouldShowNag(runNumber) {
     if (NAG_FIXED_TRIGGERS.includes(runNumber)) return true;
@@ -871,14 +987,64 @@ function validateKeyShape(providerId, key) {
     return { ok: true };
 }
 
+/* Validate an email+password pair for a bridge account. Email shape is checked
+   loosely (one @, at least one dot in the domain); password is just non-empty.
+   Returns { ok, reason }. */
+function validateLoginShape(email, password) {
+    const e = String(email || '').trim();
+    const pw = String(password || '');
+    if (!e) return { ok: false, reason: 'empty email' };
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return { ok: false, reason: 'email looks invalid' };
+    if (!pw) return { ok: false, reason: 'empty password' };
+    return { ok: true };
+}
+
+/* Mask a password for any log/UI surface — same posture as maskKey but with no
+   prefix (passwords are opaque). */
+function maskPassword(pw) {
+    const s = String(pw || '');
+    if (!s) return '(empty)';
+    if (s.length <= 4) return '****';
+    return '****' + s.slice(-2);
+}
+
+/* Default account `type` for a provider. Direct-API providers use API keys;
+   browser-bridge providers (claudeBridge/chatgptBridge/grokBridge/geminiBridge/
+   copilotBridge/deepseekBridge) drive a real logged-in browser session via the
+   C++ tray exe in bin/, so their accounts are email+password. Ollama (bridge or
+   direct) is local-only and needs no account — callers should still skip the
+   Add UI for it. */
+function defaultAccountType(providerId) {
+    const p = PROVIDERS[providerId] || {};
+    if (providerId === 'ollamaBridge' || providerId === 'ollama') return 'none';
+    return p.bridge ? 'email_password' : 'api_key';
+}
+
+/* True when a provider has NO concept of an account at all (e.g. local Ollama).
+   Used by buildAccountsPayload + the panel to hide/disable the Add UI. */
+function providerHasAccounts(providerId) {
+    return defaultAccountType(providerId) !== 'none';
+}
+
 /* Read the raw [accounts] JSON array for a provider, with one-time migration
    of the legacy [api_keys].<keyField> single key into accounts[0]. Returns a
    normalized array (never null). Does NOT persist the migration here — the
    caller persists when it makes a change; a read-only call just sees the
-   migrated-in legacy account at the head. */
+   migrated-in legacy account at the head.
+
+   Each account is either:
+     { type: 'api_key',         id, label, email, apiKey,   addedAt, lastUsedAt, disabledUntil }
+     { type: 'email_password',  id, label, email, password, addedAt, lastUsedAt, disabledUntil }
+   `email` is the identity tag — the gmail (or other) address the user
+   associates with this account. ALWAYS present (even on api_key rows) so the
+   user can see WHICH gmail owns each key. May be `null` for legacy api_key
+   rows migrated in from [api_keys] before the email tag landed. Accounts
+   without a `type` default to api_key for backward compat — never
+   destructively rewritten on read. */
 function getProviderAccounts(context, providerId) {
     const p = PROVIDERS[providerId];
-    if (!p || p.bridge) return [];
+    if (!p) return [];
+    if (!providerHasAccounts(providerId)) return [];
     const cfg = readConfigIni(context.extensionPath) || {};
     let list = [];
     const rawSection = cfg[ACCOUNTS_SECTION] || {};
@@ -886,38 +1052,101 @@ function getProviderAccounts(context, providerId) {
     if (raw) {
         try {
             const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) list = parsed.filter(a => a && a.apiKey);
+            if (Array.isArray(parsed)) {
+                /* Keep any row that has SOMETHING addressable — an apiKey for
+                   api_key rows or an email for email_password rows. */
+                list = parsed.filter(a => a && (a.apiKey || a.email));
+            }
         } catch (e) {
             traceErr(`accounts JSON parse failed for ${providerId}`, e);
         }
     }
-    /* Migrate the legacy single key into the list if it isn't represented. */
-    let legacyKey = null;
-    if (p.azureSection) {
-        legacyKey = (cfg.azure && (cfg.azure.api_key || cfg.azure.api_key1)) || null;
-    } else if (p.keyField) {
-        legacyKey = (cfg.api_keys && cfg.api_keys[p.keyField]) || null;
+    /* Migrate the legacy single key into the list if it isn't represented.
+       Only applies to direct-API providers — bridges have no [api_keys] entry. */
+    if (!p.bridge) {
+        let legacyKey = null;
+        if (p.azureSection) {
+            legacyKey = (cfg.azure && (cfg.azure.api_key || cfg.azure.api_key1)) || null;
+        } else if (p.keyField) {
+            legacyKey = (cfg.api_keys && cfg.api_keys[p.keyField]) || null;
+        }
+        legacyKey = legacyKey ? String(legacyKey).trim() : null;
+        if (legacyKey && !list.some(a => (a.type || 'api_key') === 'api_key' && a.apiKey === legacyKey)) {
+            list.unshift({
+                id: _newAccountId(),
+                type: 'api_key',
+                label: 'config.ini',
+                apiKey: legacyKey,
+                addedAt: new Date().toISOString(),
+                lastUsedAt: null,
+                disabledUntil: null,
+            });
+        }
     }
-    legacyKey = legacyKey ? String(legacyKey).trim() : null;
-    if (legacyKey && !list.some(a => a.apiKey === legacyKey)) {
-        list.unshift({
-            id: _newAccountId(),
-            label: 'config.ini',
-            apiKey: legacyKey,
-            addedAt: new Date().toISOString(),
-            lastUsedAt: null,
-            disabledUntil: null,
-        });
-    }
-    /* Normalize shape so downstream code never trips on undefined fields. */
-    return list.map(a => ({
-        id: a.id || _newAccountId(),
-        label: a.label || maskKey(a.apiKey),
-        apiKey: String(a.apiKey || ''),
-        addedAt: a.addedAt || new Date().toISOString(),
-        lastUsedAt: a.lastUsedAt || null,
-        disabledUntil: a.disabledUntil || null,
-    }));
+    /* Normalize shape so downstream code never trips on undefined fields.
+       The DEFAULT for a missing `type` is api_key (back-compat for accounts
+       written before the email_password schema landed). */
+    return list.map(a => {
+        const type = a.type === 'email_password' ? 'email_password' : 'api_key';
+        if (type === 'email_password') {
+            return {
+                id: a.id || _newAccountId(),
+                type,
+                label: a.label || a.email || 'login',
+                email: String(a.email || ''),
+                password: String(a.password || ''),
+                addedAt: a.addedAt || new Date().toISOString(),
+                lastUsedAt: a.lastUsedAt || null,
+                disabledUntil: a.disabledUntil || null,
+            };
+        }
+        return {
+            id: a.id || _newAccountId(),
+            type,
+            label: a.label || maskKey(a.apiKey),
+            /* email is the identity tag for api_key rows — gmail that owns the
+               key. Optional: legacy rows migrated from [api_keys] have none
+               (null), seeded rows get the user's primary gmail. */
+            email: a.email ? String(a.email) : null,
+            apiKey: String(a.apiKey || ''),
+            addedAt: a.addedAt || new Date().toISOString(),
+            lastUsedAt: a.lastUsedAt || null,
+            disabledUntil: a.disabledUntil || null,
+        };
+    });
+}
+
+/* ── OAuth-token storage (per-account) ────────────────────────────────────
+   Claude Code-style PKCE tokens (acquired via tools/claude_oauth.py) live
+   in VS Code secrets keyed by `cbe.oauth.<providerId>.<accountId>.token`.
+   Storage only — wiring into rotateOnRateLimit + request-send happens once
+   we've confirmed one real token works end-to-end (see TODO at top of
+   tools/claude_oauth.py). Keeping storage and request-wiring as separate
+   commits so a partial integration doesn't break the existing apiKey path. */
+const OAUTH_SECRET_PREFIX = 'cbe.oauth.';   /* + <providerId>.<accountId>.token */
+
+async function storeAccountOAuthToken(context, providerId, accountId, tokenJson) {
+    /* tokenJson is the full { access_token, refresh_token, expires_in,
+       token_type } object — stored as a single JSON string so we keep
+       all redemption fields together. */
+    const key = `${OAUTH_SECRET_PREFIX}${providerId}.${accountId}.token`;
+    await context.secrets.store(key, JSON.stringify(tokenJson || {}));
+    trace(`OAUTH:STORE provider=${providerId} accountId=${accountId} keys=${Object.keys(tokenJson || {}).join(',')}`);
+}
+
+async function getAccountOAuthToken(context, providerId, accountId) {
+    const key = `${OAUTH_SECRET_PREFIX}${providerId}.${accountId}.token`;
+    const raw = await context.secrets.get(key);
+    if (!raw) return null;
+    try { return JSON.parse(raw); }
+    catch (e) { traceErr(`oauth-token parse ${providerId}/${accountId}`, e); return null; }
+}
+
+async function clearAccountOAuthToken(context, providerId, accountId) {
+    const key = `${OAUTH_SECRET_PREFIX}${providerId}.${accountId}.token`;
+    try { await context.secrets.delete(key); }
+    catch (e) { /* may not exist — fine */ }
+    trace(`OAUTH:CLEAR provider=${providerId} accountId=${accountId}`);
 }
 
 /* Persist a provider's full account array back into config.ini [accounts]. */
@@ -928,6 +1157,380 @@ function setProviderAccounts(context, providerId, accounts) {
     writeConfigPatch(filePath, patch);
     Config.reload(context.extensionPath);
     trace(`ACCOUNTS:SAVE provider=${providerId} count=${(accounts || []).length}`);
+}
+
+/* ── Email-client accounts (multi-account inbox view) ─────────────────────
+   Separate from the LLM [accounts] schema above. An email account row only
+   needs: { id, label, provider, email, addedAt }. Passwords (app-passwords
+   for gmail/yahoo/outlook IMAP+SMTP) live in VS Code secrets keyed by
+   `cbe.email.<accountId>.password` — never in config.ini, never logged.
+   Scope: a small inbox-30 reader (user 2026-05-24 — "not replacing
+   thunderbird"). Spawns tools/imap_read.py for fetch and tools/smtp_send.py
+   for send; both are stdlib-only and require no pip install. */
+const EMAIL_ACCOUNTS_SECTION = 'email_accounts';
+const EMAIL_SECRET_PREFIX    = 'cbe.email.';   /* + <accountId> + '.password' */
+const EMAIL_PROVIDERS = ['gmail', 'yahoo', 'outlook', 'hotmail'];
+
+function getEmailAccounts(context) {
+    const cfg = readConfigIni(context.extensionPath) || {};
+    const sect = cfg[EMAIL_ACCOUNTS_SECTION] || {};
+    const raw  = sect.list;
+    if (!raw) return [];
+    try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .filter(a => a && a.id && a.email && EMAIL_PROVIDERS.includes(a.provider))
+            .map(a => ({
+                id:       String(a.id),
+                label:    String(a.label || a.email),
+                provider: String(a.provider),
+                email:    String(a.email),
+                addedAt:  a.addedAt || new Date().toISOString(),
+            }));
+    } catch (e) {
+        traceErr('email-accounts JSON parse failed', e);
+        return [];
+    }
+}
+
+function setEmailAccounts(context, accounts) {
+    const filePath = path.join(context.extensionPath, CONFIG_INI_NAME);
+    writeConfigPatch(filePath, {
+        [`${EMAIL_ACCOUNTS_SECTION}.list`]: JSON.stringify(accounts || []),
+    });
+    Config.reload(context.extensionPath);
+    trace(`EMAIL:ACCOUNTS:SAVE count=${(accounts || []).length}`);
+}
+
+async function addEmailAccount(context, { provider, email, password, label }) {
+    if (!EMAIL_PROVIDERS.includes(provider)) {
+        throw new Error(`unknown email provider: ${provider}`);
+    }
+    if (!email || !password) throw new Error('email + password required');
+    const accounts = getEmailAccounts(context);
+    /* dedupe by (provider,email) — re-adding the same address rotates the
+       stored password instead of growing the list. */
+    let row = accounts.find(a => a.provider === provider && a.email.toLowerCase() === email.toLowerCase());
+    if (!row) {
+        row = {
+            id:       _newAccountId(),
+            label:    label || email,
+            provider, email,
+            addedAt:  new Date().toISOString(),
+        };
+        accounts.push(row);
+    } else if (label) {
+        row.label = label;
+    }
+    setEmailAccounts(context, accounts);
+    await context.secrets.store(EMAIL_SECRET_PREFIX + row.id + '.password', password);
+    trace(`EMAIL:ACCOUNT:ADD id=${row.id} provider=${provider} email=${email}`);
+    return row;
+}
+
+async function removeEmailAccount(context, accountId) {
+    const accounts = getEmailAccounts(context);
+    const next = accounts.filter(a => a.id !== accountId);
+    setEmailAccounts(context, next);
+    try { await context.secrets.delete(EMAIL_SECRET_PREFIX + accountId + '.password'); }
+    catch (e) { /* secret may not exist — fine */ }
+    trace(`EMAIL:ACCOUNT:REMOVE id=${accountId}`);
+}
+
+async function getEmailPassword(context, accountId) {
+    return (await context.secrets.get(EMAIL_SECRET_PREFIX + accountId + '.password')) || null;
+}
+
+/* Seed an email account from config.ini [email] if no email_accounts exist
+   yet. Lets the user keep credentials in config.ini (project convention,
+   confirmed by user 2026-05-24 — same pattern as [api_keys]) while the
+   running extension still reads passwords from vscode.secrets at call
+   time. Idempotent + gated by globalState so it only runs once per install. */
+const EMAIL_SEED_FLAG = 'emailAccountsSeeded_v1';
+
+async function seedEmailAccountsFromConfigIni(context) {
+    try {
+        if (context.globalState.get(EMAIL_SEED_FLAG)) return;
+        if (getEmailAccounts(context).length > 0) {
+            await context.globalState.update(EMAIL_SEED_FLAG, true);
+            return;
+        }
+        const cfg = readConfigIni(context.extensionPath) || {};
+        const e   = cfg.email || {};
+        const account  = String(e.account  || '').trim();
+        const password = String(e.password || '').trim();
+        if (!account || !password) return;     /* nothing to seed */
+        /* Infer provider from the SMTP host so we don't have to ask. */
+        const smtp = String(e.smtp_server || '').toLowerCase();
+        let provider = null;
+        if (smtp.includes('gmail'))           provider = 'gmail';
+        else if (smtp.includes('yahoo'))      provider = 'yahoo';
+        else if (smtp.includes('outlook') ||
+                 smtp.includes('office365'))  provider = 'outlook';
+        if (!provider) {
+            trace(`EMAIL:SEED:SKIP unknown smtp_server=${smtp}`);
+            return;
+        }
+        await addEmailAccount(context, {
+            provider, email: account, password, label: account,
+        });
+        await context.globalState.update(EMAIL_SEED_FLAG, true);
+        trace(`EMAIL:SEED ok provider=${provider} account=${account}`);
+    } catch (err) {
+        traceErr('seedEmailAccountsFromConfigIni', err);
+    }
+}
+
+/* Spawn tools/imap_read.py to fetch the last N messages of the inbox.
+   Returns the parsed { ok, count, emails:[...] } JSON. Password is passed
+   via env var (IMAP_PASSWORD) — never on the argv (visible in tasklist).
+   The default --extract-links regex catches claude.ai/anthropic sign-in
+   magic links (the primary reason this email reader exists) plus generic
+   https URLs so the user can spot any actionable link per row. */
+const _DEFAULT_LINK_REGEX = 'https?://(?:claude\\.(?:ai|com)|anthropic\\.com|accounts\\.google\\.com|login\\.live\\.com|login\\.yahoo\\.com)/[^ \\"<>\\\']*';
+async function fetchEmailInbox(context, accountId, { max = 30, sinceMinutes = 60 * 24 * 7, linkRegex = _DEFAULT_LINK_REGEX } = {}) {
+    const acc = getEmailAccounts(context).find(a => a.id === accountId);
+    if (!acc) throw new Error(`unknown email account id: ${accountId}`);
+    const pw = await getEmailPassword(context, accountId);
+    if (!pw) throw new Error(`no password stored for ${acc.email}`);
+    const script = path.join(context.extensionPath, 'tools', 'imap_read.py');
+    if (!fs.existsSync(script)) throw new Error(`imap_read.py missing at ${script}`);
+    const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
+    return new Promise((resolve, reject) => {
+        const proc = spawn(pyCmd, ['-3', script,
+            '--provider',     acc.provider,
+            '--email',        acc.email,
+            '--password-env', 'IMAP_PASSWORD',
+            '--since-minutes', String(sinceMinutes),
+            '--max',          String(max),
+            '--extract-links', linkRegex,
+        ], {
+            cwd: context.extensionPath,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
+            env: { ...process.env, IMAP_PASSWORD: pw },
+        });
+        let stdout = '', stderr = '';
+        proc.stdout.on('data', d => { stdout += d.toString('utf8'); });
+        proc.stderr.on('data', d => { stderr += d.toString('utf8'); });
+        proc.on('error', reject);
+        proc.on('close', code => {
+            const line = stdout.split('\n').find(l => l.trim().startsWith('{')) || stdout.trim();
+            try {
+                const parsed = JSON.parse(line);
+                resolve(parsed);
+            } catch (e) {
+                reject(new Error(`imap_read.py exit=${code} stderr=${stderr.slice(0,300)}`));
+            }
+        });
+    });
+}
+
+/* Spawn tools/email_watch.py — long-poll an inbox until a matching message
+   arrives, then return { ok, found, links, ... }. Designed for the bridge
+   magic-link flow: extension shells out, gets the claude.ai sign-in URL
+   back, navigates the bridge browser to it. opts: { fromFilter, subjectFilter,
+   linkRegex, intervalSec, timeoutSec }. */
+async function watchEmailInbox(context, accountId, {
+    fromFilter = '', subjectFilter = '', linkRegex = '',
+    intervalSec = 5, timeoutSec = 300,
+} = {}) {
+    const acc = getEmailAccounts(context).find(a => a.id === accountId);
+    if (!acc) throw new Error(`unknown email account id: ${accountId}`);
+    const pw = await getEmailPassword(context, accountId);
+    if (!pw) throw new Error(`no password stored for ${acc.email}`);
+    const script = path.join(context.extensionPath, 'tools', 'email_watch.py');
+    if (!fs.existsSync(script)) throw new Error(`email_watch.py missing at ${script}`);
+    const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
+    const args = ['-3', script,
+        '--provider',     acc.provider,
+        '--email',        acc.email,
+        '--password-env', 'IMAP_PASSWORD',
+        '--interval',     String(intervalSec),
+        '--timeout',      String(timeoutSec),
+    ];
+    if (fromFilter)    args.push('--from-filter',    fromFilter);
+    if (subjectFilter) args.push('--subject-filter', subjectFilter);
+    if (linkRegex)     args.push('--extract-links',  linkRegex);
+    return new Promise((resolve, reject) => {
+        const proc = spawn(pyCmd, args, {
+            cwd: context.extensionPath,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
+            env: { ...process.env, IMAP_PASSWORD: pw },
+        });
+        let stdout = '', stderr = '';
+        proc.stdout.on('data', d => { stdout += d.toString('utf8'); });
+        proc.stderr.on('data', d => { stderr += d.toString('utf8'); });
+        proc.on('error', reject);
+        proc.on('close', code => {
+            const line = stdout.split('\n').find(l => l.trim().startsWith('{')) || stdout.trim();
+            try { resolve(JSON.parse(line)); }
+            catch (e) { reject(new Error(`email_watch.py exit=${code} stderr=${stderr.slice(0,300)}`)); }
+        });
+    });
+}
+
+/* Spawn tools/smtp_send.py. opts: { to, cc?, bcc?, subject, body, bodyHtml?, attach? }. */
+async function sendEmail(context, accountId, opts) {
+    const acc = getEmailAccounts(context).find(a => a.id === accountId);
+    if (!acc) throw new Error(`unknown email account id: ${accountId}`);
+    const pw = await getEmailPassword(context, accountId);
+    if (!pw) throw new Error(`no password stored for ${acc.email}`);
+    const script = path.join(context.extensionPath, 'tools', 'smtp_send.py');
+    if (!fs.existsSync(script)) throw new Error(`smtp_send.py missing at ${script}`);
+    const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
+    const args = ['-3', script,
+        '--provider',     acc.provider,
+        '--email',        acc.email,
+        '--password-env', 'SMTP_PASSWORD',
+        '--to',           String(opts.to || ''),
+        '--subject',      String(opts.subject || ''),
+    ];
+    if (opts.cc)       args.push('--cc',       String(opts.cc));
+    if (opts.bcc)      args.push('--bcc',      String(opts.bcc));
+    if (opts.body)     args.push('--body',     String(opts.body));
+    if (opts.bodyHtml) args.push('--body-html', String(opts.bodyHtml));
+    for (const p of (opts.attach || [])) args.push('--attach', String(p));
+    return new Promise((resolve, reject) => {
+        const proc = spawn(pyCmd, args, {
+            cwd: context.extensionPath,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
+            env: { ...process.env, SMTP_PASSWORD: pw },
+        });
+        let stdout = '', stderr = '';
+        proc.stdout.on('data', d => { stdout += d.toString('utf8'); });
+        proc.stderr.on('data', d => { stderr += d.toString('utf8'); });
+        proc.on('error', reject);
+        proc.on('close', code => {
+            const line = stdout.split('\n').find(l => l.trim().startsWith('{')) || stdout.trim();
+            try { resolve(JSON.parse(line)); }
+            catch (e) { reject(new Error(`smtp_send.py exit=${code} stderr=${stderr.slice(0,300)}`)); }
+        });
+    });
+}
+
+/* ── seedDefaultAccounts ─────────────────────────────────────────────────
+   One-shot pre-population of the user's known accounts. Runs ONCE per
+   install, gated by globalState['accountsSeeded_v2']. Idempotent at the
+   row level too: we never duplicate an existing row (matched by email for
+   bridges, matched by existing row for api_key providers we only tag).
+
+   Plan:
+     - claudeBridge:  add ALL the user's emails as email_password
+                      (default password DEFAULT_BRIDGE_PASSWORD).
+     - chatgptBridge / grokBridge / copilotBridge / geminiBridge:
+                      add ONLY primary gmail as email_password.
+     - ollama / ollamaBridge: skipped (local, no account).
+     - anthropic / openai / grok / gemini / deepseek / azure:
+                      if an existing row has no `email`, tag it with the
+                      primary gmail. Do NOT add or overwrite apiKey.
+
+   Bridge logins drive a headless browser into the SaaS account, so they need
+   a real password to type into the login form. We seed the user's standard
+   password but NEVER overwrite a non-blank one — if the user (or a previous
+   seed) already set a password, it is left alone. apiKeys are never touched. */
+const ACCOUNTS_SEED_FLAG = 'accountsSeeded_v2';
+const DEFAULT_BRIDGE_PASSWORD = '***REMOVED***';
+const PRIMARY_GMAIL = 'trenttompkins@gmail.com';
+const ALL_GMAILS = [
+    'trenttompkins@gmail.com',
+    'fullpriceexit@gmail.com',
+    'admin@acquisitioninvest.com',
+    'fidiumpa@gmail.com',
+    'flopcoinai@gmail.com',
+    'acquisitioninvest@gmail.com',
+    'corey.pletcher@gmail.com',
+];
+/* Non-gmail addresses the user also uses for the Claude browser bridge. */
+const EXTRA_CLAUDE_EMAILS = [
+    'fullpriceexit@yahoo.com',
+    'tibberous@yahoo.com',
+    'tibberous@hotmail.com',
+    'acquisitioninvest@yahoo.com',
+];
+const CLAUDE_BRIDGE_EMAILS = [...ALL_GMAILS, ...EXTRA_CLAUDE_EMAILS];
+
+function seedDefaultAccounts(context) {
+    try {
+        if (context.globalState.get(ACCOUNTS_SEED_FLAG)) {
+            trace('seedDefaultAccounts: already seeded — skip');
+            return;
+        }
+        const now = new Date().toISOString();
+        const seededProviders = [];
+
+        /* Bridge providers — seed email_password rows with the default
+           password. Existing rows with a blank password get backfilled; rows
+           that already have a non-blank password are left untouched. */
+        const bridgeSeed = {
+            claudeBridge:  CLAUDE_BRIDGE_EMAILS.slice(),
+            chatgptBridge: [PRIMARY_GMAIL],
+            grokBridge:    [PRIMARY_GMAIL],
+            copilotBridge: [PRIMARY_GMAIL],
+            geminiBridge:  [PRIMARY_GMAIL],
+        };
+        for (const [pid, emails] of Object.entries(bridgeSeed)) {
+            if (!PROVIDERS[pid]) continue;
+            const existing = getProviderAccounts(context, pid);
+            const byEmail = new Map(
+                existing
+                    .filter(a => (a.type || 'api_key') === 'email_password')
+                    .map(a => [String(a.email || '').toLowerCase(), a])
+                    .filter(([k]) => k)
+            );
+            let added = 0, filled = 0;
+            for (const email of emails) {
+                const row = byEmail.get(email.toLowerCase());
+                if (row) {
+                    if (!row.password) { row.password = DEFAULT_BRIDGE_PASSWORD; filled++; }
+                    continue;
+                }
+                existing.push({
+                    id: _newAccountId(),
+                    type: 'email_password',
+                    label: email,
+                    email,
+                    password: DEFAULT_BRIDGE_PASSWORD,
+                    addedAt: now,
+                    lastUsedAt: null,
+                    disabledUntil: null,
+                });
+                added++;
+            }
+            if (added > 0 || filled > 0) {
+                setProviderAccounts(context, pid, existing);
+                seededProviders.push(`${pid}:+${added}/fill${filled}`);
+            }
+        }
+
+        /* Direct-API providers — only TAG existing api_key rows with the
+           primary gmail. Do not add new rows, do not touch apiKey. */
+        const apiTagProviders = ['anthropic', 'openai', 'grok', 'gemini', 'deepseek', 'azure'];
+        for (const pid of apiTagProviders) {
+            if (!PROVIDERS[pid]) continue;
+            const existing = getProviderAccounts(context, pid);
+            let tagged = 0;
+            for (const a of existing) {
+                if ((a.type || 'api_key') !== 'api_key') continue;
+                if (!a.email) {
+                    a.email = PRIMARY_GMAIL;
+                    tagged++;
+                }
+            }
+            if (tagged > 0) {
+                setProviderAccounts(context, pid, existing);
+                seededProviders.push(`${pid}:tag${tagged}`);
+            }
+        }
+
+        context.globalState.update(ACCOUNTS_SEED_FLAG, true);
+        trace('seedDefaultAccounts: done — ' + (seededProviders.length ? seededProviders.join(' ') : '(no changes)'));
+    } catch (e) {
+        traceErr('seedDefaultAccounts failed', e);
+    }
 }
 
 /* True when an account is currently disabled (disabledUntil in the future). */
@@ -962,8 +1565,7 @@ async function setActiveAccount(context, providerId, accountId) {
    a write failure must not block a send. No-op for bridge providers. */
 function touchActiveAccount(context, providerId) {
     try {
-        const p = PROVIDERS[providerId];
-        if (!p || p.bridge) return;
+        if (!providerHasAccounts(providerId)) return;
         const accounts = getProviderAccounts(context, providerId);
         const active = getActiveAccount(context, providerId);
         if (!active) return;
@@ -1201,6 +1803,87 @@ function _scanVideos(context) {
         traceErr('videoPlayer scan', e);
     }
     return out.sort((a, b) => b.mtime - a.mtime);
+}
+
+/* Singleton webview for the multi-account email reader. Same pattern as
+   the NN4 browser / video player panels — created lazily on first
+   `codexBlackEd.openEmail` invocation, revealed on subsequent ones,
+   nulled by onDidDispose so the next call rebuilds. */
+let _emailPanel = null;
+
+async function loadEmailPanelHtml(context, panel) {
+    let html;
+    try {
+        html = fs.readFileSync(path.join(context.extensionPath, 'panel', 'email.html'), 'utf8');
+    } catch (e) {
+        traceErr('read email.html', e);
+        panel.webview.html =
+            '<html><body style="color:#d4d4d4;background:#1e1e1e;font-family:sans-serif;padding:1em;">' +
+            '<h3>Email panel failed to load</h3><pre>' + String(e && e.message || e) + '</pre></body></html>';
+        return;
+    }
+    html = html.replace(/\{\{CSP_SOURCE\}\}/g, panel.webview.cspSource || '');
+    panel.webview.html = html;
+
+    const sendAccounts = () => {
+        try {
+            const accounts = getEmailAccounts(context).map(a => ({
+                id: a.id, label: a.label, provider: a.provider, email: a.email,
+            }));
+            panel.webview.postMessage({ type: 'cbe-email-accounts', accounts });
+        } catch (e) {
+            traceErr('email panel sendAccounts', e);
+            panel.webview.postMessage({ type: 'cbe-email-error', error: String(e && e.message || e) });
+        }
+    };
+
+    panel.webview.onDidReceiveMessage(async (msg) => {
+        if (!msg || typeof msg !== 'object') return;
+        try {
+            if (msg.type === 'cbe-email-list-accounts') {
+                sendAccounts();
+                return;
+            }
+            if (msg.type === 'cbe-email-fetch-inbox') {
+                const accountId = String(msg.accountId || '');
+                const max       = Number(msg.max) || 30;
+                if (!accountId) {
+                    panel.webview.postMessage({ type: 'cbe-email-inbox', ok: false, error: 'no accountId' });
+                    return;
+                }
+                const res = await fetchEmailInbox(context, accountId, { max });
+                panel.webview.postMessage({ type: 'cbe-email-inbox', ...res });
+                return;
+            }
+            if (msg.type === 'cbe-email-add-account') {
+                await vscode.commands.executeCommand('codexBlackEd.email.addAccount');
+                sendAccounts();
+                return;
+            }
+            if (msg.type === 'cbe-email-open-link') {
+                const url = String(msg.url || '');
+                if (!url) return;
+                try { await vscode.env.openExternal(vscode.Uri.parse(url)); }
+                catch (e) { traceErr('cbe-email-open-link', e); }
+                return;
+            }
+            if (msg.type === 'cbe-email-remove-account') {
+                const accountId = String(msg.accountId || '');
+                if (!accountId) return;
+                const confirm = await vscode.window.showWarningMessage(
+                    `Remove this email account? Stored app-password will be deleted.`,
+                    { modal: true }, 'Remove'
+                );
+                if (confirm !== 'Remove') return;
+                await removeEmailAccount(context, accountId);
+                sendAccounts();
+                return;
+            }
+        } catch (e) {
+            traceErr('email panel msg', e);
+            panel.webview.postMessage({ type: 'cbe-email-error', error: String(e && e.message || e) });
+        }
+    });
 }
 
 async function loadVideoPlayerHtml(context, panel) {
@@ -1840,6 +2523,7 @@ async function _cleanStaleCBEVersions(context) {
     const fs = require('fs');
     const path = require('path');
     const os = require('os');
+    const cp = require('child_process');
 
     const ourId = String(context.extension?.id || '').toLowerCase();
     const ourPath = path.normalize(context.extensionPath).toLowerCase();
@@ -2142,6 +2826,228 @@ async function _ensurePrerequisites(context) {
     // installs actually took.
 }
 
+/* ── CLI control server ────────────────────────────────────────────────────
+   A tiny localhost-only HTTP server so the `cbe` CLI (cli/cbe.js) can drive
+   the SAME live extension the panel does — active provider, the in-memory
+   conversation, the auto-update push — instead of re-running cold logic in a
+   second process. Stateless actions (version, bridge TCP probe, git, native
+   save dialog) are done by the CLI itself and never touch this server.
+
+   Port 57838 — confirmed free; deliberately clear of claude-voice (57834 /
+   57835) and CBE's own ctrl/log ports (57835 / 57836 / 57837 / 57844). Bound
+   to 127.0.0.1 ONLY so nothing off-box can reach it. The server handle is
+   pushed onto context.subscriptions (and tracked in _cliServer) so VSCode
+   tears it down on deactivate — no leaked listener.
+
+   Routes (all POST JSON unless noted):
+     GET  /status               -> { ok, version, provider, model, convoLen, panelOpen }
+     POST /chat   {message}     -> streams the active provider's reply (NDJSON
+                                   lines: {type:'chunk',text} / {type:'tool',...}
+                                   / {type:'done'} / {type:'error',message}),
+                                   running bash/read_file tool calls headlessly.
+     POST /reset                -> clears the in-memory conversation
+     POST /update {push:true}   -> fires pushUpdateToServer (same as /push slash)
+     POST /sendFile {path}      -> stage a file into the conversation context
+   The CLI never calls reloadWindow or any host-restart command. */
+const CLI_CONTROL_PORT = 57838;
+let _cliServer = null;
+
+/* Headless chat: same dispatch as handleSendText() but with no webview panel.
+   Pushes the user turn onto the shared `conversation`, streams the active
+   provider, runs the # !exec and native tool_calls daisy-chain (executeToolCall
+   / executeNativeToolCall) exactly like the panel path, and invokes
+   onEvent({type,...}) for each chunk / tool step / completion. Returns the
+   fully-assembled assistant text. Throws on stream failure (the caller maps it
+   to an {type:'error'} NDJSON line). */
+async function cliHeadlessChat(context, text, onEvent) {
+    const emit = (ev) => { try { if (onEvent) onEvent(ev); } catch (_) {} };
+    const cleaned = String(text || '').trim();
+    if (!cleaned) throw new Error('empty message');
+
+    const providerId = getActiveProvider(context);
+    const model = getActiveModel(context, providerId);
+    const maxTokens = getMaxTokens();
+    const pInfo = PROVIDERS[providerId] || {};
+    if (!pInfo.bridge && !getProviderKey(context, providerId)) {
+        throw new Error(`${providerId}: no API key. Set one in the panel, config.ini [api_keys], or the provider env var.`);
+    }
+
+    conversation.push({ role: 'user', content: cleaned });
+    try { touchActiveAccount(context, providerId); } catch (_) {}
+    emit({ type: 'start', provider: providerId, model });
+
+    const projectFolder = context.workspaceState.get('codexBlackEd.projectFolder', '') || os.homedir();
+    const MAX_TOOL_ITERATIONS = 8;
+    let toolIterations = 0;
+    let finalText = '';
+
+    for (;;) {
+        let assembled = '';
+        let nativeToolCalls = null;
+        const onProgress = (step) => emit({ type: 'status', text: step });
+        for await (const delta of chatStream(context, providerId, model, conversation, maxTokens, onProgress)) {
+            if (delta && typeof delta === 'object' && Array.isArray(delta.__toolCalls)) {
+                nativeToolCalls = delta.__toolCalls;
+                continue;
+            }
+            assembled += delta;
+            emit({ type: 'chunk', text: String(delta) });
+        }
+
+        /* Native tool_calls daisy-chain (openai / grok / deepseek / anthropic). */
+        if (nativeToolCalls && nativeToolCalls.length && toolIterations < MAX_TOOL_ITERATIONS) {
+            toolIterations++;
+            conversation.push({ role: 'assistant', content: assembled || null, tool_calls: nativeToolCalls });
+            for (const tc of nativeToolCalls) {
+                const fname = (tc.function && tc.function.name) || '(unknown)';
+                emit({ type: 'tool', phase: 'start', name: fname });
+                let resultStr;
+                try { resultStr = await executeNativeToolCall(tc, { cwd: projectFolder, panel: null, context }); }
+                catch (e) { resultStr = `[executeNativeToolCall error: ${(e && e.message) || e}]`; }
+                emit({ type: 'tool', phase: 'done', name: fname, bytes: (resultStr || '').length });
+                conversation.push({ role: 'tool', tool_call_id: tc.id, content: String(resultStr || '') });
+            }
+            finalText = assembled;
+            continue;
+        }
+
+        conversation.push({ role: 'assistant', content: assembled });
+        finalText = assembled;
+
+        /* # !exec fenced-block tool calls. */
+        const calls = parseToolCalls(assembled);
+        if (!calls.length || toolIterations >= MAX_TOOL_ITERATIONS) break;
+        toolIterations++;
+        const resultParts = [];
+        for (const call of calls) {
+            emit({ type: 'tool', phase: 'start', name: `${call.lang}` });
+            const r = await executeToolCall(call, { cwd: projectFolder });
+            resultParts.push(formatToolResult(call, r));
+            emit({ type: 'tool', phase: 'done', name: `${call.lang}`, rc: r.rc, ms: r.durationMs });
+        }
+        conversation.push({ role: 'user', content: resultParts.join('\n\n') });
+    }
+
+    emit({ type: 'done', text: finalText });
+    return finalText;
+}
+
+function startCliControlServer(context) {
+    if (_cliServer) return _cliServer;
+    const http = require('http');
+    const pkgVersion = (() => {
+        try { return require(path.join(context.extensionPath, 'package.json')).version || ''; }
+        catch (e) { traceErr('CLI:version', e); return ''; }
+    })();
+
+    const readBody = (req) => new Promise((resolve) => {
+        let buf = '';
+        req.on('data', (c) => { buf += c.toString('utf8'); if (buf.length > 1024 * 1024) req.destroy(); });
+        req.on('end', () => { let j = {}; try { j = buf ? JSON.parse(buf) : {}; } catch (e) { j = { __parseError: e.message }; } resolve(j); });
+        req.on('error', () => resolve({}));
+    });
+    const sendJson = (res, code, obj) => {
+        const body = JSON.stringify(obj);
+        res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+        res.end(body);
+    };
+
+    /* Registered route table — key-walked, no if/elif ladder. Each handler is
+       async (req, res, body). GET /status is special-cased before the table. */
+    const ROUTES = {
+        '/reset': async (req, res) => {
+            conversation = [];
+            trace('CLI: conversation reset');
+            sendJson(res, 200, { ok: true, convoLen: 0 });
+        },
+        '/update': async (req, res) => {
+            try {
+                pushUpdateToServer(context);
+                sendJson(res, 200, { ok: true, message: 'push started — see logs/winscp_push_*.xml' });
+            } catch (e) {
+                traceErr('CLI:/update', e);
+                sendJson(res, 500, { ok: false, error: String((e && e.message) || e) });
+            }
+        },
+        '/sendFile': async (req, res, body) => {
+            const p = String(body.path || '').trim();
+            if (!p || !fs.existsSync(p)) { sendJson(res, 400, { ok: false, error: 'file not found: ' + p }); return; }
+            try {
+                const MAX = 200 * 1024;
+                const stat = fs.statSync(p);
+                const raw = fs.readFileSync(p);
+                const truncated = raw.length > MAX;
+                const txt = (truncated ? raw.slice(0, MAX) : raw).toString('utf8');
+                conversation.push({ role: 'user', content: `[attached file: ${path.basename(p)} (${stat.size} bytes)]\n\n${txt}${truncated ? '\n…[truncated at 200 KB]' : ''}` });
+                trace(`CLI: staged file ${p} (${stat.size}B) into conversation`);
+                sendJson(res, 200, { ok: true, name: path.basename(p), bytes: stat.size, truncated });
+            } catch (e) {
+                traceErr('CLI:/sendFile', e);
+                sendJson(res, 500, { ok: false, error: String((e && e.message) || e) });
+            }
+        },
+        '/chat': async (req, res, body) => {
+            const message = String(body.message || '').trim();
+            if (!message) { sendJson(res, 400, { ok: false, error: 'empty message' }); return; }
+            /* Stream NDJSON: one JSON object per line. The CLI parses each line
+               and prints chunk text live. */
+            res.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Transfer-Encoding': 'chunked' });
+            const writeLine = (obj) => { try { res.write(JSON.stringify(obj) + '\n'); } catch (_) {} };
+            try {
+                await cliHeadlessChat(context, message, writeLine);
+            } catch (e) {
+                traceErr('CLI:/chat', e);
+                writeLine({ type: 'error', message: String((e && e.message) || e) });
+            }
+            try { res.end(); } catch (_) {}
+        },
+    };
+
+    const server = http.createServer(async (req, res) => {
+        try {
+            if (req.method === 'GET' && req.url === '/status') {
+                const providerId = getActiveProvider(context);
+                sendJson(res, 200, {
+                    ok: true,
+                    version: pkgVersion,
+                    provider: providerId,
+                    providerLabel: (PROVIDERS[providerId] && PROVIDERS[providerId].label) || providerId,
+                    model: getActiveModel(context, providerId),
+                    convoLen: conversation.length,
+                    panelOpen: !!activePanel,
+                });
+                return;
+            }
+            const handler = ROUTES[req.url];
+            if (req.method === 'POST' && handler) {
+                const body = await readBody(req);
+                await handler(req, res, body);
+                return;
+            }
+            sendJson(res, 404, { ok: false, error: `no route ${req.method} ${req.url}` });
+        } catch (e) {
+            traceErr('CLI:server', e);
+            try { sendJson(res, 500, { ok: false, error: String((e && e.message) || e) }); } catch (_) {}
+        }
+    });
+
+    server.on('error', (e) => {
+        if (e && e.code === 'EADDRINUSE') {
+            trace(`CLI:server port ${CLI_CONTROL_PORT} already in use — another CBE window owns it; skipping.`);
+        } else {
+            traceErr('CLI:server listen', e);
+        }
+        _cliServer = null;
+    });
+    server.listen(CLI_CONTROL_PORT, '127.0.0.1', () => {
+        trace(`CLI:server listening on 127.0.0.1:${CLI_CONTROL_PORT}`);
+    });
+    _cliServer = server;
+    /* Dispose with the extension so the listener never leaks across reloads. */
+    context.subscriptions.push({ dispose() { try { server.close(); } catch (_) {} _cliServer = null; } });
+    return server;
+}
+
 /* ── Activation ───────────────────────────────────────────────────────── */
 
 async function activate(context) {
@@ -2183,11 +3089,37 @@ async function activate(context) {
     const endActivate = timeStep('activate()');
     trace('=== activate === extPath=' + context.extensionPath);
     trace('  log file: ' + path.join(context.extensionPath, 'debug.log'));
+    /* Load *.bridge extension files from extensions/ so users can drop in
+       new browser-bridge providers (DeepSeek etc.) without editing source.
+       Each .bridge XML registers a provider id, port, exe, and models. */
+    try {
+        const loaded = loadBridgeExtensions(context.extensionPath);
+        _bridgeExtensionsLoaded = loaded || [];
+        if (loaded.length) {
+            trace('BRIDGE_EXT:loaded count=' + loaded.length + ' ids=' + loaded.map(x => x.id).join(','));
+            loaded.forEach(b => trace('  BRIDGE_EXT:' + b.id + ' port=' + b.port + ' enabled=' + (b.enabled ? '1' : '0') + ' by=' + (b.author || '?') + ' file=' + b.file));
+        } else {
+            trace('BRIDGE_EXT:none');
+        }
+    } catch (e) {
+        traceErr('loadBridgeExtensions', e);
+    }
     const endSecrets = timeStep('refreshSecretsCache');
     await refreshSecretsCache(context);
     endSecrets();
     trace('  secretsCache populated: ' + Object.keys(secretsCache).filter(k => secretsCache[k]).join(',') || '(none)');
     trace('  activeProvider=' + getActiveProvider(context) + ' model=' + getActiveModel(context, getActiveProvider(context)));
+    /* One-shot seed of the user's known Gmail accounts. Gated by globalState
+       so it never re-runs. See seedDefaultAccounts() for the seeding plan. */
+    const endSeed = timeStep('  seedDefaultAccounts');
+    try { seedDefaultAccounts(context); }
+    catch (e) { console.warn('[CBE seed] top-level fail:', e); }
+    endSeed();
+
+    /* One-shot: seed an email account from config.ini [email] so the email
+       panel works out-of-box. Skipped after the first run via globalState. */
+    seedEmailAccountsFromConfigIni(context).catch(e =>
+        console.warn('[CBE email-seed] top-level fail:', e));
 
     const endStatusBar = timeStep('  createStatusBarItem');
     statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
@@ -2332,12 +3264,176 @@ async function activate(context) {
         vscode.commands.registerCommand('codexBlackEd.slash.license',  () => runSlashCommand(context, 'license')),
         vscode.commands.registerCommand('codexBlackEd.slash.push',     () => runSlashCommand(context, 'push')),
         vscode.commands.registerCommand('codexBlackEd.slash.switchAccounts', () => runSlashCommand(context, 'switchAccounts')),
+        /* /email → open the multi-account inbox panel. Direct passthrough
+           to codexBlackEd.openEmail (no panel-side runner needed). */
+        vscode.commands.registerCommand('codexBlackEd.slash.email', () =>
+            vscode.commands.executeCommand('codexBlackEd.openEmail')),
+        /* Email-client commands — small inbox-30 reader + send, multi-account.
+           These are the user-reachable surface for the helpers added in the
+           ── Email-client accounts ── block above. */
+        vscode.commands.registerCommand('codexBlackEd.email.addAccount', async () => {
+            try {
+                const provider = await vscode.window.showQuickPick(EMAIL_PROVIDERS, {
+                    title: 'Email provider', ignoreFocusOut: true,
+                });
+                if (!provider) return;
+                const email = (await vscode.window.showInputBox({
+                    title: 'Email address (the IMAP/SMTP login)',
+                    ignoreFocusOut: true, placeHolder: 'you@gmail.com',
+                }) || '').trim();
+                if (!email) return;
+                const password = (await vscode.window.showInputBox({
+                    title: `App password for ${email}`,
+                    prompt: 'For gmail/yahoo/outlook use an APP PASSWORD, not the account password.',
+                    password: true, ignoreFocusOut: true,
+                }) || '').trim();
+                if (!password) return;
+                const label = (await vscode.window.showInputBox({
+                    title: 'Optional label (e.g. "personal", "work")',
+                    ignoreFocusOut: true, value: email,
+                }) || '').trim();
+                const row = await addEmailAccount(context, { provider, email, password, label });
+                vscode.window.showInformationMessage(`Added email account: ${row.email} (${row.provider})`);
+            } catch (e) {
+                traceErr('email.addAccount', e);
+                vscode.window.showErrorMessage('Add email account failed: ' + (e.message || String(e)));
+            }
+        }),
+        vscode.commands.registerCommand('codexBlackEd.email.readInbox', async () => {
+            try {
+                const accounts = getEmailAccounts(context);
+                if (!accounts.length) {
+                    const pick = await vscode.window.showInformationMessage(
+                        'No email accounts configured. Add one now?', 'Add account');
+                    if (pick === 'Add account') vscode.commands.executeCommand('codexBlackEd.email.addAccount');
+                    return;
+                }
+                const acc = await vscode.window.showQuickPick(
+                    accounts.map(a => ({ label: a.label || a.email, description: `${a.provider} — ${a.email}`, id: a.id })),
+                    { title: 'Which inbox?', ignoreFocusOut: true });
+                if (!acc) return;
+                const out = vscode.window.createOutputChannel('CBE Email');
+                out.show(true);
+                out.appendLine(`Fetching inbox-30 for ${acc.description} …`);
+                const res = await fetchEmailInbox(context, acc.id, { max: 30 });
+                if (!res.ok) { out.appendLine(`ERROR: ${res.error}`); return; }
+                out.appendLine(`Got ${res.count} messages.\n`);
+                for (const m of (res.emails || [])) {
+                    out.appendLine(`──────────────────────────────────────────`);
+                    out.appendLine(`From:    ${m.from}`);
+                    out.appendLine(`Date:    ${m.date}`);
+                    out.appendLine(`Subject: ${m.subject}`);
+                    if (m.links && m.links.length) out.appendLine(`Links:   ${m.links.join(', ')}`);
+                    if (m.body_preview) {
+                        out.appendLine('');
+                        out.appendLine(m.body_preview);
+                    }
+                    out.appendLine('');
+                }
+            } catch (e) {
+                traceErr('email.readInbox', e);
+                vscode.window.showErrorMessage('Read inbox failed: ' + (e.message || String(e)));
+            }
+        }),
+        /* OAuth-token storage commands. Until the bridge-driven OAuth dance
+           is fully landed, the user (or a future agent) can paste a token
+           captured manually from claude.ai → DevTools → /switch flow. */
+        vscode.commands.registerCommand('codexBlackEd.oauth.storeToken', async () => {
+            try {
+                const providers = Object.keys(PROVIDERS).filter(id => !PROVIDERS[id].bridge);
+                const providerId = await vscode.window.showQuickPick(providers,
+                    { title: 'OAuth token: which provider?', ignoreFocusOut: true });
+                if (!providerId) return;
+                const accounts = getProviderAccounts(context, providerId);
+                if (!accounts.length) {
+                    vscode.window.showErrorMessage(`No accounts configured for ${providerId} — add one first.`);
+                    return;
+                }
+                const pick = await vscode.window.showQuickPick(
+                    accounts.map(a => ({ label: a.label || a.email || maskKey(a.apiKey), description: a.id, id: a.id })),
+                    { title: 'OAuth token: which account?', ignoreFocusOut: true });
+                if (!pick) return;
+                const raw = (await vscode.window.showInputBox({
+                    title: `OAuth token JSON for ${pick.label}`,
+                    prompt: 'Paste the JSON returned by tools/claude_oauth.py (access_token + refresh_token + expires_in).',
+                    password: true, ignoreFocusOut: true,
+                }) || '').trim();
+                if (!raw) return;
+                let parsed;
+                try { parsed = JSON.parse(raw); }
+                catch (e) { vscode.window.showErrorMessage('Not valid JSON: ' + e.message); return; }
+                await storeAccountOAuthToken(context, providerId, pick.id, parsed);
+                vscode.window.showInformationMessage(`Stored OAuth token for ${pick.label}.`);
+            } catch (e) {
+                traceErr('oauth.storeToken', e);
+                vscode.window.showErrorMessage('Store OAuth token failed: ' + (e.message || String(e)));
+            }
+        }),
+        vscode.commands.registerCommand('codexBlackEd.oauth.clearToken', async () => {
+            try {
+                const providers = Object.keys(PROVIDERS).filter(id => !PROVIDERS[id].bridge);
+                const providerId = await vscode.window.showQuickPick(providers,
+                    { title: 'Clear OAuth token: which provider?', ignoreFocusOut: true });
+                if (!providerId) return;
+                const accounts = getProviderAccounts(context, providerId);
+                const pick = await vscode.window.showQuickPick(
+                    accounts.map(a => ({ label: a.label || a.email || maskKey(a.apiKey), description: a.id, id: a.id })),
+                    { title: 'Clear OAuth token: which account?', ignoreFocusOut: true });
+                if (!pick) return;
+                await clearAccountOAuthToken(context, providerId, pick.id);
+                vscode.window.showInformationMessage(`Cleared OAuth token for ${pick.label}.`);
+            } catch (e) {
+                traceErr('oauth.clearToken', e);
+                vscode.window.showErrorMessage('Clear OAuth token failed: ' + (e.message || String(e)));
+            }
+        }),
+        vscode.commands.registerCommand('codexBlackEd.openEmail', () => {
+            try {
+                if (!_emailPanel) {
+                    _emailPanel = vscode.window.createWebviewPanel(
+                        'codexBlackEd.email',
+                        'Email — CBE',
+                        { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
+                        { enableScripts: true, retainContextWhenHidden: true }
+                    );
+                    loadEmailPanelHtml(context, _emailPanel).catch(e =>
+                        traceErr('loadEmailPanelHtml', e));
+                    _emailPanel.onDidDispose(() => { _emailPanel = null; });
+                } else {
+                    _emailPanel.reveal(vscode.ViewColumn.Active);
+                }
+            } catch (e) {
+                traceErr('openEmail command', e);
+                vscode.window.showErrorMessage('Failed to open Email panel: ' + (e.message || String(e)));
+            }
+        }),
+        vscode.commands.registerCommand('codexBlackEd.email.removeAccount', async () => {
+            try {
+                const accounts = getEmailAccounts(context);
+                if (!accounts.length) { vscode.window.showInformationMessage('No email accounts to remove.'); return; }
+                const acc = await vscode.window.showQuickPick(
+                    accounts.map(a => ({ label: a.label || a.email, description: `${a.provider} — ${a.email}`, id: a.id })),
+                    { title: 'Remove which account?', ignoreFocusOut: true });
+                if (!acc) return;
+                await removeEmailAccount(context, acc.id);
+                vscode.window.showInformationMessage(`Removed: ${acc.label}`);
+            } catch (e) {
+                traceErr('email.removeAccount', e);
+                vscode.window.showErrorMessage('Remove account failed: ' + (e.message || String(e)));
+            }
+        }),
         /* If the user closes our terminal, drop the reference so the next
            click on the Terminal button creates a fresh one in the right cwd. */
         vscode.window.onDidCloseTerminal((t) => { if (t === cbeTerm) cbeTerm = null; }),
         outChan,
     );
     endCmds(`(${25} commands)`);
+
+    /* Start the localhost CLI control server so the `cbe` command-line tool
+       can drive this live extension (chat / status / reset / push / sendFile).
+       Bound to 127.0.0.1:57838 only; disposed via context.subscriptions. */
+    try { startCliControlServer(context); }
+    catch (e) { traceErr('startCliControlServer', e); }
 
     /* Auto-update gate — respects BOTH our own toggle
        (codexBlackEd.autoUpdate.enabled) AND VS Code's global
@@ -2459,6 +3555,12 @@ async function activate(context) {
 
 function deactivate() {
     trace('=== deactivate ===');
+    /* Close the CLI control server explicitly. context.subscriptions already
+       disposes it, but doing it here too guarantees the 57838 listener is
+       released even if subscription teardown order changes. */
+    try {
+        if (_cliServer) { _cliServer.close(); _cliServer = null; trace('CLI:server closed on deactivate'); }
+    } catch (e) { traceErr('deactivate:cliServer', e); }
     try {
         if (__sttPrewarmProc) {
             __sttPrewarmProc.kill();
@@ -3463,6 +4565,20 @@ function buildSettingsPayload(context) {
     // is the merged English-fallback view for the active locale.
     const currentLang = _currentLanguageCode(context);
     const i18n = _i18nCache || loadLanguageFiles(context);
+    /* Bridge tool-call config — hydrate the panel's Settings → Tool calls
+       form. The panel only renders this section for bridge providers. */
+    let toolCall;
+    try {
+        const tc = loadToolCallConfig(context);
+        toolCall = {
+            mode: tc.mode,
+            maxSteps: tc.maxSteps,
+            allowlist: tc.allowlist,
+            timeoutS: Math.round(tc.timeoutMs / 1000),
+        };
+    } catch (_) {
+        toolCall = { mode: 'allowlist', maxSteps: 10, allowlist: TOOL_CALL_DEFAULT_ALLOWLIST.slice(), timeoutS: 60 };
+    }
     return {
         providers,
         active,
@@ -3472,34 +4588,66 @@ function buildSettingsPayload(context) {
         language: currentLang,
         languages: (i18n && i18n.meta) || [],
         strings: _languageStringsFor(context, currentLang),
+        toolCall,
     };
 }
 
 /* Build the accounts payload for a single provider, masked for the webview.
-   The webview NEVER receives raw apiKey values — only masked previews + the
-   account id (used by [Use]/[Disable]/[Delete]). disabled is computed live so
-   the UI can grey rate-limited rows. */
+   The webview NEVER receives raw apiKey / password values — only masked
+   previews + the account id (used by [Use]/[Disable]/[Delete]). disabled is
+   computed live so the UI can grey rate-limited rows.
+
+   The new `accountType` field tells the panel which Add-form fields to render:
+     'api_key'         — Direct-API providers (Anthropic/OpenAI/Grok/Gemini/
+                         DeepSeek/Azure). Add form = Label + API Key.
+     'email_password'  — Browser-bridge providers (claudeBridge/chatgptBridge/
+                         grokBridge/geminiBridge/copilotBridge/deepseekBridge).
+                         Add form = Label + Email + Password (drives the C++
+                         tray exe's browser session).
+     'none'            — Local-only (ollama / ollamaBridge). No Add UI; the
+                         panel shows a "no account needed" hint.
+   `bridge: true` STILL flags bridge providers for the legacy callers that
+   branched on it, but it no longer suppresses the account list — bridges
+   carry email_password accounts now. */
 function buildAccountsPayload(context, providerId) {
     const p = PROVIDERS[providerId] || {};
     const isBridge = !!p.bridge;
-    const accounts = isBridge ? [] : getProviderAccounts(context, providerId);
-    const active = getActiveAccount(context, providerId);
+    const accountType = defaultAccountType(providerId);
+    const hasAccounts = providerHasAccounts(providerId);
+    const accounts = hasAccounts ? getProviderAccounts(context, providerId) : [];
+    const active = hasAccounts ? getActiveAccount(context, providerId) : null;
     const activeId = active ? active.id : null;
     return {
         provider: providerId,
         providerLabel: p.label || providerId,
         bridge: isBridge,
+        accountType,        /* 'api_key' | 'email_password' | 'none' */
+        hasAccounts,        /* false only for ollama/ollamaBridge */
         activeId,
-        accounts: accounts.map(a => ({
-            id: a.id,
-            label: a.label,
-            maskedKey: maskKey(a.apiKey),
-            addedAt: a.addedAt,
-            lastUsedAt: a.lastUsedAt,
-            disabledUntil: a.disabledUntil,
-            disabled: _accountDisabled(a),
-            active: a.id === activeId,
-        })),
+        accounts: accounts.map(a => {
+            const type = a.type === 'email_password' ? 'email_password' : 'api_key';
+            const row = {
+                id: a.id,
+                type,
+                label: a.label,
+                addedAt: a.addedAt,
+                lastUsedAt: a.lastUsedAt,
+                disabledUntil: a.disabledUntil,
+                disabled: _accountDisabled(a),
+                active: a.id === activeId,
+            };
+            if (type === 'email_password') {
+                row.email = a.email || '';
+                row.maskedPassword = maskPassword(a.password);
+            } else {
+                /* api_key rows also carry the identity-tag email so the panel
+                   can show which gmail owns the key. May be empty string for
+                   legacy rows that have no associated gmail. */
+                row.email = a.email || '';
+                row.maskedKey = maskKey(a.apiKey);
+            }
+            return row;
+        }),
     };
 }
 
@@ -3720,9 +4868,13 @@ function bindPanel(context, panel) {
                        Each file is processed independently and posted back
                        as its own `attachFile` message so the panel renders
                        a chip per file (existing renderer iterates one chip
-                       per message). Oversized / unreadable files surface
-                       as info/error messages but don't block the rest of
-                       the batch. */
+                       per message). MIME-aware: text -> raw utf8, image ->
+                       base64 + dataUri (later wired into multimodal image_url),
+                       other binary -> base64 with explicit binary flag so the
+                       panel doesn't paste garbage chars into the outgoing
+                       prompt. Oversized / unreadable files surface as
+                       info/error messages but don't block the rest of the
+                       batch. */
                     const picked = await vscode.window.showOpenDialog({
                         canSelectFiles: true,
                         canSelectFolders: false,
@@ -3739,28 +4891,40 @@ function bindPanel(context, panel) {
                                 continue;
                             }
                             const buf = fs.readFileSync(fp);
-                            /* Cheap binary detector — if more than 1% of the bytes
-                               are zeros or high-ASCII control bytes, treat as binary. */
-                            let bin = 0;
-                            for (let i = 0; i < buf.length && i < 4096; i++) {
-                                const c = buf[i];
-                                if (c === 0 || (c < 9) || (c > 13 && c < 32)) bin++;
+                            const mime = _sniffMime(fp);
+                            let kind = _classifyFile(mime);
+                            /* If MIME said text but the file looks binary,
+                               override to binary. This catches mislabeled .txt
+                               files that are actually binary blobs. */
+                            if (kind === 'text') {
+                                let bin = 0;
+                                for (let i = 0; i < buf.length && i < 4096; i++) {
+                                    const c = buf[i];
+                                    if (c === 0 || (c < 9) || (c > 13 && c < 32)) bin++;
+                                }
+                                const looksBinary = bin > Math.max(2, Math.min(40, buf.length / 100));
+                                if (looksBinary) kind = 'binary';
                             }
-                            const isBinary = bin > Math.max(2, Math.min(40, buf.length / 100));
-                            let text;
-                            if (isBinary) {
-                                text = `(binary file, ${stat.size} bytes — content omitted)`;
-                            } else {
-                                text = buf.toString('utf8');
-                            }
-                            panel.webview.postMessage({
+                            const payload = {
                                 type: 'attachFile',
                                 name: path.basename(fp),
                                 path: fp,
                                 ext: path.extname(fp).replace(/^\./, ''),
-                                text,
+                                mime,
+                                kind,
                                 bytes: stat.size,
-                            });
+                            };
+                            if (kind === 'text') {
+                                payload.text = buf.toString('utf8');
+                            } else if (kind === 'image') {
+                                payload.base64 = buf.toString('base64');
+                                payload.dataUri = `data:${mime};base64,${payload.base64}`;
+                                payload.text = `(image ${path.basename(fp)}, ${mime}, ${stat.size} bytes)`;
+                            } else {
+                                payload.base64 = buf.toString('base64');
+                                payload.text = `(binary file ${path.basename(fp)}, ${mime}, ${stat.size} bytes)`;
+                            }
+                            panel.webview.postMessage(payload);
                         } catch (e) {
                             traceErr('attachFile', e);
                             panel.webview.postMessage({ type: 'error', message: `attach ${path.basename(fp)}: ${e.message || e}` });
@@ -3803,6 +4967,31 @@ function bindPanel(context, panel) {
                 case 'openChatHistory':
                     await openChatHistory(context);
                     break;
+                case 'openEmail':
+                    await vscode.commands.executeCommand('codexBlackEd.openEmail');
+                    break;
+                /* /switch (account) — delegate to the real Claude Code extension's
+                   logout command so the user lands in Claude Code's official
+                   re-login flow, NOT CBE's local Accounts modal. User asked:
+                   "/switch account is opening the settings modal in the
+                   extension but it needs to use the same code Claude Code uses".
+                   Per [[feedback-never-touch-anthropic-dir]] we never modify
+                   Claude Code's source — we just invoke its published command. */
+                case 'claudeCodeSwitchAccount':
+                    try {
+                        await vscode.commands.executeCommand('claude-vscode.logout');
+                        // Then bring Claude Code's sidebar forward so the user
+                        // sees the new-login prompt without hunting for it.
+                        try { await vscode.commands.executeCommand('claude-vscode.sidebar.open'); }
+                        catch (_) { /* sidebar.open may be unregistered on older builds */ }
+                    } catch (e) {
+                        traceErr('claudeCodeSwitchAccount', e);
+                        vscode.window.showErrorMessage(
+                            'CBE could not invoke Claude Code’s logout command. ' +
+                            'Make sure the Anthropic Claude Code extension is installed and enabled.'
+                        );
+                    }
+                    break;
                 case 'logChatTurn':
                     logChatTurn(context, msg.role || 'USER', msg.text || '');
                     break;
@@ -3838,17 +5027,38 @@ function bindPanel(context, panel) {
                     break;
                 }
                 case 'sendText':
-                    await handleSendText(context, panel, msg.text || '');
+                    await handleSendText(context, panel, msg.text || '', Array.isArray(msg.images) ? msg.images : null);
                     break;
                 case 'cancelInFlight':
                     /* Stop button. The panel posts this when the user clicks
-                       #stopBtn (panel.js:765). We set a flag the streaming loop
-                       in handleSendText checks each iteration, then break out
-                       and post assistantDone so the UI clears. The bridge
-                       subprocess may keep running to completion — we just stop
-                       consuming its output, which is what the user sees. */
+                       #stopBtn (panel.js:770). We set a flag the streaming
+                       loop in handleSendText checks each iteration, then break
+                       out and post assistantDone so the UI clears.
+
+                       BUT — if the active provider is a browser bridge, the
+                       async iterator is blocked on a network read inside
+                       streamBridge, NOT on the per-chunk JS loop. Flipping
+                       __cbeCancel alone wouldn't actually unblock it. So we
+                       ALSO destroy the in-flight socket (published on
+                       context.__cbeActiveBridgeSocket by streamBridge), which
+                       makes the awaited promise reject with a "stopped" error.
+                       That falls into handleSendText's catch block, which
+                       posts the error message AND clears setBusy on the panel
+                       — the teardown the user actually wants. */
                     panel.__cbeCancel = true;
+                    try {
+                        const _sock = context && context.__cbeActiveBridgeSocket;
+                        if (_sock && !_sock.destroyed) {
+                            _sock.destroy(new Error('stopped by user'));
+                        }
+                        if (context) context.__cbeActiveBridgeSocket = null;
+                    } catch (_e) { /* swallow — best-effort */ }
                     panel.webview.postMessage({ type: 'info', text: 'Stopped.' });
+                    /* Force a teardown signal in case the stream loop is
+                       blocked somewhere the cancel flag won't reach. The
+                       panel's 'cancelled' handler clears setBusy and marks
+                       the partial bubble. */
+                    panel.webview.postMessage({ type: 'cancelled' });
                     break;
                 case 'reset':
                     conversation = [];
@@ -4008,7 +5218,60 @@ function bindPanel(context, panel) {
                             })
                             .catch((e) => traceErr('OLLAMA:PROVIDER-SWITCH', e));
                     }
+                    /* Bridge tool-call settings (Settings → Tool calls). The
+                       panel ships these alongside provider/model/skin. Stored
+                       in config.ini [bridge] so they survive reinstall and
+                       can be edited manually. Empty values keep the current
+                       config (the panel only sends them when the user touched
+                       the section). */
+                    if (msg.toolCall && typeof msg.toolCall === 'object') {
+                        try {
+                            const patch = {};
+                            const tc = msg.toolCall;
+                            if (typeof tc.mode === 'string') {
+                                const m = tc.mode.toLowerCase();
+                                if (['off', 'allowlist', 'confirm', 'auto'].includes(m)) {
+                                    patch['bridge.tool_call_mode'] = m;
+                                }
+                            }
+                            if (typeof tc.maxSteps === 'number' && tc.maxSteps > 0) {
+                                patch['bridge.tool_call_max_steps'] = String(Math.max(1, Math.min(50, Math.floor(tc.maxSteps))));
+                            }
+                            if (Array.isArray(tc.allowlist)) {
+                                const cleaned = tc.allowlist.map(s => String(s).trim()).filter(Boolean);
+                                patch['bridge.tool_call_allowlist'] = cleaned.join('|');
+                            }
+                            if (typeof tc.timeoutS === 'number' && tc.timeoutS > 0) {
+                                patch['bridge.tool_call_timeout_s'] = String(Math.max(1, Math.min(600, Math.floor(tc.timeoutS))));
+                            }
+                            if (Object.keys(patch).length) {
+                                writeConfigPatch(path.join(context.extensionPath, 'config.ini'), patch);
+                                try { Config.invalidate(); } catch (_) {}
+                                trace(`tool-call config patched: ${Object.keys(patch).join(', ')}`);
+                            }
+                        } catch (e) {
+                            traceErr('save tool-call config', e);
+                        }
+                    }
                     break;
+                /* ── Bridge tool-call confirmation response ───────────────
+                   awaitToolConfirm() in the bridge loose-tool-call path
+                   posts a `toolConfirm` request and stores a resolver on
+                   panel.__cbeToolConfirmResolvers[id]. The panel's UI
+                   answers with `toolConfirmResponse { id, allow }`. */
+                case 'toolConfirmResponse': {
+                    try {
+                        const id = msg.id;
+                        const allow = !!msg.allow;
+                        const resolvers = panel.__cbeToolConfirmResolvers || {};
+                        const r = resolvers[id];
+                        if (r) {
+                            delete resolvers[id];
+                            r(allow);
+                        }
+                    } catch (e) { traceErr('toolConfirmResponse', e); }
+                    break;
+                }
                 /* ── Multi-account management ──────────────────────────────
                    The panel's Settings → Accounts UI drives these. Every
                    reply ships a fresh masked accountsState so the list
@@ -4025,35 +5288,92 @@ function bindPanel(context, panel) {
                 case 'addAccount': {
                     const pid = PROVIDERS[msg.provider] ? msg.provider : getActiveProvider(context);
                     const p = PROVIDERS[pid] || {};
-                    if (p.bridge) {
-                        panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'Bridge providers authenticate in the browser — no API key to add.' });
+                    /* Reject providers with no account concept (Ollama). */
+                    if (!providerHasAccounts(pid)) {
+                        panel.webview.postMessage({ type: 'accountError', provider: pid, message: `${p.label || pid} is local — no account needed.` });
                         break;
                     }
-                    const key = String(msg.apiKey || '').trim();
-                    const shape = validateKeyShape(pid, key);
-                    if (!shape.ok) {
-                        panel.webview.postMessage({ type: 'accountError', provider: pid, message: `Invalid key: ${shape.reason}.` });
-                        break;
-                    }
+                    /* Decide which account type this provider expects. Caller
+                       MAY pass an explicit `accountType` for future toggles, but
+                       today we always derive it from the provider. */
+                    const wantType = msg.accountType === 'email_password' || msg.accountType === 'api_key'
+                        ? msg.accountType
+                        : defaultAccountType(pid);
                     const accounts = getProviderAccounts(context, pid);
-                    if (accounts.some(a => a.apiKey === key)) {
-                        panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'That key is already in the list.' });
-                        break;
+                    const label = String(msg.label || '').trim();
+                    let acc;
+                    if (wantType === 'email_password') {
+                        if (!p.bridge) {
+                            panel.webview.postMessage({ type: 'accountError', provider: pid, message: `${p.label || pid} doesn't take an email+password — use an API key.` });
+                            break;
+                        }
+                        const email = String(msg.email || '').trim();
+                        const password = String(msg.password || '');
+                        const shape = validateLoginShape(email, password);
+                        if (!shape.ok) {
+                            panel.webview.postMessage({ type: 'accountError', provider: pid, message: `Invalid login: ${shape.reason}.` });
+                            break;
+                        }
+                        if (accounts.some(a => (a.type || 'api_key') === 'email_password' && a.email && a.email.toLowerCase() === email.toLowerCase())) {
+                            panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'That email is already in the list for this provider.' });
+                            break;
+                        }
+                        acc = {
+                            id: _newAccountId(),
+                            type: 'email_password',
+                            label: label || email || `account ${accounts.length + 1}`,
+                            email,
+                            password,
+                            addedAt: new Date().toISOString(),
+                            lastUsedAt: null,
+                            disabledUntil: null,
+                        };
+                    } else {
+                        if (p.bridge) {
+                            panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'Bridge providers authenticate in the browser — use email+password, not an API key.' });
+                            break;
+                        }
+                        const key = String(msg.apiKey || '').trim();
+                        const shape = validateKeyShape(pid, key);
+                        if (!shape.ok) {
+                            panel.webview.postMessage({ type: 'accountError', provider: pid, message: `Invalid key: ${shape.reason}.` });
+                            break;
+                        }
+                        if (accounts.some(a => (a.type || 'api_key') === 'api_key' && a.apiKey === key)) {
+                            panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'That key is already in the list.' });
+                            break;
+                        }
+                        /* api_key rows may carry an optional identity-tag
+                           email (the gmail that owns this key). Empty is fine. */
+                        const tagEmailRaw = String(msg.email || '').trim();
+                        let tagEmail = null;
+                        if (tagEmailRaw) {
+                            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(tagEmailRaw)) {
+                                panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'Email looks invalid.' });
+                                break;
+                            }
+                            tagEmail = tagEmailRaw;
+                        }
+                        acc = {
+                            id: _newAccountId(),
+                            type: 'api_key',
+                            label: label || `account ${accounts.length + 1}`,
+                            email: tagEmail,
+                            apiKey: key,
+                            addedAt: new Date().toISOString(),
+                            lastUsedAt: null,
+                            disabledUntil: null,
+                        };
                     }
-                    const label = String(msg.label || '').trim() || `account ${accounts.length + 1}`;
-                    const acc = {
-                        id: _newAccountId(),
-                        label,
-                        apiKey: key,
-                        addedAt: new Date().toISOString(),
-                        lastUsedAt: null,
-                        disabledUntil: null,
-                    };
                     accounts.push(acc);
                     setProviderAccounts(context, pid, accounts);
                     /* First account added becomes active automatically. */
                     if (accounts.length === 1) await setActiveAccount(context, pid, acc.id);
-                    trace(`ACCOUNTS:ADD provider=${pid} label=${label} key=${maskKey(key)} total=${accounts.length}`);
+                    if (acc.type === 'email_password') {
+                        trace(`ACCOUNTS:ADD provider=${pid} type=email_password label=${acc.label} email=${acc.email} total=${accounts.length}`);
+                    } else {
+                        trace(`ACCOUNTS:ADD provider=${pid} type=api_key label=${acc.label} key=${maskKey(acc.apiKey)} total=${accounts.length}`);
+                    }
                     panel.webview.postMessage({ type: 'accountsState', ...buildAccountsPayload(context, pid) });
                     /* Refresh the provider settings payload too (haveKey may flip). */
                     panel.webview.postMessage({ type: 'init', ...buildSettingsPayload(context) });
@@ -4115,15 +5435,16 @@ function bindPanel(context, panel) {
                     panel.webview.postMessage({ type: 'init', ...buildSettingsPayload(context) });
                     break;
                 }
-                /* Edit an existing account's label and/or key in place. Either
-                   field is optional; a new key is shape-validated and de-duped.
-                   NEVER log the raw key — only maskKey(). The webview drives this
-                   from the standalone Accounts modal's inline-edit row. */
+                /* Edit an existing account's label and/or credentials in place.
+                   Every field is optional; api_key accounts can edit label + key,
+                   email_password accounts can edit label + email + password. New
+                   creds are shape-validated and de-duped against the rest of the
+                   provider's account list. NEVER log raw secrets — mask first. */
                 case 'editAccount': {
                     const pid = PROVIDERS[msg.provider] ? msg.provider : getActiveProvider(context);
                     const p = PROVIDERS[pid] || {};
-                    if (p.bridge) {
-                        panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'Bridge providers have no API key to edit.' });
+                    if (!providerHasAccounts(pid)) {
+                        panel.webview.postMessage({ type: 'accountError', provider: pid, message: `${p.label || pid} is local — no account to edit.` });
                         break;
                     }
                     const accounts = getProviderAccounts(context, pid);
@@ -4132,30 +5453,75 @@ function bindPanel(context, panel) {
                         panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'Account not found.' });
                         break;
                     }
-                    const hasLabel = Object.prototype.hasOwnProperty.call(msg, 'label') && String(msg.label || '').trim() !== '';
-                    const hasKey   = Object.prototype.hasOwnProperty.call(msg, 'apiKey') && String(msg.apiKey || '').trim() !== '';
-                    if (!hasLabel && !hasKey) {
-                        panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'Nothing to change — enter a new label or key.' });
+                    const targetType = target.type === 'email_password' ? 'email_password' : 'api_key';
+                    const hasLabel    = Object.prototype.hasOwnProperty.call(msg, 'label')    && String(msg.label    || '').trim() !== '';
+                    const hasKey      = Object.prototype.hasOwnProperty.call(msg, 'apiKey')   && String(msg.apiKey   || '').trim() !== '';
+                    const hasEmail    = Object.prototype.hasOwnProperty.call(msg, 'email')    && String(msg.email    || '').trim() !== '';
+                    const hasPassword = Object.prototype.hasOwnProperty.call(msg, 'password') && String(msg.password || '')        !== '';
+                    if (!hasLabel && !hasKey && !hasEmail && !hasPassword) {
+                        panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'Nothing to change.' });
                         break;
                     }
-                    if (hasKey) {
-                        const newKey = String(msg.apiKey).trim();
-                        const shape = validateKeyShape(pid, newKey);
-                        if (!shape.ok) {
-                            panel.webview.postMessage({ type: 'accountError', provider: pid, message: `Invalid key: ${shape.reason}.` });
+                    if (targetType === 'email_password') {
+                        if (hasKey) {
+                            panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'This account uses an email+password — editing the API key is not applicable.' });
                             break;
                         }
-                        if (accounts.some(a => a.id !== target.id && a.apiKey === newKey)) {
-                            panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'That key is already in the list.' });
+                        const newEmail = hasEmail ? String(msg.email).trim() : target.email;
+                        const newPw    = hasPassword ? String(msg.password) : target.password;
+                        if (hasEmail || hasPassword) {
+                            const shape = validateLoginShape(newEmail, newPw);
+                            if (!shape.ok) {
+                                panel.webview.postMessage({ type: 'accountError', provider: pid, message: `Invalid login: ${shape.reason}.` });
+                                break;
+                            }
+                        }
+                        if (hasEmail && accounts.some(a => a.id !== target.id && (a.type || 'api_key') === 'email_password' && (a.email || '').toLowerCase() === newEmail.toLowerCase())) {
+                            panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'That email is already in the list for this provider.' });
                             break;
                         }
-                        target.apiKey = newKey;
-                        /* A key change invalidates a cached SDK client bound to it. */
-                        if (anthropicClient && pid === 'anthropic') anthropicClient = null;
+                        if (hasEmail) target.email = newEmail;
+                        if (hasPassword) target.password = newPw;
+                    } else {
+                        /* api_key rows accept an `email` edit (identity tag,
+                           not a credential) and a `apiKey` edit. They REJECT
+                           `password` — there's no password on an api_key row. */
+                        if (hasPassword) {
+                            panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'This account uses an API key — editing the password is not applicable.' });
+                            break;
+                        }
+                        if (hasEmail) {
+                            const newEmail = String(msg.email).trim();
+                            /* Cheap shape check — empty was already filtered by hasEmail. */
+                            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+                                panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'Email looks invalid.' });
+                                break;
+                            }
+                            target.email = newEmail;
+                        }
+                        if (hasKey) {
+                            const newKey = String(msg.apiKey).trim();
+                            const shape = validateKeyShape(pid, newKey);
+                            if (!shape.ok) {
+                                panel.webview.postMessage({ type: 'accountError', provider: pid, message: `Invalid key: ${shape.reason}.` });
+                                break;
+                            }
+                            if (accounts.some(a => a.id !== target.id && (a.type || 'api_key') === 'api_key' && a.apiKey === newKey)) {
+                                panel.webview.postMessage({ type: 'accountError', provider: pid, message: 'That key is already in the list.' });
+                                break;
+                            }
+                            target.apiKey = newKey;
+                            /* A key change invalidates a cached SDK client bound to it. */
+                            if (anthropicClient && pid === 'anthropic') anthropicClient = null;
+                        }
                     }
                     if (hasLabel) target.label = String(msg.label).trim();
                     setProviderAccounts(context, pid, accounts);
-                    trace(`ACCOUNTS:EDIT provider=${pid} id=${target.id} label=${target.label} key=${maskKey(target.apiKey)} keyChanged=${hasKey}`);
+                    if (targetType === 'email_password') {
+                        trace(`ACCOUNTS:EDIT provider=${pid} id=${target.id} type=email_password label=${target.label} email=${target.email} pwChanged=${hasPassword}`);
+                    } else {
+                        trace(`ACCOUNTS:EDIT provider=${pid} id=${target.id} type=api_key label=${target.label} email=${target.email || '(none)'} key=${maskKey(target.apiKey)} keyChanged=${hasKey} emailChanged=${hasEmail}`);
+                    }
                     panel.webview.postMessage({ type: 'accountsState', ...buildAccountsPayload(context, pid) });
                     break;
                 }
@@ -4425,7 +5791,53 @@ function bindPanel(context, panel) {
                                     pinned: pinned.includes(id),
                                 });
                             }
-                            trace(`EXT:CATALOG:OK url=${catalogUrl} count=${items.length} installed=${installedMap.size} pinned=${pinned.length}`);
+                            /* Append .bridge entries (extensions/*.bridge) so the
+                               marketplace shows installable chat bridges next to
+                               regular .ext extensions. Each bridge becomes a card
+                               with type='bridge_chat' and an iconUri pointing at
+                               its local PNG resolved through panel.webview.asWebviewUri. */
+                            try {
+                                for (const b of (_bridgeExtensionsLoaded || [])) {
+                                    let iconUri = '';
+                                    if (b.iconFile) {
+                                        const abs = path.join(context.extensionPath, 'extensions', b.iconFile);
+                                        if (fs.existsSync(abs)) {
+                                            iconUri = panel.webview.asWebviewUri(vscode.Uri.file(abs)).toString();
+                                        }
+                                    }
+                                    items.push({
+                                        id: b.id,
+                                        name: b.name || b.id,
+                                        version: b.version || '',
+                                        author: b.author || '',
+                                        created: b.released || '',
+                                        md5: '',
+                                        bytes: 0,
+                                        minCore: '',
+                                        description: b.description || '',
+                                        fileUrl: '',
+                                        entry: '',
+                                        icon: '',
+                                        iconUri,
+                                        tags: ['bridge_chat'],
+                                        type: 'bridge_chat',
+                                        bridge: {
+                                            port: b.port,
+                                            exeName: b.exeName,
+                                            mainUrl: b.mainUrl,
+                                            loginUrl: b.loginUrl,
+                                            createAccountUrl: b.createAccountUrl,
+                                            models: b.models,
+                                            defaultModel: b.defaultModel,
+                                        },
+                                        installed: !!b.enabled,
+                                        installedEntry: '',
+                                        installedVer: b.version || '',
+                                        pinned: pinned.includes(b.id),
+                                    });
+                                }
+                            } catch (e) { traceErr('EXT:CATALOG:merge-bridges', e); }
+                            trace(`EXT:CATALOG:OK url=${catalogUrl} count=${items.length} installed=${installedMap.size} pinned=${pinned.length} bridges=${(_bridgeExtensionsLoaded || []).length}`);
                             panel.webview.postMessage({ type: 'extensionsCatalog', items });
                         } catch (e) {
                             traceErr('EXT:CATALOG:FAIL', e);
@@ -4829,6 +6241,15 @@ function bindPanel(context, panel) {
                     try { await vscode.commands.executeCommand('workbench.action.webview.openDeveloperTools'); }
                     catch (e) { traceErr('openDevTools', e); panel.webview.postMessage({ type: 'error', message: 'DevTools: ' + (e.message || e) }); }
                     break;
+                case 'claudeCodeSwitchAccount': {
+                    /* /switch, /switch account, /switch-accounts — show CBE's
+                       OWN rebranded auth picker (3 buttons: Claude.ai
+                       Subscription / Anthropic Console / Bedrock/Foundry/Vertex).
+                       Mirrors Claude Code's login screen but stays inside CBE
+                       per [[feedback-never-touch-anthropic-dir]]. */
+                    panel.webview.postMessage({ type: 'showAuthPicker' });
+                    break;
+                }
                 case 'showLicense': {
                     /* /license slash command — read LICENSE.TXT and stream
                        it into the chat as an info message. Full MIT terms
@@ -5441,7 +6862,111 @@ const NATIVE_TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        type: 'function',
+        function: {
+            name: 'write_file',
+            description: 'Write content to a file on disk. Creates parent dirs as needed. Refuses paths under VSCode extension dirs (anthropic.*). Returns {ok, path, bytes} on success.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Absolute or cwd-relative file path.' },
+                    content: { type: 'string', description: 'Content to write. If encoding is binary-base64, this is the base64-encoded body.' },
+                    mode: { type: 'string', enum: ['w', 'a', 'x'], description: 'w=overwrite (default), a=append, x=fail if file exists.' },
+                    encoding: { type: 'string', enum: ['utf-8', 'binary-base64'], description: 'utf-8 (default) or binary-base64 to decode the content arg as base64.' },
+                },
+                required: ['path', 'content'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'send_file',
+            description: 'Send a file from disk to the chat UI as a downloadable attachment bubble. The user sees a paperclip chip with a Download link. Use for outputs the user should grab (generated docs, transcripts, images, archives, etc.).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Absolute path to the file on disk.' },
+                    displayName: { type: 'string', description: 'Optional display name (defaults to basename).' },
+                    mime: { type: 'string', description: 'Optional MIME type (auto-detected from extension if omitted).' },
+                },
+                required: ['path'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'upload_file',
+            description: 'Upload a local file to OpenAI Files API. Returns a file_id you can reference in vision / Responses / Assistants calls. Use this when you need to attach a file (image, PDF, document) for a follow-up model call rather than echoing its bytes.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Absolute path to the file on disk.' },
+                    purpose: { type: 'string', enum: ['assistants', 'vision', 'batch', 'fine-tune', 'user_data'], description: 'OpenAI file purpose. Defaults to "user_data".' },
+                },
+                required: ['path'],
+            },
+        },
+    },
 ];
+
+/* MIME type sniffer from file extension. Conservative — anything not in
+   the table is application/octet-stream. Used by send_file + attachFile. */
+function _sniffMime(p) {
+    const ext = (path.extname(p) || '').toLowerCase().replace(/^\./, '');
+    const map = {
+        // text
+        txt: 'text/plain', md: 'text/markdown', json: 'application/json',
+        xml: 'application/xml', csv: 'text/csv', html: 'text/html',
+        htm: 'text/html', js: 'text/javascript', mjs: 'text/javascript',
+        ts: 'text/typescript', py: 'text/x-python', cs: 'text/x-csharp',
+        go: 'text/x-go', rs: 'text/x-rust', ini: 'text/plain',
+        yml: 'text/yaml', yaml: 'text/yaml', toml: 'text/x-toml',
+        cfg: 'text/plain', log: 'text/plain', sh: 'text/x-sh',
+        ps1: 'text/x-powershell', bat: 'text/x-bat', cmd: 'text/x-bat',
+        c: 'text/x-c', h: 'text/x-c', cpp: 'text/x-c++', hpp: 'text/x-c++',
+        // images
+        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+        bmp: 'image/bmp', ico: 'image/x-icon',
+        // docs/archives/media
+        pdf: 'application/pdf', zip: 'application/zip',
+        rar: 'application/vnd.rar', '7z': 'application/x-7z-compressed',
+        tar: 'application/x-tar', gz: 'application/gzip',
+        mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg',
+        mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
+    };
+    return map[ext] || 'application/octet-stream';
+}
+
+/* Classify a file as text / image / binary for the attachment pipeline.
+   image:* MIME -> image; text/* and select application/{json,xml} -> text;
+   everything else -> binary. Used by attachFile + send_file. */
+function _classifyFile(mime) {
+    if (!mime) return 'binary';
+    if (mime.startsWith('image/')) return 'image';
+    if (mime.startsWith('text/')) return 'text';
+    if (mime === 'application/json' || mime === 'application/xml') return 'text';
+    return 'binary';
+}
+
+/* Anthropic-extensions-dir guard: refuse any path that resolves under
+   <home>\.vscode\extensions\anthropic.* — these are owned by the official
+   Claude Code extension and per [[feedback_never_touch_anthropic_dir]]
+   must never be touched. Used by write_file. */
+function _isAnthropicPath(absPath) {
+    try {
+        const norm = path.resolve(absPath).toLowerCase();
+        const root = path.join(os.homedir(), '.vscode', 'extensions').toLowerCase();
+        if (!norm.startsWith(root)) return false;
+        const rest = norm.slice(root.length).replace(/^[\\/]+/, '');
+        return /^anthropic\./.test(rest);
+    } catch (e) {
+        return false;
+    }
+}
 
 /* Execute a native tool call (the OpenAI-compatible `tool_calls[]` shape).
    `tc.function.name` selects the handler; `tc.function.arguments` is a JSON
@@ -5479,6 +7004,112 @@ async function executeNativeToolCall(tc, opts = {}) {
             return JSON.stringify({ path: p, bytes: stat.size, truncated, content: text + (truncated ? '\n…[truncated at 50 KB]' : '') });
         } catch (e) {
             return JSON.stringify({ error: e.message || String(e), path: p });
+        }
+    }
+    if (name === 'write_file') {
+        const rawPath = String(args.path || '').trim();
+        if (!rawPath) return JSON.stringify({ ok: false, error: 'empty path' });
+        const content = args.content == null ? '' : String(args.content);
+        const mode = String(args.mode || 'w').toLowerCase();
+        const enc = String(args.encoding || 'utf-8').toLowerCase();
+        if (!['w', 'a', 'x'].includes(mode)) return JSON.stringify({ ok: false, error: `invalid mode: ${mode}` });
+        if (!['utf-8', 'utf8', 'binary-base64'].includes(enc)) return JSON.stringify({ ok: false, error: `invalid encoding: ${enc}` });
+        const baseDir = opts.cwd || os.homedir();
+        const absPath = path.isAbsolute(rawPath) ? path.resolve(rawPath) : path.resolve(baseDir, rawPath);
+        if (_isAnthropicPath(absPath)) {
+            return JSON.stringify({ ok: false, error: 'refused: anthropic dir is off-limits', path: absPath });
+        }
+        try {
+            const parent = path.dirname(absPath);
+            fs.mkdirSync(parent, { recursive: true });
+            if (mode === 'x' && fs.existsSync(absPath)) {
+                return JSON.stringify({ ok: false, error: 'file exists (mode=x)', path: absPath });
+            }
+            let buf;
+            if (enc === 'binary-base64') {
+                buf = Buffer.from(content, 'base64');
+            } else {
+                buf = Buffer.from(content, 'utf8');
+            }
+            const flag = mode === 'a' ? 'a' : 'w';
+            fs.writeFileSync(absPath, buf, { flag });
+            const stat = fs.statSync(absPath);
+            return JSON.stringify({ ok: true, path: absPath, bytes: stat.size });
+        } catch (e) {
+            return JSON.stringify({ ok: false, error: e.message || String(e), path: absPath });
+        }
+    }
+    if (name === 'send_file') {
+        const rawPath = String(args.path || '').trim();
+        if (!rawPath) return JSON.stringify({ ok: false, error: 'empty path' });
+        const baseDir = opts.cwd || os.homedir();
+        const absPath = path.isAbsolute(rawPath) ? path.resolve(rawPath) : path.resolve(baseDir, rawPath);
+        const displayName = String(args.displayName || path.basename(absPath));
+        const mime = String(args.mime || _sniffMime(absPath));
+        try {
+            const stat = fs.statSync(absPath);
+            if (!stat.isFile()) return JSON.stringify({ ok: false, error: 'not a file', path: absPath });
+            const panel = opts.panel || activePanel;
+            if (!panel) return JSON.stringify({ ok: false, error: 'no active panel to send to', path: absPath });
+            const THRESHOLD = 2 * 1024 * 1024;
+            const payload = {
+                type: 'fileDownload',
+                name: displayName,
+                mime,
+                bytes: stat.size,
+            };
+            let delivery;
+            if (stat.size < THRESHOLD) {
+                const buf = fs.readFileSync(absPath);
+                payload.dataUri = `data:${mime};base64,${buf.toString('base64')}`;
+                delivery = 'dataUri';
+            } else {
+                try {
+                    payload.uri = panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString();
+                    delivery = 'webviewUri';
+                } catch (e) {
+                    return JSON.stringify({ ok: false, error: 'asWebviewUri failed: ' + (e.message || e), path: absPath });
+                }
+            }
+            try {
+                panel.webview.postMessage(payload);
+            } catch (e) {
+                return JSON.stringify({ ok: false, error: 'postMessage failed: ' + (e.message || e), path: absPath });
+            }
+            return JSON.stringify({ ok: true, sent_to_chat: true, name: displayName, mime, bytes: stat.size, delivery });
+        } catch (e) {
+            return JSON.stringify({ ok: false, error: e.message || String(e), path: absPath });
+        }
+    }
+    if (name === 'upload_file') {
+        const rawPath = String(args.path || '').trim();
+        if (!rawPath) return JSON.stringify({ ok: false, error: 'empty path' });
+        const baseDir = opts.cwd || os.homedir();
+        const absPath = path.isAbsolute(rawPath) ? path.resolve(rawPath) : path.resolve(baseDir, rawPath);
+        if (_isAnthropicPath(absPath)) {
+            return JSON.stringify({ ok: false, error: 'refused: anthropic dir is off-limits', path: absPath });
+        }
+        const apiKey = opts.context ? getProviderKey(opts.context, 'openai') : (process.env.OPENAI_API_KEY || null);
+        if (!apiKey) return JSON.stringify({ ok: false, error: 'no openai key configured' });
+        try {
+            const stat = fs.statSync(absPath);
+            if (!stat.isFile()) return JSON.stringify({ ok: false, error: 'not a file', path: absPath });
+            const buf = fs.readFileSync(absPath);
+            const purpose = String(args.purpose || 'user_data');
+            const mime = _sniffMime(absPath);
+            const form = new FormData();
+            form.append('file', new Blob([buf], { type: mime }), path.basename(absPath));
+            form.append('purpose', purpose);
+            const res = await fetch('https://api.openai.com/v1/files', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${apiKey}` },
+                body: form,
+            });
+            const body = await res.json();
+            if (!res.ok) return JSON.stringify({ ok: false, error: body.error && body.error.message || `HTTP ${res.status}`, path: absPath });
+            return JSON.stringify({ ok: true, file_id: body.id, path: absPath, bytes: stat.size, mime, purpose });
+        } catch (e) {
+            return JSON.stringify({ ok: false, error: e.message || String(e), path: absPath });
         }
     }
     return JSON.stringify({ error: 'unknown tool: ' + name });
@@ -5692,15 +7323,32 @@ function _probeTcpPort(host, port, timeoutMs) {
    for the others, and a different on-the-wire shape than what the JS chat
    path posts. That was the routing-bug being fixed here.)
 
-   The tray exe takes its TCP port as its first command-line argument. */
-function _spawnBridge(target, exePath) {
+   The tray exe takes its TCP port as its first command-line argument.
+
+   credentials (optional): { email, password } from the active email_password
+   account for this bridge. When present we surface them to the tray exe via
+   environment variables (CBE_BRIDGE_EMAIL / CBE_BRIDGE_PASSWORD). The C++ tray
+   exes today don't read these — they expect the user to log in manually in the
+   QtWebEngine profile — but we plumb them through so the tray side can pick
+   them up once the login-handshake patch lands without an extension change.
+   TODO: bridge tray exes need a login-cred handshake to consume CBE_BRIDGE_*. */
+function _spawnBridge(target, exePath, credentials) {
     const cp = require('child_process');
     const port = BRIDGE_PORTS[target];
+    const env = Object.assign({}, process.env);
+    if (credentials && credentials.email) {
+        env.CBE_BRIDGE_EMAIL = String(credentials.email);
+        env.CBE_BRIDGE_PROVIDER = target;
+        /* Password may be empty for accounts mid-edit — still set the email so
+           the tray can pre-fill the login form even without auto-submit. */
+        if (credentials.password) env.CBE_BRIDGE_PASSWORD = String(credentials.password);
+    }
     const child = cp.spawn(exePath, [String(port)], {
         cwd: path.dirname(exePath),
         stdio: 'ignore',
         windowsHide: true,
         detached: true,
+        env,
     });
     child.on('error', (e) => trace(`BRIDGE:SPAWN error target=${target} ${e && e.message}`));
     child.on('exit', (code, signal) => {
@@ -5837,9 +7485,26 @@ async function ensureBridge(context, target, opts) {
         trace(`BRIDGE:MISSING target=${target} expected=${exePath}`);
         return { ok: false, reason: msg, exeMissing: true };
     }
-    /* 3. Spawn + wait. */
-    trace(`BRIDGE:SPAWN target=${target} exe=${exePath} port=${port}`);
-    const child = _spawnBridge(target, exePath);
+    /* 3. Spawn + wait. Resolve the active email_password account for this
+       bridge (if any) so the tray exe can pre-fill / auto-login. We find the
+       provider id by reverse-lookup on bridgeTarget; ollama has no creds. */
+    let credentials = null;
+    try {
+        if (target !== 'ollama') {
+            const providerId = Object.keys(PROVIDERS).find(k => PROVIDERS[k].bridge && PROVIDERS[k].bridgeTarget === target);
+            if (providerId) {
+                const active = getActiveAccount(context, providerId);
+                if (active && active.type === 'email_password' && active.email) {
+                    credentials = { email: active.email, password: active.password || '' };
+                    trace(`BRIDGE:CREDS target=${target} email=${credentials.email} pw=${maskPassword(credentials.password)}`);
+                }
+            }
+        }
+    } catch (e) {
+        traceErr('ensureBridge.resolveCreds', e);
+    }
+    trace(`BRIDGE:SPAWN target=${target} exe=${exePath} port=${port}${credentials ? ' withCreds=1' : ''}`);
+    const child = _spawnBridge(target, exePath, credentials);
     const ok = await _waitForPort('127.0.0.1', port, opts.timeoutMs || 8000);
     if (!ok) {
         trace(`BRIDGE:TIMEOUT target=${target} port=${port} pid=${child && child.pid} — exe spawned but never bound`);
@@ -6097,6 +7762,16 @@ async function* streamBridge(context, providerId, messages, onProgress) {
         throw e;
     }
 
+    /* Hard per-target socket idle timeout. The browser targets share a
+       90s upper bound with bridge_server.cpp's runChatScript timeout (it
+       TerminateProcess()es the Python child at 90s), so the panel-side
+       socket needs to be the SAME bound or a tiny bit larger, NOT 4x
+       larger. 240s left the Copilot bridge looking hung for 4 minutes
+       when the tray exe crashed mid-reply (Bug 1). Add a small grace
+       window above 90s so the tray gets a chance to write the
+       timed-out error JSON before we tear the socket down. */
+    const SOCKET_IDLE_TIMEOUT_MS = (target === 'ollama') ? 240000 : 95000;
+
     const answer = await new Promise((resolve, reject) => {
         /* Speak the C++ tray exe's newline-delimited JSON protocol directly.
            The exe's handleConnection() (bridge_server.cpp) sniffs the first
@@ -6126,29 +7801,84 @@ async function* streamBridge(context, providerId, messages, onProgress) {
             if (settled) return;
             settled = true;
             try { sock.destroy(); } catch (_) {}
+            /* Clear the cancel-handle so a stale reference doesn't fire
+               teardown twice when the next stream starts. */
+            if (context && context.__cbeActiveBridgeSocket === sock) {
+                context.__cbeActiveBridgeSocket = null;
+            }
             reject(err);
         };
-        sock.setTimeout(240000);
+        const succeed = (text) => {
+            if (settled) return;
+            settled = true;
+            try { sock.destroy(); } catch (_) {}
+            if (context && context.__cbeActiveBridgeSocket === sock) {
+                context.__cbeActiveBridgeSocket = null;
+            }
+            resolve(text);
+        };
+        /* Publish the socket so cancelInFlight can hard-kill the in-flight
+           wait. Without this, the Stop button only flips a flag the
+           async-iterator loop checks — but the iterator is blocked here
+           on the network read and never gets to re-check the flag. */
+        if (context) context.__cbeActiveBridgeSocket = sock;
+
+        sock.setTimeout(SOCKET_IDLE_TIMEOUT_MS);
         sock.on('connect', () => { sock.write(payload); });
+        /* Capture the raw bytes as UTF-8 explicitly. Buffer.toString('utf8')
+           is the default but stating it makes Bug 4 (magic-box replacement
+           chars) impossible to reintroduce by accident. */
         sock.on('data', (c) => { body += c.toString('utf8'); });
         sock.on('end', () => {
             if (settled) return;
             const line = body.split('\n').find(s => s.trim().length > 0) || '';
+            /* Bug 2 — strip JSON-breaking control chars before parsing. The
+               browser web-driver occasionally emits NULs / lone CRs inside
+               what should be a JSON string field, which made json.loads
+               throw "Invalid control character at: line 1 column 49". */
+            const cleaned = line.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
             let data = null;
-            try { data = JSON.parse(line); } catch (_) { /* fall through */ }
+            try { data = JSON.parse(cleaned); } catch (_) { /* fall through */ }
             if (data && data.ok && typeof data.answer === 'string') {
-                settled = true;
-                resolve(data.answer);
+                succeed(data.answer);
             } else {
                 const detail = (data && (data.error || data.err)) || line.slice(0, 300) || '(empty response)';
                 fail(new Error(`bridge ${target} chat failed: ${detail}`));
             }
         });
-        sock.on('timeout', () => fail(new Error(`bridge ${target} chat timed out after 240s`)));
-        sock.on('error', (e) => fail(new Error(
-            `bridge ${target} not reachable on port ${port} — ${e.message}. `
-            + `CBE auto-starts CBE-Bridge-${target}.exe; check bin/ for the exe and `
-            + `netstat -ano | findstr ${port}.`)));
+        sock.on('timeout', () => fail(new Error(
+            `bridge ${target} chat timed out after ${Math.round(SOCKET_IDLE_TIMEOUT_MS / 1000)}s — `
+            + `check bin/CBE-Bridge-${target[0].toUpperCase() + target.slice(1)}.exe is running `
+            + `and the target site is signed in. Try restarting the tray exe.`)));
+        sock.on('error', (e) => {
+            /* If we already settled (e.g., cancelInFlight destroyed the
+               socket), suppress the secondary ECONNRESET to avoid a
+               double-error. */
+            if (settled) return;
+            fail(new Error(
+                `bridge ${target} not reachable on port ${port} — ${e.message}. `
+                + `CBE auto-starts CBE-Bridge-${target}.exe; check bin/ for the exe and `
+                + `netstat -ano | findstr ${port}.`));
+        });
+        sock.on('close', () => {
+            /* If the C++ tray closes the socket WITHOUT writing a newline
+               (e.g., it crashed) the 'end' handler may never fire and the
+               panel is left hanging until SOCKET_IDLE_TIMEOUT_MS. Settle
+               here so the catch-block teardown runs immediately. */
+            if (settled) return;
+            if (body.trim().length > 0) {
+                // Re-route through the same parser path as 'end'.
+                const line = body.split('\n').find(s => s.trim().length > 0) || '';
+                const cleaned = line.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+                let data = null;
+                try { data = JSON.parse(cleaned); } catch (_) { /* fall through */ }
+                if (data && data.ok && typeof data.answer === 'string') {
+                    succeed(data.answer);
+                    return;
+                }
+            }
+            fail(new Error(`bridge ${target} disconnected before sending a reply`));
+        });
         try { sock.connect(port, '127.0.0.1'); } catch (e) { fail(e); }
     });
     if (answer) yield answer;
@@ -6190,6 +7920,27 @@ function _messagesToAnthropic(openAiMessages) {
                 blocks.push({ type: 'tool_use', id: tc.id, name: tc.function && tc.function.name, input: inp });
             }
             out.push({ role: 'assistant', content: blocks });
+            continue;
+        }
+        /* Multimodal user content: convert OpenAI image_url shape to
+           Anthropic's {type:'image', source:{type:'base64', media_type, data}} block. */
+        if (Array.isArray(m.content)) {
+            const blocks = [];
+            for (const part of m.content) {
+                if (!part || !part.type) continue;
+                if (part.type === 'text') {
+                    blocks.push({ type: 'text', text: String(part.text || '') });
+                } else if (part.type === 'image_url' && part.image_url && part.image_url.url) {
+                    const url = String(part.image_url.url);
+                    const dm = /^data:([^;]+);base64,(.+)$/.exec(url);
+                    if (dm) {
+                        blocks.push({ type: 'image', source: { type: 'base64', media_type: dm[1], data: dm[2] } });
+                    } else {
+                        blocks.push({ type: 'text', text: `[image url: ${url}]` });
+                    }
+                }
+            }
+            out.push({ role: m.role, content: blocks.length ? blocks : '' });
             continue;
         }
         out.push({ role: m.role, content: m.content || '' });
@@ -6394,7 +8145,276 @@ function classifyRateLimit(err) {
     return { isRateLimit, weekly, disableMs };
 }
 
-async function handleSendText(context, panel, text) {
+/* ── Image generation: real multi-provider image-gen ──────────────────────
+   Detect image-gen intent in the user message before dispatching to chat.
+   Text-only chat models hallucinate fake image URLs (e.g. Gemini Pro emitting
+   the famous `oaidalleapiprodscus.blob.core.windows.net` URL) — so we
+   intercept the prompt, route it to the active provider's real image-gen
+   endpoint, decode the base64 result, and render it inline in the panel.
+
+   Spec (2026):
+   - OpenAI: POST /v1/images/generations, model gpt-image-1, b64_json response.
+              DALL-E 3 was retired March 2026 — only gpt-image-1 ships now.
+              Default quality MUST be "low" per the user's hard rule
+              (see ~/.claude/.../feedback_image_gen_default_medium.md).
+   - Gemini: gemini-2.5-flash-image-preview:generateContent with image MIME,
+             base64 in candidates[0].content.parts[].inlineData.data.
+             Falls back to gemini-2.0-flash-exp on 404.
+   - xAI Grok: POST /v1/images/generations, model grok-2-image, b64_json.
+   - Anthropic / DeepSeek: no image-gen API — friendly message.
+   - Ollama: not v1 — friendly message.
+   - Browser bridges (chatgptBridge / claudeBridge / grokBridge etc.):
+     pass-through. The bridge's DOM driver handles image-gen natively via
+     the chat page's "generate image" button. */
+
+const IMAGE_INTENT_RE = /^(generate|make|create|draw|render)\s+(an?\s+)?(image|picture|photo|illustration|drawing)\s+(of\s+|showing\s+|with\s+)?(.+)/i;
+
+/* Detect image-gen intent. Returns { prompt, quality } or null. Slash form
+   `/image <prompt> [--quality low|medium|high]` always wins; the regex form
+   triggers on natural-language requests like "draw a goldfish". */
+function detectImageIntent(text) {
+    if (!text) return null;
+    const trimmed = text.trim();
+
+    /* Slash form: /image <prompt> [--quality X] */
+    if (/^\/image\s+/i.test(trimmed)) {
+        let body = trimmed.replace(/^\/image\s+/i, '');
+        let quality = 'low';
+        const qm = body.match(/\s*--quality\s+(low|medium|high)\s*$/i)
+                || body.match(/\s+--quality\s+(low|medium|high)\s+/i);
+        if (qm) {
+            quality = qm[1].toLowerCase();
+            body = body.replace(/\s*--quality\s+(low|medium|high)\s*/i, ' ').trim();
+        }
+        if (!body) return null;
+        return { prompt: body, quality };
+    }
+
+    /* Natural-language form. Capture group 5 is the actual subject. */
+    const m = trimmed.match(IMAGE_INTENT_RE);
+    if (m && m[5]) {
+        let body = m[5].trim();
+        let quality = 'low';
+        const qm = body.match(/\s*--quality\s+(low|medium|high)\s*$/i);
+        if (qm) {
+            quality = qm[1].toLowerCase();
+            body = body.replace(/\s*--quality\s+(low|medium|high)\s*$/i, '').trim();
+        }
+        if (!body) return null;
+        return { prompt: body, quality };
+    }
+
+    return null;
+}
+
+/* OpenAI image generation. gpt-image-1, b64_json format. */
+async function generateImageOpenAI(apiKey, prompt, quality) {
+    const body = {
+        model: 'gpt-image-1',
+        prompt,
+        n: 1,
+        size: '1024x1024',
+        quality: quality || 'low',
+        background: 'auto',
+    };
+    const res = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + apiKey,
+        },
+        body: JSON.stringify(body),
+    });
+    const txt = await res.text();
+    if (!res.ok) {
+        throw new Error(`HTTP ${res.status} ${res.statusText}: ${txt.slice(0, 400)}`);
+    }
+    let json;
+    try { json = JSON.parse(txt); } catch (e) {
+        throw new Error(`OpenAI: non-JSON response: ${txt.slice(0, 200)}`);
+    }
+    const b64 = json && json.data && json.data[0] && json.data[0].b64_json;
+    if (!b64) throw new Error(`OpenAI: no b64_json in response: ${txt.slice(0, 200)}`);
+    return { b64, mime: 'image/png' };
+}
+
+/* Gemini image generation. Tries 2.5-flash-image-preview first, falls back
+   to 2.0-flash-exp on 404. Base64 lives inside parts[].inlineData. */
+async function generateImageGemini(apiKey, prompt) {
+    const models = ['gemini-2.5-flash-image-preview', 'gemini-2.0-flash-exp'];
+    let lastErr = null;
+    for (const model of models) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const body = {
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: 'image/png' },
+        };
+        let res;
+        try {
+            res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+        } catch (e) {
+            lastErr = e;
+            continue;
+        }
+        const txt = await res.text();
+        if (res.status === 404) {
+            lastErr = new Error(`HTTP 404 ${res.statusText}: ${txt.slice(0, 200)}`);
+            continue;   /* try the fallback model */
+        }
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status} ${res.statusText}: ${txt.slice(0, 400)}`);
+        }
+        let json;
+        try { json = JSON.parse(txt); } catch (e) {
+            throw new Error(`Gemini: non-JSON response: ${txt.slice(0, 200)}`);
+        }
+        const cand = json && json.candidates && json.candidates[0];
+        const parts = cand && cand.content && cand.content.parts;
+        if (Array.isArray(parts)) {
+            for (const p of parts) {
+                if (p && p.inlineData && p.inlineData.data
+                    && /^image\//.test(String(p.inlineData.mimeType || ''))) {
+                    return { b64: p.inlineData.data, mime: p.inlineData.mimeType };
+                }
+            }
+        }
+        throw new Error(`Gemini: no inlineData image in response: ${txt.slice(0, 200)}`);
+    }
+    throw lastErr || new Error('Gemini: all image-gen models failed.');
+}
+
+/* xAI Grok image generation. grok-2-image, b64_json. */
+async function generateImageGrok(apiKey, prompt) {
+    const body = {
+        model: 'grok-2-image',
+        prompt,
+        n: 1,
+        response_format: 'b64_json',
+    };
+    const res = await fetch('https://api.x.ai/v1/images/generations', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + apiKey,
+        },
+        body: JSON.stringify(body),
+    });
+    const txt = await res.text();
+    if (!res.ok) {
+        throw new Error(`HTTP ${res.status} ${res.statusText}: ${txt.slice(0, 400)}`);
+    }
+    let json;
+    try { json = JSON.parse(txt); } catch (e) {
+        throw new Error(`Grok: non-JSON response: ${txt.slice(0, 200)}`);
+    }
+    const b64 = json && json.data && json.data[0] && json.data[0].b64_json;
+    if (!b64) throw new Error(`Grok: no b64_json in response: ${txt.slice(0, 200)}`);
+    return { b64, mime: 'image/png' };
+}
+
+/* Dispatcher. Returns true if the message was consumed by the image-gen
+   path (success OR friendly-error); false if we should fall through to chat. */
+async function tryHandleImageGeneration(context, panel, text) {
+    const intent = detectImageIntent(text);
+    if (!intent) return false;
+    const providerId = getActiveProvider(context);
+    const _info = PROVIDERS[providerId] || {};
+
+    /* Bridge providers handle image-gen natively via their browser DOM driver
+       (chatgpt.com's image button, etc.). Pass through to streamBridge as
+       a normal chat — the bridge already returns whatever the page produces,
+       including images. */
+    if (_info.bridge) return false;
+
+    /* Echo the user's typed line to the chat so they see what they sent,
+       then mark the assistant turn as starting (consistent with chat flow). */
+    panel.webview.postMessage({ type: 'info', text: `🖼 image-gen: "${intent.prompt}" via ${_info.label || providerId}` });
+    setStatus('streaming', true, providerId);
+
+    /* Providers with no image-gen API: render the friendly message inline
+       instead of silently falling back, so the user doesn't get surprised
+       by a chat-only reply. */
+    if (providerId === 'anthropic') {
+        panel.webview.postMessage({
+            type: 'imageError',
+            message: "Anthropic Claude doesn't have an image-generation endpoint. Switch to OpenAI / Gemini / xAI Grok for image gen.",
+        });
+        setStatus('idle', false, providerId);
+        return true;
+    }
+    if (providerId === 'deepseek') {
+        panel.webview.postMessage({
+            type: 'imageError',
+            message: "DeepSeek doesn't have an image-generation endpoint. Switch to OpenAI / Gemini / xAI Grok for image gen.",
+        });
+        setStatus('idle', false, providerId);
+        return true;
+    }
+    if (providerId === 'azure') {
+        panel.webview.postMessage({
+            type: 'imageError',
+            message: "Azure OpenAI image-gen isn't wired in this build. Use the OpenAI provider directly.",
+        });
+        setStatus('idle', false, providerId);
+        return true;
+    }
+
+    /* Real image-gen providers. */
+    const key = getProviderKey(context, providerId);
+    if (!key) {
+        panel.webview.postMessage({
+            type: 'imageError',
+            message: `${_info.label || providerId}: API key required for image gen. Set one in config.ini [api_keys] or via Set API Key.`,
+        });
+        setStatus('error', false, providerId);
+        return true;
+    }
+
+    try {
+        let out;
+        if (providerId === 'openai') {
+            out = await generateImageOpenAI(key, intent.prompt, intent.quality);
+        } else if (providerId === 'gemini') {
+            out = await generateImageGemini(key, intent.prompt);
+        } else if (providerId === 'grok') {
+            out = await generateImageGrok(key, intent.prompt);
+        } else {
+            /* Local / Ollama / anything we didn't special-case above. */
+            panel.webview.postMessage({
+                type: 'imageError',
+                message: "Local models need ComfyUI or SD wired separately. Switch to OpenAI / Gemini / xAI Grok for image gen.",
+            });
+            setStatus('idle', false, providerId);
+            return true;
+        }
+        trace(`image-gen ok provider=${providerId} prompt="${intent.prompt.slice(0, 60)}" bytes=${out.b64.length}`);
+        panel.webview.postMessage({
+            type: 'imageResult',
+            provider: providerId,
+            providerLabel: _info.label || providerId,
+            prompt: intent.prompt,
+            quality: intent.quality,
+            mime: out.mime || 'image/png',
+            b64: out.b64,
+        });
+        setStatus('idle', false, providerId);
+    } catch (e) {
+        traceErr(`image-gen failed (provider=${providerId})`, e);
+        const msg = String((e && e.message) || e || 'unknown error');
+        panel.webview.postMessage({
+            type: 'imageError',
+            message: `${_info.label || providerId}: image-gen failed — ${msg}`,
+        });
+        setStatus('error', false, providerId);
+    }
+    return true;
+}
+
+async function handleSendText(context, panel, text, images) {
     /* Capture retry markers off the (possibly boxed-String) argument BEFORE
        trimming coerces it to a primitive and drops them. __cbeRotateCount
        counts rate-limit rotations this turn; __cbeAuthRetry guards the
@@ -6402,7 +8422,7 @@ async function handleSendText(context, panel, text) {
     const _rotateCount = (text && typeof text === 'object' && Number(text.__cbeRotateCount)) || 0;
     const _authRetried = !!(text && typeof text === 'object' && text.__cbeAuthRetry);
     text = (text || '').trim();
-    if (!text) return;
+    if (!text && !(images && images.length)) return;
 
     const providerId = getActiveProvider(context);
     const model = getActiveModel(context, providerId);
@@ -6421,7 +8441,34 @@ async function handleSendText(context, panel, text) {
         panel.webview.postMessage({ type: 'info', text: `${PROVIDERS[providerId].label} key stored.` });
     }
 
-    conversation.push({ role: 'user', content: text });
+    /* Image-gen intercept. If the user's text reads as an image-gen request
+       (slash `/image ...` or NL like "draw a goldfish"), route to the active
+       provider's real image-gen endpoint instead of streaming chat — chat-only
+       models hallucinate fake image URLs otherwise. Bridge providers fall
+       through (their browser driver handles images natively). */
+    if (!images || !images.length) {
+        const handled = await tryHandleImageGeneration(context, panel, text);
+        if (handled) return;
+    }
+
+    /* Multimodal: if the panel sent images alongside text, build an
+       OpenAI-shape content array. Vision-capable OpenAI-compatible
+       providers (gpt-4o, gpt-4-vision, grok-vision) consume this natively.
+       Anthropic + Gemini + bridges fall back to text-only on their own
+       conversion paths — _messagesToAnthropic will pass content[] through
+       and the SDK will reject non-text blocks gracefully. */
+    if (images && images.length) {
+        const parts = [];
+        if (text) parts.push({ type: 'text', text });
+        for (const img of images) {
+            if (img && img.dataUri) {
+                parts.push({ type: 'image_url', image_url: { url: img.dataUri } });
+            }
+        }
+        conversation.push({ role: 'user', content: parts });
+    } else {
+        conversation.push({ role: 'user', content: text });
+    }
 
     /* Stamp the active account's lastUsedAt so the Accounts UI shows which
        account is doing the work. Fire-and-forget; never blocks the send. */
@@ -6492,7 +8539,7 @@ async function handleSendText(context, panel, text) {
                     panel.webview.postMessage({ type: 'info', text: `▶ native-tool ${fname}` });
                     let resultStr;
                     try {
-                        resultStr = await executeNativeToolCall(tc, { cwd: projectFolder });
+                        resultStr = await executeNativeToolCall(tc, { cwd: projectFolder, panel, context });
                     } catch (e) {
                         resultStr = `[executeNativeToolCall error: ${(e && e.message) || e}]`;
                     }
@@ -6511,33 +8558,72 @@ async function handleSendText(context, panel, text) {
             conversation.push({ role: 'assistant', content: assembled });
 
             const calls = parseToolCalls(assembled);
-            if (!calls.length || toolIterations >= MAX_TOOL_ITERATIONS) {
-                if (calls.length) {
-                    panel.webview.postMessage({ type: 'info', text: `Tool-call iteration cap (${MAX_TOOL_ITERATIONS}) reached — not executing further.` });
+            if (calls.length && toolIterations < MAX_TOOL_ITERATIONS) {
+                toolIterations++;
+                const projectFolder = context.workspaceState.get('codexBlackEd.projectFolder', '') || os.homedir();
+                const resultParts = [];
+                for (const call of calls) {
+                    panel.webview.postMessage({ type: 'info', text: `▶ exec [${call.lang}] ${call.command.split(/\r?\n/)[0].slice(0, 100)}${call.command.length > 100 ? '…' : ''}` });
+                    const r = await executeToolCall(call, { cwd: projectFolder });
+                    resultParts.push(formatToolResult(call, r));
+                    panel.webview.postMessage({ type: 'info', text: `◀ rc=${r.rc} stdout=${r.stdout.length}B stderr=${r.stderr.length}B in ${r.durationMs}ms` });
                 }
+                /* Tool result goes back as a synthetic user turn — same shape the
+                   model emitted, so it can read its own output. */
+                const toolReply = resultParts.join('\n\n');
+                conversation.push({ role: 'user', content: toolReply });
+                /* For web-bridge providers, the bridge page already saw the
+                   assistant reply; we need to type the tool result so the bridge
+                   picks it up as a fresh user turn on its next stream. */
                 panel.webview.postMessage({ type: 'assistantDone', text: assembled });
-                _postContextUsage(panel, context);
-                setStatus('idle', false, providerId);
-                break;
+                panel.webview.postMessage({ type: 'assistantStart' });
+                continue;
             }
-            toolIterations++;
-            const projectFolder = context.workspaceState.get('codexBlackEd.projectFolder', '') || os.homedir();
-            const resultParts = [];
-            for (const call of calls) {
-                panel.webview.postMessage({ type: 'info', text: `▶ exec [${call.lang}] ${call.command.split(/\r?\n/)[0].slice(0, 100)}${call.command.length > 100 ? '…' : ''}` });
-                const r = await executeToolCall(call, { cwd: projectFolder });
-                resultParts.push(formatToolResult(call, r));
-                panel.webview.postMessage({ type: 'info', text: `◀ rc=${r.rc} stdout=${r.stdout.length}B stderr=${r.stderr.length}B in ${r.durationMs}ms` });
+
+            /* ── Bridge loose tool-call mode ──
+               When the active provider is a browser-bridge AND the user has
+               tool calls enabled in Settings ([bridge].tool_call_mode != off),
+               we ALSO scan the reply for:
+                 • triple-fenced shell blocks (no # !exec required)
+                 • single-line backticked commands
+                 • <run>…</run> tags
+               and execute them per the configured policy (allowlist | confirm |
+               auto), then feed the [tool output] back as a user turn so the
+               bridge model can chain. Hard cap = tool_call_max_steps. */
+            const _toolCfg = _pInfo.bridge ? loadToolCallConfig(context) : null;
+            if (_pInfo.bridge && _toolCfg && _toolCfg.enabled && toolIterations < _toolCfg.maxSteps) {
+                const projectFolder = context.workspaceState.get('codexBlackEd.projectFolder', '') || os.homedir();
+                const looseResult = await _runToolCallsLoose(panel, context, assembled, _toolCfg, projectFolder);
+                if (looseResult.ranAny || looseResult.calls.length) {
+                    toolIterations++;
+                    if (looseResult.ranAny) {
+                        conversation.push({ role: 'user', content: looseResult.output });
+                        panel.webview.postMessage({ type: 'assistantDone', text: assembled });
+                        panel.webview.postMessage({ type: 'assistantStart' });
+                        if (toolIterations >= _toolCfg.maxSteps) {
+                            conversation[conversation.length - 1].content += `\n\n[tool-chain limit reached after ${_toolCfg.maxSteps} steps]`;
+                            panel.webview.postMessage({ type: 'info', text: `[tool-chain limit reached after ${_toolCfg.maxSteps} steps]` });
+                        }
+                        continue;
+                    }
+                    /* All denied — still feed deny notice back so the model can react. */
+                    if (looseResult.deniedAll && looseResult.output) {
+                        conversation.push({ role: 'user', content: looseResult.output });
+                        panel.webview.postMessage({ type: 'assistantDone', text: assembled });
+                        panel.webview.postMessage({ type: 'assistantStart' });
+                        continue;
+                    }
+                }
             }
-            /* Tool result goes back as a synthetic user turn — same shape the
-               model emitted, so it can read its own output. */
-            const toolReply = resultParts.join('\n\n');
-            conversation.push({ role: 'user', content: toolReply });
-            /* For web-bridge providers, the bridge page already saw the
-               assistant reply; we need to type the tool result so the bridge
-               picks it up as a fresh user turn on its next stream. */
+
+            /* No more tool calls — finalize. */
+            if (calls.length) {
+                panel.webview.postMessage({ type: 'info', text: `Tool-call iteration cap (${MAX_TOOL_ITERATIONS}) reached — not executing further.` });
+            }
             panel.webview.postMessage({ type: 'assistantDone', text: assembled });
-            panel.webview.postMessage({ type: 'assistantStart' });
+            _postContextUsage(panel, context);
+            setStatus('idle', false, providerId);
+            break;
         }
     } catch (e) {
         traceErr(`stream failed (provider=${providerId})`, e);
@@ -6646,9 +8732,23 @@ async function handleSendText(context, panel, text) {
        ```
 
    Without the marker, fenced blocks are display-only (zero behavior change
-   for chats that aren't aware of the convention). */
-const TOOL_FENCE_RE = /```(bash|sh|pwsh|powershell|cmd|batch)\r?\n([\s\S]*?)```/gi;
+   for chats that aren't aware of the convention).
+
+   BRIDGE TOOL-CALL MODE (parseToolCallsLoose): when the user enables tool
+   calls in Settings, the bridge chat path ALSO accepts:
+     • triple-fenced shell blocks without the `# !exec` marker
+     • single-line backticked commands at the start of a line (`calc`)
+     • <run>...</run> XML tags
+   Gated by [bridge].tool_call_mode in config.ini (off | allowlist |
+   confirm | auto). Default `allowlist`. */
+const TOOL_FENCE_RE = /```(bash|sh|shell|pwsh|powershell|cmd|batch)\r?\n([\s\S]*?)```/gi;
 const TOOL_EXEC_MARKER_RE = /^\s*#\s*!exec\b/i;
+
+/* Loose: same fence regex but NO !exec marker required + backtick singles +
+   <run>...</run>. Used by the bridge tool-call path. */
+const TOOL_FENCE_LOOSE_RE = /```(bash|sh|shell|pwsh|powershell|cmd|batch)\r?\n([\s\S]*?)```/gi;
+const TOOL_BACKTICK_LINE_RE = /(^|\n)[ \t]*`([^`\r\n]{1,400})`[ \t]*(?=\r?\n|$)/g;
+const TOOL_RUN_TAG_RE = /<run>([\s\S]*?)<\/run>/gi;
 
 function parseToolCalls(text) {
     const out = [];
@@ -6666,6 +8766,100 @@ function parseToolCalls(text) {
         out.push({ lang, command, raw: m[0] });
     }
     return out;
+}
+
+/* Loose parser: collects every plausible command. Each entry carries `kind`
+   ('fence' | 'backtick' | 'run') so the executor can pick the right shell.
+   Order in the output reflects appearance order in the source — the daisy
+   chain runs them in this order. */
+function parseToolCallsLoose(text) {
+    const out = [];
+    if (!text) return out;
+    const hits = [];
+    /* 1. Fenced shell blocks (no # !exec needed). */
+    TOOL_FENCE_LOOSE_RE.lastIndex = 0;
+    let m;
+    while ((m = TOOL_FENCE_LOOSE_RE.exec(text)) !== null) {
+        const lang = m[1].toLowerCase();
+        const body = (m[2] || '').replace(/\r?\n$/, '');
+        if (!body.trim()) continue;
+        hits.push({ idx: m.index, kind: 'fence', lang, command: body, raw: m[0] });
+    }
+    /* 2. <run>…</run> XML tag → cmd. */
+    TOOL_RUN_TAG_RE.lastIndex = 0;
+    while ((m = TOOL_RUN_TAG_RE.exec(text)) !== null) {
+        const cmd = (m[1] || '').trim();
+        if (!cmd) continue;
+        hits.push({ idx: m.index, kind: 'run', lang: 'cmd', command: cmd, raw: m[0] });
+    }
+    /* 3. Single-line backticked command at the start of a line. We avoid
+       false positives by skipping ranges already claimed by fences/<run>. */
+    const claimedRanges = hits.map(h => [h.idx, h.idx + h.raw.length]);
+    const inClaimed = (i) => claimedRanges.some(([a, b]) => i >= a && i < b);
+    TOOL_BACKTICK_LINE_RE.lastIndex = 0;
+    while ((m = TOOL_BACKTICK_LINE_RE.exec(text)) !== null) {
+        if (inClaimed(m.index)) continue;
+        const cmd = (m[2] || '').trim();
+        if (!cmd) continue;
+        /* Skip obviously-non-command snippets (e.g. inline identifiers).
+           Heuristic: only treat as command if first token looks like an
+           exe/word and not pure punctuation. */
+        if (!/^[A-Za-z_./\\-]/.test(cmd)) continue;
+        hits.push({ idx: m.index, kind: 'backtick', lang: 'cmd', command: cmd, raw: m[0] });
+    }
+    hits.sort((a, b) => a.idx - b.idx);
+    return hits;
+}
+
+/* Load [bridge] tool-call settings from config.ini. Defaults match the
+   conservative "allowlist mode + 10 step cap + 60s timeout" the spec calls
+   for. Returns:
+     { enabled: bool, mode: 'off'|'allowlist'|'confirm'|'auto',
+       maxSteps: number, allowlist: string[], timeoutMs: number } */
+function loadToolCallConfig(context) {
+    const cfg = readConfigIni(context.extensionPath) || {};
+    const br = cfg.bridge || {};
+    let mode = String(br.tool_call_mode || 'allowlist').toLowerCase().trim();
+    if (!['off', 'allowlist', 'confirm', 'auto'].includes(mode)) mode = 'allowlist';
+    const maxSteps = Math.max(1, Math.min(50, Number(br.tool_call_max_steps) || 10));
+    const timeoutMs = Math.max(1000, Math.min(600000, (Number(br.tool_call_timeout_s) || 60) * 1000));
+    /* Allowlist: newline OR comma separated. Persisted as a single config.ini
+       value with "|" as the separator (since INI lines can't have embedded
+       newlines without escapes). We accept any of the three for resilience. */
+    let allowRaw = br.tool_call_allowlist;
+    if (allowRaw === undefined || allowRaw === null || String(allowRaw).trim() === '') {
+        allowRaw = TOOL_CALL_DEFAULT_ALLOWLIST.join('|');
+    }
+    const allowlist = String(allowRaw)
+        .split(/[|\n,]/)
+        .map(s => s.trim())
+        .filter(Boolean);
+    return { enabled: mode !== 'off', mode, maxSteps, allowlist, timeoutMs };
+}
+
+const TOOL_CALL_DEFAULT_ALLOWLIST = [
+    'calc', 'notepad', 'dir', 'echo', 'ls', 'pwd', 'cat', 'type',
+    'whoami', 'hostname', 'date', 'time', 'ipconfig', 'netstat',
+    'tasklist', 'ping', 'tracert', 'where',
+    'git status', 'git log', 'git diff', 'git branch',
+    'node --version', 'python --version', 'gh repo list',
+];
+
+/* Check a command string against the allowlist. We compare the FIRST TOKEN
+   (the executable) AND the longest matching prefix — `git status` should
+   match the allow-listed "git status" but `git push` should not. */
+function isCommandAllowed(command, allowlist) {
+    if (!command) return false;
+    const norm = command.replace(/\s+/g, ' ').trim().toLowerCase();
+    for (const entry of allowlist) {
+        const e = String(entry).replace(/\s+/g, ' ').trim().toLowerCase();
+        if (!e) continue;
+        if (norm === e) return true;
+        if (norm.startsWith(e + ' ')) return true;
+        /* Also accept `cmd.exe` for `cmd`, etc. */
+        if (norm.startsWith(e + '.')) return true;
+    }
+    return false;
 }
 
 function executeToolCall(call, opts = {}) {
@@ -6689,6 +8883,7 @@ function executeToolCall(call, opts = {}) {
                 : 'bash';
             shellArgs = ['-lc', call.command];
         }
+        const cp = require('child_process');
         const proc = cp.spawn(shell, shellArgs, { cwd, windowsHide: true, env: process.env });
         let stdout = '', stderr = '', truncated = false;
         const cap = (which, chunk) => {
@@ -6737,6 +8932,178 @@ function formatToolResult(call, r) {
     if (r.stderr.length) sections.push(`stderr:\n\`\`\`text\n${r.stderr.replace(/\r?\n$/, '')}\n\`\`\``);
     if (!sections.length) sections.push('(no output)');
     return `${head}\n${sections.join('\n')}`;
+}
+
+/* Bridge-style [tool output] formatter. Plain-text body the bridge model can
+   read on its next turn without further markup. */
+function formatToolOutputBridge(call, r) {
+    const cmdShort = (call.command || '').split(/\r?\n/)[0].slice(0, 200);
+    const out = [];
+    out.push(`[tool output] cmd=\`${cmdShort}\``);
+    out.push('--- stdout ---');
+    out.push((r.stdout || '').replace(/\r?\n$/, ''));
+    out.push('--- stderr ---');
+    out.push((r.stderr || '').replace(/\r?\n$/, ''));
+    out.push(`--- returncode=${r.rc}${r.signal ? ` signal=${r.signal}` : ''}${r.truncated ? ' truncated=true' : ''} ms=${r.durationMs} ---`);
+    return out.join('\n');
+}
+
+/* Map a loose call's kind/lang to a real shell. backtick + run + lang=cmd
+   all default to cmd.exe. Other langs delegate to executeToolCall's
+   normal dispatcher. */
+function _resolveToolLang(call) {
+    if (call.kind === 'fence' && call.lang) return call.lang;
+    if (call.kind === 'run' || call.kind === 'backtick' || !call.lang) return 'cmd';
+    return call.lang;
+}
+
+/* Wait for the panel to answer a `toolConfirm` request. We post the prompt,
+   record the resolver on the panel object, and resolve when the panel sends
+   back `toolConfirmResponse`. The dispatcher in registerPanelMessages picks
+   up the response and calls the stored resolver. Times out after 5 minutes
+   so a stale tab can't hold the chain forever. */
+function awaitToolConfirm(panel, payload, timeoutMs) {
+    return new Promise((resolve) => {
+        const id = 'tc_' + Date.now().toString(36) + '_' + Math.floor(Math.random() * 1e6).toString(36);
+        if (!panel.__cbeToolConfirmResolvers) panel.__cbeToolConfirmResolvers = {};
+        panel.__cbeToolConfirmResolvers[id] = (decision) => resolve(decision);
+        const timer = setTimeout(() => {
+            try {
+                const r = panel.__cbeToolConfirmResolvers && panel.__cbeToolConfirmResolvers[id];
+                if (r) {
+                    delete panel.__cbeToolConfirmResolvers[id];
+                    r(false);
+                }
+            } catch (_) {}
+        }, timeoutMs || 300000);
+        try {
+            panel.webview.postMessage({ type: 'toolConfirm', id, ...payload });
+        } catch (_) {
+            clearTimeout(timer);
+            resolve(false);
+        }
+    });
+}
+
+/* Execute one loose tool call with the configured policy. Returns:
+     { ran: bool, denied: bool, denyReason: string|null, result: <executeToolCall result>|null } */
+async function runOneToolCallWithPolicy(panel, context, call, cfg, opts) {
+    const lang = _resolveToolLang(call);
+    const execCall = { lang, command: call.command, raw: call.raw };
+    const cwd = opts.cwd;
+    /* Mode gate. */
+    if (cfg.mode === 'off') {
+        return { ran: false, denied: true, denyReason: 'tool calls disabled', result: null };
+    }
+    let needsConfirm = false;
+    if (cfg.mode === 'auto') {
+        needsConfirm = false;
+    } else if (cfg.mode === 'allowlist') {
+        if (!isCommandAllowed(call.command, cfg.allowlist)) {
+            needsConfirm = true;
+        }
+    } else { /* 'confirm' */
+        needsConfirm = true;
+    }
+    if (needsConfirm && panel) {
+        const decision = await awaitToolConfirm(panel, {
+            command: call.command,
+            lang,
+            kind: call.kind || 'fence',
+            mode: cfg.mode,
+        }, 300000);
+        if (!decision) {
+            return { ran: false, denied: true, denyReason: 'user denied execution', result: null };
+        }
+    } else if (needsConfirm && !panel) {
+        /* No panel to ask — deny. */
+        return { ran: false, denied: true, denyReason: 'no UI to confirm execution', result: null };
+    }
+    const r = await executeToolCall(execCall, { cwd, timeoutMs: cfg.timeoutMs });
+    return { ran: true, denied: false, denyReason: null, result: r };
+}
+
+/* Detect + run loose tool calls in a bridge reply. Posts a `toolExec` event
+   to the panel for visual feedback, executes per-policy, and returns
+   { ranAny, output, deniedAll } so the caller can decide whether to chain.
+
+   The `output` string is in the [tool output] shape the spec asks for —
+   one block per executed call, separated by blank lines. */
+async function _runToolCallsLoose(panel, context, replyText, cfg, cwd) {
+    const calls = parseToolCallsLoose(replyText);
+    if (!calls.length) return { ranAny: false, output: '', deniedAll: false, calls: [] };
+    const parts = [];
+    let ranAny = false;
+    let denyCount = 0;
+    for (const call of calls) {
+        const cmdShort = (call.command || '').split(/\r?\n/)[0].slice(0, 120);
+        if (panel) {
+            try {
+                panel.webview.postMessage({
+                    type: 'toolExec',
+                    command: call.command,
+                    cmdShort,
+                    kind: call.kind || 'fence',
+                    lang: _resolveToolLang(call),
+                    mode: cfg.mode,
+                });
+            } catch (_) {}
+        }
+        const decision = await runOneToolCallWithPolicy(panel, context, call, cfg, { cwd });
+        if (decision.denied) {
+            denyCount++;
+            const denyBlock = [
+                `[tool output] cmd=\`${cmdShort}\``,
+                '--- stdout ---',
+                '',
+                '--- stderr ---',
+                decision.denyReason || 'execution denied',
+                '--- returncode=-1 denied=true ---',
+            ].join('\n');
+            parts.push(denyBlock);
+            if (panel) {
+                try {
+                    panel.webview.postMessage({
+                        type: 'toolResult',
+                        command: call.command,
+                        cmdShort,
+                        rc: -1,
+                        denied: true,
+                        reason: decision.denyReason || 'denied',
+                        stdout: '',
+                        stderr: decision.denyReason || 'denied',
+                        durationMs: 0,
+                    });
+                } catch (_) {}
+            }
+            continue;
+        }
+        ranAny = true;
+        const r = decision.result;
+        const execLang = _resolveToolLang(call);
+        parts.push(formatToolOutputBridge({ command: call.command, lang: execLang }, r));
+        if (panel) {
+            try {
+                panel.webview.postMessage({
+                    type: 'toolResult',
+                    command: call.command,
+                    cmdShort,
+                    rc: r.rc,
+                    denied: false,
+                    stdout: r.stdout || '',
+                    stderr: r.stderr || '',
+                    durationMs: r.durationMs,
+                    truncated: !!r.truncated,
+                });
+            } catch (_) {}
+        }
+    }
+    return {
+        ranAny,
+        output: parts.join('\n\n'),
+        deniedAll: denyCount === calls.length && calls.length > 0,
+        calls,
+    };
 }
 
 module.exports = { activate, deactivate };

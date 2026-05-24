@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="grok">
+  <name>Grok</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>xAI Grok (Grok 4, Grok 4 Fast, Grok 3) via grok.com using a logged-in browser session.</description>
+
+  <mainUrl>https://grok.com/</mainUrl>
+  <loginUrl>https://grok.com/login</loginUrl>
+  <createAccountUrl>https://grok.com/signup</createAccountUrl>
+
+  <bridgePort>8789</bridgePort>
+  <cdpPort>9789</cdpPort>
+  <exeName>CBE-Bridge-Grok.exe</exeName>
+  <iconFile>icons/grok.png</iconFile>
+
+  <defaultModel>grok-4</defaultModel>
+  <model>grok-4</model>
+  <model>grok-4-fast</model>
+  <model>grok-3</model>
+</bridge>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="pika">
+  <name>Pika</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>Pika Labs idea-to-video platform via pika.art. Text-to-video, image-to-video, and effects (Pikaffects, Pikaswaps, Pikadditions); free plan with no watermarks.</description>
+
+  <mainUrl>https://pika.art/</mainUrl>
+  <loginUrl>https://pika.art/login</loginUrl>
+  <createAccountUrl>https://pika.art/signup</createAccountUrl>
+
+  <bridgePort>8807</bridgePort>
+  <cdpPort>9807</cdpPort>
+  <exeName>CBE-Bridge-Pika.exe</exeName>
+  <iconFile>icons/pika.png</iconFile>
+  <enabled>false</enabled>
+
+  <defaultModel>pika-2.0</defaultModel>
+  <model>pika-2.0</model>
+  <model>pika-1.5</model>
+  <model>pikastream-1.0</model>
+</bridge>

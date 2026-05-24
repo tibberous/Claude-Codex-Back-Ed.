@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="openrouter">
+  <name>OpenRouter</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>OpenRouter unified LLM routing via openrouter.ai. Single API key, thousands of models from OpenAI, Anthropic, Mistral, Google, and Meta.</description>
+
+  <mainUrl>https://openrouter.ai/</mainUrl>
+  <loginUrl>https://openrouter.ai/sign-in</loginUrl>
+  <createAccountUrl>https://openrouter.ai/sign-up</createAccountUrl>
+
+  <bridgePort>8805</bridgePort>
+  <cdpPort>9805</cdpPort>
+  <exeName>CBE-Bridge-OpenRouter.exe</exeName>
+  <iconFile>icons/openrouter.png</iconFile>
+  <enabled>false</enabled>
+
+  <defaultModel>openai/gpt-4o</defaultModel>
+  <model>openai/gpt-4o</model>
+  <model>anthropic/claude-3.5-sonnet</model>
+  <model>google/gemini-pro-1.5</model>
+  <model>meta-llama/llama-3.1-405b-instruct</model>
+  <model>mistralai/mistral-large</model>
+</bridge>

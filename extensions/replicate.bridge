@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="replicate">
+  <name>Replicate</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>Replicate cloud inference for ML models via replicate.com. Deploy, run, and fine-tune image, video, and language models with a single API.</description>
+
+  <mainUrl>https://replicate.com/</mainUrl>
+  <loginUrl>https://replicate.com/signin</loginUrl>
+  <createAccountUrl>https://replicate.com/signin</createAccountUrl>
+
+  <bridgePort>8804</bridgePort>
+  <cdpPort>9804</cdpPort>
+  <exeName>CBE-Bridge-Replicate.exe</exeName>
+  <iconFile>icons/replicate.png</iconFile>
+  <enabled>false</enabled>
+
+  <defaultModel>black-forest-labs/flux-schnell</defaultModel>
+  <model>black-forest-labs/flux-schnell</model>
+  <model>black-forest-labs/flux-dev</model>
+  <model>meta/llama-3-70b-instruct</model>
+  <model>stability-ai/sdxl</model>
+</bridge>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="perplexity">
+  <name>Perplexity</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>Perplexity AI — web-search augmented chat (sonar, pplx-online) via perplexity.ai using a logged-in browser session.</description>
+  <enabled>false</enabled>
+
+  <mainUrl>https://www.perplexity.ai/</mainUrl>
+  <loginUrl>https://www.perplexity.ai/</loginUrl>
+  <createAccountUrl>https://www.perplexity.ai/</createAccountUrl>
+
+  <bridgePort>8795</bridgePort>
+  <cdpPort>9795</cdpPort>
+  <exeName>CBE-Bridge-Perplexity.exe</exeName>
+  <iconFile>icons/perplexity.png</iconFile>
+
+  <defaultModel>sonar</defaultModel>
+  <model>sonar</model>
+  <model>pplx-online</model>
+  <model>pplx-7b-online</model>
+</bridge>

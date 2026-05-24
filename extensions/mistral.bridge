@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="mistral">
+  <name>Mistral</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>Mistral AI's Le Chat (Mistral Large, Medium, Codestral) via chat.mistral.ai using a logged-in browser session.</description>
+  <enabled>false</enabled>
+
+  <mainUrl>https://chat.mistral.ai/</mainUrl>
+  <loginUrl>https://chat.mistral.ai/login</loginUrl>
+  <createAccountUrl>https://chat.mistral.ai/register</createAccountUrl>
+
+  <bridgePort>8796</bridgePort>
+  <cdpPort>9796</cdpPort>
+  <exeName>CBE-Bridge-Mistral.exe</exeName>
+  <iconFile>icons/mistral.png</iconFile>
+
+  <defaultModel>mistral-large</defaultModel>
+  <model>mistral-large</model>
+  <model>mistral-medium</model>
+  <model>codestral</model>
+</bridge>

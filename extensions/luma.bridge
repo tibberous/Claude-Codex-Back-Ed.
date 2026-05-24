@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="luma">
+  <name>Luma Dream Machine</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>Luma Dream Machine video generation (Ray family) via dream-machine.lumalabs.ai. Sign in with Google or Apple to access Ray3 and Ray3 Modify.</description>
+
+  <mainUrl>https://dream-machine.lumalabs.ai/</mainUrl>
+  <loginUrl>https://lumalabs.ai/dream-machine</loginUrl>
+  <createAccountUrl>https://lumalabs.ai/dream-machine</createAccountUrl>
+
+  <bridgePort>8801</bridgePort>
+  <cdpPort>9801</cdpPort>
+  <exeName>CBE-Bridge-Luma.exe</exeName>
+  <iconFile>icons/luma.png</iconFile>
+  <enabled>false</enabled>
+
+  <defaultModel>ray-3</defaultModel>
+  <model>ray-3</model>
+  <model>ray-3-modify</model>
+  <model>ray-2</model>
+  <model>ray</model>
+</bridge>

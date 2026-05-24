@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="claude">
+  <name>Claude</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>Anthropic Claude (Opus 4.7, Sonnet 4.6, Haiku 4.5) via claude.ai using a logged-in browser session.</description>
+
+  <mainUrl>https://claude.ai/</mainUrl>
+  <loginUrl>https://claude.ai/login</loginUrl>
+  <createAccountUrl>https://claude.ai/login</createAccountUrl>
+
+  <bridgePort>8792</bridgePort>
+  <cdpPort>9792</cdpPort>
+  <exeName>CBE-Bridge-Claude.exe</exeName>
+  <iconFile>icons/claude.png</iconFile>
+
+  <defaultModel>claude-opus-4-7</defaultModel>
+  <model>claude-opus-4-7</model>
+  <model>claude-sonnet-4-6</model>
+  <model>claude-haiku-4-5</model>
+</bridge>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="runway">
+  <name>Runway</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>Runway ML video generation (Gen-3 and Gen-4 families) via app.runwayml.com. Image-to-video and text-to-video with world consistency.</description>
+
+  <mainUrl>https://app.runwayml.com/</mainUrl>
+  <loginUrl>https://app.runwayml.com/login</loginUrl>
+  <createAccountUrl>https://app.runwayml.com/signup</createAccountUrl>
+
+  <bridgePort>8800</bridgePort>
+  <cdpPort>9800</cdpPort>
+  <exeName>CBE-Bridge-Runway.exe</exeName>
+  <iconFile>icons/runway.png</iconFile>
+  <enabled>false</enabled>
+
+  <defaultModel>gen-4</defaultModel>
+  <model>gen-4</model>
+  <model>gen-4-turbo</model>
+  <model>gen-3-alpha</model>
+  <model>gen-3-alpha-turbo</model>
+</bridge>

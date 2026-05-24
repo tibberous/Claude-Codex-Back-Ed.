@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="deepseek">
+  <name>DeepSeek</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>DeepSeek (V3 + R1 reasoner) via chat.deepseek.com. Native email/password login — do NOT use Google SSO (CAPTCHA wall).</description>
+
+  <mainUrl>https://chat.deepseek.com/</mainUrl>
+  <loginUrl>https://chat.deepseek.com/sign_in</loginUrl>
+  <createAccountUrl>https://chat.deepseek.com/sign_up</createAccountUrl>
+
+  <bridgePort>8794</bridgePort>
+  <cdpPort>9794</cdpPort>
+  <exeName>CBE-Bridge-DeepSeek.exe</exeName>
+  <iconFile>icons/deepseek.png</iconFile>
+  <enabled>true</enabled>
+
+  <defaultModel>deepseek-chat</defaultModel>
+  <model>deepseek-chat</model>
+  <model>deepseek-reasoner</model>
+  <model>deepseek-v3</model>
+</bridge>

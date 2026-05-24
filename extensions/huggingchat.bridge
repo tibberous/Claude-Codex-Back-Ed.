@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="huggingchat">
+  <name>HuggingChat</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>HuggingChat — open-source model chat (Llama 3.3, Mistral Nemo, Qwen 2.5) via huggingface.co/chat using a logged-in Hugging Face browser session.</description>
+  <enabled>false</enabled>
+
+  <mainUrl>https://huggingface.co/chat/</mainUrl>
+  <loginUrl>https://huggingface.co/login</loginUrl>
+  <createAccountUrl>https://huggingface.co/join</createAccountUrl>
+
+  <bridgePort>8798</bridgePort>
+  <cdpPort>9798</cdpPort>
+  <exeName>CBE-Bridge-HuggingChat.exe</exeName>
+  <iconFile>icons/huggingchat.png</iconFile>
+
+  <defaultModel>meta-llama/Llama-3.3-70B-Instruct</defaultModel>
+  <model>meta-llama/Llama-3.3-70B-Instruct</model>
+  <model>mistralai/Mistral-Nemo-Instruct-2407</model>
+  <model>Qwen/Qwen2.5-72B-Instruct</model>
+</bridge>

@@ -2,7 +2,7 @@
   "name": "codex-black-ed",
   "displayName": "Claude Codex Black Ed.",
   "description": "Claude Codex Black extension with support for Claude / GPT / Grok / Gemini / CoPilot / DeepSeek / Azure. Need help on your next project? Call (724) 431-5207 today! Websites, extensions, mobile development, application development - whatever you need! Production-level code at fair prices with lightning-fast turn-around! Portfolio: https://trentontompkins.com.",
-  "version": "1.5.4",
+  "version": "1.6.0",
   "publisher": "Trent-Tompkins",
   "author": {
     "name": "Trent Tompkins",
@@ -43,6 +43,9 @@
   ],
   "icon": "resources/icon.png",
   "main": "./extension.js",
+  "bin": {
+    "cbe": "./cli/cbe.js"
+  },
   "activationEvents": [
     "onStartupFinished",
     "onWebviewPanel:codexBlackEd.panel"
@@ -176,6 +179,34 @@
       {
         "command": "codexBlackEd.slash.switchAccounts",
         "title": "Claude Codex: Switch accounts"
+      },
+      {
+        "command": "codexBlackEd.openEmail",
+        "title": "Claude Codex Email: Open inbox panel"
+      },
+      {
+        "command": "codexBlackEd.oauth.storeToken",
+        "title": "Claude Codex OAuth: Store token for account"
+      },
+      {
+        "command": "codexBlackEd.oauth.clearToken",
+        "title": "Claude Codex OAuth: Clear token for account"
+      },
+      {
+        "command": "codexBlackEd.slash.email",
+        "title": "Claude Codex: /email — open inbox panel"
+      },
+      {
+        "command": "codexBlackEd.email.addAccount",
+        "title": "Claude Codex Email: Add account"
+      },
+      {
+        "command": "codexBlackEd.email.readInbox",
+        "title": "Claude Codex Email: Read inbox (last 30)"
+      },
+      {
+        "command": "codexBlackEd.email.removeAccount",
+        "title": "Claude Codex Email: Remove account"
       }
     ],
     "menus": {
@@ -186,6 +217,10 @@
         },
         {
           "command": "codexBlackEd.openBrowser",
+          "group": "navigation"
+        },
+        {
+          "command": "codexBlackEd.openEmail",
           "group": "navigation"
         }
       ]

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="kling">
+  <name>Kling AI</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>Kling AI video generation from Kuaishou via app.klingai.com. 1080p/30fps text-to-video and image-to-video, up to 2 minutes; 66 free daily credits.</description>
+
+  <mainUrl>https://www.klingai.com/</mainUrl>
+  <loginUrl>https://app.klingai.com/global</loginUrl>
+  <createAccountUrl>https://app.klingai.com/global</createAccountUrl>
+
+  <bridgePort>8802</bridgePort>
+  <cdpPort>9802</cdpPort>
+  <exeName>CBE-Bridge-Kling.exe</exeName>
+  <iconFile>icons/kling.png</iconFile>
+  <enabled>false</enabled>
+
+  <defaultModel>kling-2.0</defaultModel>
+  <model>kling-2.0</model>
+  <model>kling-1.6</model>
+  <model>kling-1.5</model>
+</bridge>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="ollama">
+  <name>Ollama</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>Local Ollama models (Llama 3.2, Qwen 2.5, Mistral) running on this machine — no login required.</description>
+
+  <mainUrl>https://ollama.com/</mainUrl>
+  <loginUrl></loginUrl>
+  <createAccountUrl></createAccountUrl>
+
+  <bridgePort>8793</bridgePort>
+  <cdpPort>9793</cdpPort>
+  <exeName>CBE-Bridge-Ollama.exe</exeName>
+  <iconFile>icons/ollama.png</iconFile>
+
+  <defaultModel>llama3.2:3b</defaultModel>
+  <model>llama3.2:3b</model>
+  <model>llama3.2</model>
+  <model>qwen2.5</model>
+  <model>mistral</model>
+</bridge>

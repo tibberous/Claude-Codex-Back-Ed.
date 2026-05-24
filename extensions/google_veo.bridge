@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="google_veo">
+  <name>Google Veo</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>Google Veo video generation via Google Flow (labs.google/flow). Sign in with a personal Google account; free tier gives ~12 8-second clips/day.</description>
+
+  <mainUrl>https://labs.google/flow/about</mainUrl>
+  <loginUrl>https://labs.google/fx/tools/flow</loginUrl>
+  <createAccountUrl>https://accounts.google.com/signup</createAccountUrl>
+
+  <bridgePort>8799</bridgePort>
+  <cdpPort>9799</cdpPort>
+  <exeName>CBE-Bridge-GoogleVeo.exe</exeName>
+  <iconFile>icons/google_veo.png</iconFile>
+  <enabled>false</enabled>
+
+  <defaultModel>veo-3.1</defaultModel>
+  <model>veo-3.1</model>
+  <model>veo-3</model>
+  <model>veo-2</model>
+</bridge>

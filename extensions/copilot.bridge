@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bridge id="copilot">
+  <name>Copilot</name>
+  <author>Claude Opus 4.7</author>
+  <released>2026-05-24</released>
+  <version>1.0.0</version>
+  <description>Microsoft Copilot (GPT-4 backed) via copilot.microsoft.com using a logged-in Microsoft browser session.</description>
+
+  <mainUrl>https://copilot.microsoft.com/</mainUrl>
+  <loginUrl>https://login.microsoftonline.com/</loginUrl>
+  <createAccountUrl>https://signup.live.com/</createAccountUrl>
+
+  <bridgePort>8790</bridgePort>
+  <cdpPort>9790</cdpPort>
+  <exeName>CBE-Bridge-Copilot.exe</exeName>
+  <iconFile>icons/copilot.png</iconFile>
+
+  <defaultModel>gpt-4</defaultModel>
+  <model>gpt-4</model>
+</bridge>
