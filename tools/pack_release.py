@@ -198,7 +198,7 @@ def verifyRequiredFiles() -> None:
 def findDbFiles() -> list[Path]:
     """Return every per-machine DB file under the project root."""
     results: list[Path] = []
-    skipDirs = {"node_modules", ".git", "dist", "__pycache__"}
+    skipDirs = {"node_modules", ".git", "dist", "__pycache__", "data", "bridge_profiles"}
     for dirpath, dirnames, filenames in os.walk(ROOT):
         # in-place prune
         dirnames[:] = [d for d in dirnames if d not in skipDirs]
