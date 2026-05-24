@@ -3531,6 +3531,16 @@ document.addEventListener('keydown', e => {
   if (el) el.addEventListener('click', openExtensionsMarketplace);
 })();
 
+/* Email toolbar button — opens the multi-account inbox panel. Same code
+   path as the /email slash command and the codexBlackEd.openEmail VSCode
+   command; host handler creates/reveals the email webview. */
+(function () {
+  const el = document.getElementById('emailBtn');
+  if (el) el.addEventListener('click', () => {
+    if (api) api.postMessage({ type: 'openEmail' });
+  });
+})();
+
 /* ── Handbook modal — editable; round-trips handbook.txt via the host.
    Click handbook tool button → loads handbook.txt → shows in a big
    monospace textarea → Save writes it back. Dirty/saved status shown

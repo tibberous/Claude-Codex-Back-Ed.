@@ -25,9 +25,11 @@
      extension's JS via #promptBox / #sendBtn / #addBtn / #sttBtn / #ttsBtn /
      #label-pill / #storedPromptsBtn / #autoReplyBtn) ──────────────────── */
 :root {
-  --shell-radius: 14px;
-  --input-radius: 10px;
-  --button-radius: 10px;
+  /* Squared off 2026-05-24 per user: prompt box must be SQUARE — no rounded
+     corners on the shell, input, or buttons. Was 14/10/10. */
+  --shell-radius: 0px;
+  --input-radius: 0px;
+  --button-radius: 0px;
   --orange-1: #ffcc00;
   --orange-2: #ff8b00;
   --orange-3: #ff5b00;
@@ -96,8 +98,13 @@ body {
   /* Horizontal padding shrinks aggressively below 1280px so the prompt-shell
      can render at the panel's true usable width on narrow VSCode sidebars.
      Was a flat `14px 100px 22px` which ate 200px of horizontal space, pushing
-     the toolbar contents off-screen on panels under ~700px wide. */
-  padding: 14px 24px 22px;
+     the toolbar contents off-screen on panels under ~700px wide.
+     Vertical padding tightened 2026-05-23 → 6/8 → 2/3 (user wants ~80-100px
+     total panel height, was ~220px).
+     2026-05-24: bumped top/bottom/left/right so the SQUARE prompt-shell has
+     breathing room from the panel walls and chat thread (user: "vertical
+     spacing margin above and below" + "left, right and bottom margin"). */
+  padding: 14px 14px 14px;
   z-index: 10;
   pointer-events: none;
   background: transparent;
@@ -109,7 +116,9 @@ body {
   max-width: 1935px;
   margin: 0 auto;
   position: relative;
-  padding: 14px 26px 22px;
+  /* Vertical padding tightened from 14/22 → 8/10 → 3/4 (user 2026-05-23:
+     target ~80-100px total panel height; was ~220px). */
+  padding: 3px 14px 4px;
   border-radius: var(--shell-radius);
   border: 2px solid rgba(255, 192, 40, 0.95);
   background:
@@ -140,7 +149,10 @@ body {
      high"). The send button is position:absolute so it stays out of flow. */
   display: flex;
   align-items: center;
-  margin-bottom: 17px;
+  /* Tightened from 17px → 6px → 2px → 0 (user 2026-05-23: trim gap to
+     toolbar row; ~80-100px total panel height target). The .prompt-toolbar
+     gap (2px) + .toolbar-tools padding (1px top) supply the breathing room. */
+  margin-bottom: 0;
   border-radius: var(--input-radius);
   border: 2px solid rgba(52, 52, 52, 0.95);
   background: linear-gradient(180deg, #f7f7f7 0%, #f1f1f1 100%);
@@ -148,7 +160,11 @@ body {
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
     0 1px 0 rgba(0, 0, 0, 0.25),
     0 3px 10px rgba(0, 0, 0, 0.12);
-  padding: 14px 90px 14px 23px;
+  /* Vertical padding crushed 14 → 3 → 1 (target ~80-100px total panel
+     height vs. previous ~220px). Right padding kept high (90px) to reserve
+     room for the absolute-positioned #sendBtn (38px wide + 16px right
+     offset). */
+  padding: 1px 90px 1px 14px;
   /* Force the input-wrap into its own block, never sized larger than the
      shell interior. min-width:0 lets long unbreakable strings inside the
      textarea (URLs etc.) stay inside the wrap instead of pushing the wrap
@@ -280,20 +296,60 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 
 /* SEND BUTTON — universal lock. ID specificity (#sendBtn) beats every skin's
    `.send-button { ... !important }` rule, so this wins regardless of the
-   active skin. Keeps the button SQUARE (no circular orb), a touch smaller,
-   and stacked above the panel chrome so it never gets clipped behind the
-   prompt-shell (user 2026-05-22: "send button should be square",
-   "smaller and not behind the panel"). */
+   active skin.
+   2026-05-24: replaced the blue-PNG + arrow-mask icon with the literal word
+   "SEND" rendered in grey, hover brightens to white. No background, no
+   border — text-only button (user: "just the word SEND in grey with a
+   rollover"). The original empty <button> markup is preserved; the label
+   is injected via ::after content so no DOM change is needed. */
 #sendBtn {
-  width: 38px !important;
+  width: auto !important;
+  min-width: 56px !important;
   height: 38px !important;
-  border-radius: 4px !important;
-  opacity: 0.9 !important;
+  border-radius: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  opacity: 1 !important;
   z-index: 6 !important;
+  padding: 0 8px !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-family: var(--cbe-monospace) !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  letter-spacing: 1px !important;
+  color: #888888 !important;
+  text-transform: uppercase !important;
+  transition: color .12s ease !important;
 }
+/* Kill the arrow chevron mask pseudo that .send-button::before paints —
+   we render plain text instead. */
 #sendBtn::before {
-  -webkit-mask-size: 58% 58%;
-          mask-size: 58% 58%;
+  content: none !important;
+  background: none !important;
+  -webkit-mask-image: none !important;
+          mask-image: none !important;
+  filter: none !important;
+}
+/* Inject the literal word SEND. Empty <button> markup, so ::after content
+   is the cleanest path (no JS / no DOM change). */
+#sendBtn::after {
+  content: "SEND";
+  display: inline-block;
+  pointer-events: none;
+}
+#sendBtn:hover,
+#sendBtn.is-hover {
+  color: #ffffff !important;
+  background-image: none !important;
+}
+#sendBtn:active,
+#sendBtn.is-active {
+  color: #ffffff !important;
+  background-image: none !important;
 }
 
 /* Attachments row — sits between the input and the toolbar. Each chip
@@ -355,44 +411,56 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 .prompt-toolbar {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  min-height: 60px;
+  /* Tightened from 10 → 4 → 2 (user 2026-05-23: kill vertical dead space;
+     old standalone model-selector row now removed, so only the icon row
+     remains here). */
+  gap: 2px;
+  /* Was min-height: 60px which forced extra vertical chrome even on a single
+     icon row — removed entirely so the toolbar collapses to its content. */
+  min-height: 0;
   /* Establish a stacking context BELOW the prompt-input-wrap's send button
      but ABOVE the prompt-shell's ::before glow pseudo. Combined with
      position:relative this guarantees that nothing in the toolbar can be
      painted over by a stray absolute-positioned sibling. */
   position: relative;
   z-index: 1;
-  width: 100%;
+  /* Side margins trimmed from 20px → 6px and bottom from 20px → 2px so the
+     orange shell hugs the toolbar instead of bloating around it. */
+  width: auto;
   min-width: 0;
+  margin: 0 6px 2px 6px;
 }
-/* macOS-dock styled toolbar row. The .toolbar-tools element is now the
-   translucent dock STRIP — one rounded frosted-glass panel that all the
-   icons sit on directly (no per-icon button container). Wraps to multiple
-   rows when there isn't enough horizontal room, so we never lose buttons
-   off-screen the way overflow-x:auto did. */
+/* Bare icon row — no panel chrome. Previously this had a translucent
+   "dock STRIP" background + blur + border + shadow which read as a nested
+   panel inside the orange shell (user 2026-05-23: "kill the nested
+   panel"). Skins that want a dock strip (macos-color-dock / mint-dock)
+   still re-style this via !important, so removing the default chrome is
+   safe. */
 .toolbar-tools {
   display: flex;
   align-items: flex-end;
+  /* Wrap is still allowed for VERY narrow VSCode sidebars, but row-gap
+     trimmed to 2px so a wrapped 2nd row sits tight against the first
+     instead of opening a big vertical gap. Column-gap also reduced from
+     4 → 3 so 25 icons fit on one row down to ~1180px viewport (was
+     wrapping the tama icon at 1280px). */
   flex-wrap: wrap;
   justify-content: center;
-  gap: 4px;
-  row-gap: 14px;
-  width: fit-content;
+  gap: 3px;
+  row-gap: 2px;
+  width: 100%;
   max-width: 100%;
   min-width: 0;
   margin: 0 auto;
-  padding: 10px 16px 18px 16px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.16);
-  backdrop-filter: blur(22px) saturate(180%);
-  -webkit-backdrop-filter: blur(22px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.45),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
-    0 10px 32px rgba(0, 0, 0, 0.42),
-    0 2px 6px rgba(0, 0, 0, 0.25);
+  /* Padding reduced from 4/6/6/6 → 1/2/1/2 to remove ~10px of horizontal
+     space-eating internal pad (helped 25-icon fit) AND ~9px vertical bloat. */
+  padding: 1px 2px;
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 0;
+  box-shadow: none;
   overflow: visible;
 }
 .toolbar-meta {
@@ -403,6 +471,44 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   width: 100%;
 }
 .toolbar-meta > .project-path { margin: 0 auto; }
+
+/* Inline variant — sits INSIDE the .prompt-input-wrap alongside the textarea
+   and sendBtn. Must NOT take width:100% (would push the textarea to 0) and
+   must NOT use space-between (clusters should hug to the right). Width auto,
+   gap tight, no growth (flex:0 0 auto) so the textarea keeps every spare
+   pixel. The old standalone bottom row was removed 2026-05-23 (duplicate
+   model-selector). Total inline cluster height ≈ 34px (label-pill +
+   stop-button shrunk via the rules below). */
+.toolbar-meta.toolbar-meta--inline {
+  width: auto;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: 8px;
+  /* Push left of the absolute-positioned #sendBtn (right:16px, width:38px →
+     reserve ~62px on the right edge of the input wrap). The prompt-input-wrap's
+     right padding (90px) already covers this — but if a skin overrides the
+     wrap padding, this margin-right keeps the cluster off the send button. */
+  margin-right: 4px;
+}
+/* Inline-only size shrinks — full-size 320×48 label + 48px stop are too tall
+   for the input row. Scope to .toolbar-meta--inline so the standalone
+   .toolbar-meta rules above are untouched (no other site uses them now, but
+   future skins might). */
+.toolbar-meta--inline .label-button {
+  width: 180px;
+  height: 30px;
+}
+.toolbar-meta--inline .stop-button {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.toolbar-meta--inline .project-path {
+  margin: 0;
+  max-width: 220px;
+  font-size: 11px;
+}
 
 .toolbar-spacer { display: none; }
 
@@ -497,10 +603,11 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 
 /* macOS-dock icon. No button container, no border, no gradient — just an
    icon sitting on the dock glass with a soft mirror reflection beneath it
-   and classic Mac scale-up magnification on hover. */
+   and classic Mac scale-up magnification on hover. Sized to ~90% of the
+   prior 48px (user 2026-05-23: toolbar too big, shrink icons to ~90%). */
 .tool-button {
-  width: 48px;
-  height: 48px;
+  width: 43px;
+  height: 43px;
   flex: 0 0 auto;
   border: 0;
   background: transparent;
@@ -539,8 +646,8 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 }
 
 .tool-button img {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   display: block;
   /* Render icons in full color (no white-out tint). Slight drop-shadow gives
      them depth on the glass. image-rendering keeps PNG icons crisp at the
@@ -799,19 +906,25 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 /* Active project folder pill — sits between the Codex label-pill and the
    Stop button. Monospace + min-width:0 + overflow:hidden so it never
    pushes the toolbar wider than the prompt-shell; the JS does middle-
-   truncation to fit whatever width is left. */
+   truncation to fit whatever width is left.
+   Contrast: pure black bg + bright text. The previous "rgba(0,0,0,0.32)"
+   background blended into the orange toolbar and made the placeholder
+   unreadable. */
 .project-path {
   flex: 0 1 auto;
   min-width: 60px;
   max-width: 360px;
   height: 36px;
   padding: 0 14px;
+  margin-bottom: 20px;
   display: inline-flex;
   align-items: center;
-  border-radius: 10px;
-  border: 1px solid rgba(0,0,0,0.35);
-  background: rgba(0,0,0,0.32);
-  color: #ffe4c8;
+  /* Squared off 2026-05-24 to match the rest of the prompt area (user:
+     prompt box must be SQUARE). Was 10px. */
+  border-radius: 0;
+  border: 1px solid rgba(0,0,0,0.65);
+  background: #1a1a1a;
+  color: #ffffff;
   font-family: Consolas, "Fira Mono", "Liberation Mono", "Courier New", monospace;
   font-size: 13px;
   line-height: 1;
@@ -821,12 +934,12 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   cursor: default;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.08),
-    inset 0 -1px 0 rgba(0,0,0,0.35);
+    inset 0 -1px 0 rgba(0,0,0,0.6);
 }
 .project-path:empty::before {
   content: 'no project folder';
-  color: #ffd09e;
-  opacity: 0.55;
+  color: #f0f0f0;
+  opacity: 0.85;
   font-style: italic;
   font-family: Inter, system-ui, sans-serif;
 }
@@ -918,17 +1031,20 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   /* Narrow panels: keep the macOS-dock icon size slightly smaller but
      never shrink to the 22px "tiny chip" look — the dock should still
      read as a row of full-color app icons on translucent glass. */
-  .tool-button { width: 42px; height: 42px; }
-  .tool-button img { width: 34px; height: 34px; }
+  .tool-button { width: 38px; height: 38px; }
+  .tool-button img { width: 31px; height: 31px; }
   .tool-button:hover { transform: scale(1.22); }
-  .toolbar-tools { padding: 8px 12px 14px 12px; border-radius: 18px; gap: 2px; }
+  .toolbar-tools { padding: 1px 2px; border-radius: 0; gap: 2px; row-gap: 2px; }
   .stop-button { height: 34px; font-size: 13px; }
   .label-button { width: 180px; height: 34px; }
   /* Narrow VSCode sidebars get an even tighter gutter + shell padding so
-     the toolbar can still fit ~6 buttons per row at 42px before wrapping. */
-  .prompt-area { padding: 10px 10px 14px; }
-  .prompt-shell { padding: 12px 14px 18px; }
-  .prompt-input-wrap { padding: 12px 76px 12px 16px; }
+     the toolbar can still fit ~6 buttons per row at 42px before wrapping.
+     Vertical paddings crushed to match the wide-panel tightening above
+     (2026-05-23: ~80-100px total panel height target). */
+  .prompt-area { padding: 2px 8px 3px; }
+  .prompt-shell { padding: 3px 8px 4px; }
+  .prompt-input-wrap { padding: 3px 70px 3px 12px; }
+  .prompt-toolbar { margin: 0 4px 0 4px; gap: 2px; }
 }
 
   /* CBE extension hooks added to GPT's design */
@@ -1193,27 +1309,26 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     font-size: 13px;
     display: flex; justify-content: space-between; align-items: center;
   }
-  /* Shared SVG "X" close button (font-independent — no tofu/box if a font
-     lacks U+2715 or U+00D7). Used by every modal header's close control.
-     Drop the `.cbe-x` or `.cbe-x-svg` class on a <button> with EMPTY text. */
+  /* Shared SVG "X" close button. Used by every modal header's close control.
+     Drop the `.cbe-x` or `.cbe-x-svg` class on a <button> with EMPTY text.
+     Loads a real SVG file (icons/close-x.svg) via CSS mask so the webview's
+     strict CSP never sees a data: URI — the prior URL-encoded data URI
+     was STILL rendering as a solid black box (the webview's parser kept
+     rejecting it). Real file works in every webview. The path uses
+     currentColor, so the X color comes from CSS `color` — white by default. */
   .cbe-x, .cbe-x-svg {
     all: unset; cursor: pointer;
     width: 26px; height: 26px;
     display: inline-block;
-    /* URL-encoded `<` `>` (was raw — VSCode webview's strict CSP/parser
-       rejected the malformed data URI, the SVG failed to load, and the close
-       button rendered as a solid box with no X — user 2026-05-22: "X IS MAGIC
-       BOXING"). Encoded form loads in every browser including the webview. */
-    background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath stroke='%23ffffff' stroke-width='2.4' stroke-linecap='round' fill='none' d='M6 6L18 18M18 6L6 18'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: 14px 14px;
-    background-color: transparent;
+    color: #ffffff;
+    background-color: currentColor;
+    -webkit-mask: url("icons/close-x.svg") no-repeat center / 14px 14px;
+            mask: url("icons/close-x.svg") no-repeat center / 14px 14px;
     border-radius: 4px;
-    transition: background-color .12s ease;
+    transition: background-color .12s ease, color .12s ease;
   }
-  .cbe-x:hover, .cbe-x-svg:hover { background-color: rgba(255,255,255,.18); }
-  .cbe-x:active, .cbe-x-svg:active { background-color: rgba(0,0,0,.28); }
+  .cbe-x:hover, .cbe-x-svg:hover { background-color: rgba(255,255,255,.85); }
+  .cbe-x:active, .cbe-x-svg:active { background-color: rgba(255,255,255,.65); }
   #cbe-handbook-modal textarea {
     flex: 1 1 auto; width: 100%; border: 0; outline: none;
     resize: none;
@@ -1525,6 +1640,23 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
             placeholder="Queue another message..."
             style="font-family: var(--vscode-editor-font-family, Consolas, 'Cascadia Mono', 'Courier New', monospace) !important; font-weight: 400; line-height: 1.34;"
           ></textarea>
+          <!-- Inline meta cluster — collapsed into the input wrap so model
+               selector + project pill + Stop button share a single row
+               with the textarea (user 2026-05-23: cut another ~120px of
+               vertical bloat from the bottom panel). The sendBtn stays
+               absolute-positioned to the right edge of the textarea — the
+               meta cluster sits to the LEFT of sendBtn via right-padding
+               on the wrap that reserves room for both. -->
+          <div class="toolbar-meta toolbar-meta--inline">
+            <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" data-i18n-tip="tooltip.settings" aria-label="Current assistant profile">
+              <img id="brandLabelImg" src="{{ASSETS_BASE}}/labels/en.svg" data-cbe-brand alt="Claude Codex — Black Edition" />
+            </button>
+            <div id="project-path" class="project-path" data-tooltip="No project folder — click the folder button to pick one" data-i18n-tip="label.no_project" aria-label="Active project folder" title=""></div>
+            <button id="stopBtn" class="stop-button" type="button" data-tooltip="Stop generation" data-i18n-tip="tooltip.stop" aria-label="Stop generation">
+              <span class="stop-button__icon" aria-hidden="true"></span>
+              <span class="stop-button__label">Stop</span>
+            </button>
+          </div>
           <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" data-i18n-tip="tooltip.send" aria-label="Send message"></button>
         </div>
 
@@ -1597,6 +1729,14 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
           <button id="extensionsBtn" class="tool-button" type="button" data-tooltip="Extensions" data-i18n-tip="tooltip.extensions" aria-label="Extensions">
             <img src="{{ASSETS_BASE}}/extensions.svg" alt="" />
           </button>
+          <!-- Email — opens the multi-account inbox panel. Uses the same
+               envelope SVG style as every other toolbar icon (currentColor
+               so skins can recolor it). Posts {type:'openEmail'} to the
+               host (same code path as /email slash command + the
+               codexBlackEd.openEmail VSCode command). -->
+          <button id="emailBtn" class="tool-button" type="button" data-tooltip="Email — open inbox panel" data-i18n-tip="tooltip.email" aria-label="Email">
+            <img src="{{ASSETS_BASE}}/email.svg" alt="" />
+          </button>
           <button id="projectFolderBtn" class="tool-button" type="button" data-tooltip="Project folder" data-i18n-tip="tooltip.project_folder" aria-label="Project folder">
             <img src="{{ASSETS_BASE}}/project_folder.svg" alt="" />
           </button>
@@ -1649,18 +1789,6 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
           <span id="cbe-pinned-ext-row" class="cbe-pinned-ext-row" style="display:inline-flex;align-items:center;gap:4px;"></span>
         </div>
 
-        <div class="toolbar-meta">
-          <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" data-i18n-tip="tooltip.settings" aria-label="Current assistant profile">
-            <img id="brandLabelImg" src="{{ASSETS_BASE}}/labels/en.svg" data-cbe-brand alt="Claude Codex — Black Edition" />
-          </button>
-
-          <div id="project-path" class="project-path" data-tooltip="No project folder — click the folder button to pick one" data-i18n-tip="label.no_project" aria-label="Active project folder" title=""></div>
-
-          <button id="stopBtn" class="stop-button" type="button" data-tooltip="Stop generation" data-i18n-tip="tooltip.stop" aria-label="Stop generation">
-            <span class="stop-button__icon" aria-hidden="true"></span>
-            <span class="stop-button__label">Stop</span>
-          </button>
-        </div>
         </div>
       </section>
     </div>
@@ -1691,9 +1819,23 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
           <div id="cbe-am-list"></div>
         </div>
         <div class="cbe-am-addform">
+          <!-- Add-account form. Field visibility is driven by panel.js
+               _amUpdateAddFormMode() based on the selected provider:
+                 api_key        → label + #cbe-am-key-row
+                 email_password → label + #cbe-am-email-row + #cbe-am-password-row
+                 none           → form hidden (Ollama). -->
           <label style="margin-bottom:2px;">Add account</label>
           <input type="text" id="cbe-am-label" placeholder="Label (e.g. work, alt-2)" autocomplete="off" spellcheck="false" />
-          <input type="password" id="cbe-am-key" placeholder="API key" autocomplete="off" spellcheck="false" />
+          <div id="cbe-am-key-row">
+            <input type="password" id="cbe-am-key" placeholder="API key" autocomplete="off" spellcheck="false" />
+          </div>
+          <div id="cbe-am-email-row" style="display:none;">
+            <input type="text" id="cbe-am-email" placeholder="Email" autocomplete="off" spellcheck="false" />
+          </div>
+          <div id="cbe-am-password-row" style="display:none;">
+            <input type="password" id="cbe-am-password" placeholder="Password" autocomplete="off" spellcheck="false" />
+          </div>
+          <div id="cbe-am-cred-hint" style="display:none;font-size:11px;opacity:.65;line-height:1.35;">Passwords are stored locally; they drive the browser bridge login.</div>
           <div id="cbe-am-err"></div>
           <div style="display:flex;justify-content:flex-end;">
             <button type="button" class="cbe-btn cbe-save" id="cbe-am-add">Add</button>
