@@ -4043,14 +4043,29 @@ function deactivate() {
 /* ── Settings payload (sent to webview to populate the settings modal) ── */
 
 /* ── Skin discovery ───────────────────────────────────────────────────────
-   Skins are FOLDERS inside <extension>/skins. Each folder contains:
-     manifest.xml  — <skin><id><name><version><author><description><accent></skin>
-     styles.css    — the actual override stylesheet (linked at runtime)
-     assets/       — optional supporting files (icons, gifs, fonts)
-   The discovery scan is lazy: every `listSkins` call hits the filesystem
-   fresh so dropping a new skin folder works without restarting the panel.
-   `resolveSkin()` validates a requested skin id against the current
-   on-disk folders before we apply it. */
+   Skins are FOLDERS inside <extension>/skins. Two formats are supported,
+   both discovered lazily so dropping new folders works without a reload.
+
+   LEGACY format (CSS-overlay-on-fixed-HTML):
+     skins/<name>/
+       manifest.xml  — <skin><id><name><author><accent>…<colors></skin>
+       styles.css    — the override stylesheet linked over panel/index.html
+       assets/       — optional supporting files (icons, gifs, fonts)
+
+   NEW format (full-HTML-per-skin, 2026-05-25):
+     skins/<name>.skin/
+       manifest.xml  — same fields PLUS <panelHtml>index.html</panelHtml>
+       index.html    — the FULL chat-panel HTML the skin owns (clone of
+                       panel/index.html, restyled/relaid out by the author);
+                       same {{TOKEN}} substitutions are applied so panel.js,
+                       Prism, asset icons, sounds, and CSP_SOURCE still
+                       resolve from the extension's panel/ dir at runtime.
+       styles.css    — optional separated stylesheet (referenced from the
+                       skin's own index.html); not required.
+       preview.png   — optional cached render produced by tools/render_skin.py.
+
+   Both forms are listed in the picker. When the same logical id has both
+   forms on disk, the `.skin` (new) form wins. */
 function parseSkinManifest(manifestPath) {
     /* Tiny ad-hoc parser — manifest.xml is shallow, no attrs. Reads
        <tagName>value</tagName> pairs at any depth (so nested <colors><...>
@@ -4069,6 +4084,10 @@ function parseSkinManifest(manifestPath) {
             author:      pick('author'),
             accent:      pick('accent'),
             stylesheet:  pick('stylesheet') || 'styles.css',
+            /* NEW format: when set, the skin owns the full chat-panel HTML
+               and the loader mounts <skinDir>/<panelHtml> instead of the
+               default panel/index.html. Empty/missing for legacy skins. */
+            panelHtml:   pick('panelHtml') || pick('panel-html') || '',
             description: pick('description'),
             /* Modal palette — pushed to :root as --cbe-modal-* vars on apply.
                Tags inside <colors> live at the same regex grep level so the
@@ -4092,37 +4111,83 @@ function parseSkinManifest(manifestPath) {
     }
 }
 
-function listSkins(context, webview) {
+/* Suffix used by the NEW full-HTML-per-skin format. A folder named
+   `<id>.skin/` IS the same logical skin as `<id>/` but with a panel HTML
+   override. When both exist for the same logical id, the `.skin` form
+   wins. The bare id (without suffix) is what's stored in workspaceState
+   and exposed to the picker so saved state survives a format upgrade. */
+const SKIN_SUFFIX = '.skin';
+
+/* Walk skins/ once and return a map of logical-id → { root, format }
+   where format is 'new' for `<id>.skin/` and 'legacy' for `<id>/`. New
+   form is preferred — if both exist, the legacy entry is dropped. */
+function _scanSkinDirs(context) {
     const dir = path.join(context.extensionPath, SKINS_DIR_NAME);
+    const map = Object.create(null);
     let entries = [];
     try {
-        if (!fs.existsSync(dir)) return [];
+        if (!fs.existsSync(dir)) return map;
         entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch (e) {
-        traceErr('listSkins', e);
-        return [];
+        traceErr('_scanSkinDirs', e);
+        return map;
     }
-    const out = [];
+    /* Pass 1: legacy `<id>/` entries (only kept if no `.skin` peer wins). */
     for (const ent of entries) {
         if (!ent.isDirectory()) continue;
-        const skinRoot = path.join(dir, ent.name);
-        const manifestPath = path.join(skinRoot, 'manifest.xml');
-        if (!fs.existsSync(manifestPath)) continue;
+        if (ent.name.endsWith(SKIN_SUFFIX)) continue;
+        const root = path.join(dir, ent.name);
+        if (!fs.existsSync(path.join(root, 'manifest.xml'))) continue;
+        map[ent.name] = { root, format: 'legacy' };
+    }
+    /* Pass 2: new `<id>.skin/` entries — overwrite any legacy entry with
+       the same logical id. */
+    for (const ent of entries) {
+        if (!ent.isDirectory()) continue;
+        if (!ent.name.endsWith(SKIN_SUFFIX)) continue;
+        const logicalId = ent.name.slice(0, -SKIN_SUFFIX.length);
+        if (!logicalId) continue;
+        const root = path.join(dir, ent.name);
+        if (!fs.existsSync(path.join(root, 'manifest.xml'))) continue;
+        map[logicalId] = { root, format: 'new' };
+    }
+    return map;
+}
+
+function listSkins(context, webview) {
+    const scanned = _scanSkinDirs(context);
+    const out = [];
+    for (const id of Object.keys(scanned)) {
+        const { root, format } = scanned[id];
+        const manifestPath = path.join(root, 'manifest.xml');
         const meta = parseSkinManifest(manifestPath);
         if (!meta) continue;
-        const cssPath = path.join(skinRoot, meta.stylesheet);
-        if (!fs.existsSync(cssPath)) continue;
-        const uri = webview
+        /* CSS file is OPTIONAL for the new full-HTML format (a skin can
+           inline everything into its own <head>). For the legacy format
+           the stylesheet is required — without it there's nothing to
+           apply over the default panel. */
+        const cssPath = path.join(root, meta.stylesheet || 'styles.css');
+        const cssExists = fs.existsSync(cssPath);
+        if (format === 'legacy' && !cssExists) continue;
+        const uri = (webview && cssExists)
             ? webview.asWebviewUri(vscode.Uri.file(cssPath)).toString()
             : '';
+        /* Optional preview thumbnail rendered by tools/render_skin.py. */
+        const previewPath = path.join(root, 'preview.png');
+        const previewUri = (webview && fs.existsSync(previewPath))
+            ? webview.asWebviewUri(vscode.Uri.file(previewPath)).toString()
+            : '';
         out.push({
-            name:        ent.name,                     /* directory id, used as the picker value */
-            label:       meta.name || ent.name,        /* pretty display name from <name> */
-            uri,
+            name:        id,                            /* logical id — picker value, persists across format upgrade */
+            label:       meta.name || id,               /* pretty display name from <name> */
+            uri,                                        /* stylesheet URI (may be '' for new-format skins) */
+            previewUri,                                 /* optional rendered thumbnail */
+            format,                                     /* 'legacy' (CSS overlay) or 'new' (full HTML) */
+            hasPanelHtml: !!(meta.panelHtml && format === 'new'),
             accent:      meta.accent || '',
             author:      meta.author || '',
             description: meta.description || '',
-            colors:      meta.colors || null,          /* modal palette, applied as :root --cbe-modal-* vars */
+            colors:      meta.colors || null,           /* modal palette, applied as :root --cbe-modal-* vars */
         });
     }
     out.sort((a, b) => a.label.localeCompare(b.label));
@@ -4130,23 +4195,66 @@ function listSkins(context, webview) {
 }
 
 function resolveSkin(context, requestedName) {
-    /* '' / unknown id → cleared skin. Otherwise return the styles.css path
-       as a vscode.Uri plus the parsed modal-color palette so the caller
-       can push both to the webview in a single message. */
-    if (!requestedName) return { name: '', uri: null, colors: null };
-    const dir = path.join(context.extensionPath, SKINS_DIR_NAME);
+    /* '' / unknown id → cleared skin. Otherwise return the resolved skin's
+       on-disk paths so the caller can mount HTML (new format) and/or link
+       the stylesheet (both formats), plus the parsed modal-color palette.
+
+       Returns: {
+         name:       logical id ('' on miss) — what gets persisted,
+         uri:        vscode.Uri to styles.css OR null,
+         colors:     { 'modal-bg':..., 'modal-fg':..., … } OR null,
+         format:     'new' | 'legacy' | '',
+         root:       absolute path to the skin folder ('' on miss),
+         panelHtml:  basename of the skin's HTML file ('' for legacy),
+         panelHtmlPath: absolute path to the skin's HTML ('' for legacy),
+       } */
+    const miss = { name: '', uri: null, colors: null, format: '', root: '', panelHtml: '', panelHtmlPath: '' };
+    if (!requestedName) return miss;
     const safe = path.basename(requestedName);   /* strip any path traversal */
-    const skinRoot = path.join(dir, safe);
-    const manifestPath = path.join(skinRoot, 'manifest.xml');
+    if (!safe) return miss;
+    /* The picker stores the logical id (no `.skin` suffix). Look it up in
+       the scan map so the new form is preferred when both exist. As a
+       fall-back, allow the caller to pass the exact folder name (with or
+       without `.skin`) — useful for tests + CLI. */
+    const scanned = _scanSkinDirs(context);
+    let entry = scanned[safe] || null;
+    if (!entry && safe.endsWith(SKIN_SUFFIX)) {
+        entry = scanned[safe.slice(0, -SKIN_SUFFIX.length)] || null;
+    }
+    if (!entry) return miss;
     try {
-        if (!fs.existsSync(manifestPath)) return { name: '', uri: null, colors: null };
+        const manifestPath = path.join(entry.root, 'manifest.xml');
         const meta = parseSkinManifest(manifestPath);
-        if (!meta) return { name: '', uri: null, colors: null };
-        const cssPath = path.join(skinRoot, meta.stylesheet || 'styles.css');
-        if (!fs.existsSync(cssPath)) return { name: '', uri: null, colors: null };
-        return { name: safe, uri: vscode.Uri.file(cssPath), colors: meta.colors || null };
+        if (!meta) return miss;
+        const cssPath = path.join(entry.root, meta.stylesheet || 'styles.css');
+        const cssExists = fs.existsSync(cssPath);
+        /* For legacy skins, missing CSS = invalid (nothing to apply). For
+           new-format skins, CSS is optional (the skin's own index.html may
+           inline all styles into a <style> tag). */
+        if (entry.format === 'legacy' && !cssExists) return miss;
+        const logicalId = entry.root.endsWith(SKIN_SUFFIX)
+            ? path.basename(entry.root).slice(0, -SKIN_SUFFIX.length)
+            : path.basename(entry.root);
+        let panelHtmlPath = '';
+        let panelHtml = '';
+        if (entry.format === 'new' && meta.panelHtml) {
+            const candidate = path.join(entry.root, path.basename(meta.panelHtml));
+            if (fs.existsSync(candidate)) {
+                panelHtmlPath = candidate;
+                panelHtml = path.basename(candidate);
+            }
+        }
+        return {
+            name:          logicalId,
+            uri:           cssExists ? vscode.Uri.file(cssPath) : null,
+            colors:        meta.colors || null,
+            format:        entry.format,
+            root:          entry.root,
+            panelHtml,
+            panelHtmlPath,
+        };
     } catch (_) {
-        return { name: '', uri: null, colors: null };
+        return miss;
     }
 }
 
@@ -5597,15 +5705,37 @@ function bindPanel(context, panel) {
                         /* Validate the skin filename against what's actually on disk
                            right now — refusing arbitrary strings keeps a malformed
                            webview message from injecting a stray <link href>. Empty
-                           string clears the skin. */
+                           string clears the skin.
+
+                           NEW-format (`.skin/`) skins own the full panel HTML, so
+                           a `postMessage`+`<link href>` swap can't reach them —
+                           we re-mount panel.webview.html via getPanelHtml() which
+                           picks up the new skin's index.html. The old format keeps
+                           the legacy CSS-overlay path (faster, no flash). When
+                           switching FROM a new-format skin TO any other skin (or
+                           none), we also remount so the default panel HTML comes
+                           back. */
+                        const prev = context.workspaceState.get(STATE_SKIN, '') || '';
+                        const prevResolved = prev ? resolveSkin(context, prev) : null;
+                        const wasFullHtml = !!(prevResolved && prevResolved.panelHtmlPath);
                         const safe = resolveSkin(context, msg.skin);
+                        const isFullHtml = !!safe.panelHtmlPath;
                         await context.workspaceState.update(STATE_SKIN, safe.name);
-                        panel.webview.postMessage({
-                            type: 'applySkin',
-                            skin: safe.name,
-                            skinUri: safe.uri ? panel.webview.asWebviewUri(safe.uri).toString() : '',
-                            skinColors: safe.colors || null,
-                        });
+                        if (isFullHtml || wasFullHtml) {
+                            try {
+                                panel.webview.html = getPanelHtml(context, panel.webview);
+                                trace(`SKIN:REMOUNT prev=${prev}(fullHtml=${wasFullHtml}) -> ${safe.name}(fullHtml=${isFullHtml})`);
+                            } catch (e) {
+                                traceErr('SKIN:REMOUNT', e);
+                            }
+                        } else {
+                            panel.webview.postMessage({
+                                type: 'applySkin',
+                                skin: safe.name,
+                                skinUri: safe.uri ? panel.webview.asWebviewUri(safe.uri).toString() : '',
+                                skinColors: safe.colors || null,
+                            });
+                        }
                     }
                     if (typeof msg.language === 'string' && msg.language) {
                         /* Validate against the locales we actually ship before
@@ -6795,8 +6925,26 @@ function bindPanel(context, panel) {
 
 function getPanelHtml(context, webview) {
     const endHtml = timeStep('getPanelHtml');
-    const htmlPath = path.join(context.extensionPath, 'panel', 'index.html');
-    const endRead = timeStep('  read panel/index.html');
+    /* Active skin can override the panel HTML entirely (new full-HTML-per-
+       skin format). When the skin has <panelHtml>index.html</panelHtml> in
+       its manifest and that file exists, we read THAT instead of the
+       default panel/index.html. All template tokens ({{PANEL_JS_URI}},
+       {{ASSETS_BASE}}, {{CSP_SOURCE}}, etc.) are substituted the same way,
+       so the skin's panel.js / assets / Prism / sounds still resolve from
+       the extension's panel/ + assets/ + lib/ + sounds/ dirs at runtime.
+       Legacy CSS-only skins fall through to panel/index.html unchanged. */
+    const savedSkinName = context.workspaceState.get(STATE_SKIN, '') || '';
+    const resolvedSkin = savedSkinName ? resolveSkin(context, savedSkinName) : null;
+    let htmlPath;
+    let htmlSource;
+    if (resolvedSkin && resolvedSkin.panelHtmlPath) {
+        htmlPath = resolvedSkin.panelHtmlPath;
+        htmlSource = `skin:${resolvedSkin.name}/${resolvedSkin.panelHtml}`;
+    } else {
+        htmlPath = path.join(context.extensionPath, 'panel', 'index.html');
+        htmlSource = 'panel/index.html';
+    }
+    const endRead = timeStep(`  read ${htmlSource}`);
     let html = fs.readFileSync(htmlPath, 'utf8');
     endRead(`bytes=${html.length}`);
 
