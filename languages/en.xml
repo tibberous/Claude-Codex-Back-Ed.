@@ -30,6 +30,7 @@
   <s id="label.refresh">Refresh</s>
   <s id="label.reload">Reload</s>
   <s id="label.run">Run</s>
+  <s id="label.apply">Apply</s>
   <s id="label.save">Save</s>
   <s id="label.send">Send</s>
   <s id="label.skin">Skin</s>

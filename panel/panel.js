@@ -5,6 +5,31 @@
    https://trentontompkins.com    https://github.com/tibberous
    Call (724) 431-5207 — PHP / Python / node.js / desktop / web / mobile
    ───────────────────────────────────────────────────────────────────── */
+/* ─── PANEL.JS LOAD MARKER ─── */
+(function _cbePanelLoadMarker() {
+  // Logs immediately on script evaluation. The number CHANGES on every
+  // panel.js reload (different timestamp each load), so if you reopen the
+  // panel and the marker number is the SAME as before, the webview is
+  // serving a cached panel.js. If the number CHANGES, the file is fresh.
+  // Also computes a content hash (FNV-1a, no crypto dep) so you can grep
+  // for the marker in DevTools console + verify against the file on disk.
+  try {
+    let h = 0x811c9dc5;
+    const src = (document.currentScript && document.currentScript.src) || '(no-src)';
+    for (let i = 0; i < src.length; i++) {
+      h ^= src.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    const loadId = (Date.now() % 1000000).toString(36);
+    const srcHash = (h >>> 0).toString(16).padStart(8, '0');
+    console.log('%c[CBE panel.js LOADED]', 'color:#ff0040;font-weight:bold;',
+      'loadId=' + loadId, 'srcUrlFnvHash=0x' + srcHash, 'src=' + src);
+    window.__CBE_PANEL_LOAD = { loadId, srcHash, loadedAt: new Date().toISOString(), src };
+  } catch (err) {
+    console.error('[CBE panel.js LOADED] marker failed:', err);
+  }
+})();
+
 /* panel.js — extracted from the original inline <script> block in panel/
    index.html so it can be loaded with `defer`. The HTML renders before this
    file finishes parsing/executing, dropping ~250ms off the webview boot.
@@ -1185,7 +1210,7 @@ function renderAccountsModalList(payload) {
       }
       row.appendChild(editWrap);
       const saveBtn = document.createElement('button');
-      saveBtn.type = 'button'; saveBtn.className = 'cbe-am-btn'; saveBtn.textContent = 'Save';
+      saveBtn.type = 'button'; saveBtn.className = 'cbe-am-btn'; saveBtn.textContent = 'Apply1';
       saveBtn.addEventListener('click', () => {
         const msg = { type: 'editAccount', provider: __cbeAmProvider, accountId: a.id };
         const newLabel = lblIn.value.trim();
@@ -2022,79 +2047,387 @@ function openSettings(payload) {
   closeSettings(true);
   const overlay = document.createElement('div');
   overlay.id = 'cbe-settings';
-  overlay.innerHTML = ''
-    + '<div class="cbe-box">'
-    +   '<div class="cbe-hdr"><span>Settings — Provider &amp; Model</span><button type="button" class="cbe-btn cbe-cancel cbe-x-svg" data-act="cancel" aria-label="Close"></button></div>'
-    +   '<div class="cbe-body cbe-body--two-col" style="display:grid;grid-template-columns:1fr 1px 1fr;column-gap:18px;row-gap:10px;align-items:start;">'
-    +     '<div class="cbe-col cbe-col--left" style="display:flex;flex-direction:column;gap:10px;min-width:0;">'
-    +     '<div><label>Provider</label><select id="cbe-set-provider"></select></div>'
-    +     '<div><label>Model</label><select id="cbe-set-model"></select></div>'
-    +     '<div class="cbe-warn" id="cbe-set-warn">No API key configured for this provider in config.ini.</div>'
-    +     '<div id="cbe-accounts-wrap" style="margin:6px 0 2px;">'
-    +       '<div style="display:flex;align-items:center;gap:8px;">'
-    +         '<label style="margin:0;flex:1;">Accounts <span id="cbe-acct-count" style="opacity:.6;font-weight:400;"></span></label>'
-    +         '<button type="button" id="cbe-acct-add-btn" class="cbe-btn" style="padding:4px 12px;font-size:12px;">+ Add Account</button>'
-    +       '</div>'
-    +       '<div id="cbe-acct-list" style="margin-top:6px;display:flex;flex-direction:column;gap:4px;"></div>'
-    +       '<div id="cbe-acct-form" style="display:none;margin-top:8px;padding:8px;border:1px solid var(--cbe-modal-border,#444);border-radius:5px;background:var(--cbe-modal-bg,#181818);">'
-    +         '<input type="text" id="cbe-acct-label" placeholder="Label (e.g. work, alt-2)" style="width:100%;margin-bottom:6px;padding:6px 8px;background:var(--cbe-modal-bg,#1c1c1c);color:var(--cbe-modal-fg,#eee);border:1px solid var(--cbe-modal-border,#444);border-radius:4px;font:inherit;box-sizing:border-box;">'
-    +         '<input type="password" id="cbe-acct-key" placeholder="API key" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:6px;padding:6px 8px;background:var(--cbe-modal-bg,#1c1c1c);color:var(--cbe-modal-fg,#eee);border:1px solid var(--cbe-modal-border,#444);border-radius:4px;font:inherit;box-sizing:border-box;">'
-    +         '<div id="cbe-acct-err" style="display:none;color:#ff6b6b;font-size:12px;margin-bottom:6px;"></div>'
-    +         '<div style="display:flex;gap:6px;justify-content:flex-end;">'
-    +           '<button type="button" id="cbe-acct-cancel-btn" class="cbe-btn cbe-cancel" style="padding:4px 12px;font-size:12px;">Cancel</button>'
-    +           '<button type="button" id="cbe-acct-save-btn" class="cbe-btn cbe-save" style="padding:4px 12px;font-size:12px;">Add</button>'
-    +         '</div>'
+
+  /* ── 2026-05-25 settings-modal rebuild ──
+     Previously the modal was built via innerHTML string concat, then the
+     box/body/foot were grabbed via querySelector and styled. The inlined
+     per-skin CSS (#cbe-settings .cbe-box { width:420px; overflow:hidden })
+     was tied with inline-style on specificity AND something was making
+     `.cbe-foot` extend past the box right edge in some skins.
+
+     Fix: build the outer shell (box/hdr/body/foot) via createElement so
+     parent/child relationships are explicit and impossible to mis-nest,
+     and apply every layout style with setProperty(..., 'important') so
+     stale per-skin CSS can't beat us. Body content is still set via
+     innerHTML (it's all internal markup, the dangerous part is the
+     box→body / box→foot relationship). */
+  const box  = document.createElement('div'); box.className = 'cbe-box';
+  const hdr  = document.createElement('div'); hdr.className = 'cbe-hdr';
+  // Header stamp — if you don't see "[buildXXXX]" appended to the modal
+  // title, the panel.js loaded by the webview isn't this one. The build
+  // marker is just `Date.now() % 100000` so it changes on every webview
+  // boot — different number each time you fully reload the panel.
+  const _hdrStamp = '[build ' + (Date.now() % 100000) + ']';
+  hdr.innerHTML =
+      '<span>Settings — Provider &amp; Model ' + _hdrStamp + '</span>'
+    + '<button type="button" class="cbe-btn cbe-cancel cbe-x-svg" data-act="cancel" aria-label="Close"></button>';
+  const body = document.createElement('div'); body.className = 'cbe-body cbe-body--two-col';
+  body.innerHTML = ''
+    + '<div class="cbe-col cbe-col--left" style="display:flex;flex-direction:column;gap:10px;min-width:0;">'
+    +   '<div><label>Provider</label><select id="cbe-set-provider"></select></div>'
+    +   '<div><label>Model</label><select id="cbe-set-model"></select></div>'
+    +   '<div class="cbe-warn" id="cbe-set-warn">No API key configured for this provider in config.ini.</div>'
+    +   '<div id="cbe-accounts-wrap" style="margin:6px 0 2px;">'
+    +     '<div style="display:flex;align-items:center;gap:8px;">'
+    +       '<label style="margin:0;flex:1;">Accounts <span id="cbe-acct-count" style="opacity:.6;font-weight:400;"></span></label>'
+    +       '<button type="button" id="cbe-acct-add-btn" class="cbe-btn" style="padding:4px 12px;font-size:12px;">+ Add Account</button>'
+    +     '</div>'
+    +     '<div id="cbe-acct-list" style="margin-top:6px;display:flex;flex-direction:column;gap:4px;"></div>'
+    +     '<div id="cbe-acct-form" style="display:none;margin-top:8px;padding:8px;border:1px solid var(--cbe-modal-border,#444);border-radius:5px;background:var(--cbe-modal-bg,#181818);">'
+    +       '<input type="text" id="cbe-acct-label" placeholder="Label (e.g. work, alt-2)" style="width:100%;margin-bottom:6px;padding:6px 8px;background:var(--cbe-modal-bg,#1c1c1c);color:var(--cbe-modal-fg,#eee);border:1px solid var(--cbe-modal-border,#444);border-radius:4px;font:inherit;box-sizing:border-box;">'
+    +       '<input type="password" id="cbe-acct-key" placeholder="API key" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:6px;padding:6px 8px;background:var(--cbe-modal-bg,#1c1c1c);color:var(--cbe-modal-fg,#eee);border:1px solid var(--cbe-modal-border,#444);border-radius:4px;font:inherit;box-sizing:border-box;">'
+    +       '<div id="cbe-acct-err" style="display:none;color:#ff6b6b;font-size:12px;margin-bottom:6px;"></div>'
+    +       '<div style="display:flex;gap:6px;justify-content:flex-end;">'
+    +         '<button type="button" id="cbe-acct-cancel-btn" class="cbe-btn cbe-cancel" style="padding:4px 12px;font-size:12px;">Cancel</button>'
+    +         '<button type="button" id="cbe-acct-save-btn" class="cbe-btn cbe-save" style="padding:4px 12px;font-size:12px;">Add</button>'
     +       '</div>'
     +     '</div>'
-    +     '</div>'  /* end .cbe-col--left */
-    +     '<div class="cbe-col-divider" aria-hidden="true" style="background:var(--cbe-modal-border,#444);width:1px;align-self:stretch;"></div>'
-    +     '<div class="cbe-col cbe-col--right" style="display:flex;flex-direction:column;gap:10px;min-width:0;">'
-    +     '<div><label>Skin</label><select id="cbe-set-skin"><option value="">Loading skins…</option></select></div>'
-    +     '<div><label>Language</label><div id="cbe-set-language-wrap" style="position:relative;"></div></div>'
-    +     '<div style="display:flex;align-items:center;gap:10px;margin-top:4px;">'
-    +       '<label for="cbe-set-sfx-enabled" style="margin:0;flex:1;">Sound Effects</label>'
-    +       '<input type="checkbox" id="cbe-set-sfx-enabled" style="width:auto;accent-color:var(--cbe-modal-accent);cursor:pointer;">'
+    +   '</div>'
+    + '</div>'
+    + '<div class="cbe-col-divider" aria-hidden="true" style="background:var(--cbe-modal-border,#444);width:1px;align-self:stretch;"></div>'
+    + '<div class="cbe-col cbe-col--right" style="display:flex;flex-direction:column;gap:10px;min-width:0;">'
+    +   '<div><label>Skin</label><select id="cbe-set-skin"><option value="">Loading skins…</option></select></div>'
+    +   '<div><label>Language</label><div id="cbe-set-language-wrap" style="position:relative;"></div></div>'
+    +   '<div style="display:flex;align-items:center;gap:10px;margin-top:4px;">'
+    +     '<label for="cbe-set-sfx-enabled" style="margin:0;flex:1;">Sound Effects</label>'
+    +     '<input type="checkbox" id="cbe-set-sfx-enabled" style="width:auto;accent-color:var(--cbe-modal-accent);cursor:pointer;">'
+    +   '</div>'
+    +   '<div>'
+    +     '<label for="cbe-set-sfx-volume">Volume <span id="cbe-set-sfx-volume-pct" style="opacity:.65;font-weight:400;">55%</span></label>'
+    +     '<input type="range" id="cbe-set-sfx-volume" min="0" max="100" step="1" value="55" style="width:100%;accent-color:var(--cbe-modal-accent);cursor:pointer;">'
+    +   '</div>'
+    +   '<div id="cbe-tc-section" style="margin-top:8px;padding:8px;border:1px solid var(--cbe-modal-border,#444);border-radius:5px;">'
+    +     '<div style="font-weight:600;margin-bottom:6px;">Tool calls (bridge daisy-chain)</div>'
+    +     '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
+    +       '<label style="margin:0;flex:1;" for="cbe-tc-mode">Mode</label>'
+    +       '<select id="cbe-tc-mode" style="flex:2;">'
+    +         '<option value="off">off (disable)</option>'
+    +         '<option value="allowlist">allowlist (safe commands no prompt)</option>'
+    +         '<option value="confirm">confirm (always ask)</option>'
+    +         '<option value="auto">auto (no prompt, run everything)</option>'
+    +       '</select>'
+    +     '</div>'
+    +     '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
+    +       '<label style="margin:0;flex:1;" for="cbe-tc-maxsteps">Max chain steps</label>'
+    +       '<input type="number" id="cbe-tc-maxsteps" min="1" max="50" step="1" value="10" style="flex:2;">'
+    +     '</div>'
+    +     '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
+    +       '<label style="margin:0;flex:1;" for="cbe-tc-timeout">Per-command timeout (s)</label>'
+    +       '<input type="number" id="cbe-tc-timeout" min="1" max="600" step="1" value="60" style="flex:2;">'
     +     '</div>'
     +     '<div>'
-    +       '<label for="cbe-set-sfx-volume">Volume <span id="cbe-set-sfx-volume-pct" style="opacity:.65;font-weight:400;">55%</span></label>'
-    +       '<input type="range" id="cbe-set-sfx-volume" min="0" max="100" step="1" value="55" style="width:100%;accent-color:var(--cbe-modal-accent);cursor:pointer;">'
+    +       '<label for="cbe-tc-allowlist">Allowlist (one per line)</label>'
+    +       '<textarea id="cbe-tc-allowlist" rows="6" spellcheck="false" style="width:100%;font:12px Consolas,monospace;background:#000;color:#dcdcdc;border:1px solid var(--cbe-modal-border,#444);border-radius:4px;padding:6px;box-sizing:border-box;"></textarea>'
     +     '</div>'
-    +     /* Tool calls section — controls daisy-chain command execution for
-           bridge chat. mode=off disables; allowlist runs only safe commands
-           without prompting (everything else prompts); confirm always prompts;
-           auto runs everything without prompting. */
-    +     '<div id="cbe-tc-section" style="margin-top:8px;padding:8px;border:1px solid var(--cbe-modal-border,#444);border-radius:5px;">'
-    +       '<div style="font-weight:600;margin-bottom:6px;">Tool calls (bridge daisy-chain)</div>'
-    +       '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
-    +         '<label style="margin:0;flex:1;" for="cbe-tc-mode">Mode</label>'
-    +         '<select id="cbe-tc-mode" style="flex:2;">'
-    +           '<option value="off">off (disable)</option>'
-    +           '<option value="allowlist">allowlist (safe commands no prompt)</option>'
-    +           '<option value="confirm">confirm (always ask)</option>'
-    +           '<option value="auto">auto (no prompt, run everything)</option>'
-    +         '</select>'
-    +       '</div>'
-    +       '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
-    +         '<label style="margin:0;flex:1;" for="cbe-tc-maxsteps">Max chain steps</label>'
-    +         '<input type="number" id="cbe-tc-maxsteps" min="1" max="50" step="1" value="10" style="flex:2;">'
-    +       '</div>'
-    +       '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
-    +         '<label style="margin:0;flex:1;" for="cbe-tc-timeout">Per-command timeout (s)</label>'
-    +         '<input type="number" id="cbe-tc-timeout" min="1" max="600" step="1" value="60" style="flex:2;">'
-    +       '</div>'
-    +       '<div>'
-    +         '<label for="cbe-tc-allowlist">Allowlist (one per line)</label>'
-    +         '<textarea id="cbe-tc-allowlist" rows="6" spellcheck="false" style="width:100%;font:12px Consolas,monospace;background:#000;color:#dcdcdc;border:1px solid var(--cbe-modal-border,#444);border-radius:4px;padding:6px;box-sizing:border-box;"></textarea>'
-    +       '</div>'
-    +     '</div>'
-    +     '</div>'  /* end .cbe-col--right */
-    +   '</div>'  /* end .cbe-body */
-    +   '<div class="cbe-foot">'
-    +     '<button type="button" class="cbe-btn cbe-cancel" data-act="cancel">Cancel</button>'
-    +     '<button type="button" class="cbe-btn cbe-save"   data-act="apply">Apply</button>'
     +   '</div>'
     + '</div>';
+  const foot      = document.createElement('div'); foot.className = 'cbe-foot';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button'; cancelBtn.className = 'cbe-btn cbe-cancel';
+  cancelBtn.setAttribute('data-act', 'cancel');
+  cancelBtn.textContent = 'Cancel';
+  const applyBtn  = document.createElement('button');
+  applyBtn.type = 'button'; applyBtn.className = 'cbe-btn cbe-save';
+  applyBtn.setAttribute('data-act', 'apply');
+  // Label comes from the localization table now — user can rename in
+  // C:/Users/moren/Desktop/Claude Codex Black/languages/en.xml under
+  // <s id="label.apply">…</s>. If they change it to "FOO" and reopen
+  // settings, my button will say "FOO" — proving this createElement path
+  // IS what's rendering. If they change it and my button still says
+  // "Apply", a different button is stacked on top of mine.
+  applyBtn.textContent = cbeT('label.apply', 'Apply');
+  applyBtn.setAttribute('data-i18n', 'label.apply'); // applyStrings() will re-localize on language change
+  applyBtn.style.setProperty('cursor', 'pointer', 'important');
+  applyBtn.style.setProperty('pointer-events', 'auto', 'important');
+  cancelBtn.style.setProperty('cursor', 'pointer', 'important');
+  cancelBtn.style.setProperty('pointer-events', 'auto', 'important');
+  // Always-on data stamps — invisible, but lets DevTools `document.querySelector(
+  // '[data-cbe-built-by]')` identify which Apply is ours WITHOUT visual noise.
+  applyBtn.setAttribute('data-cbe-built-by', 'openSettings-createElement-2026-05-25');
+  cancelBtn.setAttribute('data-cbe-built-by', 'openSettings-createElement-2026-05-25');
+
+  // Debug mode — opt-in via localStorage.setItem('cbe_debug','1'). Adds
+  // a duplicate-Apply DOM scan + elementFromPoint check at modal mount,
+  // useful if Apply ever silent-fails again. No visible UI changes.
+  let CBE_DEBUG = false;
+  try { CBE_DEBUG = localStorage.getItem('cbe_debug') === '1'; } catch (_) {}
+  foot.appendChild(cancelBtn);
+  foot.appendChild(applyBtn);
+  box.appendChild(hdr);
+  box.appendChild(body);
+  box.appendChild(foot);
+  overlay.appendChild(box);
   document.body.appendChild(overlay);
+
+  /* Three-belt strategy because the click WAS silent-failing through plain
+     addEventListener: (1) inline `onclick` attribute via .onclick property —
+     survives ANY ancestor `parent.innerHTML = ...` rebuild because it's a
+     DOM attribute, not a listener (addEventListener listeners die when the
+     node is replaced; .onclick survives outerHTML serialization).
+     (2) addEventListener click — normal path for normal cases.
+     (3) document-level CAPTURE-PHASE listener — fires BEFORE any ancestor
+     can stopPropagation; catches even clicks aimed at other Apply buttons
+     stacked over ours by closest('[data-cbe-built-by="openSettings-...]').
+     Plus: we expose `window._cbeForceApply` so the user can paste-call it
+     from DevTools directly if all three of the above somehow fail. And we
+     ditched alert() because VSCode webviews routinely suppress it — we
+     flash the button background lime-green for 400ms instead, which is
+     impossible to suppress at any layer. */
+  function _cbeFlashApply(color) {
+    try {
+      const prevBg = applyBtn.style.backgroundColor;
+      applyBtn.style.setProperty('background-color', color || '#00ff66', 'important');
+      setTimeout(() => { applyBtn.style.backgroundColor = prevBg; }, 400);
+    } catch (_) {}
+  }
+  function _cbeApplyClick(e, source) {
+    if (e) { try { e.stopPropagation(); e.preventDefault(); } catch (_) {} }
+    console.log('[CBE] Apply clicked via', source, 'at', new Date().toISOString());
+    // Mirror to extension debug.log so trace is visible WITHOUT needing
+    // webview DevTools open. Shows as `recv {"type":"_cbeDbg",...}` line.
+    if (api) try { api.postMessage({ type: '_cbeDbg__apply-handler-' + source, tag: 'apply-handler', source }); } catch (_) {}
+    _cbeFlashApply('#00ff66');
+    try { _cbeDoApply(); }
+    catch (err) {
+      console.error('[CBE] _cbeDoApply threw', err);
+      const msg = String((err && err.message) || err || 'unknown').replace(/[^a-zA-Z0-9 .:_-]/g, '_').slice(0, 200);
+      const stk = String((err && err.stack) || '').replace(/[^a-zA-Z0-9 .:_-]/g, '_').slice(0, 200);
+      if (api) try { api.postMessage({ type: '_cbeDbg__apply-handler-THREW__msg=' + msg, tag: 'apply-handler-threw', err: String(err && err.message || err), stack: String(err && err.stack || '') }); } catch (_) {}
+      if (api) try { api.postMessage({ type: '_cbeDbg__apply-handler-THREW-STACK=' + stk }); } catch (_) {}
+    }
+  }
+  function _cbeCancelClick(e, source) {
+    if (e) { try { e.stopPropagation(); e.preventDefault(); } catch (_) {} }
+    console.log('[CBE] Cancel clicked via', source, 'at', new Date().toISOString());
+    if (api) try { api.postMessage({ type: '_cbeDbg__cancel-handler-' + source, tag: 'cancel-handler', source }); } catch (_) {}
+    _cbeFlashApply('#ff8800');
+    try { _cbeDoCancel(); }
+    catch (err) { console.error('[CBE] _cbeDoCancel threw', err); }
+  }
+  applyBtn.onclick  = (e) => _cbeApplyClick(e, 'onclick-attr');
+  cancelBtn.onclick = (e) => _cbeCancelClick(e, 'onclick-attr');
+  applyBtn.addEventListener('click',     (e) => _cbeApplyClick(e, 'addEL-click'));
+  applyBtn.addEventListener('mousedown', (e) => _cbeApplyClick(e, 'addEL-mousedown'));
+  cancelBtn.addEventListener('click',    (e) => _cbeCancelClick(e, 'addEL-click'));
+  /* Capture-phase document listener — catches Apply clicks anywhere within
+     our overlay even if a sibling/cover element is intercepting them. We
+     scope to our overlay so we don't hijack Apply buttons in unrelated
+     modals. */
+  function _cbeDocCapture(e) {
+    try {
+      const t = e.target;
+      if (!t || !t.closest) return;
+      if (!overlay.contains(t)) return;
+      const btn = t.closest('button[data-act]');
+      if (!btn) return;
+      const act = btn.getAttribute('data-act');
+      if (act === 'apply') {
+        e.stopPropagation(); e.preventDefault();
+        _cbeApplyClick(null, 'document-capture');
+      } else if (act === 'cancel') {
+        e.stopPropagation(); e.preventDefault();
+        _cbeCancelClick(null, 'document-capture');
+      }
+    } catch (err) { console.error('[CBE] doc-capture handler threw', err); }
+  }
+  document.addEventListener('click', _cbeDocCapture, true);
+  document.addEventListener('mousedown', _cbeDocCapture, true);
+  /* ---- SCORCHED-EARTH DIAGNOSTIC ----
+     Body-level capture listener that fires on ANY click anywhere on the
+     page. Mirrors EVERY click to extension debug.log via _cbeDbg postMsg,
+     so we can tell whether clicks are reaching the document at all, where
+     they land, and whether overlay.contains(target) returns true. If clicks
+     are silent here too, the click event never reaches the webview — that
+     would be a webview focus/keyboard-shortcut absorbing the click. */
+  function _cbeAnyClickProbe(e) {
+    try {
+      const t = e.target;
+      const r = (t && t.getBoundingClientRect) ? t.getBoundingClientRect() : null;
+      const inOverlay = !!(t && overlay && overlay.contains && overlay.contains(t));
+      const closestBtn = t && t.closest ? t.closest('button') : null;
+      const dataAct = closestBtn ? closestBtn.getAttribute('data-act') : null;
+      const tagId = t ? `${t.tagName}#${t.id || '(no-id)'}.${(t.className && t.className.toString ? t.className.toString() : '(no-class)').slice(0, 80)}` : '(no-target)';
+      if (api) api.postMessage({
+        type: '_cbeDbg__any-click-probe',
+        tag: 'any-click-probe',
+        evt: e.type,
+        target: tagId,
+        rect: r ? { x: r.left|0, y: r.top|0, w: r.width|0, h: r.height|0 } : null,
+        inOverlay,
+        closestBtnDataAct: dataAct,
+      });
+    } catch (err) { /* swallow */ }
+  }
+  document.body.addEventListener('click',     _cbeAnyClickProbe, true);
+  document.body.addEventListener('mousedown', _cbeAnyClickProbe, true);
+  /* ---- POINTER-EVENTS ANCESTOR WALK ----
+     The MOST LIKELY remaining cause: an ancestor of applyBtn has
+     `pointer-events: none` baked into a skin's CSS, killing all clicks
+     before they reach the button. We walk up from applyBtn to document.body
+     and log each ancestor's COMPUTED pointer-events. If anyone returns
+     "none", that's the bug. Runs 500ms after mount so any async skin CSS
+     load finishes first. */
+  setTimeout(() => {
+    try {
+      const chain = [];
+      let node = applyBtn;
+      while (node && node !== document.body) {
+        const cs = window.getComputedStyle(node);
+        chain.push({
+          tag: node.tagName,
+          id: node.id || '(no-id)',
+          cls: (node.className && node.className.toString ? node.className.toString().slice(0, 60) : ''),
+          pointerEvents: cs.pointerEvents,
+          opacity: cs.opacity,
+          visibility: cs.visibility,
+          display: cs.display,
+          zIndex: cs.zIndex,
+        });
+        node = node.parentNode;
+      }
+      console.log('[CBE] Apply ancestor pointer-events chain:', chain);
+      // Also encode which ancestors have pointer-events:none into the type
+      // so it's visible in debug.log without payload parsing.
+      const peNone = chain.filter(c => c.pointerEvents === 'none').map(c => `${c.tag}#${c.id}`).join(',') || 'none-found';
+      if (api) api.postMessage({ type: '_cbeDbg__apply-ancestor-walk__pe-none=' + peNone, tag: 'apply-ancestor-walk', chain });
+      // Also log what's at the center of applyBtn — confirms there's no
+      // invisible overlay we missed.
+      const r = applyBtn.getBoundingClientRect();
+      const elAt = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      const elTag = elAt ? `${elAt.tagName}#${elAt.id || '(no-id)'}.${(elAt.className && elAt.className.toString ? elAt.className.toString() : '').slice(0, 60)}` : '(null)';
+      if (api) api.postMessage({
+        type: '_cbeDbg__elFromPoint__isOurs=' + (elAt === applyBtn) + '__el=' + elTag.replace(/[^a-zA-Z0-9._#-]/g, '_').slice(0, 80),
+        tag: 'apply-element-from-point',
+        elAt: elTag,
+        isOurApplyBtn: elAt === applyBtn,
+        rect: { x: r.left|0, y: r.top|0, w: r.width|0, h: r.height|0 },
+      });
+    } catch (err) { console.error('[CBE] ancestor walk threw', err); }
+  }, 500);
+  /* Manual escape hatch: user can run `_cbeForceApply()` in DevTools if all
+     three click paths fail. Also exposes _cbeDoApply for direct invocation. */
+  try {
+    window._cbeForceApply  = () => _cbeApplyClick(null, 'window._cbeForceApply');
+    window._cbeForceCancel = () => _cbeCancelClick(null, 'window._cbeForceCancel');
+    window._cbeDoApply     = _cbeDoApply;
+    console.log('[CBE] window._cbeForceApply() and window._cbeDoApply() now callable from DevTools');
+  } catch (_) {}
+
+  // Diagnostic — only runs when CBE_DEBUG is on. Scans document for any
+  // OTHER Apply/Save buttons + reports which one is on top of ours.
+  if (CBE_DEBUG) {
+    setTimeout(() => {
+      try {
+        const allApply = Array.from(document.querySelectorAll('button')).filter(b =>
+          (b.textContent || '').trim().toLowerCase() === 'apply' ||
+          b.getAttribute('data-act') === 'apply' ||
+          b.getAttribute('data-act') === 'save'
+        );
+        console.log('[CBE] DUPLICATE-APPLY scan: found', allApply.length, 'apply-ish buttons:');
+        allApply.forEach((b, i) => {
+          const r = b.getBoundingClientRect();
+          console.log(`  #${i}`, {
+            text: (b.textContent || '').trim(),
+            dataAct: b.getAttribute('data-act'),
+            dataCbeBuiltBy: b.getAttribute('data-cbe-built-by') || '(none)',
+            isOurs: b === applyBtn,
+            visible: r.width > 0 && r.height > 0,
+            rect: r,
+            modal: (b.closest('[id*="settings"], [id*="cbe-"]') || {}).id || '(no #cbe- ancestor)',
+          });
+        });
+        const r = applyBtn.getBoundingClientRect();
+        const elAt = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        console.log('[CBE] elementFromPoint(over our Apply):', elAt, 'IS ours?', elAt === applyBtn);
+      } catch (err) { console.error('[CBE] debug-scan threw', err); }
+    }, 300);
+  }
+
+  /* Restore persisted size. Default 720×auto; min 560×360; max 95vw×88vh. */
+  let savedW = 720, savedH = null;
+  try {
+    const raw = localStorage.getItem('cbe-settings-size');
+    if (raw) {
+      const o = JSON.parse(raw);
+      if (o && Number.isFinite(o.w) && o.w >= 400) savedW = o.w;
+      if (o && Number.isFinite(o.h) && o.h >= 300) savedH = o.h;
+    }
+  } catch (_) { /* ignore parse */ }
+
+  /* setProperty(..., 'important') beats inline-styled selectors (#id .class)
+     in every per-skin index.html, including any `width:420px` legacy rule. */
+  box.style.setProperty('display',         'flex',          'important');
+  box.style.setProperty('flex-direction',  'column',        'important');
+  box.style.setProperty('width',           savedW + 'px',   'important');
+  box.style.setProperty('min-width',       '560px',         'important');
+  box.style.setProperty('max-width',       '95vw',          'important');
+  if (savedH) box.style.setProperty('height', savedH + 'px', 'important');
+  else        box.style.setProperty('height', 'auto',        'important');
+  box.style.setProperty('min-height',      '360px',         'important');
+  box.style.setProperty('max-height',      '88vh',          'important');
+  box.style.setProperty('resize',          'both',          'important');
+  box.style.setProperty('overflow',        'hidden',        'important');
+  box.style.setProperty('box-sizing',      'border-box',    'important');
+
+  body.style.setProperty('display',              'grid',                'important');
+  body.style.setProperty('grid-template-columns','1fr 1px 1fr',         'important');
+  body.style.setProperty('column-gap',           '18px',                'important');
+  body.style.setProperty('row-gap',              '10px',                'important');
+  body.style.setProperty('align-items',          'start',               'important');
+  body.style.setProperty('flex',                 '1 1 auto',            'important');
+  body.style.setProperty('overflow-y',           'auto',                'important');
+  body.style.setProperty('overflow-x',           'hidden',              'important');
+  body.style.setProperty('min-height',           '0',                   'important');
+  body.style.setProperty('min-width',            '0',                   'important');
+  body.style.setProperty('width',                '100%',                'important');
+  body.style.setProperty('box-sizing',           'border-box',          'important');
+
+  foot.style.setProperty('flex',                 '0 0 auto',            'important');
+  foot.style.setProperty('display',              'flex',                'important');
+  foot.style.setProperty('justify-content',      'flex-end',            'important');
+  foot.style.setProperty('gap',                  '8px',                 'important');
+  foot.style.setProperty('width',                '100%',                'important');
+  foot.style.setProperty('box-sizing',           'border-box',          'important');
+  foot.style.setProperty('overflow',             'hidden',              'important');
+
+  /* Debounced save on resize end. */
+  if (typeof ResizeObserver !== 'undefined') {
+    let saveTimer = null;
+    const ro = new ResizeObserver(() => {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        try {
+          localStorage.setItem('cbe-settings-size', JSON.stringify({
+            w: box.offsetWidth, h: box.offsetHeight,
+          }));
+        } catch (_) { /* ignore quota */ }
+      }, 300);
+    });
+    ro.observe(box);
+    /* Stop observing when the modal closes so we don't leak. */
+    overlay.__cbeResizeObserver = ro;
+  }
+
+  /* Verification log — confirms structure is right and foot is inside box. */
+  try {
+    /* defer one frame so layout has settled */
+    requestAnimationFrame(() => {
+      console.log('CBE settings modal ready',
+        box.getBoundingClientRect(),
+        foot.getBoundingClientRect(),
+        foot.parentElement === box);
+    });
+  } catch (_) { /* ignore */ }
 
   const sel = overlay.querySelector('#cbe-set-provider');
   __cbeProviders.forEach(p => {
@@ -2308,7 +2641,7 @@ function openSettings(payload) {
   /* Live-preview skin choice while the dropdown is open. We swap the
      <link> href immediately on `change` so the user sees the effect;
      Cancel reverts to the saved skin, Save persists the new one. */
-  const __cbeSavedSkinAtOpen = __cbeActiveSkin;
+  let __cbeSavedSkinAtOpen = __cbeActiveSkin;   // reassigned by _cbeDoApply when user applies a new skin (was `const`, threw TypeError on click)
   const __cbeSavedSkinUriAtOpen = (document.getElementById('cbe-skin') || {}).href || '';
   /* Snapshot the live :root style overrides so Cancel can restore exactly
      what was set before the user started fiddling with the dropdown. */
@@ -2372,68 +2705,109 @@ function openSettings(payload) {
   });
   sfxVolume.addEventListener('change', () => playSfx('click'));
 
+  /* Backdrop click = cancel. Direct buttons (apply/cancel) call
+     _cbeDoApply()/_cbeDoCancel() directly — see top of openSettings. */
   overlay.addEventListener('click', (e) => {
-    const act = e.target.getAttribute && e.target.getAttribute('data-act');
-    if (act === 'cancel' || e.target === overlay) {
-      /* Revert live-previewed SFX + skin + modal-palette changes on cancel. */
-      setSfxEnabled(__cbeSavedSfxEnabled);
-      setSfxVolume(__cbeSavedSfxVolume);
-      /* Restore __cbeActiveSkin BEFORE applySkinUri so the data-skin stamp
-         on <body> reverts to the saved skin (not the previewed one). */
-      __cbeActiveSkin = __cbeSavedSkinAtOpen;
-      applySkinUri(__cbeSavedSkinUriAtOpen);
-      applySkinColors(__cbeSavedColorsAtOpen);
-      closeSettings();
-      return;
-    }
-    if (act === 'save' || act === 'apply') {
-      const provider = overlay.querySelector('#cbe-set-provider').value;
-      const model    = overlay.querySelector('#cbe-set-model').value;
-      __cbeActiveProvider = provider;
-      const sfxEnabledVal = !!sfxEnabled.checked;
-      const sfxVolumeVal  = Number(sfxVolume.value) / 100;
-      setSfxEnabled(sfxEnabledVal);
-      setSfxVolume(sfxVolumeVal);
-      __cbeSavedSfxEnabled = sfxEnabledVal;
-      __cbeSavedSfxVolume  = sfxVolumeVal;
-      const skinSel = overlay.querySelector('#cbe-set-skin');
-      const skin    = (skinSel && skinSel.value) || '';
-      __cbeActiveSkin = skin;
-      /* Update the saved-at-open snapshot so a subsequent Apply→Cancel
-         doesn't revert the values we just persisted. */
-      __cbeSavedSkinAtOpen = skin;
-      const langWrap = overlay.querySelector('#cbe-set-language-wrap');
-      const language = (langWrap && langWrap.dataset && langWrap.dataset.value) || 'en';
-      /* Collect tool-call settings from the Tool calls section. Empty
-         allowlist is allowed (means no commands are auto-allowed in
-         allowlist mode). */
-      let toolCall = null;
-      try {
-        const modeEl = overlay.querySelector('#cbe-tc-mode');
-        const maxEl  = overlay.querySelector('#cbe-tc-maxsteps');
-        const toEl   = overlay.querySelector('#cbe-tc-timeout');
-        const alEl   = overlay.querySelector('#cbe-tc-allowlist');
-        const allowLines = (alEl && alEl.value || '')
-          .split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-        toolCall = {
-          mode: (modeEl && modeEl.value) || 'allowlist',
-          maxSteps: Number((maxEl && maxEl.value) || 10),
-          timeoutS: Number((toEl && toEl.value) || 60),
-          allowlist: allowLines,
-        };
-      } catch (e) { /* swallow */ }
-      if (api) api.postMessage({
-        type: 'setProvider', provider, model,
-        sfxEnabled: sfxEnabledVal, sfxVolume: sfxVolumeVal,
-        skin, language,
-        toolCall,
-      });
-      /* Save was removed 2026-05-25 (user: "we cant even change settings rn").
-         Apply now both persists AND closes the modal — single primary action. */
-      closeSettings();
+    if (e.target === overlay) {
+      console.log('[CBE] backdrop click -> cancel');
+      try { _cbeDoCancel(); }
+      catch (err) { console.error('[CBE] backdrop cancel threw', err); }
     }
   });
   document.addEventListener('keydown', escClose, true);
+
+  /* ── The actual apply/cancel logic, callable directly from the button
+     click listeners above. Function DECLARATIONS are hoisted within
+     openSettings, so they resolve even though they're defined below the
+     listener registration. Heavy console logging on every branch so the
+     user can pinpoint where the chain breaks if it ever fails again. */
+  function _cbeDoCancel() {
+    console.log('[CBE] _cbeDoCancel ENTER');
+    try {
+      console.log('[CBE]   revert sfx', { savedEn: __cbeSavedSfxEnabled, savedVol: __cbeSavedSfxVolume });
+      setSfxEnabled(__cbeSavedSfxEnabled);
+      setSfxVolume(__cbeSavedSfxVolume);
+      __cbeActiveSkin = __cbeSavedSkinAtOpen;
+      console.log('[CBE]   restoring skin', __cbeSavedSkinAtOpen, 'uri=', __cbeSavedSkinUriAtOpen);
+      applySkinUri(__cbeSavedSkinUriAtOpen);
+      applySkinColors(__cbeSavedColorsAtOpen);
+    } catch (err) {
+      console.error('[CBE] _cbeDoCancel revert threw', err);
+    }
+    console.log('[CBE]   closing modal');
+    closeSettings();
+    console.log('[CBE] _cbeDoCancel EXIT');
+  }
+
+  function _cbeDoApply() {
+    console.log('[CBE] _cbeDoApply ENTER');
+    const providerEl = overlay.querySelector('#cbe-set-provider');
+    const modelEl    = overlay.querySelector('#cbe-set-model');
+    if (!providerEl || !modelEl) {
+      console.error('[CBE] _cbeDoApply missing provider/model selects', { providerEl, modelEl });
+      return;
+    }
+    const provider = providerEl.value;
+    const model    = modelEl.value;
+    __cbeActiveProvider = provider;
+    console.log('[CBE]   provider/model', { provider, model });
+
+    const sfxEnabledVal = !!sfxEnabled.checked;
+    const sfxVolumeVal  = Number(sfxVolume.value) / 100;
+    setSfxEnabled(sfxEnabledVal);
+    setSfxVolume(sfxVolumeVal);
+    __cbeSavedSfxEnabled = sfxEnabledVal;
+    __cbeSavedSfxVolume  = sfxVolumeVal;
+    console.log('[CBE]   sfx', { enabled: sfxEnabledVal, vol: sfxVolumeVal });
+
+    const skinSel = overlay.querySelector('#cbe-set-skin');
+    const skin    = (skinSel && skinSel.value) || '';
+    __cbeActiveSkin = skin;
+    __cbeSavedSkinAtOpen = skin;
+    console.log('[CBE]   skin', skin);
+
+    const langWrap = overlay.querySelector('#cbe-set-language-wrap');
+    const language = (langWrap && langWrap.dataset && langWrap.dataset.value) || 'en';
+    console.log('[CBE]   language', language);
+
+    let toolCall = null;
+    try {
+      const modeEl = overlay.querySelector('#cbe-tc-mode');
+      const maxEl  = overlay.querySelector('#cbe-tc-maxsteps');
+      const toEl   = overlay.querySelector('#cbe-tc-timeout');
+      const alEl   = overlay.querySelector('#cbe-tc-allowlist');
+      const allowLines = (alEl && alEl.value || '')
+        .split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      toolCall = {
+        mode: (modeEl && modeEl.value) || 'allowlist',
+        maxSteps: Number((maxEl && maxEl.value) || 10),
+        timeoutS: Number((toEl && toEl.value) || 60),
+        allowlist: allowLines,
+      };
+      console.log('[CBE]   toolCall', toolCall);
+    } catch (err) {
+      console.error('[CBE] _cbeDoApply toolCall collect threw', err);
+    }
+
+    if (api) {
+      console.log('[CBE]   postMessage setProvider', { provider, model, skin, language });
+      try {
+        api.postMessage({
+          type: 'setProvider', provider, model,
+          sfxEnabled: sfxEnabledVal, sfxVolume: sfxVolumeVal,
+          skin, language, toolCall,
+        });
+        console.log('[CBE]   postMessage returned cleanly');
+      } catch (err) {
+        console.error('[CBE]   postMessage THREW', err);
+      }
+    } else {
+      console.error('[CBE] _cbeDoApply: api is NULL — no postMessage sent');
+    }
+    console.log('[CBE]   closing modal');
+    closeSettings();
+    console.log('[CBE] _cbeDoApply EXIT');
+  }
 }
 /* Saved SFX state baseline so Cancel can revert live previews. Hydrated
    on `init` from the host's persisted workspaceState. */
@@ -2443,6 +2817,8 @@ function escClose(e) { if (e.key === 'Escape') closeSettings(); }
 function closeSettings(suppressSfx) {
   const old = document.getElementById('cbe-settings');
   if (old) {
+    /* Disconnect resize observer to avoid leaking after modal removal. */
+    try { if (old.__cbeResizeObserver) old.__cbeResizeObserver.disconnect(); } catch (_) {}
     old.remove();
     if (!suppressSfx) playSfx('close_modal');
   }

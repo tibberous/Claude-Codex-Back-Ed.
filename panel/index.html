@@ -103,8 +103,10 @@ body {
      total panel height, was ~220px).
      2026-05-24: bumped top/bottom/left/right so the SQUARE prompt-shell has
      breathing room from the panel walls and chat thread (user: "vertical
-     spacing margin above and below" + "left, right and bottom margin"). */
-  padding: 14px 14px 14px;
+     spacing margin above and below" + "left, right and bottom margin").
+     2026-05-25: more breathing room on the default skin (user: "add some
+     margins so it doesnt look so bad"). */
+  padding: 18px 22px 22px;
   z-index: 10;
   pointer-events: none;
   background: transparent;
@@ -343,13 +345,21 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 }
 #sendBtn:hover,
 #sendBtn.is-hover {
-  color: #ffffff !important;
+  color: #5fb3ff !important;            /* blue rollover — used to be #ffffff which vanished on light skins */
   background-image: none !important;
 }
 #sendBtn:active,
 #sendBtn.is-active {
-  color: #ffffff !important;
+  color: #82d0ff !important;            /* slightly lighter blue on press */
   background-image: none !important;
+}
+/* Kill the browser focus ring — that's the "square around SEND" Trent
+   was seeing. Default Chromium :focus draws a 2px square outline on
+   <button>; we already render hover/active states via the color swap. */
+#sendBtn:focus,
+#sendBtn:focus-visible {
+  outline: 0 !important;
+  box-shadow: none !important;
 }
 
 /* Attachments row — sits between the input and the toolbar. Each chip
@@ -652,8 +662,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   /* Render icons in full color (no white-out tint). Slight drop-shadow gives
      them depth on the glass. image-rendering keeps PNG icons crisp at the
      larger dock size. */
-  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55))
-          drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+  filter: drop-shadow(2px 2px 3px rgba(0, 0, 0, 0.25));
   image-rendering: -webkit-optimize-contrast;
   -webkit-user-drag: none;
   user-select: none;

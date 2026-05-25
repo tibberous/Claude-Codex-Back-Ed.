@@ -6905,6 +6905,17 @@ function bindPanel(context, panel) {
                 case 'sttStop':
                     stopSapiStt();
                     break;
+                case '_cbeDbg':
+                    /* Diagnostic mirror from panel.js — we serialize the
+                       FULL payload so the click trace (handler firing,
+                       ancestor pointer-events chain, elementFromPoint
+                       result) is readable in debug.log without DevTools. */
+                    try {
+                        const _cp = JSON.parse(JSON.stringify(msg));
+                        delete _cp.type;
+                        trace('_cbeDbg ' + (_cp.tag || '?') + ' ' + JSON.stringify(_cp));
+                    } catch (_) { trace('_cbeDbg (unserializable)'); }
+                    break;
                 default:
                     trace('  unhandled type: ' + msg.type);
             }
