@@ -170,6 +170,11 @@ body {
   background: var(--field-bg) !important;
   color: var(--field-text) !important;
 }
+/* Base panel paints "no project folder" placeholder in #f0f0f0 — invisible
+   on the white field bg. Use a mid-gray. */
+.project-path:empty::before {
+  color: #6e6e6e !important;
+}
 
 /* ── Stop button — text + square get the accent ─────────────────────── */
 .stop-button {
@@ -212,5 +217,23 @@ body {
   border: 0 !important;
   box-shadow: none !important;
   padding: 0 !important;
+  flex-shrink: 1 !important;
+  min-width: 0 !important;
 }
 .label-button img { display: none !important; }
+
+/* Narrow-panel shrink — at 600px the 360px label crushed Queue down to "("
+   and overlapped Stop with SEND. Match the base panel inline rule. */
+@media (max-width: 880px) {
+  .toolbar-meta--inline .label-button {
+    width: 180px !important;
+    height: 30px !important;
+  }
+}
+@media (max-width: 700px) {
+  .toolbar-meta--inline .label-button {
+    width: 140px !important;
+    height: 28px !important;
+  }
+  .toolbar-meta--inline .project-path { display: none !important; }
+}

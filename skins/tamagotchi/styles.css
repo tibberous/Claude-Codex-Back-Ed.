@@ -385,5 +385,23 @@ body[data-skin="tamagotchi"] .prompt-shell {
   border: 0 !important;
   box-shadow: none !important;
   padding: 0 !important;
+  flex-shrink: 1 !important;
+  min-width: 0 !important;
 }
 .label-button img { display: none !important; }
+
+/* Narrow-panel shrink — at 600px the 360px label overflowed and crushed
+   the inline meta cluster (Queue label became "(", Stop overlapped SEND). */
+@media (max-width: 880px) {
+  .toolbar-meta--inline .label-button {
+    width: 180px !important;
+    height: 30px !important;
+  }
+}
+@media (max-width: 700px) {
+  .toolbar-meta--inline .label-button {
+    width: 140px !important;
+    height: 28px !important;
+  }
+  .toolbar-meta--inline .project-path { display: none !important; }
+}

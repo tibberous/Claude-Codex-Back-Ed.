@@ -168,6 +168,11 @@ body {
   background: var(--field-bg) !important;
   color: var(--field-text) !important;
 }
+/* Base panel paints "no project folder" placeholder in #f0f0f0 — vanishes
+   on Gnome's white field bg. Override to mid-gray Adwaita placeholder. */
+.project-path:empty::before {
+  color: #777a7d !important;
+}
 
 /* ── Stop button — text + square get the accent ─────────────────────── */
 .stop-button {

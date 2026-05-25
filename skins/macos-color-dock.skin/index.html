@@ -1695,7 +1695,10 @@ body {
     inset 0 -2px 6px rgba(0, 0, 0, 0.30) !important;
   backdrop-filter: blur(20px) saturate(1.3);
   -webkit-backdrop-filter: blur(20px) saturate(1.3);
-  padding: 4px 6px 4px 4px;
+  /* Right padding reserves room for the absolutely-positioned #sendBtn
+     (min-width 56px + right:10px → ~70px reservation). Without this the
+     inline meta cluster overlaps SEND at narrow widths. */
+  padding: 4px 72px 4px 4px !important;
   overflow: hidden;
 }
 .prompt-input-wrap::after {
@@ -1839,28 +1842,28 @@ body {
 }
 
 /* ── Per-icon SVG files (skins/macos-color-dock/icons/) ─────────────── */
-#addBtn            { background-image: url('{{SKIN_BASE}}/icons/add.svg')         !important; }
-#storedPromptsBtn  { background-image: url('{{SKIN_BASE}}/icons/notes.svg')       !important; }
-#chatHistoryBtn    { background-image: url('{{SKIN_BASE}}/icons/calendar.svg')    !important; }
-#attachFileBtn     { background-image: url('{{SKIN_BASE}}/icons/mail.svg')        !important; }
-#ttsBtn            { background-image: url('{{SKIN_BASE}}/icons/messages.svg')    !important; }
-#sttBtn            { background-image: url('{{SKIN_BASE}}/icons/facetime.svg')    !important; }
-#autoReplyBtn      { background-image: url('{{SKIN_BASE}}/icons/photos.svg')      !important; }
-#wakeUpBtn         { background-image: url('{{SKIN_BASE}}/icons/clock.svg')       !important; }
-#showCommandsBtn   { background-image: url('{{SKIN_BASE}}/icons/launchpad.svg')   !important; }
-#compactBtn        { background-image: url('{{SKIN_BASE}}/icons/compress.svg')    !important; }
-#handbookBtn       { background-image: url('{{SKIN_BASE}}/icons/ibooks.svg')      !important; }
-#settingsBtn       { background-image: url('{{SKIN_BASE}}/icons/preferences.svg') !important; }
-#extensionsBtn     { background-image: url('{{SKIN_BASE}}/icons/appstore.svg')    !important; }
-#projectFolderBtn  { background-image: url('{{SKIN_BASE}}/icons/folder.svg')      !important; }
-#monitorBtn        { background-image: url('{{SKIN_BASE}}/icons/safari.svg')      !important; }
-#terminalBtn       { background-image: url('{{SKIN_BASE}}/icons/terminal.svg')    !important; }
-#setupBtn          { background-image: url('{{SKIN_BASE}}/icons/toolbox.svg')     !important; }
-#gitBtn            { background-image: url('{{SKIN_BASE}}/icons/git.svg')         !important; }
-#githubBtn         { background-image: url('{{SKIN_BASE}}/icons/github.svg')      !important; }
-#domainsBtn        { background-image: url('{{SKIN_BASE}}/icons/maps.svg')        !important; }
-#fontSizeBtn       { background-image: url('{{SKIN_BASE}}/icons/fontbook.svg')    !important; }
-#helpBtn           { background-image: url('{{SKIN_BASE}}/icons/help.svg')        !important; }
+#addBtn            { background-image: url('icons/add.svg')         !important; }
+#storedPromptsBtn  { background-image: url('icons/notes.svg')       !important; }
+#chatHistoryBtn    { background-image: url('icons/calendar.svg')    !important; }
+#attachFileBtn     { background-image: url('icons/mail.svg')        !important; }
+#ttsBtn            { background-image: url('icons/messages.svg')    !important; }
+#sttBtn            { background-image: url('icons/facetime.svg')    !important; }
+#autoReplyBtn      { background-image: url('icons/photos.svg')      !important; }
+#wakeUpBtn         { background-image: url('icons/clock.svg')       !important; }
+#showCommandsBtn   { background-image: url('icons/launchpad.svg')   !important; }
+#compactBtn        { background-image: url('icons/compress.svg')    !important; }
+#handbookBtn       { background-image: url('icons/ibooks.svg')      !important; }
+#settingsBtn       { background-image: url('icons/preferences.svg') !important; }
+#extensionsBtn     { background-image: url('icons/appstore.svg')    !important; }
+#projectFolderBtn  { background-image: url('icons/folder.svg')      !important; }
+#monitorBtn        { background-image: url('icons/safari.svg')      !important; }
+#terminalBtn       { background-image: url('icons/terminal.svg')    !important; }
+#setupBtn          { background-image: url('icons/toolbox.svg')     !important; }
+#gitBtn            { background-image: url('icons/git.svg')         !important; }
+#githubBtn         { background-image: url('icons/github.svg')      !important; }
+#domainsBtn        { background-image: url('icons/maps.svg')        !important; }
+#fontSizeBtn       { background-image: url('icons/fontbook.svg')    !important; }
+#helpBtn           { background-image: url('icons/help.svg')        !important; }
 
 /* Stop button — Apple red with the same wet-glass shimmer. */
 .stop-button {
@@ -1907,6 +1910,13 @@ body {
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
   min-width: 0 !important;
+}
+
+/* Narrow-panel: hide the project-path pill so the label-pill + Stop button
+   can fit in the inline meta cluster without overlapping the SEND button. */
+@media (max-width: 700px) {
+  .toolbar-meta--inline .project-path { display: none !important; }
+  .toolbar-meta--inline .label-button { width: auto !important; max-width: 160px !important; }
 }
 
 </style>

@@ -1676,7 +1676,10 @@ body {
   border: 1px solid var(--glass-stroke-1) !important;
   border-radius: 14px !important;
   background: linear-gradient(180deg, rgba(255,255,255,0.30) 0%, rgba(255,255,255,0.12) 42%, rgba(96,143,210,0.10) 100%) !important;
-  color: var(--glass-text) !important;
+  /* Dark blue text reads on the light frosted glass tiles — the original
+     near-white var(--glass-text) made the Stop label invisible on the
+     white prompt-input-wrap background. */
+  color: #1f3a5f !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.82),
     inset 0 -1px 0 rgba(255,255,255,0.05),
@@ -1769,8 +1772,11 @@ body {
 }
 
 .stop-button__icon {
-  background: linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(214,229,255,0.82) 100%) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 0 10px rgba(255,255,255,0.22) !important;
+  /* Blue accent square — was a white gradient which vanished on the white
+     glass background. Match the send-button blue family so the Stop icon
+     reads on the light tile. */
+  background: linear-gradient(180deg, var(--accent-2) 0%, var(--accent-3) 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), 0 0 6px rgba(45, 141, 255, 0.32) !important;
 }
 
 </style>

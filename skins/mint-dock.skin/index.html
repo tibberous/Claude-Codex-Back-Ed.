@@ -1633,7 +1633,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 
    Architecture follows skins/macos-color-dock/ exactly:
    - .tool-button is a transparent 60x60 slot; the visual is a per-id
-     background-image: url('{{SKIN_BASE}}/icons/foo.svg'). The squircle, gloss, and color
+     background-image: url('icons/foo.svg'). The squircle, gloss, and color
      are baked into each SVG so every tile carries its own real color (just
      like a real desktop launcher).
    - The original <img> glyph inside each .tool-button is hidden so the
@@ -1667,7 +1667,7 @@ body {
     linear-gradient(90deg, rgba(0,0,0,0.45) 0%, transparent 18%, transparent 82%, rgba(0,0,0,0.45) 100%),
     /* bottom darkening so the dock sits on a slightly darker patch */
     linear-gradient(180deg, transparent 65%, rgba(0,0,0,0.30) 100%),
-    url('{{SKIN_BASE}}/wallpaper.png') center center / cover no-repeat,
+    url('wallpaper.png') center center / cover no-repeat,
     linear-gradient(180deg, #5a7a30, #2a4010);
   background-attachment: fixed, fixed, fixed, fixed;
   color: var(--md-text);
@@ -1714,7 +1714,10 @@ body {
     inset 0 0 22px rgba(134, 190, 67, 0.12) !important;
   backdrop-filter: blur(20px) saturate(1.3);
   -webkit-backdrop-filter: blur(20px) saturate(1.3);
-  padding: 4px 6px 4px 4px;
+  /* Right padding reserves room for the absolutely-positioned #sendBtn
+     (min-width 56px + right offset → ~70px). Without this the inline
+     meta cluster overlapped SEND and clipped the dock pill at 600px. */
+  padding: 4px 72px 4px 4px !important;
   overflow: hidden;
 }
 .prompt-input-wrap::after {
@@ -1935,28 +1938,28 @@ body {
    Each icon is a fully-styled 64x64 SVG with its own rounded-square frame,
    color, gloss highlight, and glyph. Hand-drawn in the Mint Cinnamon
    launcher idiom (black terminal, brown folder, green Mint M, etc.). */
-#addBtn            { background-image: url('{{SKIN_BASE}}/icons/add.svg')       !important; }
-#storedPromptsBtn  { background-image: url('{{SKIN_BASE}}/icons/notes.svg')     !important; }
-#chatHistoryBtn    { background-image: url('{{SKIN_BASE}}/icons/history.svg')   !important; }
-#attachFileBtn     { background-image: url('{{SKIN_BASE}}/icons/paperclip.svg') !important; }
-#ttsBtn            { background-image: url('{{SKIN_BASE}}/icons/speaker.svg')   !important; }
-#sttBtn            { background-image: url('{{SKIN_BASE}}/icons/mic.svg')       !important; }
-#autoReplyBtn      { background-image: url('{{SKIN_BASE}}/icons/auto.svg')      !important; }
-#wakeUpBtn         { background-image: url('{{SKIN_BASE}}/icons/alarm.svg')     !important; }
-#showCommandsBtn   { background-image: url('{{SKIN_BASE}}/icons/menu.svg')      !important; }
-#compactBtn        { background-image: url('{{SKIN_BASE}}/icons/compact.svg')   !important; }
-#handbookBtn       { background-image: url('{{SKIN_BASE}}/icons/book.svg')      !important; }
-#settingsBtn       { background-image: url('{{SKIN_BASE}}/icons/gear.svg')      !important; }
-#extensionsBtn     { background-image: url('{{SKIN_BASE}}/icons/puzzle.svg')    !important; }
-#projectFolderBtn  { background-image: url('{{SKIN_BASE}}/icons/folder.svg')    !important; }
-#monitorBtn        { background-image: url('{{SKIN_BASE}}/icons/monitor.svg')   !important; }
-#terminalBtn       { background-image: url('{{SKIN_BASE}}/icons/terminal.svg')  !important; }
-#setupBtn          { background-image: url('{{SKIN_BASE}}/icons/toolbox.svg')   !important; }
-#gitBtn            { background-image: url('{{SKIN_BASE}}/icons/git.svg')       !important; }
-#githubBtn         { background-image: url('{{SKIN_BASE}}/icons/github.svg')    !important; }
-#domainsBtn        { background-image: url('{{SKIN_BASE}}/icons/globe.svg')     !important; }
-#fontSizeBtn       { background-image: url('{{SKIN_BASE}}/icons/font.svg')      !important; }
-#helpBtn           { background-image: url('{{SKIN_BASE}}/icons/help.svg')      !important; }
+#addBtn            { background-image: url('icons/add.svg')       !important; }
+#storedPromptsBtn  { background-image: url('icons/notes.svg')     !important; }
+#chatHistoryBtn    { background-image: url('icons/history.svg')   !important; }
+#attachFileBtn     { background-image: url('icons/paperclip.svg') !important; }
+#ttsBtn            { background-image: url('icons/speaker.svg')   !important; }
+#sttBtn            { background-image: url('icons/mic.svg')       !important; }
+#autoReplyBtn      { background-image: url('icons/auto.svg')      !important; }
+#wakeUpBtn         { background-image: url('icons/alarm.svg')     !important; }
+#showCommandsBtn   { background-image: url('icons/menu.svg')      !important; }
+#compactBtn        { background-image: url('icons/compact.svg')   !important; }
+#handbookBtn       { background-image: url('icons/book.svg')      !important; }
+#settingsBtn       { background-image: url('icons/gear.svg')      !important; }
+#extensionsBtn     { background-image: url('icons/puzzle.svg')    !important; }
+#projectFolderBtn  { background-image: url('icons/folder.svg')    !important; }
+#monitorBtn        { background-image: url('icons/monitor.svg')   !important; }
+#terminalBtn       { background-image: url('icons/terminal.svg')  !important; }
+#setupBtn          { background-image: url('icons/toolbox.svg')   !important; }
+#gitBtn            { background-image: url('icons/git.svg')       !important; }
+#githubBtn         { background-image: url('icons/github.svg')    !important; }
+#domainsBtn        { background-image: url('icons/globe.svg')     !important; }
+#fontSizeBtn       { background-image: url('icons/font.svg')      !important; }
+#helpBtn           { background-image: url('icons/help.svg')      !important; }
 
 /* Stop button — round red power button, mirrors the reference dock's
    far-right shutdown icon. */
@@ -1998,6 +2001,18 @@ body {
   background: rgba(0, 0, 0, 0.45) !important;
   border: 1px solid rgba(255, 255, 255, 0.14) !important;
   border-radius: 12px !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  min-width: 0 !important;
+}
+
+/* Narrow-panel: hide the project-path pill so the label-pill + Stop button
+   can fit in the inline meta cluster without overlapping SEND. */
+@media (max-width: 700px) {
+  .toolbar-meta--inline .project-path { display: none !important; }
+  .toolbar-meta--inline .label-button { width: auto !important; max-width: 160px !important; }
 }
 
 </style>

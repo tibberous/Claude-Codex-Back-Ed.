@@ -1681,7 +1681,16 @@ body {
   -webkit-backdrop-filter: blur(18px) saturate(1.5);
   display: flex;
   align-items: center;
-  padding: 6px 64px 6px 24px;
+  /* Right padding reserves room for the absolutely-positioned #sendBtn
+     (min-width 56px + right:9px + breathing room → ~72px). */
+  padding: 6px 72px 6px 20px;
+}
+
+/* Narrow-panel: hide the project-path pill so label-pill + Stop can fit
+   in the inline meta cluster without crowding SEND. */
+@media (max-width: 700px) {
+  .toolbar-meta--inline .project-path { display: none !important; }
+  .toolbar-meta--inline .label-button { max-width: 160px !important; }
 }
 #promptBox {
   background: transparent !important;

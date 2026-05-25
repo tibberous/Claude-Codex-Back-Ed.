@@ -168,6 +168,11 @@ body {
   background: var(--field-bg) !important;
   color: var(--field-text) !important;
 }
+/* Base panel paints "no project folder" placeholder in #f0f0f0 — invisible
+   on the white field bg. Use a mid-gray. */
+.project-path:empty::before {
+  color: #6e6e6e !important;
+}
 
 /* ── Stop button — text + square get the accent ─────────────────────── */
 .stop-button {

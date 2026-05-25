@@ -1797,6 +1797,11 @@ body {
   background: var(--field-bg) !important;
   color: var(--field-text) !important;
 }
+/* Base panel CSS paints "no project folder" placeholder in #f0f0f0 — invisible
+   on Ubuntu's light pink field bg. Override to dark plum so it reads. */
+.project-path:empty::before {
+  color: var(--field-placeholder, #66585f) !important;
+}
 
 /* ── Stop button — text + square get the accent ─────────────────────── */
 .stop-button {

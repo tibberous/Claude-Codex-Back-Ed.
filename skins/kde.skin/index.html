@@ -1642,13 +1642,17 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   --button-active: linear-gradient(180deg, rgba(45,78,122,.30) 0%, rgba(255,255,255,.14) 100%);
   --button-border: rgba(210,239,255,.46);
   --button-radius: 12px;
-  --button-text: #e9f7ff;
+  /* Dark navy text — the original near-white #e9f7ff vanished against the
+     pale-blue button background. Match the Breeze accent's dark companion. */
+  --button-text: #1a3e5c;
   --accent: #3daee9;
   --accent-glow: rgba(61,174,233,.34);
   --field-bg: rgba(255,255,255,.76);
   --field-text: #24324a;
   --field-border: rgba(215,238,255,.70);
-  --icon-filter: brightness(0) saturate(100%) invert(94%) sepia(15%) saturate(1432%) hue-rotate(172deg) brightness(102%) contrast(99%);
+  /* Dark Breeze blue (#1d6f9c) icon glyph — the original pale-blue filter
+     produced light-blue-on-light-blue tiles that read as blank squares. */
+  --icon-filter: brightness(0) saturate(100%) invert(34%) sepia(45%) saturate(2400%) hue-rotate(176deg) brightness(92%) contrast(94%);
 }
 
 body {
@@ -1793,6 +1797,11 @@ body {
   border: 1px solid var(--button-border) !important;
   background: var(--field-bg) !important;
   color: var(--field-text) !important;
+}
+/* Base panel paints "no project folder" placeholder in #f0f0f0 — vanishes
+   on KDE's near-white field bg. Use the dark Breeze accent text. */
+.project-path:empty::before {
+  color: #5a6a78 !important;
 }
 
 /* ── Stop button — text + square get the accent ─────────────────────── */

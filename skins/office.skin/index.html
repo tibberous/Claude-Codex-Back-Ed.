@@ -1788,12 +1788,32 @@ body {
   width: 360px !important;
   height: 50px !important;
   background:
-    url('{{SKIN_BASE}}/../../assets/label-square.png') center/contain no-repeat !important;
+    url('../../assets/label-square.png') center/contain no-repeat !important;
   border: 0 !important;
   box-shadow: none !important;
   padding: 0 !important;
+  flex-shrink: 1 !important;
+  min-width: 0 !important;
 }
 .label-button img { display: none !important; }
+
+/* Narrow-panel shrink — at 600px the 360px label crushed the textarea down
+   to a single "<" character and overlapped Stop + SEND. Match the base
+   panel rule for .toolbar-meta--inline .label-button (180x30) at narrow
+   widths so the inline meta cluster fits without overflow. */
+@media (max-width: 880px) {
+  .toolbar-meta--inline .label-button {
+    width: 180px !important;
+    height: 30px !important;
+  }
+}
+@media (max-width: 700px) {
+  .toolbar-meta--inline .label-button {
+    width: 140px !important;
+    height: 28px !important;
+  }
+  .toolbar-meta--inline .project-path { display: none !important; }
+}
 
 </style>
 </head>
