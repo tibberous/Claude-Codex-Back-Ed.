@@ -6961,6 +6961,16 @@ function getPanelHtml(context, webview) {
     const withV = (uri, fsPath) => uri.toString() + '?v=' + _bust(fsPath);
 
     const endUris = timeStep('  buildAssetUris');
+    /* SKIN_BASE: when the active skin is the new full-HTML format, its
+       own files (icons, fonts, styles.css, wallpaper.png) live under
+       <skinDir> and need an absolute webview URI to be reachable from
+       inside the substituted HTML. For legacy/no-skin runs this falls
+       back to the extension's assets dir so `{{SKIN_BASE}}` is always a
+       safe substitution. */
+    const skinBaseFs = (resolvedSkin && resolvedSkin.root)
+        ? resolvedSkin.root
+        : path.join(context.extensionPath, 'assets');
+    const skinBaseUri = webview.asWebviewUri(vscode.Uri.file(skinBaseFs));
     const assetsBase    = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets')));
     const labelUri      = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets', 'label-alpha.png')));
     const blankUri      = webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath, 'assets', 'blank.png')));
@@ -6990,6 +7000,7 @@ function getPanelHtml(context, webview) {
     endUris();
 
     const endSubst = timeStep('  substituteTemplateTokens');
+    html = html.split('{{SKIN_BASE}}').join(skinBaseUri.toString());
     html = html.split('{{ASSETS_BASE}}').join(assetsBase.toString());
     html = html.split('{{SOUNDS_BASE}}').join(soundsBase.toString());
     html = html.split('{{LABEL_ALPHA_URI}}').join(labelUri.toString());

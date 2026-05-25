@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<skin>
+  <id>xfce</id>
+  <name>Classic GTK / XFCE</name>
+  <version>1.0</version>
+  <author>OpenAI ChatGPT</author>
+  <accent>#3f72a8</accent>
+  <stylesheet>styles.css</stylesheet>
+  <description>Square classic GTK bevels — flat grey, no rounded corners.</description>
+  <!-- Modal chrome. Pushed onto :root as --cbe-modal-* CSS variables at
+       apply time so the panel's modals (Settings, Domains, Setup wizard,
+       Handbook, Stored prompts, Help, Source viewer, right-click menu)
+       paint in the theme's accent without duplicating modal markup. -->
+  <colors>
+    <modal-bg>#d8d8d8</modal-bg>
+    <modal-fg>#202020</modal-fg>
+    <modal-border>#686868</modal-border>
+    <modal-title-bg-1>#3f72a8</modal-title-bg-1>
+    <modal-title-bg-2>#5b8dc4</modal-title-bg-2>
+    <modal-title-fg>#ffffff</modal-title-fg>
+    <modal-foot-bg>#c5c5c5</modal-foot-bg>
+    <modal-accent>#3f72a8</modal-accent>
+    <!-- Universal high-contrast accent. Read by the panel as
+         --cbe-highlight-color and used wherever a one-off attention
+         element needs to pop on this skin (Auto Prompt countdown,
+         focus rings, selection bars, etc). Picked per-skin to read
+         clearly on the skin's modal-bg. -->
+    <highlight-color>#a03030</highlight-color>
+    <!-- Code-block chrome: title bar above + footer below fenced code.
+         Read by the panel as --cbe-code-bar-bg / --cbe-code-bar-fg.
+         Classic GTK title blue (darker than title-bg-1) on white. -->
+    <code-bar-bg>#2f5a86</code-bar-bg>
+    <code-bar-fg>#ffffff</code-bar-fg>
+  </colors>
+  <panelHtml>index.html</panelHtml>
+</skin>

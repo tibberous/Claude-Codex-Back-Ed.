@@ -133,12 +133,40 @@ check('listSkins finds >=10 skins', all.length >= 10, `count=${all.length}`);
 const byName = Object.create(null);
 for (const s of all) byName[s.name] = s;
 
-/* ── 2. resolveSkin('gnome') — should hit the LEGACY format (CSS overlay) ── */
+/* ── 2. resolveSkin('gnome') — must resolve and (if .skin exists) prefer new ── */
 const gnome = resolveSkin(ctx, 'gnome');
 check('resolveSkin(gnome).name === gnome', gnome.name === 'gnome', `got=${gnome.name}`);
-check('resolveSkin(gnome).format === legacy', gnome.format === 'legacy', `format=${gnome.format}`);
+check('resolveSkin(gnome) has a format', gnome.format === 'legacy' || gnome.format === 'new', `format=${gnome.format}`);
 check('resolveSkin(gnome).uri is set (CSS)', !!gnome.uri, `uri=${gnome.uri && gnome.uri.fsPath}`);
-check('resolveSkin(gnome) no panelHtml', !gnome.panelHtmlPath, `panelHtml=${gnome.panelHtml}`);
+const gnomeNew = fs.existsSync(path.join(EXT_ROOT, 'skins', 'gnome.skin'));
+if (gnomeNew) {
+    check('resolveSkin(gnome) prefers new format', gnome.format === 'new', `format=${gnome.format}`);
+    check('resolveSkin(gnome) has panelHtml', !!gnome.panelHtmlPath, `panelHtml=${gnome.panelHtml}`);
+} else {
+    check('resolveSkin(gnome) no panelHtml (legacy-only)', !gnome.panelHtmlPath);
+}
+
+/* ── 2b. Explicit legacy back-compat: resolve a name we know has only the
+       bare folder. The migration script creates .skin/ for ALL discovered
+       skins, so to actually test legacy-only we drop a temporary fixture. */
+const legacyFixtureRoot = path.join(EXT_ROOT, 'skins', '__smoke_legacy_only');
+try {
+    fs.mkdirSync(legacyFixtureRoot, { recursive: true });
+    fs.writeFileSync(path.join(legacyFixtureRoot, 'manifest.xml'),
+        '<?xml version="1.0"?>\n<skin><id>__smoke_legacy_only</id><name>Smoke Legacy</name>' +
+        '<accent>#abcdef</accent></skin>\n', 'utf8');
+    fs.writeFileSync(path.join(legacyFixtureRoot, 'styles.css'), '/* smoke */\n', 'utf8');
+    const legacy = resolveSkin(ctx, '__smoke_legacy_only');
+    check('resolveSkin(legacy-only).format === legacy', legacy.format === 'legacy', `format=${legacy.format}`);
+    check('resolveSkin(legacy-only) no panelHtml', !legacy.panelHtmlPath, `panelHtml=${legacy.panelHtml}`);
+    check('resolveSkin(legacy-only).uri is set', !!legacy.uri);
+} finally {
+    try {
+        fs.unlinkSync(path.join(legacyFixtureRoot, 'manifest.xml'));
+        fs.unlinkSync(path.join(legacyFixtureRoot, 'styles.css'));
+        fs.rmdirSync(legacyFixtureRoot);
+    } catch (_) {}
+}
 
 /* ── 3. resolveSkin('codex-black') — should prefer the NEW format if it
        exists, else fall through to legacy. After migration this MUST be
