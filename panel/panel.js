@@ -2025,7 +2025,8 @@ function openSettings(payload) {
   overlay.innerHTML = ''
     + '<div class="cbe-box">'
     +   '<div class="cbe-hdr"><span>Settings — Provider &amp; Model</span><button type="button" class="cbe-btn cbe-cancel cbe-x-svg" data-act="cancel" aria-label="Close"></button></div>'
-    +   '<div class="cbe-body">'
+    +   '<div class="cbe-body cbe-body--two-col" style="display:grid;grid-template-columns:1fr 1px 1fr;column-gap:18px;row-gap:10px;align-items:start;">'
+    +     '<div class="cbe-col cbe-col--left" style="display:flex;flex-direction:column;gap:10px;min-width:0;">'
     +     '<div><label>Provider</label><select id="cbe-set-provider"></select></div>'
     +     '<div><label>Model</label><select id="cbe-set-model"></select></div>'
     +     '<div class="cbe-warn" id="cbe-set-warn">No API key configured for this provider in config.ini.</div>'
@@ -2045,6 +2046,9 @@ function openSettings(payload) {
     +         '</div>'
     +       '</div>'
     +     '</div>'
+    +     '</div>'  /* end .cbe-col--left */
+    +     '<div class="cbe-col-divider" aria-hidden="true" style="background:var(--cbe-modal-border,#444);width:1px;align-self:stretch;"></div>'
+    +     '<div class="cbe-col cbe-col--right" style="display:flex;flex-direction:column;gap:10px;min-width:0;">'
     +     '<div><label>Skin</label><select id="cbe-set-skin"><option value="">Loading skins…</option></select></div>'
     +     '<div><label>Language</label><div id="cbe-set-language-wrap" style="position:relative;"></div></div>'
     +     '<div style="display:flex;align-items:center;gap:10px;margin-top:4px;">'
@@ -2083,11 +2087,11 @@ function openSettings(payload) {
     +         '<textarea id="cbe-tc-allowlist" rows="6" spellcheck="false" style="width:100%;font:12px Consolas,monospace;background:#000;color:#dcdcdc;border:1px solid var(--cbe-modal-border,#444);border-radius:4px;padding:6px;box-sizing:border-box;"></textarea>'
     +       '</div>'
     +     '</div>'
-    +   '</div>'
+    +     '</div>'  /* end .cbe-col--right */
+    +   '</div>'  /* end .cbe-body */
     +   '<div class="cbe-foot">'
     +     '<button type="button" class="cbe-btn cbe-cancel" data-act="cancel">Cancel</button>'
-    +     '<button type="button" class="cbe-btn"            data-act="apply">Apply</button>'
-    +     '<button type="button" class="cbe-btn cbe-save"   data-act="save">Save</button>'
+    +     '<button type="button" class="cbe-btn cbe-save"   data-act="apply">Apply</button>'
     +   '</div>'
     + '</div>';
   document.body.appendChild(overlay);
@@ -2424,8 +2428,9 @@ function openSettings(payload) {
         skin, language,
         toolCall,
       });
-      /* Save closes; Apply persists but keeps the modal open. */
-      if (act === 'save') closeSettings();
+      /* Save was removed 2026-05-25 (user: "we cant even change settings rn").
+         Apply now both persists AND closes the modal — single primary action. */
+      closeSettings();
     }
   });
   document.addEventListener('keydown', escClose, true);

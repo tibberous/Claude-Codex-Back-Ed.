@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<skin>
+  <id>claude-default</id>
+  <name>Claude Default</name>
+  <version>1.0</version>
+  <author>Trenton Tompkins</author>
+  <accent>#d97757</accent>
+  <stylesheet>styles.css</stylesheet>
+  <description>Minimal white panel that mirrors Anthropic's stock Claude Code look — soft borders, coral accent, auto-grow input. Recommended for the official forum / email teaser.</description>
+  <colors>
+    <modal-bg>#ffffff</modal-bg>
+    <modal-fg>#1f1f1f</modal-fg>
+    <modal-border>#d97757</modal-border>
+    <modal-title-bg-1>#fbeee6</modal-title-bg-1>
+    <modal-title-bg-2>#f3d8c8</modal-title-bg-2>
+    <modal-title-fg>#1f1f1f</modal-title-fg>
+    <modal-foot-bg>#f7f7f7</modal-foot-bg>
+    <modal-accent>#d97757</modal-accent>
+    <highlight-color>#d97757</highlight-color>
+    <code-bar-bg>#f1f1f1</code-bar-bg>
+    <code-bar-fg>#1f1f1f</code-bar-fg>
+  </colors>
+  <panelHtml>index.html</panelHtml>
+</skin>
