@@ -1037,17 +1037,24 @@ if (window.__cbeSttLanguage   === undefined) window.__cbeSttLanguage   = '';
     captureNode = sp;
   }
 
-  /* Live PCM streaming path for anthropic. On any failure (mic denied, no
-     Web Audio, host unreachable) fall back to WebSpeech so the button is never
-     silent. */
+  /* Live PCM streaming path for anthropic. If mic permission is denied,
+     surface ONE clear error and respect the user's provider choice — do
+     NOT silently downgrade to WebSpeech. Internal mode fallbacks (Audio
+     Context → MediaRecorder request/response) stay, since those keep the
+     same provider. */
   async function startPcmStream(provider) {
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (e) {
-      console.debug('[cbe.stt] getUserMedia denied — falling back to WebSpeech', e && e.message);
-      addMsg('Voice (' + provider + '): mic permission denied — falling back to WebSpeech.', 'info');
-      startWebSpeech();
+      console.debug('[cbe.stt] getUserMedia denied for ' + provider, e && e.message);
+      addMsg(
+        'Anthropic STT: microphone access denied. Grant mic permission to ' +
+        'VSCode (or check OS Privacy → Microphone), then click the mic again. ' +
+        'Your STT provider was not changed.',
+        'error'
+      );
+      mode = 'idle'; listening = false; setListeningUI(false);
       return;
     }
     mediaStream = stream;
@@ -1107,19 +1114,23 @@ if (window.__cbeSttLanguage   === undefined) window.__cbeSttLanguage   = '';
     playSfx('connect');
   }
 
-  /* MediaRecorder path for whisper-local / ElevenLabs / OpenAI. On any
-     failure we fall through to WebSpeech so the button is never silent. */
+  /* MediaRecorder path for whisper-local / ElevenLabs / OpenAI / Anthropic
+     (when the live PCM path falls back here). Respect the user's chosen
+     provider on failure — surface ONE clear error, do NOT silently switch
+     to WebSpeech. */
   async function startMediaRecorder(provider) {
-    /* navigator.mediaDevices.getUserMedia is what the VSCode webview
-       sandbox occasionally denies; the catch here is what gates the
-       graceful-fallback. */
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (e) {
-      console.debug('[cbe.stt] getUserMedia denied — falling back to WebSpeech', e && e.message);
-      addMsg('Voice (' + provider + '): mic permission denied — falling back to WebSpeech.', 'info');
-      startWebSpeech();
+      console.debug('[cbe.stt] getUserMedia denied for ' + provider, e && e.message);
+      addMsg(
+        'STT (' + provider + '): microphone access denied. Grant mic permission to ' +
+        'VSCode (or check OS Privacy → Microphone), then click the mic again. ' +
+        'Your STT provider was not changed.',
+        'error'
+      );
+      mode = 'idle'; listening = false; setListeningUI(false);
       return;
     }
     mediaStream = stream;
