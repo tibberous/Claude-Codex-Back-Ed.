@@ -589,25 +589,53 @@ document.getElementById('domainsBtn').onclick  = () => {
   if (api) api.postMessage({ type: 'listDomains' });
 };
 
-/* ── Read aloud (TTS 🔊) — click=read last reply, double-click=auto-read ─ */
+/* ── Read aloud (TTS 🔊) — click=read last reply, double-click=auto-read ──
+   Three-provider dispatch. Default is ElevenLabs (per the user's standing
+   rule — memory elevenlabs_default.md). Provider selection is held in
+   window.__cbeTtsProvider, hydrated from the host's init payload and
+   updated when the user picks a different one in Settings → Voice.
+
+     'elevenlabs' : host calls ElevenLabs TTS-1 multilingual, returns
+                    base64 mp3, we play it via an <audio> element.
+     'openai'     : host calls OpenAI tts-1 (voice=alloy), same return.
+     'webspeech'  : we use window.speechSynthesis directly — the same
+                    browser API Anthropic's bundle references but never
+                    wires into Claude Code's UI. This is the always-free
+                    fallback (no API key, no quota) AND the "Anthropic"
+                    label in the picker (since the WebSpeech path is the
+                    one Anthropic started shipping but didn't finish).
+   The ID3 mp3 path also gracefully degrades to WebSpeech if the host
+   reports an error (e.g. no API key configured). */
+window.__cbeTtsProvider = window.__cbeTtsProvider || 'webspeech';
 const tts = (function() {
   const btn = document.getElementById('ttsBtn');
   const synth = window.speechSynthesis;
   let lastReply = '';
   let autoRead = false;
+  let currentAudio = null;          /* <audio> element when remote-mp3 path is playing */
+  const pendingTtsReqs = new Map(); /* reqId -> { resolve, reject } */
 
-  function isSpeaking() { return synth && synth.speaking; }
+  function isSpeaking() {
+    if (synth && synth.speaking) return true;
+    if (currentAudio && !currentAudio.paused && !currentAudio.ended) return true;
+    return false;
+  }
 
-  /* Keep the SVG icon as the button content — never overwrite with text.
-     Speaking state is communicated via the `.speaking` class only, so the
-     icon stays visible the whole time. */
   function setIdle() {
     btn.classList.remove('speaking');
   }
 
-  function speak(txt) {
-    if (!synth) { addMsg('Speech synthesis not available in this webview.', 'error'); return; }
-    if (!txt) return;
+  function _stopAudio() {
+    if (currentAudio) {
+      try { currentAudio.pause(); } catch (_) {}
+      try { currentAudio.src = ''; } catch (_) {}
+      currentAudio = null;
+    }
+  }
+
+  /* WebSpeech path (browser-native SpeechSynthesis — Anthropic's stub API). */
+  function speakWebSpeech(txt) {
+    if (!synth) { addMsg('Speech synthesis not available in this webview.', 'error'); setIdle(); return; }
     synth.cancel();
     const utt = new SpeechSynthesisUtterance(txt);
     utt.lang = navigator.language || 'en-US';
@@ -616,21 +644,76 @@ const tts = (function() {
     synth.speak(utt);
   }
 
+  /* Remote (ElevenLabs / OpenAI) path — extension does the HTTP call so the
+     API key never crosses the webview boundary. We send a unique reqId so
+     out-of-order replies don't clobber the wrong utterance. */
+  function speakRemote(txt, provider) {
+    if (!api) { addMsg('Voice: extension API unavailable — falling back to WebSpeech.', 'info'); speakWebSpeech(txt); return; }
+    const reqId = 'tts-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    btn.classList.add('speaking');
+    pendingTtsReqs.set(reqId, true);
+    try {
+      api.postMessage({ type: 'ttsRequest', reqId, provider, text: txt });
+    } catch (e) {
+      console.debug('[cbe.tts] postMessage threw', e && e.message);
+      pendingTtsReqs.delete(reqId);
+      speakWebSpeech(txt);   /* graceful degrade */
+    }
+  }
+
+  function speak(txt) {
+    if (!txt) return;
+    stopAll();                       /* preempt any in-flight utterance */
+    const provider = window.__cbeTtsProvider || 'elevenlabs';
+    if (provider === 'webspeech') return speakWebSpeech(txt);
+    return speakRemote(txt, provider);
+  }
+
   function stopAll() {
     if (synth) synth.cancel();
+    _stopAudio();
+    pendingTtsReqs.clear();
     setIdle();
   }
 
+  /* Receive base64 mp3 from the host (ElevenLabs / OpenAI). On error fall
+     back to WebSpeech so the user still hears something — proves the
+     pitch's "voice always works" promise even if a key is missing. */
+  window.addEventListener('message', (e) => {
+    const m = e.data || {};
+    if (m.type !== 'ttsResult') return;
+    if (!pendingTtsReqs.has(m.reqId)) return;
+    pendingTtsReqs.delete(m.reqId);
+    if (!m.ok || !m.audioB64) {
+      /* Graceful degrade: the remote provider (elevenlabs/openai) had no key
+         or errored, so we fall back to keyless WebSpeech. This is NOT a
+         user-facing failure — the audio still plays — so keep it to the
+         console. Surfacing a toast here was the "says it failed but it works"
+         false-failure. */
+      console.debug('[cbe.tts] remote provider unavailable (' + (m.provider || '?') + '): ' + (m.error || 'unknown') + ' — using WebSpeech');
+      speakWebSpeech(lastReply);
+      return;
+    }
+    try {
+      _stopAudio();
+      currentAudio = new Audio('data:' + (m.mime || 'audio/mpeg') + ';base64,' + m.audioB64);
+      currentAudio.onended = currentAudio.onerror = setIdle;
+      currentAudio.play().catch((err) => {
+        console.debug('[cbe.tts] audio.play threw', err && err.message);
+        setIdle();
+      });
+    } catch (err) {
+      console.debug('[cbe.tts] decode threw', err && err.message);
+      setIdle();
+    }
+  });
+
   btn.addEventListener('click', (e) => {
-    /* dblclick fires before second click; let dblclick handle that case */
     if (e.detail >= 2) return;
     if (isSpeaking()) { stopAll(); return; }
     if (lastReply) speak(lastReply);
   });
 
-  /* Right-click toggles auto-read-aloud mode. The .autoread class makes
-     the neon-blue spinner SVG overlay appear on the TTS button. Every new
-     assistant reply will then be spoken automatically via onAssistantDone. */
   btn.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     autoRead = !autoRead;
@@ -640,8 +723,6 @@ const tts = (function() {
       : 'Read aloud · right-click = auto-read every reply');
     if (autoRead) {
       playSfx('enable');
-      /* If a reply is already on screen, speak it now so the user gets
-         immediate feedback that the mode just turned on. */
       if (lastReply) speak(lastReply);
     } else {
       playSfx('disable');
@@ -649,8 +730,6 @@ const tts = (function() {
     }
   });
 
-  /* dblclick kept as an alternate way to toggle (back-compat with the
-     prior behavior) — same logic as the right-click branch above. */
   btn.addEventListener('dblclick', () => {
     autoRead = !autoRead;
     btn.classList.toggle('autoread', autoRead);
@@ -670,25 +749,38 @@ const tts = (function() {
   };
 })();
 
-/* ── Web Speech dictation (STT button, .speaking class toggles a red tint) ─
-   VSCode webviews silently deny microphone permission to the Web Speech API,
-   so the first try fires "not-allowed" right after start(). When that happens
-   we fall back to the host-side SAPI path: post `sttStart` to extension.js,
-   which spawns PowerShell + System.Speech and posts back `sttResult` with
-   the transcript. From the user's POV the button just works — they don't
-   see the fallback. */
+/* ── Dictation (STT button, .speaking class toggles a red tint) ──────────
+   Four-provider dispatch (window.__cbeSttProvider):
+
+     'whisper-local': MediaRecorder captures webm/opus → base64 → host hits
+                    local whisper.cpp server (keyless, offline, ~75MB model
+                    auto-downloaded on first use). DEFAULT keyless option.
+     'elevenlabs' : MediaRecorder captures webm/opus → base64 → host hits
+                    ElevenLabs Scribe v1 → transcript. Lowest WER provider.
+     'openai'     : MediaRecorder capture → host hits OpenAI
+                    gpt-4o-transcribe (NOT older Whisper — see memory
+                    stt_model_choice.md). Pro-tier accuracy.
+     'webspeech'  : Browser-native SpeechRecognition (Anthropic's stub API).
+                    If sandbox denies mic, the host surfaces a hint asking
+                    the user to switch to whisper-local. */
+window.__cbeSttProvider = window.__cbeSttProvider || 'webspeech';
 (function() {
   const sttBtn = document.getElementById('sttBtn');
   let recog = null;
   let listening = false;
-  let mode = 'idle';            /* 'idle' | 'sr' (Web Speech) | 'sapi' (host fallback) */
+  let mode = 'idle';            /* 'idle' | 'sr' (Web Speech) | 'host' (host fallback hint) | 'rec' (MediaRecorder for remote/whisper-local provider) */
+  let mediaRec = null;
+  let mediaStream = null;
+  let recChunks = [];
+  let recProvider = '';
+  let pendingSttReqId = '';
 
   function setListeningUI(on) {
     /* `.speaking` is the legacy red-tint state. `.is-recording` drives the
        blue loading-ring overlay (same SVG as #monitorBtn) so the user can
        tell at a glance that the mic is actively capturing — important on
-       the SAPI fallback path where the recognizer is silent for up to 8s
-       waiting for the user to start speaking. */
+       slow paths (whisper-local first-run model download) where transcript
+       may take several seconds to come back. */
     if (on) {
       sttBtn.classList.add('speaking');
       sttBtn.classList.add('is-recording');
@@ -707,13 +799,108 @@ const tts = (function() {
       catch (e) { console.debug('[cbe.stt] recog.stop', e && e.message); }
       recog = null;
     }
-    if (mode === 'sapi' && api) {
+    if (mode === 'host' && api) {
       try { api.postMessage({ type: 'sttStop' }); } catch (e) {}
+    }
+    if (mode === 'rec') {
+      /* MediaRecorder path: stop() fires `dataavailable` + `stop` which the
+         onstop handler turns into a sttRequest post. We DON'T tear down
+         mediaStream here — the onstop handler does, after it's read the
+         blob. */
+      if (mediaRec && mediaRec.state !== 'inactive') {
+        try { mediaRec.stop(); } catch (e) { console.debug('[cbe.stt] mediaRec.stop', e && e.message); }
+      }
     }
     listening = false;
     mode = 'idle';
     setListeningUI(false);
     if (wasListening) playSfx('disable');
+  }
+
+  function _tearDownMediaStream() {
+    if (mediaStream) {
+      try { mediaStream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} }); } catch (_) {}
+      mediaStream = null;
+    }
+    mediaRec = null;
+    recChunks = [];
+  }
+
+  /* MediaRecorder path for whisper-local / ElevenLabs / OpenAI. On any
+     failure we fall through to WebSpeech so the button is never silent. */
+  async function startMediaRecorder(provider) {
+    /* navigator.mediaDevices.getUserMedia is what the VSCode webview
+       sandbox occasionally denies; the catch here is what gates the
+       graceful-fallback. */
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      console.debug('[cbe.stt] getUserMedia denied — falling back to WebSpeech', e && e.message);
+      addMsg('Voice (' + provider + '): mic permission denied — falling back to WebSpeech.', 'info');
+      startWebSpeech();
+      return;
+    }
+    mediaStream = stream;
+    /* Pick the first MIME type the browser actually supports. webm/opus is
+       universal in Chromium; both ElevenLabs and OpenAI accept it. */
+    const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+    let chosen = '';
+    for (const c of candidates) {
+      try { if (window.MediaRecorder && MediaRecorder.isTypeSupported(c)) { chosen = c; break; } }
+      catch (_) {}
+    }
+    try {
+      mediaRec = chosen ? new MediaRecorder(stream, { mimeType: chosen }) : new MediaRecorder(stream);
+    } catch (e) {
+      console.debug('[cbe.stt] MediaRecorder ctor threw', e && e.message);
+      _tearDownMediaStream();
+      addMsg('Voice (' + provider + '): MediaRecorder unavailable — falling back to WebSpeech.', 'info');
+      startWebSpeech();
+      return;
+    }
+    recChunks = [];
+    recProvider = provider;
+    mediaRec.ondataavailable = (e) => { if (e.data && e.data.size > 0) recChunks.push(e.data); };
+    mediaRec.onerror = (e) => {
+      console.debug('[cbe.stt] MediaRecorder error', e && (e.error && e.error.message || e.message));
+      _tearDownMediaStream();
+      stopMic();
+      addMsg('Voice (' + provider + '): recorder error — try again.', 'error');
+    };
+    mediaRec.onstop = () => {
+      const mime = (mediaRec && mediaRec.mimeType) || 'audio/webm';
+      const blob = new Blob(recChunks, { type: mime });
+      _tearDownMediaStream();
+      if (!blob || blob.size === 0) {
+        addMsg('Voice (' + provider + '): no audio captured.', 'info');
+        return;
+      }
+      /* Send to host as base64 so the structured-clone limit on bare ArrayBuffer
+         payloads (some VSCode builds) doesn't kick in. */
+      const fr = new FileReader();
+      fr.onload = () => {
+        const dataUrl = String(fr.result || '');
+        const idx = dataUrl.indexOf(',');
+        const b64 = idx >= 0 ? dataUrl.slice(idx + 1) : '';
+        if (!b64) { addMsg('Voice (' + provider + '): audio encode failed.', 'error'); return; }
+        pendingSttReqId = 'stt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+        try {
+          api.postMessage({ type: 'sttRequest', reqId: pendingSttReqId, provider, mime, audioB64: b64 });
+        } catch (e) {
+          console.debug('[cbe.stt] sttRequest postMessage threw', e && e.message);
+          addMsg('Voice (' + provider + '): cannot reach host — falling back to WebSpeech.', 'info');
+          startWebSpeech();
+        }
+      };
+      fr.onerror = () => { addMsg('Voice (' + provider + '): audio encode failed.', 'error'); };
+      fr.readAsDataURL(blob);
+    };
+    mediaRec.start();
+    mode = 'rec';
+    listening = true;
+    setListeningUI(true);
+    playSfx('connect');
   }
 
   function appendToInput(t) {
@@ -723,12 +910,15 @@ const tts = (function() {
     ti.focus();
   }
 
-  function startSapi() {
+  function startHostSttHint() {
+    /* Legacy WebSpeech-denied fallback. Whisper-local needs MediaRecorder
+       audio bytes, not a host-side passthrough — so this just pings the
+       host to surface a "switch provider in Settings" hint message. */
     if (!api) {
-      addMsg('Voice: extension API unavailable — cannot start SAPI fallback.', 'error');
+      addMsg('Voice: extension API unavailable — cannot fall back.', 'error');
       return;
     }
-    mode = 'sapi';
+    mode = 'host';
     listening = true;
     setListeningUI(true);
     playSfx('connect');
@@ -738,8 +928,8 @@ const tts = (function() {
   function startWebSpeech() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
-      /* No Web Speech API at all — go straight to SAPI. */
-      startSapi();
+      /* No Web Speech API at all — surface the host fallback hint. */
+      startHostSttHint();
       return;
     }
     try {
@@ -754,15 +944,15 @@ const tts = (function() {
       recog.onerror = (e) => {
         const err = e && e.error;
         /* VSCode webview sandbox blocks mic access. On not-allowed /
-           service-not-allowed, transparently retry on the host via SAPI
-           instead of surfacing a useless error. */
+           service-not-allowed, surface the host hint (which tells the user
+           to switch the STT provider to whisper-local in Settings). */
         if (err === 'not-allowed' || err === 'service-not-allowed') {
-          console.debug('[cbe.stt] Web Speech denied (' + err + ') — falling back to host SAPI');
+          console.debug('[cbe.stt] Web Speech denied (' + err + ') — falling back to host hint');
           /* Tear down the recognizer first so its onend doesn't clobber UI. */
           if (recog) { try { recog.onend = null; recog.stop(); } catch (_) {} recog = null; }
           mode = 'idle';
           listening = false;
-          startSapi();
+          startHostSttHint();
           return;
         }
         if (err && err !== 'aborted' && err !== 'no-speech') {
@@ -777,34 +967,65 @@ const tts = (function() {
       setListeningUI(true);
       playSfx('connect');
     } catch (e) {
-      /* SR constructor itself can throw in some webviews — go straight to SAPI. */
-      console.debug('[cbe.stt] SR ctor threw — using SAPI', e && e.message);
+      /* SR constructor itself can throw in some webviews — surface the host hint. */
+      console.debug('[cbe.stt] SR ctor threw — falling back to host hint', e && e.message);
       if (recog) { try { recog.stop(); } catch (_) {} recog = null; }
-      startSapi();
+      startHostSttHint();
     }
   }
 
   sttBtn.onclick = () => {
     if (listening) { stopMic(); return; }
-    startWebSpeech();
+    const provider = window.__cbeSttProvider || 'webspeech';
+    if (provider === 'webspeech') {
+      startWebSpeech();
+      return;
+    }
+    /* whisper-local / elevenlabs / openai / anthropic use the host-mediated
+       MediaRecorder path. */
+    startMediaRecorder(provider);
   };
 
-  /* SAPI result coming back from extension.js. */
+  /* Host responses — the legacy WebSpeech-denied fallback (sttResult) and
+     the MediaRecorder remote-provider transcript (sttRequestResult) come
+     back as separate message types so the panel can't confuse them. */
   window.addEventListener('message', (e) => {
     const m = e.data || {};
-    if (m.type !== 'sttResult') return;
-    if (m.error) {
-      addMsg('Voice (SAPI): ' + m.error, 'error');
-    } else if (m.text) {
-      appendToInput(String(m.text).trim());
-    } else {
-      addMsg('Voice: no speech detected.', 'info');
+    if (m.type === 'sttResult') {
+      /* Host fallback hint (WebSpeech denied). Reset UI regardless. */
+      if (m.error) {
+        addMsg('Voice: ' + m.error, 'error');
+      } else if (m.text) {
+        appendToInput(String(m.text).trim());
+      } else {
+        addMsg('Voice: no speech detected.', 'info');
+      }
+      listening = false;
+      mode = 'idle';
+      setListeningUI(false);
+      playSfx('disable');
+      return;
     }
-    /* Recognizer has already exited on the host. Reset UI. */
-    listening = false;
-    mode = 'idle';
-    setListeningUI(false);
-    playSfx('disable');
+    if (m.type === 'sttRequestResult') {
+      /* ElevenLabs / OpenAI transcript reply. */
+      if (m.reqId && m.reqId !== pendingSttReqId) return;   /* ignore stale */
+      pendingSttReqId = '';
+      if (m.ok && m.text) {
+        appendToInput(String(m.text).trim());
+      } else if (m.ok) {
+        addMsg('Voice (' + (m.provider || '?') + '): no speech detected.', 'info');
+      } else {
+        addMsg('Voice (' + (m.provider || '?') + '): ' + (m.error || 'unknown error') + ' — falling back to WebSpeech.', 'info');
+        /* Don't restart — user can hit the mic again. The fallback is
+           informational; we don't want to surprise-record after the user
+           let go. */
+      }
+      listening = false;
+      mode = 'idle';
+      setListeningUI(false);
+      playSfx('disable');
+      return;
+    }
   });
 })();
 

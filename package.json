@@ -338,6 +338,40 @@
           "maximum": 1,
           "description": "UI sound-effect volume (0 = silent, 1 = full)."
         },
+        "codexBlackEd.ttsProvider": {
+          "type": "string",
+          "default": "webspeech",
+          "enum": [
+            "webspeech",
+            "elevenlabs",
+            "openai"
+          ],
+          "enumDescriptions": [
+            "WebSpeech (default — browser-native SpeechSynthesis, no API key needed, no quota; the only keyless TTS option)",
+            "ElevenLabs (premium upgrade — high-quality cloud TTS, requires [elevenlabs] api_key in config.ini)",
+            "OpenAI tts-1 (uses [api_keys] openai_api_key)"
+          ],
+          "description": "Text-to-speech provider. TTS uses keyless WebSpeech by default. STT uses keyless whisper-local (downloads a 75MB model on first use); WebSpeech is the fallback. Category: **Voice**."
+        },
+        "codexBlackEd.sttProvider": {
+          "type": "string",
+          "default": "whisper-local",
+          "enum": [
+            "webspeech",
+            "whisper-local",
+            "elevenlabs",
+            "openai",
+            "anthropic"
+          ],
+          "enumDescriptions": [
+            "WebSpeech (fallback — browser-native SpeechRecognition; only works when the Chromium sandbox allows mic access)",
+            "Whisper-local (recommended free — runs locally, no key, 100% offline, near-best quality; one-time 75MB download. Windows only — falls back to WebSpeech on macOS/Linux)",
+            "ElevenLabs Scribe (premium upgrade — lowest WER, requires [elevenlabs] api_key in config.ini)",
+            "OpenAI gpt-4o-transcribe (uses [api_keys] openai_api_key — NOT older Whisper)",
+            "Anthropic streaming STT (Deepgram Nova-3 proxy — uses your Claude Code OAuth login, no separate key; included with a Claude subscription and counts against its rate limits. Streams partials in real time. Undocumented endpoint — may change without notice)"
+          ],
+          "description": "Speech-to-text provider. TTS uses keyless WebSpeech by default. STT uses keyless whisper-local (downloads a 75MB model on first use); WebSpeech is the fallback. 'anthropic' streams via Anthropic's own dictation endpoint using your Claude Code login. Category: **Voice**."
+        },
         "codexBlackEd.projectFolder": {
           "type": "string",
           "default": "",

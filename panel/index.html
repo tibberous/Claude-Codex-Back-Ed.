@@ -106,7 +106,10 @@ body {
      spacing margin above and below" + "left, right and bottom margin").
      2026-05-25: more breathing room on the default skin (user: "add some
      margins so it doesnt look so bad"). */
-  padding: 18px 22px 22px;
+  /* 2026-05-26: bump margins so the input + toolbar don't hug the panel
+     walls (user: "there needs to be some margin around the buttons and
+     the prompt box"). 22→28 horizontal, 18→24 top, 22→26 bottom. */
+  padding: 24px 28px 26px;
   z-index: 10;
   pointer-events: none;
   background: transparent;
@@ -151,10 +154,11 @@ body {
      high"). The send button is position:absolute so it stays out of flow. */
   display: flex;
   align-items: center;
-  /* Tightened from 17px → 6px → 2px → 0 (user 2026-05-23: trim gap to
-     toolbar row; ~80-100px total panel height target). The .prompt-toolbar
-     gap (2px) + .toolbar-tools padding (1px top) supply the breathing room. */
-  margin-bottom: 0;
+  /* 2026-05-26: gap reopened to 8px so input + toolbar read as separate
+     elements (user: "there needs to be some margin around the buttons
+     and the prompt box"). Lost the trimmed look but the panel was too
+     dense.*/
+  margin-bottom: 8px;
   border-radius: var(--input-radius);
   border: 2px solid rgba(52, 52, 52, 0.95);
   background: linear-gradient(180deg, #f7f7f7 0%, #f1f1f1 100%);
@@ -305,8 +309,11 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
    rollover"). The original empty <button> markup is preserved; the label
    is injected via ::after content so no DOM change is needed. */
 #sendBtn {
+  /* 2026-05-26: truly text-only — drop the 56px min-width that reserved a
+     visible block (user: "get rid of the square around the send button just
+     have it be the words"). width:auto + small horizontal padding only. */
   width: auto !important;
-  min-width: 56px !important;
+  min-width: 0 !important;
   height: 38px !important;
   border-radius: 0 !important;
   border: 0 !important;
@@ -314,7 +321,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   background-image: none !important;
   opacity: 1 !important;
   z-index: 6 !important;
-  padding: 0 8px !important;
+  padding: 0 14px !important;
   cursor: pointer !important;
   display: inline-flex !important;
   align-items: center !important;
@@ -323,9 +330,9 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   font-size: 14px !important;
   font-weight: 700 !important;
   letter-spacing: 1px !important;
-  color: #888888 !important;
+  color: #b4b4b4 !important;            /* muted cream-grey, readable on both light + dark skins */
   text-transform: uppercase !important;
-  transition: color .12s ease !important;
+  transition: color .12s ease, text-shadow .12s ease !important;
 }
 /* Kill the arrow chevron mask pseudo that .send-button::before paints —
    we render plain text instead. */
@@ -345,12 +352,17 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 }
 #sendBtn:hover,
 #sendBtn.is-hover {
-  color: #5fb3ff !important;            /* blue rollover — used to be #ffffff which vanished on light skins */
+  /* 2026-05-26: bright gold rollover — readable on dark-grey AND light skins.
+     (Previous black/blue both failed contrast against the active skin's
+     dark grey: user: "black on dark grey is hard to read".) */
+  color: #ffd683 !important;
+  text-shadow: 0 0 8px rgba(255, 214, 131, 0.55) !important;
   background-image: none !important;
 }
 #sendBtn:active,
 #sendBtn.is-active {
-  color: #82d0ff !important;            /* slightly lighter blue on press */
+  color: #fff1c0 !important;            /* lighter cream on press */
+  text-shadow: 0 0 12px rgba(255, 240, 192, 0.75) !important;
   background-image: none !important;
 }
 /* Kill the browser focus ring — that's the "square around SEND" Trent
@@ -452,25 +464,36 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   /* Wrap is still allowed for VERY narrow VSCode sidebars, but row-gap
      trimmed to 2px so a wrapped 2nd row sits tight against the first
      instead of opening a big vertical gap. Column-gap also reduced from
-     4 → 3 so 25 icons fit on one row down to ~1180px viewport (was
-     wrapping the tama icon at 1280px). */
+     4 → 3 so 25 icons fit on one row down to ~1180px viewport. */
   flex-wrap: wrap;
   justify-content: center;
-  gap: 3px;
-  row-gap: 2px;
+  gap: 4px;
+  row-gap: 3px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  margin: 0 auto;
-  /* Padding reduced from 4/6/6/6 → 1/2/1/2 to remove ~10px of horizontal
-     space-eating internal pad (helped 25-icon fit) AND ~9px vertical bloat. */
-  padding: 1px 2px;
-  border-radius: 0;
-  background: transparent;
+  /* 2026-05-26: add vertical breathing room above + below the icon row so
+     it doesn't crash into the prompt input + the panel's bottom edge
+     (user: "there needs to be some margin around the buttons"). 8px top
+     gives separation from the input wrap, 6px bottom + the .prompt-area
+     padding adds the desired margin under the row. */
+  margin: 8px auto 6px;
+  /* 2026-05-26: subtle top-light / bottom-shadow gradient adds depth so
+     the toolbar reads as a chrome strip rather than floating icons (user:
+     "more linear gradients"). Faint enough to inherit cleanly under any
+     skin. */
+  padding: 6px 8px 6px;
+  border-radius: 8px;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.015) 35%,
+    rgba(0, 0, 0, 0.04) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 1px 0 rgba(0, 0, 0, 0.18);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  border: 0;
-  box-shadow: none;
   overflow: visible;
 }
 .toolbar-meta {
@@ -849,9 +872,10 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 }
 
 /* STT "recording" overlay — when the mic button is actively listening
-   (either Web Speech API in-webview or the host-side SAPI fallback), the
-   same blue ring used for #monitorBtn spins over the mic icon. Mirrors
-   the #monitorBtn rules above so the visual language is consistent. */
+   (either Web Speech API in-webview or the MediaRecorder path that feeds
+   whisper-local / elevenlabs / openai), the same blue ring used for
+   #monitorBtn spins over the mic icon. Mirrors the #monitorBtn rules
+   above so the visual language is consistent. */
 #sttBtn { position: relative; }
 #sttBtn .cbe-spinner {
   /* See #monitorBtn .cbe-spinner — every geometry property is !important
@@ -1696,7 +1720,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
             <img src="{{ASSETS_BASE}}/stt.svg" alt="" />
             <!-- Blue spinner overlay shown while #sttBtn.is-recording. Same
                  pattern as #monitorBtn so the user gets clear feedback that
-                 the host-side SAPI mic is actively listening. -->
+                 the mic is actively listening / transcribing. -->
             <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_orange.svg" alt="" />
           </button>
           <button id="autoReplyBtn" class="tool-button" type="button" data-tooltip="Auto Prompt" data-i18n-tip="tooltip.autoprompt" aria-label="Auto Prompt">

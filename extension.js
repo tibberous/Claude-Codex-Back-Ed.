@@ -15,6 +15,29 @@ const SECRET_KEY_PREFIX = 'codexBlackEd.';   /* per-provider secret = `${PREFIX}
 const STATE_PROVIDER = 'codexBlackEd.activeProvider';
 const STATE_MODEL    = 'codexBlackEd.activeModel';
 const STATE_SKIN     = 'codexBlackEd.skin';   /* bare filename, e.g. 'noir.css' */
+const STATE_TTS_PROVIDER = 'codexBlackEd.ttsProvider';
+const STATE_STT_PROVIDER = 'codexBlackEd.sttProvider';
+/* Voice providers (TTS + STT). 'webspeech' = browser-native (panel-side),
+   'whisper-local' = STT via whisper.cpp's HTTP server spawned on demand
+   (keyless, offline, ~75MB first-run model download, Windows-only).
+   'elevenlabs' / 'openai' are network-backed premium options. 'anthropic'
+   = STT only, via Anthropic's undocumented Deepgram-Nova-3 WebSocket proxy,
+   authenticated with the Claude Code OAuth token (so it's included with a
+   Claude subscription — no separate key). The legacy host-side
+   SpeechRecognition path was retired 2026-05-26. */
+const VOICE_PROVIDERS = ['webspeech', 'whisper-local', 'elevenlabs', 'openai', 'anthropic'];
+const VOICE_PROVIDER_DEFAULT = 'webspeech';
+/* whisper-local ships a Windows .exe (whisper.cpp server). On macOS/Linux it
+   isn't available, so we hide it from the runtime list and soft-pin selectors
+   to webspeech.
+   TODO(fork: linux/mac whisper-local) — whisper.cpp is open-source; a fork can
+   compile Linux/macOS server binaries in Docker and swap the .exe lookup for a
+   platform-specific binary table (server-linux-x64, server-macos-arm64, etc). */
+function getRuntimeVoiceProviders() {
+    return (process.platform === 'win32')
+        ? VOICE_PROVIDERS
+        : VOICE_PROVIDERS.filter(p => p !== 'whisper-local');
+}
 const SKINS_DIR_NAME = 'skins';
 const CONFIG_INI_NAME = 'config.ini';
 const secretsCache = {};   /* providerId -> apiKey | null. Populated at activate. */
@@ -739,6 +762,227 @@ let _pullInFlight = false;
 
 function readConfigIni(extensionPath) {
     return Config.get(extensionPath);
+}
+
+/* ── Voice provider helpers (TTS / STT) ────────────────────────────────────
+   CBE supports three TTS providers and three STT providers, dispatched by
+   the per-workspace state keys STATE_TTS_PROVIDER / STATE_STT_PROVIDER.
+   The user picks one in Settings → Voice; the panel emits 'ttsRequest' /
+   'sttRequest' for the network-backed providers and handles WebSpeech
+   itself in the webview (since SpeechSynthesis / SpeechRecognition are
+   browser APIs, not Node APIs).
+
+   This is the pitch pillar: CBE ships a working 3-way voice switcher
+   including the WebSpeech path that the official anthropic.claude-code
+   bundle references in its source but doesn't wire into the UI. */
+function _getElevenLabsKey(context) {
+    try {
+        const cfg = readConfigIni(context.extensionPath) || {};
+        return (cfg.elevenlabs && cfg.elevenlabs.api_key) || process.env.ELEVENLABS_API_KEY || '';
+    } catch (e) { return ''; }
+}
+
+let _whisperNonWinWarned = false;
+function getVoiceProvider(context, kind /* 'tts' | 'stt' */) {
+    const key = (kind === 'stt') ? STATE_STT_PROVIDER : STATE_TTS_PROVIDER;
+    const v = context.workspaceState.get(key);
+    /* whisper-local is Windows-only — soft-pin to webspeech elsewhere. */
+    if (v === 'whisper-local' && process.platform !== 'win32') {
+        if (!_whisperNonWinWarned) {
+            _whisperNonWinWarned = true;
+            trace('whisper-local soft-pinned to webspeech: not Windows (' + process.platform + ')');
+        }
+        return 'webspeech';
+    }
+    /* anthropic is STT-only (no TTS) — if it leaked into a tts slot, fall back. */
+    if (v === 'anthropic' && kind === 'tts') return VOICE_PROVIDER_DEFAULT;
+    return VOICE_PROVIDERS.includes(v) ? v : VOICE_PROVIDER_DEFAULT;
+}
+
+/* Server-side TTS: take text, return base64 audio (mp3) the panel plays
+   in an <audio> element. WebSpeech is handled by the panel itself; this
+   function only services the elevenlabs / openai providers. */
+async function handleTtsRequest(panel, context, msg) {
+    const reqId   = msg.reqId || '';
+    const text    = String(msg.text || '').trim();
+    const provider = String(msg.provider || getVoiceProvider(context, 'tts'));
+    if (!text) {
+        try { panel.webview.postMessage({ type: 'ttsResult', reqId, error: 'empty text' }); } catch (_) {}
+        return;
+    }
+    try {
+        let audioBuf = null;
+        let mime = 'audio/mpeg';
+        if (provider === 'elevenlabs') {
+            const key = _getElevenLabsKey(context);
+            if (!key) throw new Error('no [elevenlabs] api_key in config.ini');
+            /* eleven_multilingual_v2 + Rachel voice — same defaults TrioDesktop uses. */
+            const voiceId = (msg.voiceId || '21m00Tcm4TlvDq8ikWAM');
+            const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`;
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'xi-api-key': key,
+                    'Content-Type': 'application/json',
+                    'Accept': 'audio/mpeg',
+                },
+                body: JSON.stringify({
+                    text,
+                    model_id: 'eleven_multilingual_v2',
+                    voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+                }),
+            });
+            if (!res.ok) {
+                let detail = `HTTP ${res.status}`;
+                try { const j = await res.json(); if (j && j.detail) detail = JSON.stringify(j.detail); }
+                catch (_) {}
+                throw new Error('ElevenLabs: ' + detail);
+            }
+            audioBuf = Buffer.from(await res.arrayBuffer());
+            mime = 'audio/mpeg';
+        } else if (provider === 'openai') {
+            const key = getProviderKey(context, 'openai');
+            if (!key) throw new Error('no openai api key configured');
+            const res = await fetch('https://api.openai.com/v1/audio/speech', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${key}`,
+                    'Content-Type': 'application/json',
+                    'Accept': 'audio/mpeg',
+                },
+                body: JSON.stringify({
+                    model: 'tts-1',
+                    voice: (msg.voice || 'alloy'),
+                    input: text,
+                    format: 'mp3',
+                }),
+            });
+            if (!res.ok) {
+                let detail = `HTTP ${res.status}`;
+                try { const j = await res.json(); if (j && j.error && j.error.message) detail = j.error.message; }
+                catch (_) {}
+                throw new Error('OpenAI TTS: ' + detail);
+            }
+            audioBuf = Buffer.from(await res.arrayBuffer());
+            mime = 'audio/mpeg';
+        } else {
+            /* webspeech — the panel should never have sent this request to the
+               host (it speaks locally). If it did, signal so panel.js can
+               fall back to its own SpeechSynthesis path. */
+            throw new Error('webspeech is a panel-side provider; no host call');
+        }
+        const b64 = audioBuf.toString('base64');
+        try {
+            panel.webview.postMessage({ type: 'ttsResult', reqId, ok: true, mime, audioB64: b64, provider });
+        } catch (e) { traceErr('ttsResult postMessage', e); }
+    } catch (e) {
+        try {
+            panel.webview.postMessage({ type: 'ttsResult', reqId, ok: false, error: (e && e.message) || String(e), provider });
+        } catch (_) {}
+    }
+}
+
+/* Server-side STT: take base64 audio (webm/opus or wav), return transcript.
+   WebSpeech is handled by the panel itself; whisper-local is handled by the
+   spawned whisper.cpp server below. This function services elevenlabs and openai. */
+async function handleSttRequest(panel, context, msg) {
+    const reqId   = msg.reqId || '';
+    const provider = String(msg.provider || getVoiceProvider(context, 'stt'));
+    const b64     = String(msg.audioB64 || '');
+    const mime    = String(msg.mime || 'audio/webm');
+    if (!b64) {
+        try { panel.webview.postMessage({ type: 'sttRequestResult', reqId, ok: false, error: 'empty audio' }); } catch (_) {}
+        return;
+    }
+    try {
+        const buf = Buffer.from(b64, 'base64');
+        if (!buf.length) throw new Error('audio decode produced 0 bytes');
+        /* Derive an extension from the mime so the multipart filename is
+           recognizable by both providers. They both accept webm/wav/m4a/mp3. */
+        let ext = 'webm';
+        if (/wav/i.test(mime)) ext = 'wav';
+        else if (/mp4|m4a/i.test(mime)) ext = 'm4a';
+        else if (/mpeg/i.test(mime)) ext = 'mp3';
+        else if (/ogg/i.test(mime)) ext = 'ogg';
+        let text = '';
+        if (provider === 'elevenlabs') {
+            const key = _getElevenLabsKey(context);
+            if (!key) throw new Error('no [elevenlabs] api_key in config.ini');
+            const form = new FormData();
+            form.append('file', new Blob([buf], { type: mime }), `audio.${ext}`);
+            form.append('model_id', 'scribe_v1');
+            const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+                method: 'POST',
+                headers: { 'xi-api-key': key },
+                body: form,
+            });
+            if (!res.ok) {
+                let detail = `HTTP ${res.status}`;
+                try { const j = await res.json(); if (j && j.detail) detail = JSON.stringify(j.detail); }
+                catch (_) {}
+                throw new Error('ElevenLabs STT: ' + detail);
+            }
+            const j = await res.json();
+            text = String((j && (j.text || j.transcript)) || '').trim();
+        } else if (provider === 'openai') {
+            const key = getProviderKey(context, 'openai');
+            if (!key) throw new Error('no openai api key configured');
+            const form = new FormData();
+            form.append('file', new Blob([buf], { type: mime }), `audio.${ext}`);
+            form.append('model', 'gpt-4o-transcribe');
+            form.append('response_format', 'json');
+            const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${key}` },
+                body: form,
+            });
+            if (!res.ok) {
+                let detail = `HTTP ${res.status}`;
+                try { const j = await res.json(); if (j && j.error && j.error.message) detail = j.error.message; }
+                catch (_) {}
+                throw new Error('OpenAI STT: ' + detail);
+            }
+            const j = await res.json();
+            text = String((j && j.text) || '').trim();
+        } else if (provider === 'whisper-local') {
+            /* Local whisper.cpp server — keyless, offline, ~75MB tiny.en model
+               downloaded on first call. Windows-only (ships a .exe). On any
+               failure (no network, can't extract release, wrong OS, etc.)
+               soft-pin the webspeech fallback so we don't pummel the user
+               every mic click. */
+            if (process.platform !== 'win32') {
+                throw new Error('whisper-local is Windows-only — select WebSpeech or a cloud provider on this OS');
+            }
+            try {
+                text = await handleWhisperLocalStt(context, buf, mime);
+            } catch (whisperErr) {
+                trace('whisper-local failure: ' + (whisperErr && whisperErr.message));
+                try { context.globalState.update(WHISPER_GLOBAL_KEY_FALLBACK, true); } catch (_) {}
+                try {
+                    vscode.window.showWarningMessage(
+                        'Whisper-local failed: ' + ((whisperErr && whisperErr.message) || whisperErr) +
+                        '. Falling back to WebSpeech (Chromium-based).'
+                    );
+                } catch (_) {}
+                throw new Error('whisper-local: ' + ((whisperErr && whisperErr.message) || whisperErr));
+            }
+        } else if (provider === 'anthropic') {
+            /* Anthropic's undocumented streaming STT (Deepgram Nova-3 proxy),
+               authenticated with the Claude Code OAuth token — included with a
+               Claude subscription, no separate key. Request/response mode here
+               (panel sends a complete clip); the streaming pass makes it live. */
+            text = await handleAnthropicStt(context, buf, mime);
+        } else {
+            throw new Error('webspeech is a panel-side provider; no host call');
+        }
+        try {
+            panel.webview.postMessage({ type: 'sttRequestResult', reqId, ok: true, text, provider });
+        } catch (e) { traceErr('sttRequestResult postMessage', e); }
+    } catch (e) {
+        try {
+            panel.webview.postMessage({ type: 'sttRequestResult', reqId, ok: false, error: (e && e.message) || String(e), provider });
+        } catch (_) {}
+    }
 }
 
 /* Write a flat "section.key" -> value patch back into config.ini WITHOUT
@@ -2336,410 +2580,556 @@ let statusBar;
 let anthropicClient;
 let extensionContext = null; /* captured during activate so commands can resolve globalStorageUri */
 
-/* ── Speech-to-Text (SAPI fallback) ────────────────────────────────────────
-   VSCode webviews cannot use the Web Speech API — the sandbox denies
-   microphone permission silently (Voice: not-allowed). The fix is to fall
-   back to Windows SAPI on the host side: launch PowerShell with
-   System.Speech.Recognition.SpeechRecognitionEngine, capture the default
-   mic via SetInputToDefaultAudioDevice(), and return the transcript over
-   stdout. The webview posts {type:'sttStart'} when the Web Speech API
-   throws not-allowed; we reply with {type:'sttResult', text} so panel.js
-   appends the transcript to the prompt textarea.
-   No ffmpeg, no external dependencies — uses Windows-bundled SAPI. */
-let __sttProc = null;
-let __sttScriptPath = null;
-/* Set true when WE deliberately kill the recognizer (user clicked the mic
-   again, panel disposed, sttStop message). The close handler reads this
-   to avoid surfacing "killed by SIGTERM" as an error when the user just
-   asked us to stop — that path posts a normal sttResult with the partial
-   transcript (if any) instead of an error chip. */
-let __sttUserStopped = false;
-/* Markers so we can pick the real transcript out of arbitrary PS output
-   (progress, warnings, $PSDefaultParameterValues echoes, etc.). The script
-   prints `__CBE_STT_OK__<text>` on success and `__CBE_STT_ERR__<msg>` on
-   failure. `__CBE_STT_HYP__` fires on SpeechHypothesized so the parent can
-   tell "no audio came in" from "audio came in but nothing matched" — used
-   to give the user an actionable error message instead of a raw signal name.
-   Anything else is ignored, which avoids `exit null` looking like a transcript. */
-const STT_OK_MARK = '__CBE_STT_OK__';
-const STT_ERR_MARK = '__CBE_STT_ERR__';
-const STT_HYP_MARK = '__CBE_STT_HYP__';
-const STT_INFO_MARK = '__CBE_STT_INFO__';
-const STT_PREWARM_READY_MARK = '__CBE_STT_PREWARM_READY__';
-function startSapiStt(panel) {
-    if (__sttProc) {
-        __sttUserStopped = true;     // we're tearing down an existing one; don't surface as error
-        try { __sttProc.kill(); } catch (e) {}
-        __sttProc = null;
-    }
-    __sttUserStopped = false;
-    /* Listening window — configurable via config.ini [voice] listen_seconds.
-       Default 30s (up from 15) because SAPI's Recognize() blocks waiting for
-       a complete utterance + EndSilenceTimeout, and on slow systems / quiet
-       mics 15s wasn't enough for the InitialSilenceTimeout to even elapse. */
-    let listenSeconds = 30;
-    try {
-        const extPath = extensionContext && extensionContext.extensionPath;
-        const cfg = extPath ? readConfigIni(extPath) : null;
-        const v = cfg && cfg.voice && cfg.voice.listen_seconds;
-        const n = v ? parseInt(String(v).trim(), 10) : NaN;
-        if (Number.isFinite(n) && n >= 5 && n <= 120) listenSeconds = n;
-    } catch (_) { /* best effort */ }
-    trace('stt: listenSeconds=' + listenSeconds);
-    /* If a pre-warmed PowerShell is sitting at the ReadLine() pause, use it.
-       That skips the 2–4s System.Speech assembly load + engine construction
-       that was the entire reason early stop-clicks were producing 0-byte
-       stdouts. Just send "go\n" on its stdin and attach the normal handlers. */
-    if (__sttPrewarmProc && __sttPrewarmReady) {
-        const proc = __sttPrewarmProc;
-        const scriptPath = __sttPrewarmScriptPath;
-        const engineHint = __sttPrewarmEngine || 'managed';
-        __sttPrewarmProc = null;
-        __sttPrewarmReady = false;
-        __sttPrewarmScriptPath = null;
-        __sttPrewarmEngine = '';
-        trace('stt: using pre-warmed SAPI pid=' + proc.pid + ' engine=' + engineHint);
-        __sttProc = proc;
-        __sttScriptPath = scriptPath;
-        _attachSttHandlers(panel, proc);
-        try { proc.stdin.write('go\n'); proc.stdin.end(); } catch (e) {
-            traceErr('stt: prewarm stdin write', e);
-        }
-        return;
-    }
-    /* Cold start: no prewarm available. Write the script + spawn now. */
-    const listenSecondsStr = String(listenSeconds);
-    const psLines = _buildSttPsLines(listenSecondsStr, false);
-    let scriptPath;
-    try {
-        scriptPath = _writeSttScript(psLines);
-    } catch (e) {
-        traceErr('stt: write script', e);
-        try { panel.webview.postMessage({ type: 'sttResult', text: '', error: 'cannot write SAPI script: ' + (e.message || e) }); } catch (_) {}
-        return;
-    }
-    __sttScriptPath = scriptPath;
-    trace('stt: spawning powershell SAPI (Sta, File=' + scriptPath + ')');
-    _spawnAndAttach(panel, scriptPath);
+/* ── Speech-to-Text (whisper-local) ───────────────────────────────────────
+   Replaces the deprecated host-side PowerShell recognizer (2026-05-26). Spawns
+   whisper.cpp's bundled HTTP server on a free localhost port; the panel's
+   MediaRecorder path POSTs captured webm/opus blobs to /inference and we
+   return the transcribed text. On first STT request both the server binary
+   (~MBs, Windows x64 zip from GitHub releases) and the ggml-tiny.en.bin
+   model (~75MB from Hugging Face) are downloaded into globalStorageUri/whisper.
+   Network failures fall back to webspeech (soft-pinned via globalState
+   `codexBlackEd.whisperFallbackToWebspeech` so we don't keep retrying). */
+const WHISPER_DIR_NAME = 'whisper';
+const WHISPER_SERVER_EXE = 'whisper-server.exe';
+const WHISPER_MODEL_NAME = 'ggml-tiny.en.bin';
+/* TODO: update when release pattern changes — the GitHub Releases API gets
+   parsed first; this hardcoded URL is only the fallback. Confirmed working
+   asset name 2026-05-26. */
+const WHISPER_SERVER_FALLBACK_URL =
+    'https://github.com/ggerganov/whisper.cpp/releases/latest/download/whisper-bin-x64.zip';
+const WHISPER_MODEL_URL =
+    'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin';
+const WHISPER_GLOBAL_KEY_FALLBACK = 'codexBlackEd.whisperFallbackToWebspeech';
+let whisperServerProc = null;
+let whisperServerPort = 0;
+let whisperServerStarting = null;   // Promise while a startup is in-flight (de-dupe concurrent calls)
+
+function _getWhisperDir(context) {
+    const base = (context.globalStorageUri && context.globalStorageUri.fsPath) || os.tmpdir();
+    const dir = path.join(base, WHISPER_DIR_NAME);
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+    return dir;
 }
 
-/* Build the PowerShell SAPI script. When warmupMode is true, init the
-   engine fully and then BLOCK on stdin ReadLine() before calling Recognize().
-   Pre-warming this way removes the 2–4s cold-start cost from the user's
-   first mic click (which was getting killed by impatient stop-clicks before
-   the engine even bound to the mic — see debug.log's stdoutBytes=0 history). */
-function _buildSttPsLines(listenSecondsStr, warmupMode) {
-    /* End-silence is 1.2s — but if Recognize() returns null because the
-       overall timeout fires, we have no audio info. We use the managed
-       engine's events to emit hypothesis markers; the parent uses them
-       to format a useful error message ("audio detected but no match"
-       vs "no audio detected") instead of "killed by SIGTERM". */
-    const prewarmPauseManaged = warmupMode
-        ? '    Write-Host "' + STT_PREWARM_READY_MARK + 'managed"\n    [Console]::Out.Flush()\n    [Console]::In.ReadLine() | Out-Null'
-        : '    # prewarm-pause disabled in cold-start mode';
-    const prewarmPauseCom = warmupMode
-        ? '  Write-Host "' + STT_PREWARM_READY_MARK + 'com"\n  [Console]::Out.Flush()\n  [Console]::In.ReadLine() | Out-Null'
-        : '  # prewarm-pause disabled in cold-start mode';
-    return [
-        '$ErrorActionPreference = "Stop"',
-        '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
-        'function Emit-Ok($t)   { Write-Host ("' + STT_OK_MARK + '" + $t) }',
-        'function Emit-Err($m)  { Write-Host ("' + STT_ERR_MARK + '" + $m) }',
-        'function Emit-Hyp($t)  { Write-Host ("' + STT_HYP_MARK + '" + $t) }',
-        'function Emit-Info($t) { Write-Host ("' + STT_INFO_MARK + '" + $t) }',
-        '# Diagnostic: name of the current default audio capture device. Useful',
-        '# when the user has the wrong mic selected in Windows sound settings.',
-        'try {',
-        '  $defMic = Get-CimInstance Win32_SoundDevice | Where-Object { $_.StatusInfo -eq 3 } | Select-Object -First 1 -ExpandProperty Name',
-        '  if (-not $defMic) { $defMic = "(unknown)" }',
-        '  [Console]::Error.WriteLine("audio: default device = " + $defMic)',
-        '} catch {',
-        '  [Console]::Error.WriteLine("audio: could not query default device: " + $_.Exception.Message)',
-        '}',
-        '[Console]::Error.WriteLine("listen window: ' + listenSecondsStr + ' seconds")',
-        '$managedOk = $false',
-        'try {',
-        '  Add-Type -AssemblyName System.Speech -ErrorAction Stop',
-        '  $managedOk = $true',
-        '} catch {',
-        '  [Console]::Error.WriteLine("System.Speech load failed: " + $_.Exception.Message)',
-        '}',
-        'if ($managedOk) {',
-        '  try {',
-        '    Emit-Info "engine=managed"',
-        '    [Console]::Error.WriteLine("engine: System.Speech.Recognition.SpeechRecognitionEngine (managed)")',
-        '    $r = New-Object System.Speech.Recognition.SpeechRecognitionEngine',
-        /* InitialSilenceTimeout is per-Recognize call — capped to the overall
-           listen window so the user has the full window to start speaking. */
-        '    $r.InitialSilenceTimeout = [TimeSpan]::FromSeconds([Math]::Max(8, [int](' + listenSecondsStr + ' - 2)))',
-        '    $r.EndSilenceTimeout     = [TimeSpan]::FromSeconds(1.2)',
-        '    $r.BabbleTimeout         = [TimeSpan]::FromSeconds(' + listenSecondsStr + ')',
-        '    $g = New-Object System.Speech.Recognition.DictationGrammar',
-        '    $r.LoadGrammar($g)',
-        '    $r.SetInputToDefaultAudioDevice()',
-        /* SpeechHypothesized fires as the engine hears partial words. We
-           write a marker line so the parent knows "audio was heard" even
-           if the final Recognize() returns null. SpeechDetected fires the
-           moment the engine decides there's voice in the audio stream. */
-        '    $hypHandler = [System.EventHandler[System.Speech.Recognition.SpeechHypothesizedEventArgs]]{ param($s, $e) try { Emit-Hyp $e.Result.Text } catch {} }',
-        '    $r.add_SpeechHypothesized($hypHandler)',
-        '    $detHandler = [System.EventHandler[System.Speech.Recognition.SpeechDetectedEventArgs]]{ param($s, $e) try { [Console]::Error.WriteLine("speech detected at " + $e.AudioPosition) } catch {} }',
-        '    $r.add_SpeechDetected($detHandler)',
-        prewarmPauseManaged,
-        '    $res = $r.Recognize([TimeSpan]::FromSeconds(' + listenSecondsStr + '))',
-        '    if ($res -and $res.Text) { Emit-Ok $res.Text } else { Emit-Ok "" }',
-        '    try { $r.Dispose() } catch {}',
-        '    exit 0',
-        '  } catch {',
-        '    [Console]::Error.WriteLine("Managed recognizer failed: " + $_.Exception.Message)',
-        '  }',
-        '}',
-        '# COM fallback: SAPI 5.x in-proc recognizer.',
-        'try {',
-        '  Emit-Info "engine=com"',
-        '  [Console]::Error.WriteLine("engine: SAPI.SpInprocRecognizer (COM fallback)")',
-        '  $rec = New-Object -ComObject SAPI.SpInprocRecognizer',
-        '  $ctx = $rec.CreateRecoContext()',
-        '  $gra = $ctx.CreateGrammar(0)',
-        '  $gra.DictationLoad()',
-        '  $gra.DictationSetState(1)  # SGDSActive',
-        prewarmPauseCom,
-        '  $deadline = (Get-Date).AddSeconds(' + listenSecondsStr + ')',
-        '  $got = ""',
-        '  $heardAny = $false',
-        '  while ((Get-Date) -lt $deadline) {',
-        '    $ev = $null',
-        '    try { $ev = $ctx.GetEvents(8, 200) } catch { Start-Sleep -Milliseconds 100; continue }',
-        '    if ($ev -and $ev.Count -gt 0) {',
-        '      foreach ($e in $ev) {',
-        /* EventIds: 1=SPEI_RECOGNITION (final), 2=SPEI_HYPOTHESIS (partial),
-           11=SPEI_SOUND_START, 12=SPEI_SOUND_END, 5=SPEI_PHRASE_START */
-        '        if ($e.EventId -eq 1) {',
-        '          try { $got = $e.RecoResult.PhraseInfo.GetText() } catch {}',
-        '          break',
-        '        } elseif ($e.EventId -eq 2) {',
-        '          $heardAny = $true',
-        '          try { Emit-Hyp $e.RecoResult.PhraseInfo.GetText() } catch {}',
-        '        } elseif ($e.EventId -eq 11 -or $e.EventId -eq 5) {',
-        '          $heardAny = $true',
-        '        }',
-        '      }',
-        '      if ($got) { break }',
-        '    } else {',
-        '      Start-Sleep -Milliseconds 100',
-        '    }',
-        '  }',
-        '  $gra.DictationSetState(0)',
-        '  if (-not $heardAny) { [Console]::Error.WriteLine("com: no SOUND_START during listen window") }',
-        '  Emit-Ok $got',
-        '  exit 0',
-        '} catch {',
-        '  Emit-Err ("COM SAPI failed: " + $_.Exception.Message)',
-        '  exit 2',
-        '}',
-    ];
+/* HTTPS GET with redirect-follow (GitHub release assets 302 to S3, HF resolve
+   /resolve/main/... 302s to cdn-lfs). Streams to disk so we can report progress
+   without loading the whole binary into memory. */
+function _httpsDownloadToFile(urlStr, destPath, onProgress) {
+    return new Promise((resolve, reject) => {
+        const https = require('https');
+        const http = require('http');
+        const url = require('url');
+        let redirects = 0;
+        const MAX_REDIRECTS = 6;
+        const tmp = destPath + '.part';
+        const fetch = (u) => {
+            const parsed = url.parse(u);
+            const mod = (parsed.protocol === 'http:') ? http : https;
+            const req = mod.request({
+                method: 'GET',
+                hostname: parsed.hostname,
+                port: parsed.port || (parsed.protocol === 'http:' ? 80 : 443),
+                path: parsed.path,
+                headers: { 'User-Agent': 'ClaudeCodexBlack/whisper-bootstrap' },
+                timeout: 60000,
+            }, (res) => {
+                if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                    if (++redirects > MAX_REDIRECTS) return reject(new Error('too many redirects'));
+                    res.resume();
+                    return fetch(res.headers.location);
+                }
+                if (res.statusCode < 200 || res.statusCode >= 300) {
+                    res.resume();
+                    return reject(new Error(`HTTP ${res.statusCode} for ${u}`));
+                }
+                const total = parseInt(res.headers['content-length'] || '0', 10) || 0;
+                let got = 0;
+                const out = fs.createWriteStream(tmp);
+                res.on('data', (chunk) => {
+                    got += chunk.length;
+                    if (typeof onProgress === 'function') {
+                        try { onProgress(got, total); } catch (_) {}
+                    }
+                });
+                res.pipe(out);
+                out.on('finish', () => out.close(() => {
+                    try { fs.renameSync(tmp, destPath); resolve(destPath); }
+                    catch (e) { reject(e); }
+                }));
+                out.on('error', (e) => { try { fs.unlinkSync(tmp); } catch (_) {} reject(e); });
+            });
+            req.on('error', (e) => { try { fs.unlinkSync(tmp); } catch (_) {} reject(e); });
+            req.on('timeout', () => req.destroy(new Error('timeout')));
+            req.end();
+        };
+        fetch(urlStr);
+    });
 }
 
-function _writeSttScript(psLines) {
-    const scriptPath = path.join(os.tmpdir(), 'cbe-stt-' + process.pid + '-' + Date.now() + '.ps1');
-    fs.writeFileSync(scriptPath, psLines.join('\r\n'), 'utf8');
-    return scriptPath;
+/* Resolve the latest whisper-bin-x64.zip download URL from GitHub. If the
+   API call fails (rate-limit / no network), return the hardcoded fallback.
+   Returns a Promise<string>. */
+function _resolveWhisperServerUrl() {
+    return new Promise((resolve) => {
+        const https = require('https');
+        const req = https.request({
+            method: 'GET',
+            hostname: 'api.github.com',
+            path: '/repos/ggerganov/whisper.cpp/releases/latest',
+            headers: {
+                'User-Agent': 'ClaudeCodexBlack/whisper-bootstrap',
+                'Accept': 'application/vnd.github+json',
+            },
+            timeout: 10000,
+        }, (res) => {
+            const chunks = [];
+            res.on('data', (c) => chunks.push(c));
+            res.on('end', () => {
+                if (res.statusCode < 200 || res.statusCode >= 300) {
+                    return resolve(WHISPER_SERVER_FALLBACK_URL);
+                }
+                try {
+                    const j = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+                    const assets = (j && j.assets) || [];
+                    // Heuristic: pick a windows x64 zip; prefer one containing
+                    // "bin" and "x64" + .zip suffix.
+                    const pick = assets.find((a) =>
+                        /win|windows/i.test(a.name) && /x64|amd64/i.test(a.name) && /\.zip$/i.test(a.name)
+                    ) || assets.find((a) => /\.zip$/i.test(a.name) && /win/i.test(a.name));
+                    resolve((pick && pick.browser_download_url) || WHISPER_SERVER_FALLBACK_URL);
+                } catch (_) {
+                    resolve(WHISPER_SERVER_FALLBACK_URL);
+                }
+            });
+        });
+        req.on('error', () => resolve(WHISPER_SERVER_FALLBACK_URL));
+        req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve(WHISPER_SERVER_FALLBACK_URL); });
+        req.end();
+    });
 }
 
-/* Pre-warmed SAPI: a PowerShell child sitting at the stdin-wait inside the
-   recognizer init. Sending 'go\n' to its stdin unblocks Recognize() and the
-   rest of the script runs as normal. Saves the user the 2–4s cold-start cost
-   on the first mic click (which previously got killed before SAPI bound to
-   the mic — see debug.log's stdoutBytes=0 history). */
-let __sttPrewarmProc = null;
-let __sttPrewarmReady = false;
-let __sttPrewarmScriptPath = null;
-let __sttPrewarmEngine = '';   // 'managed' or 'com', filled when the ready marker arrives
-
-function prewarmSapiStt() {
-    if (__sttPrewarmProc) {
-        return;
-    }
-    let listenSeconds = 30;
-    try {
-        const extPath = extensionContext && extensionContext.extensionPath;
-        const cfg = extPath ? readConfigIni(extPath) : null;
-        const v = cfg && cfg.voice && cfg.voice.listen_seconds;
-        const n = v ? parseInt(String(v).trim(), 10) : NaN;
-        if (Number.isFinite(n) && n >= 5 && n <= 120) listenSeconds = n;
-    } catch (_) { /* best effort */ }
-    const psLines = _buildSttPsLines(String(listenSeconds), true);
-    let scriptPath;
-    try {
-        scriptPath = _writeSttScript(psLines);
-    } catch (e) {
-        traceErr('stt: prewarm write script', e);
-        return;
-    }
-    __sttPrewarmScriptPath = scriptPath;
-    let proc;
-    try {
-        proc = spawn('powershell.exe',
-            ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Sta', '-File', scriptPath],
-            { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-    } catch (e) {
-        traceErr('stt: prewarm spawn', e);
-        try { fs.unlinkSync(scriptPath); } catch (_) {}
-        __sttPrewarmScriptPath = null;
-        return;
-    }
-    __sttPrewarmProc = proc;
-    __sttPrewarmReady = false;
-    __sttPrewarmEngine = '';
-    trace('stt: prewarm spawned pid=' + proc.pid + ' file=' + scriptPath);
-    let prewarmBuf = '';
-    proc.stdout.on('data', (chunk) => {
-        const text = chunk.toString('utf8');
-        prewarmBuf += text;
-        let idx;
-        while ((idx = prewarmBuf.indexOf('\n')) !== -1) {
-            const line = prewarmBuf.slice(0, idx).replace(/\r$/, '');
-            prewarmBuf = prewarmBuf.slice(idx + 1);
-            if (line.startsWith(STT_PREWARM_READY_MARK)) {
-                __sttPrewarmEngine = line.slice(STT_PREWARM_READY_MARK.length) || 'managed';
-                __sttPrewarmReady = true;
-                trace('stt: prewarm READY engine=' + __sttPrewarmEngine + ' pid=' + proc.pid);
+/* Locate whisper-server.exe inside a freshly-unpacked zip. The release ships
+   different layouts across versions — search the extract dir recursively for
+   anything named whisper-server.exe (and tolerate server.exe as a legacy
+   name). Returns the absolute path or '' if not found. */
+function _findWhisperServerExe(rootDir) {
+    const stack = [rootDir];
+    while (stack.length) {
+        const dir = stack.pop();
+        let entries;
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+        catch (_) { continue; }
+        for (const e of entries) {
+            const full = path.join(dir, e.name);
+            if (e.isDirectory()) { stack.push(full); continue; }
+            if (/^whisper-server\.exe$/i.test(e.name) || /^server\.exe$/i.test(e.name)) {
+                return full;
             }
         }
-    });
-    proc.on('error', (e) => {
-        trace('stt: prewarm proc error: ' + (e && e.message));
-    });
-    proc.on('close', (code, signal) => {
-        if (__sttPrewarmProc === proc) {
-            __sttPrewarmProc = null;
-            __sttPrewarmReady = false;
-            __sttPrewarmEngine = '';
-            try { if (__sttPrewarmScriptPath) fs.unlinkSync(__sttPrewarmScriptPath); } catch (_) {}
-            __sttPrewarmScriptPath = null;
-            trace('stt: prewarm closed code=' + code + ' signal=' + signal);
-        }
-    });
+    }
+    return '';
 }
 
-function _spawnAndAttach(panel, scriptPath) {
-    let proc;
-    try {
-        proc = spawn('powershell.exe',
-            ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Sta', '-File', scriptPath],
+/* Extract a zip via PowerShell Expand-Archive (no third-party dep). Returns
+   the directory the archive was expanded into. */
+function _extractZipPS(zipPath, destDir) {
+    return new Promise((resolve, reject) => {
+        try { fs.mkdirSync(destDir, { recursive: true }); } catch (_) {}
+        const psCmd = `Expand-Archive -Path '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`;
+        const ps = spawn('powershell.exe',
+            ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', psCmd],
             { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-    } catch (e) {
-        traceErr('stt spawn', e);
-        try { panel.webview.postMessage({ type: 'sttResult', text: '', error: 'spawn failed: ' + (e.message || e) }); } catch (_) {}
-        try { fs.unlinkSync(scriptPath); } catch (_) {}
-        __sttScriptPath = null;
-        return;
-    }
-    __sttProc = proc;
-    _attachSttHandlers(panel, proc);
+        let stderr = '';
+        ps.stderr.on('data', (d) => { stderr += d.toString('utf8'); });
+        ps.on('error', reject);
+        ps.on('close', (code) => {
+            if (code === 0) resolve(destDir);
+            else reject(new Error('Expand-Archive failed (exit ' + code + ') ' + stderr.trim()));
+        });
+    });
 }
 
-function _attachSttHandlers(panel, proc) {
-    let stdout = '';
-    let stderr = '';
-    proc.stdout.on('data', d => { stdout += d.toString('utf8'); });
-    proc.stderr.on('data', d => { stderr += d.toString('utf8'); });
-    proc.on('error', err => {
-        traceErr('stt proc error', err);
-        if (__sttProc === proc) __sttProc = null;
-        try { panel.webview.postMessage({ type: 'sttResult', text: '', error: err.message || String(err) }); } catch (_) {}
-    });
-    proc.on('close', (code, signal) => {
-        const wasUserStop = __sttUserStopped;
-        __sttUserStopped = false;
-        trace('stt: ps closed code=' + code + ' signal=' + signal +
-              ' stdoutBytes=' + stdout.length + ' stderrBytes=' + stderr.length +
-              ' userStop=' + wasUserStop);
-        if (__sttProc === proc) __sttProc = null;
-        try { if (__sttScriptPath) fs.unlinkSync(__sttScriptPath); } catch (_) {}
-        __sttScriptPath = null;
-        /* Always log stderr to the trace channel for diagnosis — engine
-           choice, default audio device, speech-detected timestamps, any
-           managed-vs-COM transitions all flow through here. */
-        if (stderr.trim()) trace('stt: stderr: ' + stderr.trim().replace(/\r?\n/g, ' | '));
-        /* Scan stdout for our markers. We deliberately ignore the exit
-           code as the primary signal because powershell scripts can
-           sometimes exit non-zero even after a successful Emit-Ok (e.g.
-           a Dispose() throwing during cleanup). */
-        let okText = null;
-        let errMsg = null;
-        let lastHyp = null;
-        let engineUsed = null;
-        for (const raw of stdout.split(/\r?\n/)) {
-            const line = raw.trim();
-            if (!line) continue;
-            if (line.startsWith(STT_OK_MARK))       okText     = line.slice(STT_OK_MARK.length);
-            else if (line.startsWith(STT_ERR_MARK)) errMsg     = line.slice(STT_ERR_MARK.length);
-            else if (line.startsWith(STT_HYP_MARK)) lastHyp    = line.slice(STT_HYP_MARK.length);
-            else if (line.startsWith(STT_INFO_MARK)) {
-                const info = line.slice(STT_INFO_MARK.length);
-                const m = info.match(/^engine=(.+)$/);
-                if (m) engineUsed = m[1];
+/* Ensure whisper-server.exe + model are on disk. Downloads with a VSCode
+   progress notification. On any failure throws — caller decides whether to
+   set the soft fallback flag. */
+async function _ensureWhisperFiles(context) {
+    const dir = _getWhisperDir(context);
+    const serverPath = path.join(dir, WHISPER_SERVER_EXE);
+    const modelPath  = path.join(dir, WHISPER_MODEL_NAME);
+    const needServer = !fs.existsSync(serverPath);
+    const needModel  = !fs.existsSync(modelPath);
+    if (!needServer && !needModel) return { serverPath, modelPath };
+    return vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: 'Downloading Whisper (one-time, ~75MB)…',
+        cancellable: false,
+    }, async (progress) => {
+        if (needServer) {
+            progress.report({ message: 'fetching whisper.cpp server…' });
+            const url = await _resolveWhisperServerUrl();
+            trace('whisper: server url = ' + url);
+            const zipPath = path.join(dir, 'whisper-bin.zip');
+            let lastPct = 0;
+            await _httpsDownloadToFile(url, zipPath, (got, total) => {
+                const pct = total ? Math.floor((got / total) * 100) : 0;
+                if (pct - lastPct >= 5) {
+                    progress.report({ message: 'server ' + pct + '%' });
+                    lastPct = pct;
+                }
+            });
+            const extractDir = path.join(dir, '_unpack');
+            try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch (_) {}
+            await _extractZipPS(zipPath, extractDir);
+            const found = _findWhisperServerExe(extractDir);
+            if (!found) throw new Error('whisper-server.exe not found inside ' + url);
+            // Move every file from the dir-containing-found into WHISPER_DIR so
+            // any sibling DLLs (ggml.dll etc.) end up next to the exe.
+            const srcDir = path.dirname(found);
+            for (const e of fs.readdirSync(srcDir)) {
+                const from = path.join(srcDir, e);
+                const to = path.join(dir, e);
+                try { fs.renameSync(from, to); } catch (_) {
+                    try { fs.copyFileSync(from, to); } catch (_) {}
+                }
+            }
+            try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch (_) {}
+            try { fs.unlinkSync(zipPath); } catch (_) {}
+            if (!fs.existsSync(serverPath)) {
+                // Some zips name the binary `server.exe` — rename it.
+                const alt = path.join(dir, 'server.exe');
+                if (fs.existsSync(alt)) {
+                    try { fs.renameSync(alt, serverPath); } catch (_) {}
+                }
+            }
+            if (!fs.existsSync(serverPath)) {
+                throw new Error('whisper-server.exe missing after extract');
             }
         }
-        if (engineUsed) trace('stt: engine used = ' + engineUsed);
-        if (lastHyp) trace('stt: last hypothesis = ' + lastHyp);
-        if (okText !== null) {
-            try { panel.webview.postMessage({ type: 'sttResult', text: okText }); } catch (_) {}
-            try { setTimeout(prewarmSapiStt, 250); } catch (_) {}
-            return;
+        if (needModel) {
+            progress.report({ message: 'fetching ggml-tiny.en.bin (~75MB)…' });
+            let lastPct = 0;
+            await _httpsDownloadToFile(WHISPER_MODEL_URL, modelPath, (got, total) => {
+                const pct = total ? Math.floor((got / total) * 100) : 0;
+                if (pct - lastPct >= 2) {
+                    progress.report({ message: 'model ' + pct + '%' });
+                    lastPct = pct;
+                }
+            });
         }
-        /* User-initiated stop: don't surface as an error. If we have a
-           partial hypothesis, use it as the transcript so the user's
-           half-spoken input still lands in the textarea. Otherwise just
-           post an empty result and the panel will close the listening UI
-           silently. */
-        if (wasUserStop) {
-            try { panel.webview.postMessage({ type: 'sttResult', text: lastHyp || '' }); } catch (_) {}
-            try { setTimeout(prewarmSapiStt, 250); } catch (_) {}
-            return;
-        }
-        /* No transcript, not a user stop: figure out the most useful
-           message. Priority:
-             1. Explicit STT_ERR_MARK from the script (real failure path).
-             2. SIGTERM with no hypothesis => "no audio detected".
-             3. SIGTERM with hypothesis    => audio was heard, recognizer
-                                              couldn't lock onto a phrase.
-             4. Other signals / exit codes => fall back to stderr / signal.
-           This replaces the old "killed by SIGTERM" raw signal echo. */
-        let err;
-        if (errMsg) {
-            err = errMsg;
-        } else if (signal === 'SIGTERM' || signal === 'SIGKILL') {
-            if (lastHyp) {
-                err = 'recognizer stopped — partial heard: "' + lastHyp + '". Try again, speak the full phrase.';
-            } else {
-                err = 'no speech detected — speak closer to the mic, or check Windows Sound settings (default input device).';
-            }
-        } else if (signal) {
-            err = 'recognizer terminated (' + signal + ')';
-        } else if (stderr.trim()) {
-            err = stderr.trim().split(/\r?\n/).slice(-1)[0];
-        } else {
-            err = 'exit ' + (code === null ? 'null' : code);
-        }
-        try { panel.webview.postMessage({ type: 'sttResult', text: '', error: err }); } catch (_) {}
-        /* Re-warm in the background so the NEXT mic click is also fast. */
-        try { setTimeout(prewarmSapiStt, 250); } catch (_) {}
+        return { serverPath, modelPath };
     });
 }
-function stopSapiStt() {
-    if (!__sttProc) return;
-    trace('stt: stopping ps proc (user-initiated)');
-    /* Mark this as a user stop so the proc.on('close', …) handler doesn't
-       surface "killed by SIGTERM" as an error chip. The close handler
-       resets the flag once it consumes it. */
-    __sttUserStopped = true;
-    try { __sttProc.kill(); } catch (e) {}
-    __sttProc = null;
-    try { if (__sttScriptPath) fs.unlinkSync(__sttScriptPath); } catch (_) {}
-    __sttScriptPath = null;
+
+/* Pick a free local port by binding net.createServer to 0. */
+function _findFreePort() {
+    return new Promise((resolve, reject) => {
+        const net = require('net');
+        const srv = net.createServer();
+        srv.unref();
+        srv.on('error', reject);
+        srv.listen(0, '127.0.0.1', () => {
+            const port = srv.address().port;
+            srv.close(() => resolve(port));
+        });
+    });
 }
+
+/* Poll GET /  on the whisper server until it answers OK or the deadline
+   passes. Resolves true on ready, false on timeout. */
+function _waitForWhisperReady(port, timeoutMs) {
+    return new Promise((resolve) => {
+        const http = require('http');
+        const deadline = Date.now() + (timeoutMs || 5000);
+        const tick = () => {
+            const req = http.request({
+                method: 'GET',
+                hostname: '127.0.0.1',
+                port,
+                path: '/',
+                timeout: 800,
+            }, (res) => {
+                res.resume();
+                resolve(true);
+            });
+            req.on('error', () => {
+                if (Date.now() < deadline) setTimeout(tick, 200);
+                else resolve(false);
+            });
+            req.on('timeout', () => {
+                try { req.destroy(); } catch (_) {}
+                if (Date.now() < deadline) setTimeout(tick, 200);
+                else resolve(false);
+            });
+            req.end();
+        };
+        tick();
+    });
+}
+
+/* Spawn the whisper server lazily; idempotent. Returns the listening port. */
+async function startWhisperServer(context) {
+    if (whisperServerProc && whisperServerPort) return whisperServerPort;
+    if (whisperServerStarting) return whisperServerStarting;
+    whisperServerStarting = (async () => {
+        const { serverPath, modelPath } = await _ensureWhisperFiles(context);
+        const port = await _findFreePort();
+        trace('whisper: spawning ' + serverPath + ' --port ' + port);
+        const proc = spawn(serverPath, [
+            '-m', modelPath,
+            '--host', '127.0.0.1',
+            '--port', String(port),
+            '--inference-path', '/inference',
+        ], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+        proc.stdout.on('data', (d) => trace('whisper: ' + d.toString('utf8').trim()));
+        proc.stderr.on('data', (d) => trace('whisper(err): ' + d.toString('utf8').trim()));
+        proc.on('exit', (code, signal) => {
+            trace('whisper: server exited code=' + code + ' signal=' + signal);
+            if (whisperServerProc === proc) {
+                whisperServerProc = null;
+                whisperServerPort = 0;
+            }
+        });
+        whisperServerProc = proc;
+        whisperServerPort = port;
+        const ready = await _waitForWhisperReady(port, 5000);
+        if (!ready) {
+            trace('whisper: server did not respond within 5s — best-effort continue');
+        }
+        return port;
+    })().finally(() => { whisperServerStarting = null; });
+    return whisperServerStarting;
+}
+
+/* ── Anthropic streaming STT (Deepgram Nova-3 proxy) ───────────────────────
+   Reverse-engineered from the official anthropic.claude-code bundle. The
+   endpoint is a WebSocket that proxies Deepgram Nova-3, tuned with IDE
+   keyterms, and is gated to Claude Code OAuth tokens (NOT api03 API keys —
+   those get 1008). Because it rides the Claude Code login, STT is included
+   with the user's Claude subscription and counts against its rate limits.
+
+   Protocol (server→client JSON): TranscriptInterim / TranscriptText carry the
+   cumulative text in `.data`; TranscriptEndpoint marks an utterance final;
+   TranscriptError / error carry failures. Client→server: 'KeepAlive' (every
+   8s) and 'CloseStream' to finish. Audio is raw linear16 PCM @16kHz mono sent
+   as binary frames. */
+const ANTHROPIC_STT_WS_URL = 'wss://api.anthropic.com/api/ws/speech_to_text/voice_stream';
+const ANTHROPIC_STT_SAMPLE_RATE = 16000;
+const ANTHROPIC_STT_KEEPALIVE_MS = 8000;
+const ANTHROPIC_STT_KEYTERMS = [
+    'VS Code', 'IDE', 'webview', 'IntelliSense', 'MCP', 'symlink', 'grep',
+    'regex', 'localhost', 'codebase', 'TypeScript', 'JSON', 'OAuth', 'webhook',
+    'gRPC', 'dotfiles', 'subagent', 'worktree',
+    /* CBE-specific additions — this extension is about Claude tooling. */
+    'CBE', 'Claude Codex', 'whisper.cpp', 'Deepgram', 'Anthropic',
+];
+
+/* Read the Claude Code OAuth access token at request time (never cached — the
+   CLI refreshes it in place). Returns the bearer token or throws a helpful
+   error if missing / expired. */
+function _readClaudeOAuthToken() {
+    const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
+    let raw;
+    try {
+        raw = fs.readFileSync(credPath, 'utf8');
+    } catch (e) {
+        throw new Error('not logged into Claude Code (no ~/.claude/.credentials.json) — run Claude Code login first');
+    }
+    let oauth;
+    try {
+        oauth = (JSON.parse(raw) || {}).claudeAiOauth;
+    } catch (e) {
+        throw new Error('~/.claude/.credentials.json is unreadable');
+    }
+    const tok = oauth && oauth.accessToken;
+    if (!tok) throw new Error('no Claude Code OAuth token found — re-login to Claude Code');
+    if (oauth.expiresAt && oauth.expiresAt <= Date.now()) {
+        throw new Error('Claude Code login expired — re-login (or reopen Claude Code to refresh)');
+    }
+    return tok;
+}
+
+/* Decode arbitrary recorded audio (webm/opus, wav, m4a…) to raw linear16 PCM
+   @16kHz mono via ffmpeg, which the WS endpoint expects. Resolves a Buffer. */
+function _toPcm16kMono(buf) {
+    return new Promise((resolve, reject) => {
+        let ff;
+        try {
+            ff = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error',
+                '-i', 'pipe:0', '-ar', String(ANTHROPIC_STT_SAMPLE_RATE),
+                '-ac', '1', '-f', 's16le', 'pipe:1'], { windowsHide: true });
+        } catch (e) {
+            reject(new Error('ffmpeg not available for PCM conversion: ' + (e.message || e)));
+            return;
+        }
+        const out = [];
+        let errTxt = '';
+        ff.stdout.on('data', (d) => out.push(d));
+        ff.stderr.on('data', (d) => { errTxt += d.toString(); });
+        ff.on('error', (e) => reject(new Error('ffmpeg spawn failed (is it on PATH?): ' + (e.message || e))));
+        ff.on('close', (code) => {
+            if (code !== 0) { reject(new Error('ffmpeg exit ' + code + ': ' + errTxt.slice(0, 200))); return; }
+            const pcm = Buffer.concat(out);
+            if (!pcm.length) { reject(new Error('ffmpeg produced 0 PCM bytes')); return; }
+            resolve(pcm);
+        });
+        ff.stdin.on('error', () => {});   /* ignore EPIPE if ffmpeg bails early */
+        ff.stdin.write(buf);
+        ff.stdin.end();
+    });
+}
+
+/* Transcribe a complete audio buffer via Anthropic's streaming STT WS.
+   onPartial(text) is called with cumulative interims if provided (the
+   streaming pass uses it); always resolves with the final transcript. */
+async function handleAnthropicStt(context, buf, mime, onPartial) {
+    const token = _readClaudeOAuthToken();
+    const pcm = await _toPcm16kMono(buf);
+    const WebSocket = require('ws');
+
+    const params = new URLSearchParams({
+        encoding: 'linear16', sample_rate: String(ANTHROPIC_STT_SAMPLE_RATE),
+        channels: '1', endpointing_ms: '300', utterance_end_ms: '1000',
+        language: 'en', use_conversation_engine: 'true', stt_provider: 'deepgram-nova3',
+    });
+    for (const k of ANTHROPIC_STT_KEYTERMS) params.append('keyterms', k);
+
+    return new Promise((resolve, reject) => {
+        const ws = new WebSocket(`${ANTHROPIC_STT_WS_URL}?${params.toString()}`,
+            { headers: { Authorization: `Bearer ${token}`, 'x-app': 'vscode' } });
+
+        let keepalive = null;
+        let latest = '';        /* cumulative interim text */
+        let finalText = '';     /* committed on TranscriptEndpoint */
+        let settled = false;
+        const cleanup = () => { if (keepalive) { clearInterval(keepalive); keepalive = null; } };
+        const finish = (err) => {
+            if (settled) return;
+            settled = true; cleanup();
+            try { ws.close(); } catch (_) {}
+            if (err) reject(err);
+            /* Combine committed utterances (finalText) with any trailing
+               in-progress interim (latest) that arrived after the last
+               TranscriptEndpoint — returning only one drops the tail. */
+            else resolve([finalText, latest].filter(Boolean).join(' ').trim());
+        };
+
+        /* The endpoint proxies Deepgram, which transcribes at ~real time. We
+           must pace audio at ~real time and only CloseStream once it's all
+           sent, or the server finalizes early and truncates. Scale the hard
+           timeout to the clip length + processing/close grace. */
+        const durationSec = pcm.length / 2 / ANTHROPIC_STT_SAMPLE_RATE;
+        const hard = setTimeout(() => finish(new Error('anthropic STT timeout')),
+            Math.max(30000, Math.ceil(durationSec * 1300) + 8000));
+
+        ws.on('open', () => {
+            ws.send(JSON.stringify({ type: 'KeepAlive' }));
+            keepalive = setInterval(() => {
+                if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'KeepAlive' }));
+            }, ANTHROPIC_STT_KEEPALIVE_MS);
+            /* Real-time pacing: 100ms of audio per 100ms tick. CHUNK =
+               16000 samples * 2 bytes * 0.1s = 3200. After the last chunk,
+               CloseStream tells the server to flush its final transcript. */
+            const CHUNK = 3200;
+            let i = 0;
+            const pump = () => {
+                if (settled || ws.readyState !== WebSocket.OPEN) return;
+                if (i >= pcm.length) { try { ws.send(JSON.stringify({ type: 'CloseStream' })); } catch (_) {} return; }
+                ws.send(pcm.slice(i, i + CHUNK));
+                i += CHUNK;
+                setTimeout(pump, 100);
+            };
+            pump();
+        });
+
+        ws.on('message', (raw) => {
+            let m; try { m = JSON.parse(raw.toString()); } catch (_) { return; }
+            switch (m.type) {
+                case 'TranscriptInterim':
+                case 'TranscriptText':
+                    if (m.data) { latest = m.data; if (typeof onPartial === 'function') { try { onPartial(latest); } catch (_) {} } }
+                    break;
+                case 'TranscriptEndpoint':
+                    if (latest) { finalText = finalText ? (finalText + ' ' + latest) : latest; latest = ''; }
+                    break;
+                case 'TranscriptError':
+                    finish(new Error('anthropic STT: ' + (m.description || 'transcription error'))); break;
+                case 'error':
+                    finish(new Error('anthropic STT: ' + (m.message || 'server error'))); break;
+            }
+        });
+
+        ws.on('error', (e) => {
+            const mm = /Unexpected server response: (\d+)/.exec(e.message || '');
+            const code = mm ? Number(mm[1]) : 0;
+            if (code === 401 || code === 403) finish(new Error('anthropic STT: not authorized — Claude Code login may be expired'));
+            else finish(new Error('anthropic STT WS error: ' + (e.message || e)));
+        });
+
+        ws.on('close', (code, reason) => {
+            clearTimeout(hard);
+            if (code === 1008 || /authorization/i.test(String(reason || ''))) {
+                finish(new Error('anthropic STT: invalid authorization (Claude Code OAuth token rejected) — re-login to Claude Code'));
+                return;
+            }
+            finish(null);   /* clean close — resolve with whatever we collected */
+        });
+    });
+}
+
+/* Transcribe a buffer via whisper-server's /inference endpoint. Returns
+   the transcript text or throws. Mirrors the elevenlabs / openai paths. */
+async function handleWhisperLocalStt(context, buf, mime) {
+    const port = await startWhisperServer(context);
+    if (!port) throw new Error('whisper server unavailable');
+    let ext = 'webm';
+    if (/wav/i.test(mime)) ext = 'wav';
+    else if (/mp4|m4a/i.test(mime)) ext = 'm4a';
+    else if (/mpeg/i.test(mime)) ext = 'mp3';
+    else if (/ogg/i.test(mime)) ext = 'ogg';
+    const form = new FormData();
+    form.append('file', new Blob([buf], { type: mime }), `audio.${ext}`);
+    form.append('temperature', '0.0');
+    form.append('response_format', 'json');
+    const res = await fetch(`http://127.0.0.1:${port}/inference`, {
+        method: 'POST',
+        body: form,
+    });
+    if (!res.ok) {
+        throw new Error('whisper-local HTTP ' + res.status);
+    }
+    const j = await res.json();
+    return String((j && (j.text || j.transcription)) || '').trim();
+}
+
+/* Legacy entry: panel posts {type:'sttStart'} when WebSpeech got denied.
+   Route to whisper-local; on download failure fall back to a webspeech
+   prompt + soft-pin the fallback so we don't keep retrying. The panel
+   receives the result as {type:'sttResult', text|error} (same shape the
+   old host-side path used, so panel.js needs no changes here). */
+function startHostSttHint(panel) {
+    if (!extensionContext) return;
+    const context = extensionContext;
+    // If user has previously been switched to webspeech-fallback, honor that.
+    if (context.globalState.get(WHISPER_GLOBAL_KEY_FALLBACK)) {
+        try { panel.webview.postMessage({ type: 'sttResult', text: '', error: 'whisper-local unavailable (previous download failed); use WebSpeech in Settings → Voice.' }); } catch (_) {}
+        return;
+    }
+    // Webview won't have raw mic audio here — this entry point is only hit
+    // when the panel's WebSpeech path was denied. We can't drive whisper
+    // without audio bytes, so prompt the user to switch providers explicitly.
+    try {
+        panel.webview.postMessage({
+            type: 'sttResult', text: '',
+            error: 'WebSpeech denied by sandbox. Switch STT provider in Settings → Voice to whisper-local (recommended, keyless) or elevenlabs/openai.',
+        });
+    } catch (_) {}
+}
+
+/* No-op stop: kept so legacy 'sttStop' messages from older panel.js snapshots
+   don't crash the message router. The whisper-server stays running once
+   booted; nothing to tear down per-request. */
+function stopHostStt() { /* deprecated — whisper-server is long-lived */ }
+function prewarmHostStt() { /* deprecated — whisper-server is lazy-spawned */ }
 
 /* ── Tracing ──────────────────────────────────────────────────────────── */
 
@@ -4013,10 +4403,53 @@ async function activate(context) {
     endActivate();
     trace('=== activate complete ===');
 
-    /* Pre-warm a SAPI PowerShell so the first mic click doesn't pay the 2–4s
-       cold-start cost (which was getting the recognizer killed before it
-       even bound to the mic; see debug.log's stdoutBytes=0 history). */
-    try { setTimeout(prewarmSapiStt, 500); } catch (_) {}
+    /* First-run welcome (deferred so the panel paints first). globalState gates
+       it so the user sees it only once per install. */
+    try { setTimeout(() => { try { maybeShowFirstRun(context); } catch (_) {} }, 1000); } catch (_) {}
+}
+
+/* First-run welcome notification — surfaces the keyless-by-default story
+   and points users at config.ini for premium upgrades. globalState gate
+   ensures it only fires once per install. */
+const FIRST_RUN_KEY = 'codexBlackEd.firstRunShown';
+function maybeShowFirstRun(context) {
+    try {
+        if (context.globalState.get(FIRST_RUN_KEY) === true) return;
+    } catch (_) { return; }
+    const msg =
+        'Welcome to Claude Codex — Black Edition.\n\n' +
+        'Works out of the box: voice is keyless (WebSpeech for TTS, whisper-local for STT — ~75MB first-run download).\n\n' +
+        'For higher-quality chat/voice, add keys in config.ini:\n' +
+        '  • ElevenLabs / OpenAI / Anthropic for premium voice + chat\n' +
+        '  • NameSilo for domain features\n' +
+        'Or use a logged-in browser bridge (Claude / ChatGPT / Grok / Gemini / Copilot / Ollama).';
+    const markShown = () => {
+        try { context.globalState.update(FIRST_RUN_KEY, true); } catch (_) {}
+    };
+    try {
+        vscode.window.showInformationMessage(msg, 'Open config.ini', 'Got it').then((choice) => {
+            markShown();
+            if (choice === 'Open config.ini') {
+                try {
+                    const cfgPath = path.join(context.extensionPath, CONFIG_INI_NAME);
+                    if (!fs.existsSync(cfgPath)) {
+                        // Some installs ship config.dist.ini; fall back to it for read-only viewing.
+                        const dist = path.join(context.extensionPath, 'config.dist.ini');
+                        if (fs.existsSync(dist)) {
+                            vscode.workspace.openTextDocument(vscode.Uri.file(dist))
+                                .then((doc) => vscode.window.showTextDocument(doc));
+                            return;
+                        }
+                    }
+                    vscode.workspace.openTextDocument(vscode.Uri.file(cfgPath))
+                        .then((doc) => vscode.window.showTextDocument(doc));
+                } catch (e) { traceErr('firstRun:openConfig', e); }
+            }
+        }, () => { markShown(); });
+    } catch (e) {
+        traceErr('maybeShowFirstRun', e);
+        markShown();
+    }
 }
 
 function deactivate() {
@@ -4027,15 +4460,12 @@ function deactivate() {
     try {
         if (_cliServer) { _cliServer.close(); _cliServer = null; trace('CLI:server closed on deactivate'); }
     } catch (e) { traceErr('deactivate:cliServer', e); }
+    /* Kill the whisper.cpp server if we spawned one. */
     try {
-        if (__sttPrewarmProc) {
-            __sttPrewarmProc.kill();
-            __sttPrewarmProc = null;
-            __sttPrewarmReady = false;
-            if (__sttPrewarmScriptPath) {
-                try { fs.unlinkSync(__sttPrewarmScriptPath); } catch (_) {}
-                __sttPrewarmScriptPath = null;
-            }
+        if (whisperServerProc) {
+            try { whisperServerProc.kill(); } catch (_) {}
+            whisperServerProc = null;
+            whisperServerPort = 0;
         }
     } catch (_) {}
 }
@@ -5153,6 +5583,19 @@ function buildSettingsPayload(context) {
     } catch (_) {
         toolCall = { mode: 'allowlist', maxSteps: 10, allowlist: TOOL_CALL_DEFAULT_ALLOWLIST.slice(), timeoutS: 60 };
     }
+    /* Voice (TTS / STT) provider selection. TTS defaults to 'webspeech' —
+       the only keyless TTS option (whisper.cpp doesn't synthesize). STT
+       defaults to 'whisper-local' (keyless, offline, ~75MB one-time model
+       download). ElevenLabs / OpenAI remain the premium upgrades when the
+       user drops keys into config.ini. The legacy host-side SpeechRecognition
+       path was retired 2026-05-26 in favor of whisper-local. */
+    const ttsProvider = getVoiceProvider(context, 'tts');
+    const sttProvider = getVoiceProvider(context, 'stt');
+    /* Tell the panel whether the host-side ElevenLabs key is present so the
+       UI can show a "(no key)" hint next to the ElevenLabs option. We never
+       send the key itself to the webview. */
+    const haveElevenLabsKey = !!_getElevenLabsKey(context);
+    const haveOpenAiKey     = !!getProviderKey(context, 'openai');
     return {
         providers,
         active,
@@ -5163,6 +5606,10 @@ function buildSettingsPayload(context) {
         languages: (i18n && i18n.meta) || [],
         strings: _languageStringsFor(context, currentLang),
         toolCall,
+        ttsProvider,
+        sttProvider,
+        haveElevenLabsKey,
+        haveOpenAiKey,
     };
 }
 
@@ -5305,8 +5752,10 @@ function bindPanel(context, panel) {
                     const endReady = timeStep('webview ready -> server response');
                     const endInit = timeStep('  buildSettingsPayload + postMessage init');
                     /* Resolve persisted skin to a webview URI (or empty if the
-                       file is gone) so the panel can apply it on first paint. */
-                    const savedSkinName = context.workspaceState.get(STATE_SKIN, '') || '';
+                       file is gone) so the panel can apply it on first paint.
+                       Default to codex-black on fresh install (matches the
+                       getPanelHtml fallback set 2026-05-26 for Jack Clark demo). */
+                    const savedSkinName = context.workspaceState.get(STATE_SKIN, 'codex-black') || 'codex-black';
                     const resolved = resolveSkin(context, savedSkinName);
                     const skinUri = resolved.uri ? panel.webview.asWebviewUri(resolved.uri).toString() : '';
                     /* Inline help.html — iframes loaded via asWebviewUri in
@@ -5700,6 +6149,15 @@ function bindPanel(context, panel) {
                     if (typeof msg.sfxVolume === 'number') {
                         const v = Math.max(0, Math.min(1, msg.sfxVolume));
                         await context.workspaceState.update('codexBlackEd.sfxVolume', v);
+                    }
+                    /* Voice (TTS / STT) provider persistence. Validate against
+                       the allowed list before writing so a malformed message
+                       can't poison the state. */
+                    if (typeof msg.ttsProvider === 'string' && VOICE_PROVIDERS.includes(msg.ttsProvider)) {
+                        await context.workspaceState.update(STATE_TTS_PROVIDER, msg.ttsProvider);
+                    }
+                    if (typeof msg.sttProvider === 'string' && VOICE_PROVIDERS.includes(msg.sttProvider)) {
+                        await context.workspaceState.update(STATE_STT_PROVIDER, msg.sttProvider);
                     }
                     if (typeof msg.skin === 'string') {
                         /* Validate the skin filename against what's actually on disk
@@ -6896,14 +7354,29 @@ function bindPanel(context, panel) {
                     vscode.commands.executeCommand('workbench.action.reloadWindow');
                     break;
                 case 'sttStart':
-                    /* Fallback path: webview's Web Speech API got `not-allowed`
-                       (VSCode sandboxes the iframe out of the mic permission).
-                       Launch Windows SAPI on the host instead and post the
-                       transcript back as sttResult. */
-                    startSapiStt(panel);
+                    /* Legacy fallback path: webview's Web Speech API got
+                       `not-allowed` (VSCode sandboxes the iframe). Whisper-
+                       local needs the panel to do MediaRecorder capture +
+                       sttRequest with audioB64, so we just surface a hint
+                       asking the user to switch STT provider explicitly. */
+                    startHostSttHint(panel);
                     break;
                 case 'sttStop':
-                    stopSapiStt();
+                    stopHostStt();
+                    break;
+                case 'ttsRequest':
+                    /* Server-side TTS: panel handed us text + provider; we
+                       call ElevenLabs / OpenAI and return base64 mp3 so the
+                       panel plays it in an <audio> element. WebSpeech is
+                       handled entirely panel-side and never reaches here. */
+                    handleTtsRequest(panel, context, msg);
+                    break;
+                case 'sttRequest':
+                    /* Server-side STT: panel handed us a base64 audio blob
+                       (from MediaRecorder) + provider; we transcribe via
+                       ElevenLabs Scribe / OpenAI gpt-4o-transcribe and
+                       return the text. */
+                    handleSttRequest(panel, context, msg);
                     break;
                 case '_cbeDbg':
                     /* Diagnostic mirror from panel.js — we serialize the
@@ -6928,9 +7401,8 @@ function bindPanel(context, panel) {
     panel.onDidDispose(() => {
         trace('panel disposed');
         if (activePanel === panel) activePanel = undefined;
-        /* Reap any in-flight SAPI recognizer so the PowerShell process doesn't
-           outlive the panel that was waiting on its transcript. */
-        stopSapiStt();
+        /* No per-panel STT teardown — whisper-server is a long-lived child
+           reaped in deactivate(). */
     });
 }
 
@@ -6944,7 +7416,10 @@ function getPanelHtml(context, webview) {
        so the skin's panel.js / assets / Prism / sounds still resolve from
        the extension's panel/ + assets/ + lib/ + sounds/ dirs at runtime.
        Legacy CSS-only skins fall through to panel/index.html unchanged. */
-    const savedSkinName = context.workspaceState.get(STATE_SKIN, '') || '';
+    /* Fresh-install default: codex-black (the Claude-Code clone look).
+       Existing users' picks are preserved — only kicks in when nothing was
+       previously saved. 2026-05-26: set as default for Jack Clark demo. */
+    const savedSkinName = context.workspaceState.get(STATE_SKIN, 'codex-black') || 'codex-black';
     const resolvedSkin = savedSkinName ? resolveSkin(context, savedSkinName) : null;
     let htmlPath;
     let htmlSource;
