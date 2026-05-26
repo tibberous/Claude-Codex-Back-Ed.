@@ -652,8 +652,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   /* Render icons in full color (no white-out tint). Slight drop-shadow gives
      them depth on the glass. image-rendering keeps PNG icons crisp at the
      larger dock size. */
-  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55))
-          drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+  filter: drop-shadow(2px 2px 3px rgba(0, 0, 0, 0.25));
   image-rendering: -webkit-optimize-contrast;
   -webkit-user-drag: none;
   user-select: none;
@@ -2692,6 +2691,25 @@ body {
   }
   .skin-mint-dock .tool-button::after { display: none; }
   /* === END DOCK ICON SWAP === */
+
+  /* ─── Claude Code parity lock — light theme (2026-05-26) ──────────────
+     The toolbar icons fell through to the base SVG line-art with no skin
+     filter, rendering as full black on the light theme. Claude Code uses
+     a medium grey (~#6b6b6b). Also restore the subtle divider above the
+     toolbar that the earlier overlay zeroed out. */
+  .toolbar-tools .tool-button img,
+  .prompt-toolbar .tool-button img {
+    filter: brightness(0) invert(0.42) !important;
+    opacity: 0.85 !important;
+  }
+  .toolbar-tools .tool-button:hover img,
+  .prompt-toolbar .tool-button:hover img {
+    filter: brightness(0) invert(0.25) !important;
+    opacity: 1 !important;
+  }
+  .prompt-toolbar {
+    border-top: 1px solid rgba(0, 0, 0, 0.07) !important;
+  }
   </style>
 
 <!-- Webview URI map — tiny inline script. Keep small; this is the only
