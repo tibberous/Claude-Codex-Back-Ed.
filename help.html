@@ -37,7 +37,7 @@
 <body>
 
 <h1>Claude Codex — Black Edition</h1>
-<p class="subtitle">Standalone VSCode panel for any LLM — direct API or browser bridge. 20 chat / inference / video bridges shipped, pluggable via <code>.bridge</code> XML files.</p>
+<p class="subtitle">Standalone webview for Claude, OpenAI, Gemini, and SuperGrok bridges.</p>
 
 <h2>Keyboard</h2>
 <table>
@@ -53,14 +53,14 @@
   <tr><td>Stored prompts</td><td>Quick-insert a saved prompt template.</td></tr>
   <tr><td>Chat history</td><td>Browse past sessions.</td></tr>
   <tr><td>Attach file</td><td>Send a file alongside the prompt.</td></tr>
-  <tr><td>Read aloud (TTS)</td><td>Click to read the last reply. Double-click toggles auto-read.</td></tr>
-  <tr><td>Speech to text (STT)</td><td>Click to start/stop dictation. Uses the host browser&#39;s speech recognition.</td></tr>
+  <tr><td>Read aloud (TTS)</td><td>Click to read the last reply via the selected TTS provider. Double-click toggles auto-read. Pick provider / voice / rate / volume in <strong>Settings → Read Aloud</strong>.</td></tr>
+  <tr><td>Speech to text (STT)</td><td>Click to start/stop dictation. Words appear in the input as you speak. Pick provider, language, and a custom dictionary in <strong>Settings → Speech to Text</strong>.</td></tr>
   <tr><td>Auto Prompt</td><td>Auto-send a chosen prompt on a recurring interval (0 = off).</td></tr>
   <tr><td>Wake-up response</td><td>Nudges a stalled stream.</td></tr>
   <tr><td>Show command menu</td><td>Slash-command palette.</td></tr>
   <tr><td>Compact</td><td>Summarize and condense the running conversation.</td></tr>
   <tr><td>Handbook</td><td>Project handbook and tool reference.</td></tr>
-  <tr><td>Settings</td><td>Provider, model, SFX, font size, API keys.</td></tr>
+  <tr><td>Settings</td><td>Categorized left-nav: <em>Provider &amp; Model</em>, <em>Read Aloud</em>, <em>Speech to Text</em>, <em>Appearance</em>, <em>Tool Calls</em>.</td></tr>
   <tr><td>Extensions</td><td>Manage installed bridges.</td></tr>
   <tr><td>Project folder</td><td>Reveal the workspace folder in OS file browser.</td></tr>
   <tr><td>VSCode monitor</td><td>Open the activity/trace pane.</td></tr>
@@ -74,19 +74,20 @@
 <h2>API keys</h2>
 <p>The first time you send, the extension prompts for an API key for the active provider. Keys live in VSCode&#39;s secrets store — never in code, never in <code>config.ini</code>, never committed to git. Use the Settings modal to change providers; each one has its own slot.</p>
 
-<h2>Browser bridges (the <code>.bridge</code> system)</h2>
-<p>For providers that authenticate through a browser (Claude.ai, ChatGPT, Gemini, Grok, Copilot, DeepSeek, Perplexity, Mistral, Pi, HuggingChat, Veo, Runway, Luma, Kling, fal.ai, Replicate, OpenRouter, Groq, Pika, Ollama-local), click the Codex pill → choose the provider → an external Chromium window opens for sign-in. Close that window once signed in; the bridge keeps the session.</p>
-<p>Each bridge is declared by a <code>.bridge</code> XML file in <code>extensions/</code>. 7 ship enabled by default (Claude, ChatGPT, Gemini, Grok, Copilot, DeepSeek, Ollama). 13 ship disabled — flip <code>&lt;enabled&gt;true&lt;/enabled&gt;</code> in the file to use them. Drop your own <code>.bridge</code> XML in <code>extensions/</code> to add a new provider; the panel picks it up on next activate.</p>
+<h2>Voice (TTS / STT)</h2>
+<p>CBE works out of the box without any keys — both read-aloud and dictation default to keyless providers.</p>
+<table>
+  <tr><th>Provider</th><th>Type</th><th>Key?</th><th>Notes</th></tr>
+  <tr><td>WebSpeech</td><td>TTS + STT</td><td>none</td><td><strong>Default.</strong> Browser-native SpeechSynthesis + SpeechRecognition. STT streams partial transcripts as you speak (same engine gemini.com uses).</td></tr>
+  <tr><td>whisper-local</td><td>STT</td><td>none</td><td>Windows-only. Offline whisper.cpp server; one-time ~75&nbsp;MB model download on first use.</td></tr>
+  <tr><td>Anthropic</td><td>STT</td><td>Claude login</td><td>Streaming dictation via Anthropic&#39;s Deepgram&#8209;Nova&#8209;3&#8209;backed endpoint. Uses the Claude Code OAuth login from <code>~/.claude/.credentials.json</code> — included with a Claude subscription, no separate key.</td></tr>
+  <tr><td>ElevenLabs</td><td>TTS + STT</td><td><code>[elevenlabs] api_key</code></td><td>Premium voices (TTS) and Scribe (STT). Pick voice ID in <em>Settings → Read Aloud</em>.</td></tr>
+  <tr><td>OpenAI</td><td>TTS + STT</td><td><code>openai_api_key</code></td><td>tts-1 (alloy / echo / fable / onyx / nova / shimmer) and gpt-4o-transcribe.</td></tr>
+</table>
+<p><strong>Custom dictionary / vocabulary</strong> (Settings → Speech to Text): bias the STT toward project-specific terms. The field maps to <em>keyterms</em> on Anthropic, <em>prompt</em> on Whisper/OpenAI.</p>
 
-<h2>Slash commands</h2>
-<p>Type <code>/</code> at the start of the textarea or hit the command-menu button. Useful ones:</p>
-<ul>
-  <li><code>/switch</code> — auth picker (Claude.ai Subscription / Anthropic Console / Bedrock,Foundry,Vertex)</li>
-  <li><code>/clear</code> — new conversation</li>
-  <li><code>/compact</code> — summarize-and-prune the running thread</li>
-  <li><code>/attach</code> — pick a file to send with the next prompt</li>
-  <li><code>/settings</code>, <code>/history</code>, <code>/prompts</code>, <code>/help</code>, <code>/handbook</code>, <code>/git</code>, <code>/github</code>, <code>/license</code>, <code>/font</code>, <code>/folder</code>, <code>/email</code></li>
-</ul>
+<h2>SuperGrok bridges</h2>
+<p>For providers that authenticate through a browser (Gemini Web, ChatGPT Web, Grok Web), click the Codex pill → choose the provider → an external Chromium window opens for sign-in. Close that window once signed in; the bridge keeps the session.</p>
 
 <h2>Logs &amp; troubleshooting</h2>
 <ul>
