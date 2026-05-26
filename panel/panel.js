@@ -607,6 +607,17 @@ document.getElementById('domainsBtn').onclick  = () => {
    The ID3 mp3 path also gracefully degrades to WebSpeech if the host
    reports an error (e.g. no API key configured). */
 window.__cbeTtsProvider = window.__cbeTtsProvider || 'webspeech';
+/* Voice tuning window state — hydrated from the host's persisted workspaceState
+   on `init`, mutated by Settings → Read Aloud, and read by speakWebSpeech /
+   speakRemote. Defaults match the host-side defaults (rate 1, volume 1, etc.). */
+if (window.__cbeTtsVoice            === undefined) window.__cbeTtsVoice            = '';
+if (window.__cbeTtsRate             === undefined) window.__cbeTtsRate             = 1;
+if (window.__cbeTtsVolume           === undefined) window.__cbeTtsVolume           = 1;
+if (window.__cbeTtsOpenAiVoice      === undefined) window.__cbeTtsOpenAiVoice      = 'alloy';
+if (window.__cbeTtsOpenAiSpeed      === undefined) window.__cbeTtsOpenAiSpeed      = 1;
+if (window.__cbeTtsElevenVoice      === undefined) window.__cbeTtsElevenVoice      = '';
+if (window.__cbeTtsElevenStability  === undefined) window.__cbeTtsElevenStability  = 0.5;
+if (window.__cbeTtsElevenSimilarity === undefined) window.__cbeTtsElevenSimilarity = 0.75;
 const tts = (function() {
   const btn = document.getElementById('ttsBtn');
   const synth = window.speechSynthesis;
@@ -633,12 +644,28 @@ const tts = (function() {
     }
   }
 
-  /* WebSpeech path (browser-native SpeechSynthesis — Anthropic's stub API). */
+  /* WebSpeech path (browser-native SpeechSynthesis — Anthropic's stub API).
+     Applies the user's saved voice/rate/volume (Settings → Read Aloud). The
+     voice is matched by name from speechSynthesis.getVoices(); rate (0.1–10)
+     and volume (0–1) map straight onto the utterance. */
   function speakWebSpeech(txt) {
     if (!synth) { addMsg('Speech synthesis not available in this webview.', 'error'); setIdle(); return; }
     synth.cancel();
     const utt = new SpeechSynthesisUtterance(txt);
     utt.lang = navigator.language || 'en-US';
+    /* Saved voice: match by name from the live voice list. */
+    const wantVoice = String(window.__cbeTtsVoice || '');
+    if (wantVoice) {
+      try {
+        const voices = (synth.getVoices && synth.getVoices()) || [];
+        const v = voices.find((x) => x.name === wantVoice);
+        if (v) { utt.voice = v; if (v.lang) utt.lang = v.lang; }
+      } catch (_) {}
+    }
+    const r = Number(window.__cbeTtsRate);
+    if (Number.isFinite(r) && r > 0) utt.rate = Math.max(0.1, Math.min(10, r));
+    const vol = Number(window.__cbeTtsVolume);
+    if (Number.isFinite(vol)) utt.volume = Math.max(0, Math.min(1, vol));
     utt.onend = utt.onerror = setIdle;
     btn.classList.add('speaking');
     synth.speak(utt);
@@ -653,7 +680,16 @@ const tts = (function() {
     btn.classList.add('speaking');
     pendingTtsReqs.set(reqId, true);
     try {
-      api.postMessage({ type: 'ttsRequest', reqId, provider, text: txt });
+      /* Carry the saved per-provider voice + tuning so the host call uses them.
+         openai: voice + speed (0.25–4). elevenlabs: voiceId + stability/similarity. */
+      api.postMessage({
+        type: 'ttsRequest', reqId, provider, text: txt,
+        voice:      String(window.__cbeTtsOpenAiVoice || 'alloy'),
+        speed:      Number(window.__cbeTtsOpenAiSpeed) || 1,
+        voiceId:    String(window.__cbeTtsElevenVoice || ''),
+        stability:  (window.__cbeTtsElevenStability != null) ? Number(window.__cbeTtsElevenStability) : undefined,
+        similarity: (window.__cbeTtsElevenSimilarity != null) ? Number(window.__cbeTtsElevenSimilarity) : undefined,
+      });
     } catch (e) {
       console.debug('[cbe.tts] postMessage threw', e && e.message);
       pendingTtsReqs.delete(reqId);
@@ -764,6 +800,11 @@ const tts = (function() {
                     If sandbox denies mic, the host surfaces a hint asking
                     the user to switch to whisper-local. */
 window.__cbeSttProvider = window.__cbeSttProvider || 'webspeech';
+/* STT dictionary / language window state — hydrated on `init`, set by
+   Settings → Speech to Text, read by the sttRequest / sttStreamStart posts
+   and startWebSpeech's recog.lang. */
+if (window.__cbeSttDictionary === undefined) window.__cbeSttDictionary = '';
+if (window.__cbeSttLanguage   === undefined) window.__cbeSttLanguage   = '';
 (function() {
   const sttBtn = document.getElementById('sttBtn');
   let recog = null;
@@ -1036,7 +1077,15 @@ window.__cbeSttProvider = window.__cbeSttProvider || 'webspeech';
     mode = 'stream';
     listening = true;
     beginLiveDictation();
-    try { api.postMessage({ type: 'sttStreamStart', provider, reqId: streamReqId }); } catch (_) {}
+    try {
+      /* Carry the custom dictionary (appended to the Deepgram keyterm list)
+         + language so the live session biases recognition. */
+      api.postMessage({
+        type: 'sttStreamStart', provider, reqId: streamReqId,
+        dictionary: String(window.__cbeSttDictionary || ''),
+        language:   String(window.__cbeSttLanguage || ''),
+      });
+    } catch (_) {}
 
     let wired = false;
     try { wired = await _tryAudioWorklet(); } catch (_) { wired = false; }
@@ -1118,7 +1167,13 @@ window.__cbeSttProvider = window.__cbeSttProvider || 'webspeech';
         if (!b64) { addMsg('Voice (' + provider + '): audio encode failed.', 'error'); return; }
         pendingSttReqId = 'stt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
         try {
-          api.postMessage({ type: 'sttRequest', reqId: pendingSttReqId, provider, mime, audioB64: b64 });
+          /* Carry the custom dictionary (whisper-local/openai use it as the
+             transcription `prompt`) + language so the host biases recognition. */
+          api.postMessage({
+            type: 'sttRequest', reqId: pendingSttReqId, provider, mime, audioB64: b64,
+            dictionary: String(window.__cbeSttDictionary || ''),
+            language:   String(window.__cbeSttLanguage || ''),
+          });
         } catch (e) {
           console.debug('[cbe.stt] sttRequest postMessage threw', e && e.message);
           addMsg('Voice (' + provider + '): cannot reach host — falling back to WebSpeech.', 'info');
@@ -1213,7 +1268,9 @@ window.__cbeSttProvider = window.__cbeSttProvider || 'webspeech';
          keeps the session open across pauses; interimResults streams partials. */
       recog.continuous   = true;
       recog.interimResults = true;
-      recog.lang = (navigator.language || 'en-US');
+      /* Saved STT language (Settings → Speech to Text) overrides the browser
+         default when set. */
+      recog.lang = String(window.__cbeSttLanguage || '').trim() || (navigator.language || 'en-US');
       /* WebSpeech gives us per-result finality. We commit finalized results to a
          running buffer and show committed + in-progress interim live on EVERY
          onresult (not just the final one). */
@@ -2621,63 +2678,183 @@ function openSettings(payload) {
   hdr.innerHTML =
       '<span>Settings — Provider &amp; Model ' + _hdrStamp + '</span>'
     + '<button type="button" class="cbe-btn cbe-cancel cbe-x-svg" data-act="cancel" aria-label="Close"></button>';
-  const body = document.createElement('div'); body.className = 'cbe-body cbe-body--two-col';
+  /* ── 2026-05-26 category-nav rebuild ──────────────────────────────────────
+     The flat 2-column scroll became crowded once voice controls landed, so
+     the body is now a flex row: a LEFT vertical category list + a RIGHT
+     scrollable pane. Clicking a category shows/hides the matching
+     `.cbe-cat-pane` group. ALL existing controls are preserved verbatim —
+     just regrouped under categories. The modal is self-contained: this
+     <style> block (scoped to #cbe-settings) styles the nav so it looks
+     identical across every skin and never collides with skins/ CSS. */
+  const styleEl = document.createElement('style');
+  styleEl.id = 'cbe-settings-catnav-style';
+  styleEl.textContent =
+      '#cbe-settings .cbe-catnav{display:flex;flex-direction:column;gap:2px;'
+    + 'width:150px;min-width:150px;flex:0 0 150px;align-self:stretch;'
+    + 'overflow-y:auto;padding-right:8px;border-right:1px solid var(--cbe-modal-border,#444);box-sizing:border-box;}'
+    + '#cbe-settings .cbe-catnav-item{display:block;width:100%;text-align:left;'
+    + 'padding:8px 10px;background:transparent;color:var(--cbe-modal-fg,#eee);'
+    + 'border:1px solid transparent;border-radius:5px;cursor:pointer;font:inherit;'
+    + 'font-size:13px;line-height:1.25;box-sizing:border-box;}'
+    + '#cbe-settings .cbe-catnav-item:hover{background:rgba(255,255,255,.06);}'
+    + '#cbe-settings .cbe-catnav-item.is-active{background:var(--cbe-modal-accent,#2a5d8f);'
+    + 'color:#fff;border-color:var(--cbe-modal-accent,#2a5d8f);font-weight:600;}'
+    + '#cbe-settings .cbe-catpane-wrap{flex:1 1 auto;min-width:0;overflow-y:auto;'
+    + 'padding-left:16px;box-sizing:border-box;}'
+    + '#cbe-settings .cbe-cat-pane{display:flex;flex-direction:column;gap:10px;min-width:0;}'
+    + '#cbe-settings .cbe-cat-pane[hidden]{display:none;}'
+    + '#cbe-settings .cbe-cat-title{font-weight:600;font-size:14px;margin:0 0 4px;opacity:.9;}'
+    + '#cbe-settings .cbe-voice-sub{display:flex;flex-direction:column;gap:10px;'
+    + 'margin-top:2px;padding:8px;border:1px solid var(--cbe-modal-border,#444);border-radius:5px;}'
+    + '#cbe-settings .cbe-voice-sub[hidden]{display:none;}'
+    + '#cbe-settings .cbe-stt-dict{width:100%;font:12px Consolas,monospace;'
+    + 'background:#000;color:#dcdcdc;border:1px solid var(--cbe-modal-border,#444);'
+    + 'border-radius:4px;padding:6px;box-sizing:border-box;resize:vertical;}'
+    + '#cbe-settings .cbe-voice-text{width:100%;padding:6px 8px;background:var(--cbe-modal-bg,#1c1c1c);'
+    + 'color:var(--cbe-modal-fg,#eee);border:1px solid var(--cbe-modal-border,#444);'
+    + 'border-radius:4px;font:inherit;box-sizing:border-box;}';
+  const body = document.createElement('div'); body.className = 'cbe-body cbe-body--catnav';
   body.innerHTML = ''
-    + '<div class="cbe-col cbe-col--left" style="display:flex;flex-direction:column;gap:10px;min-width:0;">'
-    +   '<div><label>Provider</label><select id="cbe-set-provider"></select></div>'
-    +   '<div><label>Model</label><select id="cbe-set-model"></select></div>'
-    +   '<div class="cbe-warn" id="cbe-set-warn">No API key configured for this provider in config.ini.</div>'
-    +   '<div id="cbe-accounts-wrap" style="margin:6px 0 2px;">'
-    +     '<div style="display:flex;align-items:center;gap:8px;">'
-    +       '<label style="margin:0;flex:1;">Accounts <span id="cbe-acct-count" style="opacity:.6;font-weight:400;"></span></label>'
-    +       '<button type="button" id="cbe-acct-add-btn" class="cbe-btn" style="padding:4px 12px;font-size:12px;">+ Add Account</button>'
-    +     '</div>'
-    +     '<div id="cbe-acct-list" style="margin-top:6px;display:flex;flex-direction:column;gap:4px;"></div>'
-    +     '<div id="cbe-acct-form" style="display:none;margin-top:8px;padding:8px;border:1px solid var(--cbe-modal-border,#444);border-radius:5px;background:var(--cbe-modal-bg,#181818);">'
-    +       '<input type="text" id="cbe-acct-label" placeholder="Label (e.g. work, alt-2)" style="width:100%;margin-bottom:6px;padding:6px 8px;background:var(--cbe-modal-bg,#1c1c1c);color:var(--cbe-modal-fg,#eee);border:1px solid var(--cbe-modal-border,#444);border-radius:4px;font:inherit;box-sizing:border-box;">'
-    +       '<input type="password" id="cbe-acct-key" placeholder="API key" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:6px;padding:6px 8px;background:var(--cbe-modal-bg,#1c1c1c);color:var(--cbe-modal-fg,#eee);border:1px solid var(--cbe-modal-border,#444);border-radius:4px;font:inherit;box-sizing:border-box;">'
-    +       '<div id="cbe-acct-err" style="display:none;color:#ff6b6b;font-size:12px;margin-bottom:6px;"></div>'
-    +       '<div style="display:flex;gap:6px;justify-content:flex-end;">'
-    +         '<button type="button" id="cbe-acct-cancel-btn" class="cbe-btn cbe-cancel" style="padding:4px 12px;font-size:12px;">Cancel</button>'
-    +         '<button type="button" id="cbe-acct-save-btn" class="cbe-btn cbe-save" style="padding:4px 12px;font-size:12px;">Add</button>'
+    /* ── LEFT: category nav ───────────────────────────────────────────── */
+    + '<div class="cbe-catnav" role="tablist" aria-label="Settings categories">'
+    +   '<button type="button" class="cbe-catnav-item is-active" data-cat="provider" role="tab">Provider &amp; Model</button>'
+    +   '<button type="button" class="cbe-catnav-item" data-cat="tts" role="tab">Read Aloud (TTS)</button>'
+    +   '<button type="button" class="cbe-catnav-item" data-cat="stt" role="tab">Speech to Text</button>'
+    +   '<button type="button" class="cbe-catnav-item" data-cat="appearance" role="tab">Appearance</button>'
+    +   '<button type="button" class="cbe-catnav-item" data-cat="toolcalls" role="tab">Tool Calls</button>'
+    + '</div>'
+    /* ── RIGHT: panes ─────────────────────────────────────────────────── */
+    + '<div class="cbe-catpane-wrap">'
+    /* — Provider & Model — */
+    +   '<div class="cbe-cat-pane" data-cat="provider">'
+    +     '<div class="cbe-cat-title">Provider &amp; Model</div>'
+    +     '<div><label>Provider</label><select id="cbe-set-provider"></select></div>'
+    +     '<div><label>Model</label><select id="cbe-set-model"></select></div>'
+    +     '<div class="cbe-warn" id="cbe-set-warn">No API key configured for this provider in config.ini.</div>'
+    +     '<div id="cbe-accounts-wrap" style="margin:6px 0 2px;">'
+    +       '<div style="display:flex;align-items:center;gap:8px;">'
+    +         '<label style="margin:0;flex:1;">Accounts <span id="cbe-acct-count" style="opacity:.6;font-weight:400;"></span></label>'
+    +         '<button type="button" id="cbe-acct-add-btn" class="cbe-btn" style="padding:4px 12px;font-size:12px;">+ Add Account</button>'
+    +       '</div>'
+    +       '<div id="cbe-acct-list" style="margin-top:6px;display:flex;flex-direction:column;gap:4px;"></div>'
+    +       '<div id="cbe-acct-form" style="display:none;margin-top:8px;padding:8px;border:1px solid var(--cbe-modal-border,#444);border-radius:5px;background:var(--cbe-modal-bg,#181818);">'
+    +         '<input type="text" id="cbe-acct-label" placeholder="Label (e.g. work, alt-2)" style="width:100%;margin-bottom:6px;padding:6px 8px;background:var(--cbe-modal-bg,#1c1c1c);color:var(--cbe-modal-fg,#eee);border:1px solid var(--cbe-modal-border,#444);border-radius:4px;font:inherit;box-sizing:border-box;">'
+    +         '<input type="password" id="cbe-acct-key" placeholder="API key" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:6px;padding:6px 8px;background:var(--cbe-modal-bg,#1c1c1c);color:var(--cbe-modal-fg,#eee);border:1px solid var(--cbe-modal-border,#444);border-radius:4px;font:inherit;box-sizing:border-box;">'
+    +         '<div id="cbe-acct-err" style="display:none;color:#ff6b6b;font-size:12px;margin-bottom:6px;"></div>'
+    +         '<div style="display:flex;gap:6px;justify-content:flex-end;">'
+    +           '<button type="button" id="cbe-acct-cancel-btn" class="cbe-btn cbe-cancel" style="padding:4px 12px;font-size:12px;">Cancel</button>'
+    +           '<button type="button" id="cbe-acct-save-btn" class="cbe-btn cbe-save" style="padding:4px 12px;font-size:12px;">Add</button>'
+    +         '</div>'
     +       '</div>'
     +     '</div>'
     +   '</div>'
-    + '</div>'
-    + '<div class="cbe-col-divider" aria-hidden="true" style="background:var(--cbe-modal-border,#444);width:1px;align-self:stretch;"></div>'
-    + '<div class="cbe-col cbe-col--right" style="display:flex;flex-direction:column;gap:10px;min-width:0;">'
-    +   '<div><label>Skin</label><select id="cbe-set-skin"><option value="">Loading skins…</option></select></div>'
-    +   '<div><label>Language</label><div id="cbe-set-language-wrap" style="position:relative;"></div></div>'
-    +   '<div style="display:flex;align-items:center;gap:10px;margin-top:4px;">'
-    +     '<label for="cbe-set-sfx-enabled" style="margin:0;flex:1;">Sound Effects</label>'
-    +     '<input type="checkbox" id="cbe-set-sfx-enabled" style="width:auto;accent-color:var(--cbe-modal-accent);cursor:pointer;">'
-    +   '</div>'
-    +   '<div>'
-    +     '<label for="cbe-set-sfx-volume">Volume <span id="cbe-set-sfx-volume-pct" style="opacity:.65;font-weight:400;">55%</span></label>'
-    +     '<input type="range" id="cbe-set-sfx-volume" min="0" max="100" step="1" value="55" style="width:100%;accent-color:var(--cbe-modal-accent);cursor:pointer;">'
-    +   '</div>'
-    +   '<div id="cbe-tc-section" style="margin-top:8px;padding:8px;border:1px solid var(--cbe-modal-border,#444);border-radius:5px;">'
-    +     '<div style="font-weight:600;margin-bottom:6px;">Tool calls (bridge daisy-chain)</div>'
-    +     '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
-    +       '<label style="margin:0;flex:1;" for="cbe-tc-mode">Mode</label>'
-    +       '<select id="cbe-tc-mode" style="flex:2;">'
-    +         '<option value="off">off (disable)</option>'
-    +         '<option value="allowlist">allowlist (safe commands no prompt)</option>'
-    +         '<option value="confirm">confirm (always ask)</option>'
-    +         '<option value="auto">auto (no prompt, run everything)</option>'
+    /* — Read Aloud (TTS) — */
+    +   '<div class="cbe-cat-pane" data-cat="tts" hidden>'
+    +     '<div class="cbe-cat-title">Read Aloud (Text-to-Speech)</div>'
+    +     '<div><label for="cbe-set-tts-provider">TTS provider</label>'
+    +       '<select id="cbe-set-tts-provider">'
+    +         '<option value="webspeech">WebSpeech (keyless, browser-native)</option>'
+    +         '<option value="elevenlabs">ElevenLabs (premium)</option>'
+    +         '<option value="openai">OpenAI tts-1</option>'
     +       '</select>'
     +     '</div>'
-    +     '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
-    +       '<label style="margin:0;flex:1;" for="cbe-tc-maxsteps">Max chain steps</label>'
-    +       '<input type="number" id="cbe-tc-maxsteps" min="1" max="50" step="1" value="10" style="flex:2;">'
+    /*   webspeech sub-controls */
+    +     '<div class="cbe-voice-sub" id="cbe-tts-sub-webspeech" hidden>'
+    +       '<div><label for="cbe-tts-ws-voice">Voice</label>'
+    +         '<select id="cbe-tts-ws-voice"><option value="">System default</option></select></div>'
+    +       '<div><label for="cbe-tts-ws-rate">Rate <span id="cbe-tts-ws-rate-val" style="opacity:.65;font-weight:400;">1.0×</span></label>'
+    +         '<input type="range" id="cbe-tts-ws-rate" min="0.1" max="3" step="0.1" value="1" style="width:100%;accent-color:var(--cbe-modal-accent);cursor:pointer;"></div>'
+    +       '<div><label for="cbe-tts-ws-volume">Volume <span id="cbe-tts-ws-volume-val" style="opacity:.65;font-weight:400;">100%</span></label>'
+    +         '<input type="range" id="cbe-tts-ws-volume" min="0" max="100" step="1" value="100" style="width:100%;accent-color:var(--cbe-modal-accent);cursor:pointer;"></div>'
     +     '</div>'
-    +     '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
-    +       '<label style="margin:0;flex:1;" for="cbe-tc-timeout">Per-command timeout (s)</label>'
-    +       '<input type="number" id="cbe-tc-timeout" min="1" max="600" step="1" value="60" style="flex:2;">'
+    /*   openai sub-controls */
+    +     '<div class="cbe-voice-sub" id="cbe-tts-sub-openai" hidden>'
+    +       '<div><label for="cbe-tts-oa-voice">Voice</label>'
+    +         '<select id="cbe-tts-oa-voice">'
+    +           '<option value="alloy">alloy</option><option value="echo">echo</option>'
+    +           '<option value="fable">fable</option><option value="onyx">onyx</option>'
+    +           '<option value="nova">nova</option><option value="shimmer">shimmer</option>'
+    +           '<option value="ash">ash</option><option value="sage">sage</option>'
+    +           '<option value="coral">coral</option>'
+    +         '</select></div>'
+    +       '<div><label for="cbe-tts-oa-speed">Speed <span id="cbe-tts-oa-speed-val" style="opacity:.65;font-weight:400;">1.0×</span></label>'
+    +         '<input type="range" id="cbe-tts-oa-speed" min="0.25" max="4" step="0.05" value="1" style="width:100%;accent-color:var(--cbe-modal-accent);cursor:pointer;"></div>'
+    +     '</div>'
+    /*   elevenlabs sub-controls */
+    +     '<div class="cbe-voice-sub" id="cbe-tts-sub-elevenlabs" hidden>'
+    +       '<div><label for="cbe-tts-el-voice">Voice ID</label>'
+    +         '<input type="text" id="cbe-tts-el-voice" class="cbe-voice-text" spellcheck="false" placeholder="21m00Tcm4TlvDq8ikWAM (Rachel)"></div>'
+    +       '<div style="display:flex;gap:10px;">'
+    +         '<div style="flex:1;"><label for="cbe-tts-el-stability">Stability <span id="cbe-tts-el-stability-val" style="opacity:.65;font-weight:400;">0.50</span></label>'
+    +           '<input type="range" id="cbe-tts-el-stability" min="0" max="1" step="0.05" value="0.5" style="width:100%;accent-color:var(--cbe-modal-accent);cursor:pointer;"></div>'
+    +         '<div style="flex:1;"><label for="cbe-tts-el-similarity">Similarity <span id="cbe-tts-el-similarity-val" style="opacity:.65;font-weight:400;">0.75</span></label>'
+    +           '<input type="range" id="cbe-tts-el-similarity" min="0" max="1" step="0.05" value="0.75" style="width:100%;accent-color:var(--cbe-modal-accent);cursor:pointer;"></div>'
+    +       '</div>'
+    +     '</div>'
+    +   '</div>'
+    /* — Speech to Text (STT) — */
+    +   '<div class="cbe-cat-pane" data-cat="stt" hidden>'
+    +     '<div class="cbe-cat-title">Speech to Text (Dictation)</div>'
+    +     '<div><label for="cbe-set-stt-provider">STT provider</label>'
+    +       '<select id="cbe-set-stt-provider">'
+    +         '<option value="webspeech">WebSpeech (browser-native)</option>'
+    +         '<option value="whisper-local">Whisper-local (keyless, offline)</option>'
+    +         '<option value="elevenlabs">ElevenLabs Scribe (premium)</option>'
+    +         '<option value="openai">OpenAI gpt-4o-transcribe</option>'
+    +         '<option value="anthropic">Anthropic (Claude login)</option>'
+    +       '</select>'
+    +     '</div>'
+    +     '<div><label for="cbe-stt-language">Language <span style="opacity:.55;font-weight:400;font-size:.85em;">(BCP-47, e.g. en, en-US, fr)</span></label>'
+    +       '<input type="text" id="cbe-stt-language" class="cbe-voice-text" spellcheck="false" placeholder="auto / en-US"></div>'
+    +     '<div id="cbe-stt-dict-wrap">'
+    +       '<label for="cbe-stt-dictionary" id="cbe-stt-dict-label">Custom dictionary / vocabulary</label>'
+    +       '<div id="cbe-stt-dict-hint" style="opacity:.6;font-size:12px;margin:0 0 4px;">Comma- or newline-separated terms to bias transcription (names, jargon, acronyms).</div>'
+    +       '<textarea id="cbe-stt-dictionary" rows="5" spellcheck="false" class="cbe-stt-dict"></textarea>'
+    +     '</div>'
+    +   '</div>'
+    /* — Appearance — */
+    +   '<div class="cbe-cat-pane" data-cat="appearance" hidden>'
+    +     '<div class="cbe-cat-title">Appearance</div>'
+    +     '<div><label>Skin</label><select id="cbe-set-skin"><option value="">Loading skins…</option></select></div>'
+    +     '<div><label>Language</label><div id="cbe-set-language-wrap" style="position:relative;"></div></div>'
+    +     '<div style="display:flex;align-items:center;gap:10px;margin-top:4px;">'
+    +       '<label for="cbe-set-sfx-enabled" style="margin:0;flex:1;">Sound Effects</label>'
+    +       '<input type="checkbox" id="cbe-set-sfx-enabled" style="width:auto;accent-color:var(--cbe-modal-accent);cursor:pointer;">'
     +     '</div>'
     +     '<div>'
-    +       '<label for="cbe-tc-allowlist">Allowlist (one per line)</label>'
-    +       '<textarea id="cbe-tc-allowlist" rows="6" spellcheck="false" style="width:100%;font:12px Consolas,monospace;background:#000;color:#dcdcdc;border:1px solid var(--cbe-modal-border,#444);border-radius:4px;padding:6px;box-sizing:border-box;"></textarea>'
+    +       '<label for="cbe-set-sfx-volume">Volume <span id="cbe-set-sfx-volume-pct" style="opacity:.65;font-weight:400;">55%</span></label>'
+    +       '<input type="range" id="cbe-set-sfx-volume" min="0" max="100" step="1" value="55" style="width:100%;accent-color:var(--cbe-modal-accent);cursor:pointer;">'
+    +     '</div>'
+    +     '<div style="display:flex;align-items:center;gap:10px;margin-top:4px;">'
+    +       '<label for="cbe-set-bigfont" style="margin:0;flex:1;">Large font</label>'
+    +       '<input type="checkbox" id="cbe-set-bigfont" style="width:auto;accent-color:var(--cbe-modal-accent);cursor:pointer;">'
+    +     '</div>'
+    +   '</div>'
+    /* — Tool Calls — */
+    +   '<div class="cbe-cat-pane" data-cat="toolcalls" hidden>'
+    +     '<div class="cbe-cat-title">Tool Calls (bridge daisy-chain)</div>'
+    +     '<div id="cbe-tc-section">'
+    +       '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
+    +         '<label style="margin:0;flex:1;" for="cbe-tc-mode">Mode</label>'
+    +         '<select id="cbe-tc-mode" style="flex:2;">'
+    +           '<option value="off">off (disable)</option>'
+    +           '<option value="allowlist">allowlist (safe commands no prompt)</option>'
+    +           '<option value="confirm">confirm (always ask)</option>'
+    +           '<option value="auto">auto (no prompt, run everything)</option>'
+    +         '</select>'
+    +       '</div>'
+    +       '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
+    +         '<label style="margin:0;flex:1;" for="cbe-tc-maxsteps">Max chain steps</label>'
+    +         '<input type="number" id="cbe-tc-maxsteps" min="1" max="50" step="1" value="10" style="flex:2;">'
+    +       '</div>'
+    +       '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'
+    +         '<label style="margin:0;flex:1;" for="cbe-tc-timeout">Per-command timeout (s)</label>'
+    +         '<input type="number" id="cbe-tc-timeout" min="1" max="600" step="1" value="60" style="flex:2;">'
+    +       '</div>'
+    +       '<div>'
+    +         '<label for="cbe-tc-allowlist">Allowlist (one per line)</label>'
+    +         '<textarea id="cbe-tc-allowlist" rows="6" spellcheck="false" style="width:100%;font:12px Consolas,monospace;background:#000;color:#dcdcdc;border:1px solid var(--cbe-modal-border,#444);border-radius:4px;padding:6px;box-sizing:border-box;"></textarea>'
+    +       '</div>'
     +     '</div>'
     +   '</div>'
     + '</div>';
@@ -2713,6 +2890,7 @@ function openSettings(payload) {
   try { CBE_DEBUG = localStorage.getItem('cbe_debug') === '1'; } catch (_) {}
   foot.appendChild(cancelBtn);
   foot.appendChild(applyBtn);
+  box.appendChild(styleEl);
   box.appendChild(hdr);
   box.appendChild(body);
   box.appendChild(foot);
@@ -2929,14 +3107,15 @@ function openSettings(payload) {
   box.style.setProperty('overflow',        'hidden',        'important');
   box.style.setProperty('box-sizing',      'border-box',    'important');
 
-  body.style.setProperty('display',              'grid',                'important');
-  body.style.setProperty('grid-template-columns','1fr 1px 1fr',         'important');
-  body.style.setProperty('column-gap',           '18px',                'important');
-  body.style.setProperty('row-gap',              '10px',                'important');
-  body.style.setProperty('align-items',          'start',               'important');
+  /* Category-nav layout: a flex ROW (left nav + right pane). The body itself
+     no longer scrolls — the right pane (.cbe-catpane-wrap) does — so the nav
+     stays pinned while values scroll. */
+  body.style.setProperty('display',              'flex',                'important');
+  body.style.setProperty('flex-direction',       'row',                 'important');
+  body.style.setProperty('align-items',          'stretch',             'important');
+  body.style.setProperty('gap',                  '0',                   'important');
   body.style.setProperty('flex',                 '1 1 auto',            'important');
-  body.style.setProperty('overflow-y',           'auto',                'important');
-  body.style.setProperty('overflow-x',           'hidden',              'important');
+  body.style.setProperty('overflow',             'hidden',              'important');
   body.style.setProperty('min-height',           '0',                   'important');
   body.style.setProperty('min-width',            '0',                   'important');
   body.style.setProperty('width',                '100%',                'important');
@@ -3255,6 +3434,176 @@ function openSettings(payload) {
   });
   sfxVolume.addEventListener('change', () => playSfx('click'));
 
+  /* Large-font checkbox — mirrors the toolbar #fontSizeBtn. Reads/writes the
+     same `.cb-big` body class + `setBigFont` host message so the two stay in
+     sync. Applied live on toggle; persisted host-side immediately (same path
+     the toolbar button uses) so no extra Apply plumbing is needed. */
+  const bigFontChk = overlay.querySelector('#cbe-set-bigfont');
+  if (bigFontChk) {
+    bigFontChk.checked = document.body.classList.contains('cb-big');
+    bigFontChk.addEventListener('change', () => {
+      const next = !!bigFontChk.checked;
+      if (window.__cbApplyBig) window.__cbApplyBig(next);
+      else document.body.classList.toggle('cb-big', next);
+      if (api) api.postMessage({ type: 'setBigFont', value: next });
+    });
+  }
+
+  /* ── Category-nav switching ──────────────────────────────────────────────
+     Clicking a left-nav item shows the matching right pane and highlights the
+     button. Default-selected = the first category (Provider & Model). */
+  const catItems = Array.from(overlay.querySelectorAll('.cbe-catnav-item'));
+  const catPanes = Array.from(overlay.querySelectorAll('.cbe-cat-pane'));
+  function selectCategory(cat) {
+    catItems.forEach((b) => b.classList.toggle('is-active', b.getAttribute('data-cat') === cat));
+    catPanes.forEach((p) => { p.hidden = (p.getAttribute('data-cat') !== cat); });
+    /* Scroll the right pane back to top on a category switch. */
+    const wrap = overlay.querySelector('.cbe-catpane-wrap');
+    if (wrap) wrap.scrollTop = 0;
+  }
+  catItems.forEach((b) => b.addEventListener('click', () => {
+    selectCategory(b.getAttribute('data-cat'));
+    playSfx('click');
+  }));
+  selectCategory('provider');   /* default category */
+
+  /* ── Voice (TTS / STT) controls ──────────────────────────────────────────
+     Hydrate from payload.ttsProvider/sttProvider + the saved per-provider
+     values (ttsVoice/ttsRate/ttsVolume, sttDictionary/sttLanguage). The
+     TTS-provider dropdown shows/hides the matching sub-control group. Webspeech
+     TTS settings apply LIVE panel-side (window.__cbeTts*) so the next read-aloud
+     respects them even before Apply; remote-provider settings travel with the
+     ttsRequest at speak time. Persistence fires on Apply (see _cbeDoApply). */
+  const ttsProvSel  = overlay.querySelector('#cbe-set-tts-provider');
+  const sttProvSel  = overlay.querySelector('#cbe-set-stt-provider');
+  const ttsSubs = {
+    webspeech:  overlay.querySelector('#cbe-tts-sub-webspeech'),
+    openai:     overlay.querySelector('#cbe-tts-sub-openai'),
+    elevenlabs: overlay.querySelector('#cbe-tts-sub-elevenlabs'),
+  };
+  /* webspeech sub-controls */
+  const wsVoiceSel = overlay.querySelector('#cbe-tts-ws-voice');
+  const wsRate     = overlay.querySelector('#cbe-tts-ws-rate');
+  const wsRateVal  = overlay.querySelector('#cbe-tts-ws-rate-val');
+  const wsVolume   = overlay.querySelector('#cbe-tts-ws-volume');
+  const wsVolVal   = overlay.querySelector('#cbe-tts-ws-volume-val');
+  /* openai sub-controls */
+  const oaVoiceSel = overlay.querySelector('#cbe-tts-oa-voice');
+  const oaSpeed    = overlay.querySelector('#cbe-tts-oa-speed');
+  const oaSpeedVal = overlay.querySelector('#cbe-tts-oa-speed-val');
+  /* elevenlabs sub-controls */
+  const elVoice    = overlay.querySelector('#cbe-tts-el-voice');
+  const elStab     = overlay.querySelector('#cbe-tts-el-stability');
+  const elStabVal  = overlay.querySelector('#cbe-tts-el-stability-val');
+  const elSim      = overlay.querySelector('#cbe-tts-el-similarity');
+  const elSimVal   = overlay.querySelector('#cbe-tts-el-similarity-val');
+  /* stt controls */
+  const sttDict     = overlay.querySelector('#cbe-stt-dictionary');
+  const sttLangEl   = overlay.querySelector('#cbe-stt-language');
+  const sttDictLbl  = overlay.querySelector('#cbe-stt-dict-label');
+  const sttDictHint = overlay.querySelector('#cbe-stt-dict-hint');
+  const sttDictWrap = overlay.querySelector('#cbe-stt-dict-wrap');
+
+  /* Hydrate provider selection from payload (validated server-side). */
+  if (ttsProvSel) ttsProvSel.value = ['webspeech','elevenlabs','openai'].includes(payload.ttsProvider) ? payload.ttsProvider : 'webspeech';
+  if (sttProvSel) sttProvSel.value = ['webspeech','whisper-local','elevenlabs','openai','anthropic'].includes(payload.sttProvider) ? payload.sttProvider : 'webspeech';
+
+  /* Snapshot the live TTS window values so Cancel can restore them after any
+     live preview / typing. */
+  const __cbeSavedTtsAtOpen = {
+    provider: window.__cbeTtsProvider,
+    voice:    window.__cbeTtsVoice,
+    rate:     window.__cbeTtsRate,
+    volume:   window.__cbeTtsVolume,
+    openaiVoice: window.__cbeTtsOpenAiVoice,
+    openaiSpeed: window.__cbeTtsOpenAiSpeed,
+    elevenVoice: window.__cbeTtsElevenVoice,
+    elevenStability: window.__cbeTtsElevenStability,
+    elevenSimilarity: window.__cbeTtsElevenSimilarity,
+  };
+  const __cbeSavedSttAtOpen = {
+    provider: window.__cbeSttProvider,
+    dictionary: window.__cbeSttDictionary,
+    language: window.__cbeSttLanguage,
+  };
+
+  /* Hydrate value controls from saved window state (init hydrated these). */
+  if (wsRate)   { wsRate.value   = String(window.__cbeTtsRate != null ? window.__cbeTtsRate : 1);   if (wsRateVal) wsRateVal.textContent = Number(wsRate.value).toFixed(1) + '×'; }
+  if (wsVolume) { wsVolume.value = String(Math.round((window.__cbeTtsVolume != null ? window.__cbeTtsVolume : 1) * 100)); if (wsVolVal) wsVolVal.textContent = wsVolume.value + '%'; }
+  if (oaVoiceSel && window.__cbeTtsOpenAiVoice) oaVoiceSel.value = window.__cbeTtsOpenAiVoice;
+  if (oaSpeed)  { oaSpeed.value  = String(window.__cbeTtsOpenAiSpeed != null ? window.__cbeTtsOpenAiSpeed : 1); if (oaSpeedVal) oaSpeedVal.textContent = Number(oaSpeed.value).toFixed(2).replace(/0$/,'') + '×'; }
+  if (elVoice)  elVoice.value = String(window.__cbeTtsElevenVoice || '');
+  if (elStab)   { elStab.value = String(window.__cbeTtsElevenStability != null ? window.__cbeTtsElevenStability : 0.5); if (elStabVal) elStabVal.textContent = Number(elStab.value).toFixed(2); }
+  if (elSim)    { elSim.value  = String(window.__cbeTtsElevenSimilarity != null ? window.__cbeTtsElevenSimilarity : 0.75); if (elSimVal) elSimVal.textContent = Number(elSim.value).toFixed(2); }
+  if (sttDict)   sttDict.value = String(window.__cbeSttDictionary || '');
+  if (sttLangEl) sttLangEl.value = String(window.__cbeSttLanguage || '');
+
+  /* WebSpeech voice list — getVoices() is async on first call; populate now
+     and re-populate on the onvoiceschanged event. Label as "Name (lang)". */
+  function _populateWsVoices() {
+    if (!wsVoiceSel) return;
+    let voices = [];
+    try { voices = (window.speechSynthesis && window.speechSynthesis.getVoices && window.speechSynthesis.getVoices()) || []; }
+    catch (_) { voices = []; }
+    const want = String(window.__cbeTtsVoice || '');
+    /* Keep the leading "System default" option, drop the rest, repopulate. */
+    while (wsVoiceSel.options.length > 1) wsVoiceSel.remove(1);
+    voices.forEach((v) => {
+      const o = document.createElement('option');
+      o.value = v.name;
+      o.textContent = v.name + (v.lang ? ' (' + v.lang + ')' : '') + (v.default ? ' — default' : '');
+      wsVoiceSel.appendChild(o);
+    });
+    if (want && Array.from(wsVoiceSel.options).some((o) => o.value === want)) wsVoiceSel.value = want;
+  }
+  if (wsVoiceSel) {
+    _populateWsVoices();
+    try { if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = _populateWsVoices; } catch (_) {}
+  }
+
+  /* Live-apply webspeech values to the window state as the user drags, so a
+     read-aloud test reflects the new setting before Apply. */
+  if (wsVoiceSel) wsVoiceSel.addEventListener('change', () => { window.__cbeTtsVoice = wsVoiceSel.value || ''; });
+  if (wsRate) wsRate.addEventListener('input', () => {
+    const n = Number(wsRate.value); if (wsRateVal) wsRateVal.textContent = n.toFixed(1) + '×'; window.__cbeTtsRate = n;
+  });
+  if (wsVolume) wsVolume.addEventListener('input', () => {
+    const n = Number(wsVolume.value); if (wsVolVal) wsVolVal.textContent = n + '%'; window.__cbeTtsVolume = n / 100;
+  });
+  if (oaSpeed) oaSpeed.addEventListener('input', () => {
+    const n = Number(oaSpeed.value); if (oaSpeedVal) oaSpeedVal.textContent = n.toFixed(2).replace(/0$/,'') + '×';
+  });
+  if (elStab) elStab.addEventListener('input', () => { if (elStabVal) elStabVal.textContent = Number(elStab.value).toFixed(2); });
+  if (elSim)  elSim.addEventListener('input',  () => { if (elSimVal)  elSimVal.textContent  = Number(elSim.value).toFixed(2); });
+
+  /* TTS provider dropdown shows/hides the matching sub-control group. */
+  function _syncTtsSubs() {
+    const p = (ttsProvSel && ttsProvSel.value) || 'webspeech';
+    Object.keys(ttsSubs).forEach((k) => { if (ttsSubs[k]) ttsSubs[k].hidden = (k !== p); });
+  }
+  if (ttsProvSel) ttsProvSel.addEventListener('change', _syncTtsSubs);
+  _syncTtsSubs();
+
+  /* STT dictionary label/hint adapts per provider (whisper/openai = "prompt",
+     anthropic = "Keyterms", webspeech = no dictionary, only language). */
+  function _syncSttDict() {
+    const p = (sttProvSel && sttProvSel.value) || 'webspeech';
+    if (p === 'anthropic') {
+      if (sttDictLbl)  sttDictLbl.textContent = 'Keyterms';
+      if (sttDictHint) sttDictHint.textContent = 'Comma- or newline-separated terms appended to the Deepgram keyterm list to bias recognition.';
+      if (sttDictWrap) sttDictWrap.hidden = false;
+    } else if (p === 'webspeech') {
+      /* WebSpeech has no vocabulary biasing — language only. */
+      if (sttDictWrap) sttDictWrap.hidden = true;
+    } else {
+      if (sttDictLbl)  sttDictLbl.textContent = 'Custom dictionary / vocabulary';
+      if (sttDictHint) sttDictHint.textContent = 'Comma- or newline-separated terms passed as the transcription prompt to bias spelling of names, jargon, and acronyms.';
+      if (sttDictWrap) sttDictWrap.hidden = false;
+    }
+  }
+  if (sttProvSel) sttProvSel.addEventListener('change', _syncSttDict);
+  _syncSttDict();
+
   /* Backdrop click = cancel. Direct buttons (apply/cancel) call
      _cbeDoApply()/_cbeDoCancel() directly — see top of openSettings. */
   overlay.addEventListener('click', (e) => {
@@ -3281,6 +3630,19 @@ function openSettings(payload) {
       console.log('[CBE]   restoring skin', __cbeSavedSkinAtOpen, 'uri=', __cbeSavedSkinUriAtOpen);
       applySkinUri(__cbeSavedSkinUriAtOpen);
       applySkinColors(__cbeSavedColorsAtOpen);
+      /* Revert any live TTS/STT window-value previews to the open-time snapshot. */
+      window.__cbeTtsProvider          = __cbeSavedTtsAtOpen.provider;
+      window.__cbeTtsVoice             = __cbeSavedTtsAtOpen.voice;
+      window.__cbeTtsRate              = __cbeSavedTtsAtOpen.rate;
+      window.__cbeTtsVolume            = __cbeSavedTtsAtOpen.volume;
+      window.__cbeTtsOpenAiVoice       = __cbeSavedTtsAtOpen.openaiVoice;
+      window.__cbeTtsOpenAiSpeed       = __cbeSavedTtsAtOpen.openaiSpeed;
+      window.__cbeTtsElevenVoice       = __cbeSavedTtsAtOpen.elevenVoice;
+      window.__cbeTtsElevenStability   = __cbeSavedTtsAtOpen.elevenStability;
+      window.__cbeTtsElevenSimilarity  = __cbeSavedTtsAtOpen.elevenSimilarity;
+      window.__cbeSttProvider          = __cbeSavedSttAtOpen.provider;
+      window.__cbeSttDictionary        = __cbeSavedSttAtOpen.dictionary;
+      window.__cbeSttLanguage          = __cbeSavedSttAtOpen.language;
     } catch (err) {
       console.error('[CBE] _cbeDoCancel revert threw', err);
     }
@@ -3339,6 +3701,49 @@ function openSettings(payload) {
       console.error('[CBE] _cbeDoApply toolCall collect threw', err);
     }
 
+    /* ── Voice (TTS / STT) collect + apply ──────────────────────────────────
+       Read every voice control, write the active values onto the window so
+       the panel-side speak/dictate paths use them immediately, and ship the
+       persistable subset to the host (it stores them + applies the remote-TTS
+       ones at speak time). */
+    const ttsProvider = (ttsProvSel && ttsProvSel.value) || 'webspeech';
+    const sttProvider = (sttProvSel && sttProvSel.value) || 'webspeech';
+    const ttsVoice    = (wsVoiceSel && wsVoiceSel.value) || '';
+    const ttsRate     = wsRate ? Number(wsRate.value) : 1;
+    const ttsVolume   = wsVolume ? (Number(wsVolume.value) / 100) : 1;
+    const ttsOpenAiVoice = (oaVoiceSel && oaVoiceSel.value) || 'alloy';
+    const ttsOpenAiSpeed = oaSpeed ? Number(oaSpeed.value) : 1;
+    const ttsElevenVoice = (elVoice && elVoice.value.trim()) || '';
+    const ttsElevenStability  = elStab ? Number(elStab.value) : 0.5;
+    const ttsElevenSimilarity = elSim ? Number(elSim.value) : 0.75;
+    const sttDictionary = (sttDict && sttDict.value) || '';
+    const sttLanguage   = (sttLangEl && sttLangEl.value.trim()) || '';
+
+    /* Apply live to the window state used by speakWebSpeech / startWebSpeech /
+       startMediaRecorder / speakRemote. */
+    window.__cbeTtsProvider         = ttsProvider;
+    window.__cbeSttProvider         = sttProvider;
+    window.__cbeTtsVoice            = ttsVoice;
+    window.__cbeTtsRate             = ttsRate;
+    window.__cbeTtsVolume           = ttsVolume;
+    window.__cbeTtsOpenAiVoice      = ttsOpenAiVoice;
+    window.__cbeTtsOpenAiSpeed      = ttsOpenAiSpeed;
+    window.__cbeTtsElevenVoice      = ttsElevenVoice;
+    window.__cbeTtsElevenStability  = ttsElevenStability;
+    window.__cbeTtsElevenSimilarity = ttsElevenSimilarity;
+    window.__cbeSttDictionary       = sttDictionary;
+    window.__cbeSttLanguage         = sttLanguage;
+    /* Update the open-time snapshot so a follow-up Cancel doesn't revert what
+       we just applied. */
+    __cbeSavedTtsAtOpen.provider = ttsProvider; __cbeSavedTtsAtOpen.voice = ttsVoice;
+    __cbeSavedTtsAtOpen.rate = ttsRate; __cbeSavedTtsAtOpen.volume = ttsVolume;
+    __cbeSavedTtsAtOpen.openaiVoice = ttsOpenAiVoice; __cbeSavedTtsAtOpen.openaiSpeed = ttsOpenAiSpeed;
+    __cbeSavedTtsAtOpen.elevenVoice = ttsElevenVoice; __cbeSavedTtsAtOpen.elevenStability = ttsElevenStability;
+    __cbeSavedTtsAtOpen.elevenSimilarity = ttsElevenSimilarity;
+    __cbeSavedSttAtOpen.provider = sttProvider; __cbeSavedSttAtOpen.dictionary = sttDictionary;
+    __cbeSavedSttAtOpen.language = sttLanguage;
+    console.log('[CBE]   voice', { ttsProvider, sttProvider, ttsVoice, ttsRate, ttsVolume });
+
     if (api) {
       console.log('[CBE]   postMessage setProvider', { provider, model, skin, language });
       try {
@@ -3346,6 +3751,12 @@ function openSettings(payload) {
           type: 'setProvider', provider, model,
           sfxEnabled: sfxEnabledVal, sfxVolume: sfxVolumeVal,
           skin, language, toolCall,
+          /* voice */
+          ttsProvider, sttProvider,
+          ttsVoice, ttsRate, ttsVolume,
+          ttsOpenAiVoice, ttsOpenAiSpeed,
+          ttsElevenVoice, ttsElevenStability, ttsElevenSimilarity,
+          sttDictionary, sttLanguage,
         });
         console.log('[CBE]   postMessage returned cleanly');
       } catch (err) {
@@ -5121,6 +5532,20 @@ window.addEventListener('message', e => {
     /* Hydrate persisted SFX settings; window defaults apply if absent. */
     if (typeof m.sfxEnabled === 'boolean') { setSfxEnabled(m.sfxEnabled); __cbeSavedSfxEnabled = m.sfxEnabled; }
     if (typeof m.sfxVolume  === 'number')  { setSfxVolume(m.sfxVolume);   __cbeSavedSfxVolume  = m.sfxVolume; }
+    /* Hydrate persisted voice (TTS / STT) provider + tuning so the panel-side
+       speak / dictate paths use the saved values from first paint. */
+    if (typeof m.ttsProvider === 'string') window.__cbeTtsProvider = m.ttsProvider;
+    if (typeof m.sttProvider === 'string') window.__cbeSttProvider = m.sttProvider;
+    if (typeof m.ttsVoice    === 'string') window.__cbeTtsVoice    = m.ttsVoice;
+    if (typeof m.ttsRate     === 'number') window.__cbeTtsRate      = m.ttsRate;
+    if (typeof m.ttsVolume   === 'number') window.__cbeTtsVolume    = m.ttsVolume;
+    if (typeof m.ttsOpenAiVoice === 'string') window.__cbeTtsOpenAiVoice = m.ttsOpenAiVoice;
+    if (typeof m.ttsOpenAiSpeed === 'number') window.__cbeTtsOpenAiSpeed = m.ttsOpenAiSpeed;
+    if (typeof m.ttsElevenVoice === 'string') window.__cbeTtsElevenVoice = m.ttsElevenVoice;
+    if (typeof m.ttsElevenStability  === 'number') window.__cbeTtsElevenStability  = m.ttsElevenStability;
+    if (typeof m.ttsElevenSimilarity === 'number') window.__cbeTtsElevenSimilarity = m.ttsElevenSimilarity;
+    if (typeof m.sttDictionary === 'string') window.__cbeSttDictionary = m.sttDictionary;
+    if (typeof m.sttLanguage   === 'string') window.__cbeSttLanguage   = m.sttLanguage;
     if (typeof m.bigFont    === 'boolean' && window.__cbApplyBig) { window.__cbApplyBig(m.bigFont); }
     /* Apply previously-saved skin on boot. m.skinUri is the asWebviewUri()
        form ready for <link href>; m.skin is the bare filename used to mark
@@ -5286,6 +5711,21 @@ window.addEventListener('message', e => {
     }
   } else if (m.type === 'openSettings') {
     __cbeActiveProvider = m.active || __cbeActiveProvider;
+    /* Re-hydrate the voice window state from the fresh payload so the modal's
+       value controls (which read window.__cbe*) reflect the persisted values
+       even if the panel booted before init landed. */
+    if (typeof m.ttsProvider === 'string') window.__cbeTtsProvider = m.ttsProvider;
+    if (typeof m.sttProvider === 'string') window.__cbeSttProvider = m.sttProvider;
+    if (typeof m.ttsVoice    === 'string') window.__cbeTtsVoice    = m.ttsVoice;
+    if (typeof m.ttsRate     === 'number') window.__cbeTtsRate      = m.ttsRate;
+    if (typeof m.ttsVolume   === 'number') window.__cbeTtsVolume    = m.ttsVolume;
+    if (typeof m.ttsOpenAiVoice === 'string') window.__cbeTtsOpenAiVoice = m.ttsOpenAiVoice;
+    if (typeof m.ttsOpenAiSpeed === 'number') window.__cbeTtsOpenAiSpeed = m.ttsOpenAiSpeed;
+    if (typeof m.ttsElevenVoice === 'string') window.__cbeTtsElevenVoice = m.ttsElevenVoice;
+    if (typeof m.ttsElevenStability  === 'number') window.__cbeTtsElevenStability  = m.ttsElevenStability;
+    if (typeof m.ttsElevenSimilarity === 'number') window.__cbeTtsElevenSimilarity = m.ttsElevenSimilarity;
+    if (typeof m.sttDictionary === 'string') window.__cbeSttDictionary = m.sttDictionary;
+    if (typeof m.sttLanguage   === 'string') window.__cbeSttLanguage   = m.sttLanguage;
     openSettings(m);
   } else if (m.type === 'promptHistory') {
     __cbeHistory = Array.isArray(m.items) ? m.items.slice() : [];

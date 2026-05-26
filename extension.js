@@ -17,6 +17,22 @@ const STATE_MODEL    = 'codexBlackEd.activeModel';
 const STATE_SKIN     = 'codexBlackEd.skin';   /* bare filename, e.g. 'noir.css' */
 const STATE_TTS_PROVIDER = 'codexBlackEd.ttsProvider';
 const STATE_STT_PROVIDER = 'codexBlackEd.sttProvider';
+/* Voice tuning (per the picked provider). TTS read-aloud: voice/rate/volume
+   (webspeech, applied panel-side) + openai voice/speed + elevenlabs voiceId/
+   stability/similarity (applied host-side in handleTtsRequest). STT: a custom
+   dictionary/vocabulary string + language, applied per-provider in the
+   transcription path. */
+const STATE_TTS_VOICE       = 'codexBlackEd.ttsVoice';        /* webspeech voice name */
+const STATE_TTS_RATE        = 'codexBlackEd.ttsRate';         /* webspeech rate 0.1–10 */
+const STATE_TTS_VOLUME      = 'codexBlackEd.ttsVolume';       /* webspeech volume 0–1 */
+const STATE_TTS_OPENAI_VOICE = 'codexBlackEd.ttsOpenAiVoice'; /* alloy/echo/… */
+const STATE_TTS_OPENAI_SPEED = 'codexBlackEd.ttsOpenAiSpeed'; /* 0.25–4 */
+const STATE_TTS_ELEVEN_VOICE = 'codexBlackEd.ttsElevenVoice'; /* eleven voice id */
+const STATE_TTS_ELEVEN_STABILITY  = 'codexBlackEd.ttsElevenStability';  /* 0–1 */
+const STATE_TTS_ELEVEN_SIMILARITY = 'codexBlackEd.ttsElevenSimilarity'; /* 0–1 */
+const STATE_STT_DICTIONARY  = 'codexBlackEd.sttDictionary';   /* comma/newline terms */
+const STATE_STT_LANGUAGE    = 'codexBlackEd.sttLanguage';     /* BCP-47 or '' */
+const OPENAI_TTS_VOICES = ['alloy','echo','fable','onyx','nova','shimmer','ash','sage','coral'];
 /* Voice providers (TTS + STT). 'webspeech' = browser-native (panel-side),
    'whisper-local' = STT via whisper.cpp's HTTP server spawned on demand
    (keyless, offline, ~75MB first-run model download, Windows-only).
@@ -816,8 +832,17 @@ async function handleTtsRequest(panel, context, msg) {
         if (provider === 'elevenlabs') {
             const key = _getElevenLabsKey(context);
             if (!key) throw new Error('no [elevenlabs] api_key in config.ini');
-            /* eleven_multilingual_v2 + Rachel voice — same defaults TrioDesktop uses. */
-            const voiceId = (msg.voiceId || '21m00Tcm4TlvDq8ikWAM');
+            /* eleven_multilingual_v2 + Rachel voice — same defaults TrioDesktop
+               uses. The saved voice ID + stability/similarity (Settings → Read
+               Aloud) override the per-request defaults when present. */
+            const savedVoice = String(context.workspaceState.get(STATE_TTS_ELEVEN_VOICE) || '');
+            const voiceId = (msg.voiceId || savedVoice || '21m00Tcm4TlvDq8ikWAM');
+            const savedStab = context.workspaceState.get(STATE_TTS_ELEVEN_STABILITY);
+            const savedSim  = context.workspaceState.get(STATE_TTS_ELEVEN_SIMILARITY);
+            const stability = (typeof msg.stability === 'number') ? msg.stability
+                            : (typeof savedStab === 'number') ? savedStab : 0.5;
+            const similarity = (typeof msg.similarity === 'number') ? msg.similarity
+                             : (typeof savedSim === 'number') ? savedSim : 0.75;
             const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`;
             const res = await fetch(url, {
                 method: 'POST',
@@ -829,7 +854,10 @@ async function handleTtsRequest(panel, context, msg) {
                 body: JSON.stringify({
                     text,
                     model_id: 'eleven_multilingual_v2',
-                    voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+                    voice_settings: {
+                        stability: Math.max(0, Math.min(1, stability)),
+                        similarity_boost: Math.max(0, Math.min(1, similarity)),
+                    },
                 }),
             });
             if (!res.ok) {
@@ -843,6 +871,15 @@ async function handleTtsRequest(panel, context, msg) {
         } else if (provider === 'openai') {
             const key = getProviderKey(context, 'openai');
             if (!key) throw new Error('no openai api key configured');
+            /* Saved voice + speed (Settings → Read Aloud) override per-request
+               defaults. Speed is clamped to OpenAI's documented 0.25–4.0 range. */
+            const savedVoice = String(context.workspaceState.get(STATE_TTS_OPENAI_VOICE) || '');
+            const voice = (msg.voice && OPENAI_TTS_VOICES.includes(msg.voice)) ? msg.voice
+                        : (OPENAI_TTS_VOICES.includes(savedVoice) ? savedVoice : 'alloy');
+            const savedSpeed = context.workspaceState.get(STATE_TTS_OPENAI_SPEED);
+            const speedRaw = (typeof msg.speed === 'number') ? msg.speed
+                           : (typeof savedSpeed === 'number') ? savedSpeed : 1;
+            const speed = Math.max(0.25, Math.min(4, speedRaw));
             const res = await fetch('https://api.openai.com/v1/audio/speech', {
                 method: 'POST',
                 headers: {
@@ -852,9 +889,10 @@ async function handleTtsRequest(panel, context, msg) {
                 },
                 body: JSON.stringify({
                     model: 'tts-1',
-                    voice: (msg.voice || 'alloy'),
+                    voice,
                     input: text,
                     format: 'mp3',
+                    speed,
                 }),
             });
             if (!res.ok) {
@@ -890,6 +928,12 @@ async function handleSttRequest(panel, context, msg) {
     const provider = String(msg.provider || getVoiceProvider(context, 'stt'));
     const b64     = String(msg.audioB64 || '');
     const mime    = String(msg.mime || 'audio/webm');
+    /* Custom dictionary / vocabulary (Settings → Speech to Text). Used as the
+       transcription `prompt` for whisper-local + openai to bias spelling of
+       names/jargon. Prefer the message value, fall back to persisted state. */
+    const dictionary = (typeof msg.dictionary === 'string' && msg.dictionary)
+        ? msg.dictionary
+        : String(context.workspaceState.get(STATE_STT_DICTIONARY) || '');
     if (!b64) {
         try { panel.webview.postMessage({ type: 'sttRequestResult', reqId, ok: false, error: 'empty audio' }); } catch (_) {}
         return;
@@ -931,6 +975,8 @@ async function handleSttRequest(panel, context, msg) {
             form.append('file', new Blob([buf], { type: mime }), `audio.${ext}`);
             form.append('model', 'gpt-4o-transcribe');
             form.append('response_format', 'json');
+            /* Custom dictionary biases spelling of names / jargon / acronyms. */
+            if (dictionary.trim()) form.append('prompt', dictionary.slice(0, 4096));
             const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${key}` },
@@ -954,7 +1000,7 @@ async function handleSttRequest(panel, context, msg) {
                 throw new Error('whisper-local is Windows-only — select WebSpeech or a cloud provider on this OS');
             }
             try {
-                text = await handleWhisperLocalStt(context, buf, mime);
+                text = await handleWhisperLocalStt(context, buf, mime, dictionary);
             } catch (whisperErr) {
                 trace('whisper-local failure: ' + (whisperErr && whisperErr.message));
                 try { context.globalState.update(WHISPER_GLOBAL_KEY_FALLBACK, true); } catch (_) {}
@@ -970,8 +1016,12 @@ async function handleSttRequest(panel, context, msg) {
             /* Anthropic's undocumented streaming STT (Deepgram Nova-3 proxy),
                authenticated with the Claude Code OAuth token — included with a
                Claude subscription, no separate key. Request/response mode here
-               (panel sends a complete clip); the streaming pass makes it live. */
-            text = await handleAnthropicStt(context, buf, mime);
+               (panel sends a complete clip); the streaming pass makes it live.
+               The custom dictionary → extra Deepgram keyterms; language → BCP-47. */
+            text = await handleAnthropicStt(context, buf, mime, undefined, {
+                keyterms: _splitDictionaryTerms(dictionary),
+                language: (typeof msg.language === 'string' && msg.language) ? msg.language : String(context.workspaceState.get(STATE_STT_LANGUAGE) || ''),
+            });
         } else {
             throw new Error('webspeech is a panel-side provider; no host call');
         }
@@ -2923,6 +2973,15 @@ const ANTHROPIC_STT_KEYTERMS = [
     'CBE', 'Claude Codex', 'whisper.cpp', 'Deepgram', 'Anthropic',
 ];
 
+/* Split a user-supplied custom-dictionary string into individual terms. Accepts
+   commas and/or newlines as separators (the textarea hint says either works). */
+function _splitDictionaryTerms(s) {
+    return String(s || '')
+        .split(/[\r\n,]+/)
+        .map(t => t.trim())
+        .filter(Boolean);
+}
+
 /* Read the Claude Code OAuth access token at request time (never cached — the
    CLI refreshes it in place). Returns the bearer token or throws a helpful
    error if missing / expired. */
@@ -2997,16 +3056,36 @@ function _toPcm16kMono(buf) {
 
    The session DOES NOT pace audio — callers decide cadence. Live mic input is
    already real-time; the request/response wrapper paces a stored clip itself. */
-function createAnthropicSttSession({ onPartial, onFinal, onError } = {}) {
+function createAnthropicSttSession({ onPartial, onFinal, onError, keyterms, language } = {}) {
     const token = _readClaudeOAuthToken();   /* throws if not logged in / expired */
     const WebSocket = require('ws');
+
+    /* Custom dictionary terms (Settings → Speech to Text → "Keyterms") are
+       appended to the built-in IDE keyterm list so the user's names / jargon
+       bias recognition. dedupe + cap so a pathological list can't blow the URL. */
+    const extraTerms = Array.isArray(keyterms)
+        ? keyterms.map(t => String(t || '').trim()).filter(Boolean)
+        : [];
+    const allTerms = [];
+    const seen = new Set();
+    for (const t of ANTHROPIC_STT_KEYTERMS.concat(extraTerms)) {
+        const key = t.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        allTerms.push(t);
+        if (allTerms.length >= 200) break;
+    }
+    /* Language: a sanitized BCP-47 tag overrides the default 'en'. */
+    const lang = (typeof language === 'string' && language.trim())
+        ? language.replace(/[^A-Za-z0-9-]/g, '').slice(0, 16) || 'en'
+        : 'en';
 
     const params = new URLSearchParams({
         encoding: 'linear16', sample_rate: String(ANTHROPIC_STT_SAMPLE_RATE),
         channels: '1', endpointing_ms: '300', utterance_end_ms: '1000',
-        language: 'en', use_conversation_engine: 'true', stt_provider: 'deepgram-nova3',
+        language: lang, use_conversation_engine: 'true', stt_provider: 'deepgram-nova3',
     });
-    for (const k of ANTHROPIC_STT_KEYTERMS) params.append('keyterms', k);
+    for (const k of allTerms) params.append('keyterms', k);
 
     const ws = new WebSocket(`${ANTHROPIC_STT_WS_URL}?${params.toString()}`,
         { headers: { Authorization: `Bearer ${token}`, 'x-app': 'vscode' } });
@@ -3199,7 +3278,7 @@ function handleSttStreamStop(panel, context, msg) {
    and re-POST the growing buffer to /inference every ~500ms, emitting each
    result as a cumulative partial (whisper is fast enough locally). Left as
    request/response this pass since local transcription already feels snappy. */
-async function handleWhisperLocalStt(context, buf, mime) {
+async function handleWhisperLocalStt(context, buf, mime, dictionary) {
     const port = await startWhisperServer(context);
     if (!port) throw new Error('whisper server unavailable');
     let ext = 'webm';
@@ -3211,6 +3290,13 @@ async function handleWhisperLocalStt(context, buf, mime) {
     form.append('file', new Blob([buf], { type: mime }), `audio.${ext}`);
     form.append('temperature', '0.0');
     form.append('response_format', 'json');
+    /* Custom dictionary / vocabulary → whisper.cpp's `prompt` field biases the
+       transcription toward the supplied names / jargon / acronyms. Fall back to
+       the persisted setting if the caller didn't pass one. */
+    const dict = (typeof dictionary === 'string' && dictionary)
+        ? dictionary
+        : String((context && context.workspaceState && context.workspaceState.get(STATE_STT_DICTIONARY)) || '');
+    if (dict.trim()) form.append('prompt', dict.slice(0, 4096));
     const res = await fetch(`http://127.0.0.1:${port}/inference`, {
         method: 'POST',
         body: form,
@@ -5712,6 +5798,19 @@ function buildSettingsPayload(context) {
        path was retired 2026-05-26 in favor of whisper-local. */
     const ttsProvider = getVoiceProvider(context, 'tts');
     const sttProvider = getVoiceProvider(context, 'stt');
+    /* Voice tuning values (persisted in workspaceState; defaults match the
+       panel-side window defaults). Shipped down so Settings → Read Aloud /
+       Speech to Text hydrate their controls. */
+    const ttsVoice  = String(context.workspaceState.get(STATE_TTS_VOICE) || '');
+    const ttsRate   = (typeof context.workspaceState.get(STATE_TTS_RATE)   === 'number') ? context.workspaceState.get(STATE_TTS_RATE)   : 1;
+    const ttsVolume = (typeof context.workspaceState.get(STATE_TTS_VOLUME) === 'number') ? context.workspaceState.get(STATE_TTS_VOLUME) : 1;
+    const ttsOpenAiVoice = String(context.workspaceState.get(STATE_TTS_OPENAI_VOICE) || 'alloy');
+    const ttsOpenAiSpeed = (typeof context.workspaceState.get(STATE_TTS_OPENAI_SPEED) === 'number') ? context.workspaceState.get(STATE_TTS_OPENAI_SPEED) : 1;
+    const ttsElevenVoice = String(context.workspaceState.get(STATE_TTS_ELEVEN_VOICE) || '');
+    const ttsElevenStability  = (typeof context.workspaceState.get(STATE_TTS_ELEVEN_STABILITY)  === 'number') ? context.workspaceState.get(STATE_TTS_ELEVEN_STABILITY)  : 0.5;
+    const ttsElevenSimilarity = (typeof context.workspaceState.get(STATE_TTS_ELEVEN_SIMILARITY) === 'number') ? context.workspaceState.get(STATE_TTS_ELEVEN_SIMILARITY) : 0.75;
+    const sttDictionary = String(context.workspaceState.get(STATE_STT_DICTIONARY) || '');
+    const sttLanguage   = String(context.workspaceState.get(STATE_STT_LANGUAGE) || '');
     /* Tell the panel whether the host-side ElevenLabs key is present so the
        UI can show a "(no key)" hint next to the ElevenLabs option. We never
        send the key itself to the webview. */
@@ -5729,6 +5828,16 @@ function buildSettingsPayload(context) {
         toolCall,
         ttsProvider,
         sttProvider,
+        ttsVoice,
+        ttsRate,
+        ttsVolume,
+        ttsOpenAiVoice,
+        ttsOpenAiSpeed,
+        ttsElevenVoice,
+        ttsElevenStability,
+        ttsElevenSimilarity,
+        sttDictionary,
+        sttLanguage,
         haveElevenLabsKey,
         haveOpenAiKey,
     };
@@ -6279,6 +6388,42 @@ function bindPanel(context, panel) {
                     }
                     if (typeof msg.sttProvider === 'string' && VOICE_PROVIDERS.includes(msg.sttProvider)) {
                         await context.workspaceState.update(STATE_STT_PROVIDER, msg.sttProvider);
+                    }
+                    /* Voice tuning — validate/clamp each value before persisting so
+                       a malformed webview message can't poison the state. */
+                    if (typeof msg.ttsVoice === 'string') {
+                        await context.workspaceState.update(STATE_TTS_VOICE, msg.ttsVoice.slice(0, 200));
+                    }
+                    if (typeof msg.ttsRate === 'number' && Number.isFinite(msg.ttsRate)) {
+                        await context.workspaceState.update(STATE_TTS_RATE, Math.max(0.1, Math.min(10, msg.ttsRate)));
+                    }
+                    if (typeof msg.ttsVolume === 'number' && Number.isFinite(msg.ttsVolume)) {
+                        await context.workspaceState.update(STATE_TTS_VOLUME, Math.max(0, Math.min(1, msg.ttsVolume)));
+                    }
+                    if (typeof msg.ttsOpenAiVoice === 'string' && OPENAI_TTS_VOICES.includes(msg.ttsOpenAiVoice)) {
+                        await context.workspaceState.update(STATE_TTS_OPENAI_VOICE, msg.ttsOpenAiVoice);
+                    }
+                    if (typeof msg.ttsOpenAiSpeed === 'number' && Number.isFinite(msg.ttsOpenAiSpeed)) {
+                        await context.workspaceState.update(STATE_TTS_OPENAI_SPEED, Math.max(0.25, Math.min(4, msg.ttsOpenAiSpeed)));
+                    }
+                    if (typeof msg.ttsElevenVoice === 'string') {
+                        await context.workspaceState.update(STATE_TTS_ELEVEN_VOICE, msg.ttsElevenVoice.trim().slice(0, 100));
+                    }
+                    if (typeof msg.ttsElevenStability === 'number' && Number.isFinite(msg.ttsElevenStability)) {
+                        await context.workspaceState.update(STATE_TTS_ELEVEN_STABILITY, Math.max(0, Math.min(1, msg.ttsElevenStability)));
+                    }
+                    if (typeof msg.ttsElevenSimilarity === 'number' && Number.isFinite(msg.ttsElevenSimilarity)) {
+                        await context.workspaceState.update(STATE_TTS_ELEVEN_SIMILARITY, Math.max(0, Math.min(1, msg.ttsElevenSimilarity)));
+                    }
+                    if (typeof msg.sttDictionary === 'string') {
+                        /* Cap at a generous 4KB — keyterm/prompt biasing doesn't
+                           benefit from megabytes and we don't want to bloat state. */
+                        await context.workspaceState.update(STATE_STT_DICTIONARY, msg.sttDictionary.slice(0, 4096));
+                    }
+                    if (typeof msg.sttLanguage === 'string') {
+                        /* Permissive: a BCP-47 tag or '' (auto). Strip anything that
+                           isn't a letter/digit/hyphen so it can't inject params. */
+                        await context.workspaceState.update(STATE_STT_LANGUAGE, msg.sttLanguage.replace(/[^A-Za-z0-9-]/g, '').slice(0, 16));
                     }
                     if (typeof msg.skin === 'string') {
                         /* Validate the skin filename against what's actually on disk
