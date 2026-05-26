@@ -2710,6 +2710,24 @@ body {
   .prompt-toolbar {
     border-top: 1px solid rgba(0, 0, 0, 0.07) !important;
   }
+  /* Tighten button density to Claude-Code-like (~28px button + ~4px gap).
+     Base .tool-button is 43px wide which leaves ~14px of dead padding
+     around each 16px icon — CC packs them much tighter. */
+  .toolbar-tools .tool-button,
+  .prompt-toolbar .tool-button {
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-radius: 6px !important;
+  }
+  .prompt-toolbar,
+  .toolbar-tools,
+  .prompt-toolbar-row {
+    gap: 4px !important;
+    row-gap: 4px !important;
+  }
   </style>
 
 <!-- Webview URI map — tiny inline script. Keep small; this is the only
