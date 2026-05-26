@@ -774,6 +774,11 @@ window.__cbeSttProvider = window.__cbeSttProvider || 'webspeech';
   let recChunks = [];
   let recProvider = '';
   let pendingSttReqId = '';
+  /* Live PCM streaming (anthropic) state. */
+  let streamReqId = '';
+  let audioCtx = null;
+  let captureNode = null;     /* AudioWorkletNode or ScriptProcessorNode */
+  let captureSource = null;   /* MediaStreamAudioSourceNode */
 
   function setListeningUI(on) {
     /* `.speaking` is the legacy red-tint state. `.is-recording` drives the
@@ -794,10 +799,14 @@ window.__cbeSttProvider = window.__cbeSttProvider || 'webspeech';
 
   function stopMic() {
     const wasListening = listening;
+    const wasMode = mode;
     if (recog) {
+      /* WebSpeech: onend will fire; commit the live transcript now (onend may
+         arrive after we've reset mode, so do it here too — idempotent). */
       try { recog.stop(); }
       catch (e) { console.debug('[cbe.stt] recog.stop', e && e.message); }
       recog = null;
+      cancelLiveDictation();
     }
     if (mode === 'host' && api) {
       try { api.postMessage({ type: 'sttStop' }); } catch (e) {}
@@ -811,10 +820,21 @@ window.__cbeSttProvider = window.__cbeSttProvider || 'webspeech';
         try { mediaRec.stop(); } catch (e) { console.debug('[cbe.stt] mediaRec.stop', e && e.message); }
       }
     }
+    if (mode === 'stream') {
+      /* Live PCM streaming path (anthropic). Tell the host to flush + finalize;
+         the live dictation stays on screen until sttFinal commits it. Tear
+         down the capture graph so the mic releases immediately. */
+      if (api && streamReqId) {
+        try { api.postMessage({ type: 'sttStreamStop', reqId: streamReqId }); } catch (_) {}
+      }
+      stopPcmCapture();
+    }
     listening = false;
     mode = 'idle';
     setListeningUI(false);
-    if (wasListening) playSfx('disable');
+    if (wasListening && wasMode !== 'stream') playSfx('disable');
+    /* For 'stream' the disable sfx fires when sttFinal lands, so stop/finalize
+       feel connected. */
   }
 
   function _tearDownMediaStream() {
@@ -824,6 +844,218 @@ window.__cbeSttProvider = window.__cbeSttProvider || 'webspeech';
     }
     mediaRec = null;
     recChunks = [];
+  }
+
+  /* ── Live PCM capture (Web Audio) for streaming providers ─────────────────
+     MediaRecorder emits webm/opus which can't be incrementally decoded mid-
+     stream, so for live STT we tap raw PCM off the AudioContext, downsample
+     from the context rate (usually 48000) to 16000, convert Float32 → Int16
+     LE, and ship ~100ms chunks (3200 bytes) to the host as base64.
+
+     Downsampling is a plain decimation with a running fractional accumulator
+     (good enough for speech STT; the proxy is robust). We prefer an
+     AudioWorklet (no deprecation, runs off the main thread) but fall back to a
+     ScriptProcessorNode, which is deprecated but works universally in the
+     Chromium-based VSCode webview. */
+
+  /* Float32 [-1,1] → Int16 LE Buffer-equivalent (Uint8Array we base64 below). */
+  function _float32ToInt16LE(f32) {
+    const out = new Int16Array(f32.length);
+    for (let i = 0; i < f32.length; i++) {
+      let s = f32[i];
+      if (s > 1) s = 1; else if (s < -1) s = -1;
+      out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    return out;
+  }
+
+  /* base64 of an Int16Array's little-endian bytes (webview has no Buffer). */
+  function _int16ToB64(int16) {
+    const bytes = new Uint8Array(int16.buffer, int16.byteOffset, int16.byteLength);
+    let bin = '';
+    const CH = 0x8000;
+    for (let i = 0; i < bytes.length; i += CH) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+    }
+    return btoa(bin);
+  }
+
+  /* A stateful downsampler from `inRate` to 16000 via fractional decimation.
+     Keeps the fractional read position across calls so chunk boundaries don't
+     drift. Returns a Float32Array at 16k. */
+  function _makeDownsampler(inRate) {
+    const ratio = inRate / 16000;
+    let pos = 0;   /* fractional read index into a virtual concatenated stream */
+    return function (f32) {
+      if (ratio <= 1) return f32.slice();   /* already <=16k: pass through */
+      const out = [];
+      /* pos is relative to the start of THIS buffer each call (we reset the
+         integer part; carry only the fraction). */
+      let p = pos;
+      while (p < f32.length) {
+        out.push(f32[Math.floor(p)]);
+        p += ratio;
+      }
+      pos = p - f32.length;   /* carry the fractional remainder into next call */
+      const arr = new Float32Array(out.length);
+      arr.set(out);
+      return arr;
+    };
+  }
+
+  let _pcmDownsample = null;
+  let _pcmSendBuf = [];        /* accumulated Int16 samples awaiting a 100ms flush */
+  const PCM_FLUSH_SAMPLES = 1600;   /* 100ms @16k */
+
+  function _flushPcm(force) {
+    while (_pcmSendBuf.length >= PCM_FLUSH_SAMPLES || (force && _pcmSendBuf.length)) {
+      const take = force ? _pcmSendBuf.length : PCM_FLUSH_SAMPLES;
+      const slice = _pcmSendBuf.slice(0, take);
+      _pcmSendBuf = _pcmSendBuf.slice(take);
+      const int16 = new Int16Array(slice);
+      if (api && streamReqId) {
+        try { api.postMessage({ type: 'sttStreamChunk', reqId: streamReqId, pcmB64: _int16ToB64(int16) }); } catch (_) {}
+      }
+      if (force) break;
+    }
+  }
+
+  function _onPcmFrame(f32) {
+    if (mode !== 'stream') return;
+    const ds = _pcmDownsample ? _pcmDownsample(f32) : f32;
+    const int16 = _float32ToInt16LE(ds);
+    for (let i = 0; i < int16.length; i++) _pcmSendBuf.push(int16[i]);
+    _flushPcm(false);
+  }
+
+  function stopPcmCapture() {
+    _flushPcm(true);   /* ship the tail */
+    if (captureNode) { try { captureNode.disconnect(); } catch (_) {} try { captureNode.port && (captureNode.port.onmessage = null); } catch (_) {} }
+    if (captureSource) { try { captureSource.disconnect(); } catch (_) {} }
+    if (audioCtx) { try { audioCtx.close(); } catch (_) {} }
+    captureNode = null; captureSource = null; audioCtx = null;
+    _pcmDownsample = null; _pcmSendBuf = [];
+    _tearDownMediaStream();
+  }
+
+  /* Try AudioWorklet; resolves true if the worklet capture node is wired,
+     false if the worklet path is unavailable (caller falls back to
+     ScriptProcessor). */
+  async function _tryAudioWorklet() {
+    if (!audioCtx.audioWorklet) return false;
+    /* Inline worklet processor: forwards each 128-sample render quantum's
+       channel-0 Float32 to the main thread. Loaded from a blob URL so we
+       don't ship a separate file (CSP in the webview allows blob: workers). */
+    const src = `
+      class CbePcmProcessor extends AudioWorkletProcessor {
+        process(inputs) {
+          const ch = inputs[0] && inputs[0][0];
+          if (ch && ch.length) this.port.postMessage(ch.slice(0));
+          return true;
+        }
+      }
+      registerProcessor('cbe-pcm', CbePcmProcessor);
+    `;
+    let url;
+    try {
+      url = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
+      await audioCtx.audioWorklet.addModule(url);
+    } catch (e) {
+      console.debug('[cbe.stt] AudioWorklet addModule failed', e && e.message);
+      if (url) { try { URL.revokeObjectURL(url); } catch (_) {} }
+      return false;
+    }
+    try { URL.revokeObjectURL(url); } catch (_) {}
+    try {
+      captureNode = new AudioWorkletNode(audioCtx, 'cbe-pcm');
+      captureNode.port.onmessage = (ev) => { if (ev.data) _onPcmFrame(ev.data); };
+      captureSource.connect(captureNode);
+      /* Worklets don't need a destination connection to pull, but connecting
+         to a muted gain keeps the graph alive in some Chromium builds. */
+      return true;
+    } catch (e) {
+      console.debug('[cbe.stt] AudioWorkletNode ctor failed', e && e.message);
+      return false;
+    }
+  }
+
+  function _wireScriptProcessor() {
+    /* Deprecated but universally available. 4096-frame buffer ≈ 85ms @48k. */
+    const sp = audioCtx.createScriptProcessor(4096, 1, 1);
+    sp.onaudioprocess = (ev) => {
+      const ch = ev.inputBuffer.getChannelData(0);
+      _onPcmFrame(ch);
+    };
+    captureSource.connect(sp);
+    /* ScriptProcessor only fires onaudioprocess while connected to the
+       destination — route through a muted gain so we don't echo the mic. */
+    const mute = audioCtx.createGain();
+    mute.gain.value = 0;
+    sp.connect(mute);
+    mute.connect(audioCtx.destination);
+    captureNode = sp;
+  }
+
+  /* Live PCM streaming path for anthropic. On any failure (mic denied, no
+     Web Audio, host unreachable) fall back to WebSpeech so the button is never
+     silent. */
+  async function startPcmStream(provider) {
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      console.debug('[cbe.stt] getUserMedia denied — falling back to WebSpeech', e && e.message);
+      addMsg('Voice (' + provider + '): mic permission denied — falling back to WebSpeech.', 'info');
+      startWebSpeech();
+      return;
+    }
+    mediaStream = stream;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC || !api) {
+      console.debug('[cbe.stt] no AudioContext / api — falling back to MediaRecorder request/response');
+      _tearDownMediaStream();
+      startMediaRecorder(provider);
+      return;
+    }
+    try {
+      audioCtx = new AC();
+      if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch (_) {} }
+      captureSource = audioCtx.createMediaStreamSource(stream);
+      _pcmDownsample = _makeDownsampler(audioCtx.sampleRate);
+      _pcmSendBuf = [];
+    } catch (e) {
+      console.debug('[cbe.stt] AudioContext setup failed — falling back to request/response', e && e.message);
+      stopPcmCapture();
+      startMediaRecorder(provider);
+      return;
+    }
+
+    /* Open the host-side WS session BEFORE we start emitting chunks. */
+    streamReqId = 'stts-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    recProvider = provider;
+    mode = 'stream';
+    listening = true;
+    beginLiveDictation();
+    try { api.postMessage({ type: 'sttStreamStart', provider, reqId: streamReqId }); } catch (_) {}
+
+    let wired = false;
+    try { wired = await _tryAudioWorklet(); } catch (_) { wired = false; }
+    if (!wired) {
+      try { _wireScriptProcessor(); }
+      catch (e) {
+        console.debug('[cbe.stt] capture node wiring failed — falling back', e && e.message);
+        /* Abort the just-opened stream cleanly. */
+        try { api.postMessage({ type: 'sttStreamStop', reqId: streamReqId }); } catch (_) {}
+        streamReqId = '';
+        cancelLiveDictation();
+        stopPcmCapture();
+        mode = 'idle'; listening = false; setListeningUI(false);
+        startMediaRecorder(provider);
+        return;
+      }
+    }
+    setListeningUI(true);
+    playSfx('connect');
   }
 
   /* MediaRecorder path for whisper-local / ElevenLabs / OpenAI. On any
@@ -910,6 +1142,49 @@ window.__cbeSttProvider = window.__cbeSttProvider || 'webspeech';
     ti.focus();
   }
 
+  /* ── Live dictation (streaming providers: webspeech + anthropic) ──────────
+     The transcript is CUMULATIVE (replace, not append) — both WebSpeech
+     interim results and Anthropic's TranscriptInterim/Text carry the whole
+     in-progress utterance each time. We snapshot whatever was already in the
+     input when dictation starts, then render `prefix + liveText` on every
+     update so the words grow in place (like gemini.com). On commit the live
+     text becomes permanent; on cancel we restore the prefix. */
+  let liveActive = false;
+  let livePrefix = '';      /* input contents before dictation began */
+  let liveText = '';        /* current cumulative transcript */
+
+  function beginLiveDictation() {
+    liveActive = true;
+    const cur = (ti.value || '').replace(/\s+$/, '');
+    livePrefix = cur ? cur + ' ' : '';
+    liveText = '';
+  }
+  function updateLiveDictation(text) {
+    if (!liveActive) return;
+    liveText = String(text || '');
+    ti.value = livePrefix + liveText;
+    ti.dispatchEvent(new Event('input', { bubbles: true }));
+    ti.focus();
+  }
+  function commitLiveDictation(finalText) {
+    if (!liveActive) {
+      /* Defensive: if we somehow get a final without a begin, just append. */
+      if (finalText) appendToInput(String(finalText).trim());
+      return;
+    }
+    const t = String(finalText != null ? finalText : liveText).trim();
+    ti.value = (livePrefix + t).replace(/\s+$/, '');
+    ti.dispatchEvent(new Event('input', { bubbles: true }));
+    ti.focus();
+    liveActive = false; livePrefix = ''; liveText = '';
+  }
+  function cancelLiveDictation() {
+    if (!liveActive) return;
+    /* Keep whatever was transcribed so far rather than discarding it — the
+       user stopped on purpose; the partial is usually what they wanted. */
+    commitLiveDictation();
+  }
+
   function startHostSttHint() {
     /* Legacy WebSpeech-denied fallback. Whisper-local needs MediaRecorder
        audio bytes, not a host-side passthrough — so this just pings the
@@ -934,12 +1209,26 @@ window.__cbeSttProvider = window.__cbeSttProvider || 'webspeech';
     }
     try {
       recog = new SR();
-      recog.continuous   = false;
-      recog.interimResults = false;
+      /* Live "words appear as you speak" — same API gemini.com uses. continuous
+         keeps the session open across pauses; interimResults streams partials. */
+      recog.continuous   = true;
+      recog.interimResults = true;
       recog.lang = (navigator.language || 'en-US');
+      /* WebSpeech gives us per-result finality. We commit finalized results to a
+         running buffer and show committed + in-progress interim live on EVERY
+         onresult (not just the final one). */
+      beginLiveDictation();
+      let srCommitted = '';
       recog.onresult = (e) => {
-        const r = e.results && e.results[0] && e.results[0][0];
-        if (r && r.transcript) appendToInput(r.transcript.trim());
+        let interim = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const res = e.results[i];
+          const txt = (res[0] && res[0].transcript) || '';
+          if (res.isFinal) srCommitted = (srCommitted ? srCommitted + ' ' : '') + txt.trim();
+          else interim += txt;
+        }
+        /* Cumulative committed + the live tail — updates on every event. */
+        updateLiveDictation([srCommitted, interim.trim()].filter(Boolean).join(' '));
       };
       recog.onerror = (e) => {
         const err = e && e.error;
@@ -950,6 +1239,7 @@ window.__cbeSttProvider = window.__cbeSttProvider || 'webspeech';
           console.debug('[cbe.stt] Web Speech denied (' + err + ') — falling back to host hint');
           /* Tear down the recognizer first so its onend doesn't clobber UI. */
           if (recog) { try { recog.onend = null; recog.stop(); } catch (_) {} recog = null; }
+          liveActive = false; livePrefix = ''; liveText = '';   /* nothing transcribed */
           mode = 'idle';
           listening = false;
           startHostSttHint();
@@ -978,11 +1268,23 @@ window.__cbeSttProvider = window.__cbeSttProvider || 'webspeech';
     if (listening) { stopMic(); return; }
     const provider = window.__cbeSttProvider || 'webspeech';
     if (provider === 'webspeech') {
+      /* Browser-native live streaming (interim results, like gemini.com). */
       startWebSpeech();
       return;
     }
-    /* whisper-local / elevenlabs / openai / anthropic use the host-mediated
-       MediaRecorder path. */
+    if (provider === 'anthropic') {
+      /* Live "words appear as you speak" via Web Audio PCM → host WS
+         (Deepgram Nova-3 proxy). Falls back to MediaRecorder request/response
+         then WebSpeech on any failure. */
+      startPcmStream(provider);
+      return;
+    }
+    /* whisper-local / elevenlabs / openai use the host-mediated MediaRecorder
+       request/response path.
+       TODO(stream): elevenlabs has a realtime STT WebSocket (input_audio
+       chunks → partial transcripts) that could be wired the same way as
+       anthropic (Web Audio PCM → host → WS). Left as request/response this
+       pass to avoid landing it untested. */
     startMediaRecorder(provider);
   };
 
@@ -1020,6 +1322,33 @@ window.__cbeSttProvider = window.__cbeSttProvider || 'webspeech';
            informational; we don't want to surprise-record after the user
            let go. */
       }
+      listening = false;
+      mode = 'idle';
+      setListeningUI(false);
+      playSfx('disable');
+      return;
+    }
+    if (m.type === 'sttPartial') {
+      /* Live interim transcript for the anthropic streaming session. The text
+         is CUMULATIVE — replace the in-progress dictation each time so the
+         words grow in place. Ignore stale (post-stop) partials. */
+      if (m.reqId && m.reqId !== streamReqId) return;
+      updateLiveDictation(String(m.text || ''));
+      return;
+    }
+    if (m.type === 'sttFinal') {
+      /* Stream finished (clean close / endpoint / error). Commit whatever we
+         have and reset UI. */
+      if (m.reqId && m.reqId !== streamReqId) return;
+      streamReqId = '';
+      if (m.ok) {
+        commitLiveDictation(m.text != null ? String(m.text) : undefined);
+      } else {
+        /* Keep the partial that was already showing, but tell the user. */
+        cancelLiveDictation();
+        addMsg('Voice (' + (m.provider || 'anthropic') + '): ' + (m.error || 'stream error'), 'info');
+      }
+      stopPcmCapture();
       listening = false;
       mode = 'idle';
       setListeningUI(false);

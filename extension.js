@@ -2978,12 +2978,27 @@ function _toPcm16kMono(buf) {
     });
 }
 
-/* Transcribe a complete audio buffer via Anthropic's streaming STT WS.
-   onPartial(text) is called with cumulative interims if provided (the
-   streaming pass uses it); always resolves with the final transcript. */
-async function handleAnthropicStt(context, buf, mime, onPartial) {
-    const token = _readClaudeOAuthToken();
-    const pcm = await _toPcm16kMono(buf);
+/* Open ONE live Anthropic STT WebSocket session. This is the single source of
+   truth for the WS protocol (URL/params/headers/keepalive/parse/close) — both
+   the request/response path (handleAnthropicStt, which feeds it a complete
+   ffmpeg-decoded clip) and the live-streaming path (sttStream* handlers, which
+   feed it raw PCM chunks straight off the mic) ride on top of it.
+
+   Callbacks:
+     onPartial(text)  cumulative interim transcript (TranscriptInterim/Text .data)
+     onFinal(text)    the full committed transcript on clean close / utterance end
+     onError(err)     fatal error (auth, server, transport). onFinal won't also fire.
+
+   Returns { sendPcm(buf), close() }:
+     sendPcm(buf)  queue a raw linear16 PCM @16k mono chunk. Buffered until the
+                   WS is OPEN, then flushed in order. Safe to call before open.
+     close()       send CloseStream so the server flushes its final transcript,
+                   then let the WS close naturally (onFinal fires on close).
+
+   The session DOES NOT pace audio — callers decide cadence. Live mic input is
+   already real-time; the request/response wrapper paces a stored clip itself. */
+function createAnthropicSttSession({ onPartial, onFinal, onError } = {}) {
+    const token = _readClaudeOAuthToken();   /* throws if not logged in / expired */
     const WebSocket = require('ws');
 
     const params = new URLSearchParams({
@@ -2993,91 +3008,197 @@ async function handleAnthropicStt(context, buf, mime, onPartial) {
     });
     for (const k of ANTHROPIC_STT_KEYTERMS) params.append('keyterms', k);
 
+    const ws = new WebSocket(`${ANTHROPIC_STT_WS_URL}?${params.toString()}`,
+        { headers: { Authorization: `Bearer ${token}`, 'x-app': 'vscode' } });
+
+    let keepalive = null;
+    let latest = '';            /* cumulative in-progress interim text */
+    let finalText = '';         /* committed on each TranscriptEndpoint */
+    let settled = false;        /* onFinal/onError fired exactly once */
+    let closeRequested = false; /* caller asked to finish — send CloseStream */
+    const pending = [];         /* PCM chunks queued before WS open */
+
+    const cleanup = () => { if (keepalive) { clearInterval(keepalive); keepalive = null; } };
+    const fullText = () => [finalText, latest].filter(Boolean).join(' ').trim();
+    const fail = (err) => {
+        if (settled) return;
+        settled = true; cleanup();
+        try { ws.close(); } catch (_) {}
+        if (typeof onError === 'function') { try { onError(err); } catch (_) {} }
+    };
+    const succeed = () => {
+        if (settled) return;
+        settled = true; cleanup();
+        /* Combine committed utterances with any trailing interim that arrived
+           after the last TranscriptEndpoint — returning only one drops the tail. */
+        if (typeof onFinal === 'function') { try { onFinal(fullText()); } catch (_) {} }
+    };
+
+    ws.on('open', () => {
+        ws.send(JSON.stringify({ type: 'KeepAlive' }));
+        keepalive = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'KeepAlive' }));
+        }, ANTHROPIC_STT_KEEPALIVE_MS);
+        /* Flush anything queued before the socket opened, in order. */
+        while (pending.length) { try { ws.send(pending.shift()); } catch (_) {} }
+        /* If close() was called before we opened, finish now. */
+        if (closeRequested) { try { ws.send(JSON.stringify({ type: 'CloseStream' })); } catch (_) {} }
+    });
+
+    ws.on('message', (raw) => {
+        let m; try { m = JSON.parse(raw.toString()); } catch (_) { return; }
+        switch (m.type) {
+            case 'TranscriptInterim':
+            case 'TranscriptText':
+                if (m.data) { latest = m.data; if (typeof onPartial === 'function') { try { onPartial(latest); } catch (_) {} } }
+                break;
+            case 'TranscriptEndpoint':
+                if (latest) { finalText = finalText ? (finalText + ' ' + latest) : latest; latest = ''; }
+                break;
+            case 'TranscriptError':
+                fail(new Error('anthropic STT: ' + (m.description || 'transcription error'))); break;
+            case 'error':
+                fail(new Error('anthropic STT: ' + (m.message || 'server error'))); break;
+        }
+    });
+
+    ws.on('error', (e) => {
+        const mm = /Unexpected server response: (\d+)/.exec(e.message || '');
+        const code = mm ? Number(mm[1]) : 0;
+        if (code === 401 || code === 403) fail(new Error('anthropic STT: not authorized — Claude Code login may be expired'));
+        else fail(new Error('anthropic STT WS error: ' + (e.message || e)));
+    });
+
+    ws.on('close', (code, reason) => {
+        if (code === 1008 || /authorization/i.test(String(reason || ''))) {
+            fail(new Error('anthropic STT: invalid authorization (Claude Code OAuth token rejected) — re-login to Claude Code'));
+            return;
+        }
+        succeed();   /* clean close — emit whatever we collected */
+    });
+
+    return {
+        sendPcm(buf) {
+            if (settled || closeRequested || !buf || !buf.length) return;
+            if (ws.readyState === WebSocket.OPEN) { try { ws.send(buf); } catch (_) {} }
+            else pending.push(buf);   /* will flush on open */
+        },
+        close() {
+            if (settled || closeRequested) return;
+            closeRequested = true;
+            if (ws.readyState === WebSocket.OPEN) { try { ws.send(JSON.stringify({ type: 'CloseStream' })); } catch (_) {} }
+            /* If not yet open, the open handler sends CloseStream after flush. */
+        },
+    };
+}
+
+/* Transcribe a COMPLETE audio buffer via Anthropic's streaming STT WS
+   (request/response mode). Decodes the clip to PCM with ffmpeg, then paces it
+   through a createAnthropicSttSession at ~real time. onPartial(text) is called
+   with cumulative interims if provided; always resolves with the final
+   transcript. Shares the WS protocol with the live path — no duplication. */
+async function handleAnthropicStt(context, buf, mime, onPartial) {
+    const pcm = await _toPcm16kMono(buf);
+
     return new Promise((resolve, reject) => {
-        const ws = new WebSocket(`${ANTHROPIC_STT_WS_URL}?${params.toString()}`,
-            { headers: { Authorization: `Bearer ${token}`, 'x-app': 'vscode' } });
+        let session;
+        try {
+            session = createAnthropicSttSession({
+                onPartial: (t) => { if (typeof onPartial === 'function') { try { onPartial(t); } catch (_) {} } },
+                onFinal: (t) => { clearTimeout(hard); resolve(t); },
+                onError: (e) => { clearTimeout(hard); reject(e); },
+            });
+        } catch (e) { reject(e); return; }
 
-        let keepalive = null;
-        let latest = '';        /* cumulative interim text */
-        let finalText = '';     /* committed on TranscriptEndpoint */
-        let settled = false;
-        const cleanup = () => { if (keepalive) { clearInterval(keepalive); keepalive = null; } };
-        const finish = (err) => {
-            if (settled) return;
-            settled = true; cleanup();
-            try { ws.close(); } catch (_) {}
-            if (err) reject(err);
-            /* Combine committed utterances (finalText) with any trailing
-               in-progress interim (latest) that arrived after the last
-               TranscriptEndpoint — returning only one drops the tail. */
-            else resolve([finalText, latest].filter(Boolean).join(' ').trim());
-        };
-
-        /* The endpoint proxies Deepgram, which transcribes at ~real time. We
-           must pace audio at ~real time and only CloseStream once it's all
-           sent, or the server finalizes early and truncates. Scale the hard
-           timeout to the clip length + processing/close grace. */
+        /* The endpoint proxies Deepgram, which transcribes at ~real time. Pace
+           audio at ~real time and only close() once it's all sent, or the
+           server finalizes early and truncates. Scale the hard timeout to the
+           clip length + processing/close grace. */
         const durationSec = pcm.length / 2 / ANTHROPIC_STT_SAMPLE_RATE;
-        const hard = setTimeout(() => finish(new Error('anthropic STT timeout')),
+        const hard = setTimeout(() => { try { session.close(); } catch (_) {} reject(new Error('anthropic STT timeout')); },
             Math.max(30000, Math.ceil(durationSec * 1300) + 8000));
 
-        ws.on('open', () => {
-            ws.send(JSON.stringify({ type: 'KeepAlive' }));
-            keepalive = setInterval(() => {
-                if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'KeepAlive' }));
-            }, ANTHROPIC_STT_KEEPALIVE_MS);
-            /* Real-time pacing: 100ms of audio per 100ms tick. CHUNK =
-               16000 samples * 2 bytes * 0.1s = 3200. After the last chunk,
-               CloseStream tells the server to flush its final transcript. */
-            const CHUNK = 3200;
-            let i = 0;
-            const pump = () => {
-                if (settled || ws.readyState !== WebSocket.OPEN) return;
-                if (i >= pcm.length) { try { ws.send(JSON.stringify({ type: 'CloseStream' })); } catch (_) {} return; }
-                ws.send(pcm.slice(i, i + CHUNK));
-                i += CHUNK;
-                setTimeout(pump, 100);
-            };
-            pump();
-        });
-
-        ws.on('message', (raw) => {
-            let m; try { m = JSON.parse(raw.toString()); } catch (_) { return; }
-            switch (m.type) {
-                case 'TranscriptInterim':
-                case 'TranscriptText':
-                    if (m.data) { latest = m.data; if (typeof onPartial === 'function') { try { onPartial(latest); } catch (_) {} } }
-                    break;
-                case 'TranscriptEndpoint':
-                    if (latest) { finalText = finalText ? (finalText + ' ' + latest) : latest; latest = ''; }
-                    break;
-                case 'TranscriptError':
-                    finish(new Error('anthropic STT: ' + (m.description || 'transcription error'))); break;
-                case 'error':
-                    finish(new Error('anthropic STT: ' + (m.message || 'server error'))); break;
-            }
-        });
-
-        ws.on('error', (e) => {
-            const mm = /Unexpected server response: (\d+)/.exec(e.message || '');
-            const code = mm ? Number(mm[1]) : 0;
-            if (code === 401 || code === 403) finish(new Error('anthropic STT: not authorized — Claude Code login may be expired'));
-            else finish(new Error('anthropic STT WS error: ' + (e.message || e)));
-        });
-
-        ws.on('close', (code, reason) => {
-            clearTimeout(hard);
-            if (code === 1008 || /authorization/i.test(String(reason || ''))) {
-                finish(new Error('anthropic STT: invalid authorization (Claude Code OAuth token rejected) — re-login to Claude Code'));
-                return;
-            }
-            finish(null);   /* clean close — resolve with whatever we collected */
-        });
+        /* Real-time pacing: 100ms of audio per 100ms tick. CHUNK =
+           16000 samples * 2 bytes * 0.1s = 3200. After the last chunk,
+           close() sends CloseStream so the server flushes its transcript. */
+        const CHUNK = 3200;
+        let i = 0;
+        const pump = () => {
+            if (i >= pcm.length) { try { session.close(); } catch (_) {} return; }
+            session.sendPcm(pcm.slice(i, i + CHUNK));
+            i += CHUNK;
+            setTimeout(pump, 100);
+        };
+        pump();
     });
 }
 
+/* ── Live STT streaming (raw PCM straight off the mic) ─────────────────────
+   The panel captures raw linear16 @16k mono via the Web Audio API and streams
+   it in ~100ms chunks. We keep one createAnthropicSttSession per reqId so the
+   stop message can resolve the right one. Partials/final flow back to the
+   panel as { type:'sttPartial'|'sttFinal', reqId, text }. */
+const _activeSttStreams = new Map();   /* reqId -> { session } */
+
+function handleSttStreamStart(panel, context, msg) {
+    const reqId = String(msg.reqId || '');
+    const provider = String(msg.provider || '');
+    if (!reqId) return;
+    if (_activeSttStreams.has(reqId)) return;   /* dup start — ignore */
+    /* Only anthropic supports live streaming in this pass. */
+    if (provider !== 'anthropic') {
+        try { panel.webview.postMessage({ type: 'sttFinal', reqId, ok: false, error: 'provider does not support live streaming', provider }); } catch (_) {}
+        return;
+    }
+    let session;
+    try {
+        session = createAnthropicSttSession({
+            onPartial: (text) => {
+                try { panel.webview.postMessage({ type: 'sttPartial', reqId, text, provider }); } catch (_) {}
+            },
+            onFinal: (text) => {
+                _activeSttStreams.delete(reqId);
+                try { panel.webview.postMessage({ type: 'sttFinal', reqId, ok: true, text, provider }); } catch (_) {}
+            },
+            onError: (err) => {
+                _activeSttStreams.delete(reqId);
+                try { panel.webview.postMessage({ type: 'sttFinal', reqId, ok: false, error: (err && err.message) || String(err), provider }); } catch (_) {}
+            },
+        });
+    } catch (e) {
+        try { panel.webview.postMessage({ type: 'sttFinal', reqId, ok: false, error: (e && e.message) || String(e), provider }); } catch (_) {}
+        return;
+    }
+    _activeSttStreams.set(reqId, { session });
+}
+
+function handleSttStreamChunk(panel, context, msg) {
+    const reqId = String(msg.reqId || '');
+    const entry = _activeSttStreams.get(reqId);
+    if (!entry) return;   /* stream already closed/errored */
+    const b64 = String(msg.pcmB64 || '');
+    if (!b64) return;
+    let buf;
+    try { buf = Buffer.from(b64, 'base64'); } catch (_) { return; }
+    if (buf.length) entry.session.sendPcm(buf);
+}
+
+function handleSttStreamStop(panel, context, msg) {
+    const reqId = String(msg.reqId || '');
+    const entry = _activeSttStreams.get(reqId);
+    if (!entry) return;
+    /* close() triggers CloseStream → server flushes → onFinal posts sttFinal
+       and removes the entry from the map. */
+    try { entry.session.close(); } catch (_) {}
+}
+
 /* Transcribe a buffer via whisper-server's /inference endpoint. Returns
-   the transcript text or throws. Mirrors the elevenlabs / openai paths. */
+   the transcript text or throws. Mirrors the elevenlabs / openai paths.
+   TODO(stream): whisper.cpp has no native streaming API, but live partials
+   are achievable with a sliding-window approach — accumulate the incoming PCM
+   and re-POST the growing buffer to /inference every ~500ms, emitting each
+   result as a cumulative partial (whisper is fast enough locally). Left as
+   request/response this pass since local transcription already feels snappy. */
 async function handleWhisperLocalStt(context, buf, mime) {
     const port = await startWhisperServer(context);
     if (!port) throw new Error('whisper server unavailable');
@@ -7377,6 +7498,21 @@ function bindPanel(context, panel) {
                        ElevenLabs Scribe / OpenAI gpt-4o-transcribe and
                        return the text. */
                     handleSttRequest(panel, context, msg);
+                    break;
+                case 'sttStreamStart':
+                    /* Live STT: panel is about to stream raw PCM off the mic.
+                       Open the provider WS session (anthropic only) keyed by
+                       reqId; partials flow back as sttPartial, final as
+                       sttFinal. See createAnthropicSttSession. */
+                    handleSttStreamStart(panel, context, msg);
+                    break;
+                case 'sttStreamChunk':
+                    /* A ~100ms base64 linear16 PCM chunk for an open stream. */
+                    handleSttStreamChunk(panel, context, msg);
+                    break;
+                case 'sttStreamStop':
+                    /* Mic stopped — flush + finalize the open stream. */
+                    handleSttStreamStop(panel, context, msg);
                     break;
                 case '_cbeDbg':
                     /* Diagnostic mirror from panel.js — we serialize the
