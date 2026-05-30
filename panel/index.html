@@ -2035,297 +2035,34 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
       opacity: 0.85;
     }
 
-  /* === DOCK ICON SWAP (Mac+Mint glass redesign) === */
-  /* Strip per-icon button chrome in both dock skins */
-  .skin-macos-color-dock .tool-button,
-  .skin-mint-dock .tool-button {
-    background: transparent !important;
-    border: 0 !important;
-    box-shadow: none !important;
-    padding: 4px !important;
-    border-radius: 0 !important;
-  }
-  .skin-macos-color-dock .tool-button:hover,
-  .skin-mint-dock .tool-button:hover {
-    transform: translateY(-3px) scale(1.18) !important;
-    transition: transform 150ms ease !important;
-    background: transparent !important;
-  }
-  .skin-macos-color-dock .tool-button img,
-  .skin-mint-dock .tool-button img {
-    width: 44px !important;
-    height: 44px !important;
-    filter: none !important;
-  }
+  /* === DOCK ICON SWAP — removed 2026-05-30 ===
+     Previously this section had ~290 lines of `.skin-macos-color-dock` and
+     `.skin-mint-dock` rules — both ungated (chrome strip + glass dock body)
+     and gated behind `.__cbe-disabled-dock-icons` (per-button SVG/PNG swap).
+     ALL of them were dead code:
 
-  /* Alpha-glass dock body — macOS color variant (light frosted) */
-  .skin-macos-color-dock .toolbar-tools {
-    background: linear-gradient(180deg,
-        rgba(255, 255, 255, 0.20) 0%,
-        rgba(255, 255, 255, 0.08) 100%) !important;
-    backdrop-filter: blur(20px) saturate(180%) !important;
-    -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
-    border-radius: 12px !important;
-    border: 1px solid rgba(255, 255, 255, 0.30) !important;
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.35),
-        0 8px 32px rgba(0, 0, 0, 0.30) !important;
-    padding: 8px 14px !important;
-    flex-wrap: wrap !important;
-    overflow: visible !important;
-    margin: 8px auto !important;
-    width: max-content !important;
-    max-width: calc(100% - 32px) !important;
-    gap: 6px !important;
-  }
+       1. The body class is stamped as `body[data-skin="macos-color-dock"]`
+          by panel.js (applySkinUri -> setAttribute('data-skin', bare)), NOT
+          `body.skin-macos-color-dock`. So none of the `.skin-foo` rules
+          ever matched anything.
+       2. The gated `assets/dock_icons/{macos,mint}/...` URL paths point to
+          a directory that has never existed on disk.
 
-  /* Alpha-glass dock body — Mint variant (dark frosted) */
-  .skin-mint-dock .toolbar-tools {
-    background: linear-gradient(180deg,
-        rgba(30, 30, 30, 0.65) 0%,
-        rgba(10, 10, 10, 0.80) 100%) !important;
-    backdrop-filter: blur(20px) saturate(140%) !important;
-    -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
-    border-radius: 12px !important;
-    border-top: 1px solid rgba(255, 255, 255, 0.25) !important;
-    border-left: 1px solid rgba(255, 255, 255, 0.10) !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.10) !important;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.40) !important;
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.20),
-        0 6px 20px rgba(0, 0, 0, 0.50) !important;
-    padding: 8px 14px !important;
-    flex-wrap: wrap !important;
-    overflow: visible !important;
-    margin: 8px auto !important;
-    width: max-content !important;
-    max-width: calc(100% - 32px) !important;
-    gap: 6px !important;
-  }
+     The actual macOS / Mint dock skinning lives in the external skin
+     stylesheets — `skins/macos-color-dock.skin/styles.css` and
+     `skins/mint-dock.skin/styles.css` — which use bare `#addBtn { ... }`
+     selectors that take effect only while their `<link id="cbe-skin">`
+     stylesheet is mounted, plus relative `url('icons/add.svg')` paths
+     that resolve correctly via the webview CDN (icons live in each
+     skin's `icons/` subfolder and are confirmed present on disk for all
+     26 toolbar buttons in both skins; audit + visual snapshot diff
+     confirmed both skins paint a full row of colorful dock icons,
+     2026-05-30).
 
-  /* macOS skin — per-button icon swap (24 rules). Spinner-bearing
-     buttons (tts/stt/autoReply/monitor/compact) target :first-of-type
-     so the spinner overlay is left alone. */
-  .skin-macos-color-dock #addBtn > img {
-    content: url("assets/dock_icons/macos/add.svg") !important;
-  }
-  .skin-macos-color-dock #storedPromptsBtn > img {
-    content: url("assets/dock_icons/macos/storedPrompts.svg") !important;
-  }
-  .skin-macos-color-dock #chatHistoryBtn > img {
-    content: url("assets/dock_icons/macos/chatHistory.svg") !important;
-  }
-  .skin-macos-color-dock #attachFileBtn > img {
-    content: url("assets/dock_icons/macos/attachFile.svg") !important;
-  }
-  .skin-macos-color-dock #ttsBtn > img:first-of-type {
-    content: url("assets/dock_icons/macos/tts.svg") !important;
-  }
-  .skin-macos-color-dock #sttBtn > img:first-of-type {
-    content: url("assets/dock_icons/macos/stt.svg") !important;
-  }
-  .skin-macos-color-dock #autoReplyBtn > img:first-of-type {
-    content: url("assets/dock_icons/macos/autoReply.svg") !important;
-  }
-  .skin-macos-color-dock #wakeUpBtn > img {
-    content: url("assets/dock_icons/macos/wakeUp.svg") !important;
-  }
-  .skin-macos-color-dock #showCommandsBtn > img {
-    content: url("assets/dock_icons/macos/showCommands.svg") !important;
-  }
-  .skin-macos-color-dock #compactBtn > img:first-of-type {
-    content: url("assets/dock_icons/macos/compact.svg") !important;
-  }
-  .skin-macos-color-dock #handbookBtn > img {
-    content: url("assets/dock_icons/macos/handbook.svg") !important;
-  }
-  .skin-macos-color-dock #settingsBtn > img {
-    content: url("assets/dock_icons/macos/settings.svg") !important;
-  }
-  .skin-macos-color-dock #extensionsBtn > img {
-    content: url("assets/dock_icons/macos/extensions.svg") !important;
-  }
-  .skin-macos-color-dock #projectFolderBtn > img {
-    content: url("assets/dock_icons/macos/projectFolder.svg") !important;
-  }
-  .skin-macos-color-dock #browserBtn > img {
-    content: url("assets/dock_icons/macos/browser.svg") !important;
-  }
-  .skin-macos-color-dock #monitorBtn > img:first-of-type {
-    content: url("assets/dock_icons/macos/monitor.svg") !important;
-  }
-  .skin-macos-color-dock #terminalBtn > img {
-    content: url("assets/dock_icons/macos/terminal.svg") !important;
-  }
-  .skin-macos-color-dock #setupBtn > img {
-    content: url("assets/dock_icons/macos/setup.svg") !important;
-  }
-  .skin-macos-color-dock #gitBtn > img {
-    content: url("assets/dock_icons/macos/git.svg") !important;
-  }
-  .skin-macos-color-dock #githubBtn > img {
-    content: url("assets/dock_icons/macos/github.svg") !important;
-  }
-  .skin-macos-color-dock #domainsBtn > img {
-    content: url("assets/dock_icons/macos/domains.svg") !important;
-  }
-  .skin-macos-color-dock #fontSizeBtn > img {
-    content: url("assets/dock_icons/macos/fontSize.svg") !important;
-  }
-  .skin-macos-color-dock #helpBtn > img {
-    content: url("assets/dock_icons/macos/help.svg") !important;
-  }
-  .skin-macos-color-dock #tamaBtn > img {
-    content: url("assets/dock_icons/macos/tama.svg") !important;
-  }
-
-  /* Generated Mac-dock-style PNGs (gpt-image-1, transparent bg). These four
-     buttons had no dock_icon entry before, so they fell back to monochrome
-     base SVGs that broke the colorful Mac dock aesthetic (user 2026-05-22:
-     "you dont even have them all, see the missing buttons?"). */
-  .skin-macos-color-dock #accountsBtn > img {
-    content: url("assets/dock_icons/macos/accounts.png") !important;
-  }
-  /* Pinned-extension demo buttons (calculator / minesweeper / emoji-picker).
-     They're built by panel.js with a `<span class="cbe-pinned-svg">` wrapping
-     an inline currentColor <svg>, so they can't use the `content: url()` swap
-     the other buttons use. Instead we paint the Mac icon as the span's
-     background and hide the inline glyph. The button itself keeps the
-     `.tool-button` magnification, reflection, and shadow. */
-  .skin-macos-color-dock .tool-button[data-ext-id="calculator"] .cbe-pinned-svg,
-  .skin-macos-color-dock .tool-button[data-ext-id="minesweeper"] .cbe-pinned-svg,
-  .skin-macos-color-dock .tool-button[data-ext-id="emoji-picker"] .cbe-pinned-svg {
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: contain;
-    width: 44px !important;
-    height: 44px !important;
-  }
-  .skin-macos-color-dock .tool-button[data-ext-id="calculator"]  .cbe-pinned-svg { background-image: url("assets/dock_icons/macos/calculator.png"); }
-  .skin-macos-color-dock .tool-button[data-ext-id="minesweeper"] .cbe-pinned-svg { background-image: url("assets/dock_icons/macos/minesweeper.png"); }
-  .skin-macos-color-dock .tool-button[data-ext-id="emoji-picker"] .cbe-pinned-svg { background-image: url("assets/dock_icons/macos/emojiPicker.png"); }
-  .skin-macos-color-dock .tool-button[data-ext-id="calculator"] .cbe-pinned-svg > svg,
-  .skin-macos-color-dock .tool-button[data-ext-id="minesweeper"] .cbe-pinned-svg > svg,
-  .skin-macos-color-dock .tool-button[data-ext-id="emoji-picker"] .cbe-pinned-svg > svg {
-    display: none !important;
-  }
-
-  /* True floor reflection beneath each dock icon — the single biggest cue
-     missing vs the real Mac dock screenshot. -webkit-box-reflect is fully
-     supported in Chromium/VSCode-webview; mirrors the rendered icon below
-     itself with a top-to-bottom alpha gradient so it fades into the glass. */
-  .skin-macos-color-dock .tool-button img,
-  .skin-macos-color-dock .tool-button .cbe-pinned-svg {
-    -webkit-box-reflect: below 1px linear-gradient(transparent 0%, transparent 60%, rgba(255,255,255,0.28) 100%);
-  }
-  /* The base `.tool-button::after` elliptical glow now competes with the
-     real reflection — kill it on this skin so we don't get a double-shadow. */
-  .skin-macos-color-dock .tool-button::after { display: none; }
-
-  /* Mint skin — per-button icon swap (24 rules) */
-  .skin-mint-dock #addBtn > img {
-    content: url("assets/dock_icons/mint/add.svg") !important;
-  }
-  .skin-mint-dock #storedPromptsBtn > img {
-    content: url("assets/dock_icons/mint/storedPrompts.svg") !important;
-  }
-  .skin-mint-dock #chatHistoryBtn > img {
-    content: url("assets/dock_icons/mint/chatHistory.svg") !important;
-  }
-  .skin-mint-dock #attachFileBtn > img {
-    content: url("assets/dock_icons/mint/attachFile.svg") !important;
-  }
-  .skin-mint-dock #ttsBtn > img:first-of-type {
-    content: url("assets/dock_icons/mint/tts.svg") !important;
-  }
-  .skin-mint-dock #sttBtn > img:first-of-type {
-    content: url("assets/dock_icons/mint/stt.svg") !important;
-  }
-  .skin-mint-dock #autoReplyBtn > img:first-of-type {
-    content: url("assets/dock_icons/mint/autoReply.svg") !important;
-  }
-  .skin-mint-dock #wakeUpBtn > img {
-    content: url("assets/dock_icons/mint/wakeUp.svg") !important;
-  }
-  .skin-mint-dock #showCommandsBtn > img {
-    content: url("assets/dock_icons/mint/showCommands.svg") !important;
-  }
-  .skin-mint-dock #compactBtn > img:first-of-type {
-    content: url("assets/dock_icons/mint/compact.svg") !important;
-  }
-  .skin-mint-dock #handbookBtn > img {
-    content: url("assets/dock_icons/mint/handbook.svg") !important;
-  }
-  .skin-mint-dock #settingsBtn > img {
-    content: url("assets/dock_icons/mint/settings.svg") !important;
-  }
-  .skin-mint-dock #extensionsBtn > img {
-    content: url("assets/dock_icons/mint/extensions.svg") !important;
-  }
-  .skin-mint-dock #projectFolderBtn > img {
-    content: url("assets/dock_icons/mint/projectFolder.svg") !important;
-  }
-  .skin-mint-dock #browserBtn > img {
-    content: url("assets/dock_icons/mint/browser.svg") !important;
-  }
-  .skin-mint-dock #monitorBtn > img:first-of-type {
-    content: url("assets/dock_icons/mint/monitor.svg") !important;
-  }
-  .skin-mint-dock #terminalBtn > img {
-    content: url("assets/dock_icons/mint/terminal.svg") !important;
-  }
-  .skin-mint-dock #setupBtn > img {
-    content: url("assets/dock_icons/mint/setup.svg") !important;
-  }
-  .skin-mint-dock #gitBtn > img {
-    content: url("assets/dock_icons/mint/git.svg") !important;
-  }
-  .skin-mint-dock #githubBtn > img {
-    content: url("assets/dock_icons/mint/github.svg") !important;
-  }
-  .skin-mint-dock #domainsBtn > img {
-    content: url("assets/dock_icons/mint/domains.svg") !important;
-  }
-  .skin-mint-dock #fontSizeBtn > img {
-    content: url("assets/dock_icons/mint/fontSize.svg") !important;
-  }
-  .skin-mint-dock #helpBtn > img {
-    content: url("assets/dock_icons/mint/help.svg") !important;
-  }
-  .skin-mint-dock #tamaBtn > img {
-    content: url("assets/dock_icons/mint/tama.svg") !important;
-  }
-
-  /* Mint-dock counterparts of the 4 generated Mac-style icons — same gpt-
-     image-1 pass, Numix/Mint palette (teal/charcoal/green/amber). */
-  .skin-mint-dock #accountsBtn > img {
-    content: url("assets/dock_icons/mint/accounts.png") !important;
-  }
-  .skin-mint-dock .tool-button[data-ext-id="calculator"] .cbe-pinned-svg,
-  .skin-mint-dock .tool-button[data-ext-id="minesweeper"] .cbe-pinned-svg,
-  .skin-mint-dock .tool-button[data-ext-id="emoji-picker"] .cbe-pinned-svg {
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: contain;
-    width: 44px !important;
-    height: 44px !important;
-  }
-  .skin-mint-dock .tool-button[data-ext-id="calculator"]  .cbe-pinned-svg { background-image: url("assets/dock_icons/mint/calculator.png"); }
-  .skin-mint-dock .tool-button[data-ext-id="minesweeper"] .cbe-pinned-svg { background-image: url("assets/dock_icons/mint/minesweeper.png"); }
-  .skin-mint-dock .tool-button[data-ext-id="emoji-picker"] .cbe-pinned-svg { background-image: url("assets/dock_icons/mint/emojiPicker.png"); }
-  .skin-mint-dock .tool-button[data-ext-id="calculator"] .cbe-pinned-svg > svg,
-  .skin-mint-dock .tool-button[data-ext-id="minesweeper"] .cbe-pinned-svg > svg,
-  .skin-mint-dock .tool-button[data-ext-id="emoji-picker"] .cbe-pinned-svg > svg {
-    display: none !important;
-  }
-  /* Floor reflection (parity with macOS) — mint dock has a glossy panel
-     floor too, mirror each icon below itself fading to transparent. */
-  .skin-mint-dock .tool-button img,
-  .skin-mint-dock .tool-button .cbe-pinned-svg {
-    -webkit-box-reflect: below 1px linear-gradient(transparent 0%, transparent 60%, rgba(255,255,255,0.22) 100%);
-  }
-  .skin-mint-dock .tool-button::after { display: none; }
-  /* === END DOCK ICON SWAP === */
+     Net effect of the removal: zero visual change. The skin chrome was
+     being painted entirely by the external skin stylesheets already;
+     this block contributed nothing but ~290 lines of misleading dead
+     code that made future agents think the dock icons were broken.   */
   </style>
 
 <!-- Webview URI map — tiny inline script. Keep small; this is the only
