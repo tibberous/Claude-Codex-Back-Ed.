@@ -1881,6 +1881,63 @@ body {
   .toolbar-meta--inline .project-path { display: none !important; }
 }
 
+/* ────────────────────────────────────────────────────────────────────
+   2026-05-31 — xfce prompt-row polish (Trent's 5 fixes):
+     1. Reverse Stop/Send → Send sits left, Stop takes the right edge.
+     2. Equal margins around the white prompt box (top/bottom = left/right ≈14px).
+     3. SEND is text-only — kill the leftover .send-button box-shadow/border/bg.
+     4. Toolbar glyphs forced solid black (trailing few were light-grey-on-grey).
+     5. Button row bottom margin == prompt box side margin (the shell's equal
+        14px padding supplies it).
+   ──────────────────────────────────────────────────────────────────── */
+
+/* (2)+(5) equal 14px breathing room on all four interior edges of the shell */
+.prompt-shell { padding: 14px !important; }
+/* Neutralise the base orange-theme inset bevel (cream top / maroon bottom)
+   that bled onto this cool-grey GTK shell as a gold+red hairline. */
+.prompt-shell::before {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18) !important;
+}
+.prompt-input-wrap {
+  margin-bottom: 14px !important;
+  /* widen the reserved right gutter so SEND + Stop fit side-by-side */
+  padding-right: 150px !important;
+}
+.prompt-toolbar { margin: 0 6px 0 6px !important; }
+
+/* (3) SEND — pure text, no box. The base #sendBtn lock zeroes border/bg but
+   never clears the .send-button box-shadow, which leaked through as a card. */
+#sendBtn,
+#sendBtn:hover, #sendBtn.is-hover,
+#sendBtn:active, #sendBtn.is-active {
+  box-shadow: none !important;
+  border: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+}
+
+/* (1) Reverse: Send to the left, Stop pinned to the right edge. Both are
+   absolute inside the position:relative .prompt-input-wrap. */
+#sendBtn { right: 84px !important; }
+#stopBtn {
+  position: absolute !important;
+  right: 12px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  margin: 0 !important;
+}
+
+/* (4) Flat GTK icons: force every toolbar glyph solid black so the
+   light-filled SVGs (terminal / git / branch …) stop vanishing on grey.
+   Excludes the hidden state-spinner overlays so an active spinner keeps
+   its colour. */
+.tool-button img:not(.cbe-spinner):not(.cbe-autoread-ring) {
+  filter: brightness(0) !important;
+  opacity: 1 !important;
+}
+
 </style>
 </head>
 <body>
