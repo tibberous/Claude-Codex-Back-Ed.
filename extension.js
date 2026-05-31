@@ -415,7 +415,7 @@ function pushUpdateToServer(context) {
        Wildcards bind to filenames; directory names end with `/`. */
     const excludes = [
         '*.log', '*.bak', '*.tmp', '*.swp',
-        '.git/', 'node_modules/', 'logs/', 'chats/', 'dist/',
+        '.git/', '.gitignore', 'node_modules/', 'logs/', 'chats/', 'dist/',
         '.claude/', 'reports/',
         'data/',                // 1.74 GB per-machine QtWebEngine Chrome profile data
                                 // (cookies/cache/ActorSafetyLists/etc) — NEVER push
@@ -558,6 +558,9 @@ async function _verifyPush(context, logName) {
 */
 const PULL_EXCLUDES = new Set([
     'config.ini',
+    '.gitignore',        // dev metadata, per-repo — NEVER pull (a stale remote
+                         // copy was clobbering the local data/bridges/previews
+                         // ignore-block on every reload). user 2026-05-31.
     'domains.txt',
     'wake.txt',
     'prompt_history.txt',

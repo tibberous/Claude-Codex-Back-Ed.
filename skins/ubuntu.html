@@ -2096,12 +2096,12 @@ body {
         <button id="cbe-tama-close" class="cbe-x" type="button" aria-label="Close Tamagotchi" title="Close" style="color:#d8e8b8;"></button>
       </div>
       <div id="cbe-tama-status" role="status" aria-live="polite">
-        <span class="tama-stat" data-stat="stage"       data-tooltip="Lifecycle stage"   title="Lifecycle stage">🥚 egg</span>
-        <span class="tama-stat" data-stat="hunger"      data-tooltip="Hunger"            title="Hunger">🍖 100</span>
-        <span class="tama-stat" data-stat="happiness"   data-tooltip="Happiness"         title="Happiness">😀 100</span>
-        <span class="tama-stat" data-stat="health"      data-tooltip="Health"            title="Health">❤️ 100</span>
-        <span class="tama-stat" data-stat="cleanliness" data-tooltip="Cleanliness"       title="Cleanliness">✨ 100</span>
-        <span class="tama-stat" data-stat="age"         data-tooltip="Age in minutes"    title="Age (minutes)">⏱ 0</span>
+        <span class="tama-stat" data-stat="stage"       data-tooltip="Lifecycle stage"   title="Lifecycle stage"><svg class="tama-ic" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx='12' cy='13' rx='6' ry='8'/></svg> egg</span>
+        <span class="tama-stat" data-stat="hunger"      data-tooltip="Hunger"            title="Hunger"><svg class="tama-ic" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d='M6 18l3-3'/><path d='M9 15a4 4 0 1 1 5-5l4 4-2 2-4-4z' /><circle cx='15' cy='9' r='2.5'/></svg> 100</span>
+        <span class="tama-stat" data-stat="happiness"   data-tooltip="Happiness"         title="Happiness"><svg class="tama-ic" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx='12' cy='12' r='8'/><path d='M9 14a4 4 0 0 0 6 0'/><circle cx='9' cy='10' r='.7' fill='currentColor' stroke='none'/><circle cx='15' cy='10' r='.7' fill='currentColor' stroke='none'/></svg> 100</span>
+        <span class="tama-stat" data-stat="health"      data-tooltip="Health"            title="Health"><svg class="tama-ic" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d='M12 20s-7-4.5-7-9.5A3.5 3.5 0 0 1 12 7a3.5 3.5 0 0 1 7 3.5C19 15.5 12 20 12 20z'/></svg> 100</span>
+        <span class="tama-stat" data-stat="cleanliness" data-tooltip="Cleanliness"       title="Cleanliness"><svg class="tama-ic" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d='M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18'/></svg> 100</span>
+        <span class="tama-stat" data-stat="age"         data-tooltip="Age in minutes"    title="Age (minutes)"><svg class="tama-ic" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx='12' cy='12' r='8'/><path d='M12 8v4l3 2'/></svg> 0</span>
       </div>
       <div class="cbe-tama-lcd">
         <canvas id="cbe-tama-screen" width="240" height="240"></canvas>
@@ -2121,7 +2121,7 @@ body {
         </div>
       </div>
       <div id="cbe-tama-banner" hidden></div>
-      <div id="cbe-tama-hint" class="cbe-tama-hint">Tip: Feed cycles meat ↔ eggplant. Press Select to feed.</div>
+      <div id="cbe-tama-hint" class="cbe-tama-hint">Tip: Feed cycles meat <svg class="tama-ic" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d='M7 8h11l-3-3M17 16H6l3 3'/></svg> eggplant. Press Select to feed.</div>
     </div>
   </div>
 
@@ -2166,7 +2166,9 @@ body {
       background: rgba(0,0,0,0.25);
       padding: 4px 6px; border-radius: 6px;
     }
-    #cbe-tama-shell .tama-stat { white-space: nowrap; }
+    #cbe-tama-shell .tama-stat { white-space: nowrap; display: inline-flex; align-items: center; gap: 3px; }
+    #cbe-tama-shell .tama-ic { display: inline-block; vertical-align: -2px; flex: 0 0 auto; }
+    #cbe-tama-shell .cbe-tama-hint .tama-ic { vertical-align: -2px; }
     /* The LCD module — a single flat green panel that holds the pixel
        screen AND the in-screen icon strip, matching the reference gif
        (no gradient — one uniform LCD-green fill). */
@@ -2560,6 +2562,24 @@ body {
 <script>
 (function () {
   "use strict";
+  /* Inline-SVG icon set for modal chrome — replaces tofu-prone emoji that
+     the webview font lacks. Monochrome, currentColor, viewBox 0 0 24 24. */
+  const TAMA_IC = {
+    egg: "<svg class=\"tama-ic\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><ellipse cx='12' cy='13' rx='6' ry='8'/></svg>",
+    baby: "<svg class=\"tama-ic\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d='M6 12a6 8 0 0 1 12 0'/><path d='M6 12l2 3 2-3 2 3 2-3 2 3 2-3'/></svg>",
+    child: "<svg class=\"tama-ic\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx='12' cy='13' r='6'/><circle cx='12' cy='11' r='.6' fill='currentColor'/><path d='M14.5 13l2.5 .8-2.5 .8'/></svg>",
+    teen: "<svg class=\"tama-ic\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d='M9 14a4 4 0 1 1 5-4l4-2-2 4a5 5 0 0 1-7 2z'/><circle cx='10' cy='10' r='.6' fill='currentColor'/></svg>",
+    adult: "<svg class=\"tama-ic\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d='M9 15a4 4 0 1 1 5-4l4-2-2 4a5 5 0 0 1-7 2z'/><path d='M9 8l1.5-3 1.5 3'/><circle cx='10.5' cy='11' r='.6' fill='currentColor'/></svg>",
+    senior: "<svg class=\"tama-ic\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx='10' cy='8' r='4'/><path d='M10 12c-3 0-5 2-5 5'/><path d='M16 8v13'/><path d='M16 8h2'/></svg>",
+    dead: "<svg class=\"tama-ic\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx='12' cy='9' r='6'/><circle cx='9.5' cy='9' r='1.2' fill='currentColor' stroke='none'/><circle cx='14.5' cy='9' r='1.2' fill='currentColor' stroke='none'/><path d='M9 18h6M10 16v3M14 16v3'/></svg>",
+    food: "<svg class=\"tama-ic\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d='M6 18l3-3'/><path d='M9 15a4 4 0 1 1 5-5l4 4-2 2-4-4z' /><circle cx='15' cy='9' r='2.5'/></svg>",
+    happy: "<svg class=\"tama-ic\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx='12' cy='12' r='8'/><path d='M9 14a4 4 0 0 0 6 0'/><circle cx='9' cy='10' r='.7' fill='currentColor' stroke='none'/><circle cx='15' cy='10' r='.7' fill='currentColor' stroke='none'/></svg>",
+    heart: "<svg class=\"tama-ic\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d='M12 20s-7-4.5-7-9.5A3.5 3.5 0 0 1 12 7a3.5 3.5 0 0 1 7 3.5C19 15.5 12 20 12 20z'/></svg>",
+    clean: "<svg class=\"tama-ic\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d='M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18'/></svg>",
+    clock: "<svg class=\"tama-ic\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx='12' cy='12' r='8'/><path d='M12 8v4l3 2'/></svg>",
+    veg: "<svg class=\"tama-ic\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d='M16 6c-1-2-4-2-4-2s0 3 2 4'/><path d='M6 14a6 6 0 0 0 8 5c3-1 4-5 2-8s-7-3-9 0a3.5 3.5 0 0 0-1 3z'/></svg>",
+    swap: "<svg class=\"tama-ic\" viewBox=\"0 0 24 24\" width=\"13\" height=\"13\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d='M7 8h11l-3-3M17 16H6l3 3'/></svg>",
+  };
 
   const STORAGE_KEY = "cbe-tamagotchi-v1";
   let game = null;
@@ -2576,23 +2596,23 @@ body {
       /* Stage glyph map — small emoji cue per lifecycle phase. Dead is
          handled via the banner; this row keeps showing the last live stage. */
       const STAGE_GLYPHS = {
-        egg: "🥚 egg", baby: "🐣 baby", child: "🐥 child",
-        teen: "🐤 teen", adult: "🐔 adult", senior: "👴 senior",
-        dead: "💀 dead"
+        egg: TAMA_IC.egg + " egg", baby: TAMA_IC.baby + " baby", child: TAMA_IC.child + " child",
+        teen: TAMA_IC.teen + " teen", adult: TAMA_IC.adult + " adult", senior: TAMA_IC.senior + " senior",
+        dead: TAMA_IC.dead + " dead"
       };
       row.querySelectorAll(".tama-stat").forEach((node) => {
         const stat = node.getAttribute("data-stat");
         let v;
         switch (stat) {
           case "stage":       v = STAGE_GLYPHS[g.stage] || ("· " + g.stage); break;
-          case "hunger":      v = "🍖 " + fmt(g.hunger); break;
-          case "happiness":   v = "😀 " + fmt(g.happiness); break;
-          case "health":      v = "❤️ " + fmt(g.health); break;
-          case "cleanliness": v = "✨ " + fmt(g.cleanliness); break;
-          case "age":         v = "⏱ " + (g.age | 0); break;
+          case "hunger":      v = TAMA_IC.food + " " + fmt(g.hunger); break;
+          case "happiness":   v = TAMA_IC.happy + " " + fmt(g.happiness); break;
+          case "health":      v = TAMA_IC.heart + " " + fmt(g.health); break;
+          case "cleanliness": v = TAMA_IC.clean + " " + fmt(g.cleanliness); break;
+          case "age":         v = TAMA_IC.clock + " " + (g.age | 0); break;
           default: return;
         }
-        if (node.textContent !== v) node.textContent = v;
+        if (node.innerHTML !== v) node.innerHTML = v;
       });
     }
     /* Death banner appears with a "Hatch new" button. */
@@ -2601,7 +2621,7 @@ body {
       if (!g.isAlive) {
         if (banner.hidden) {
           banner.hidden = false;
-          banner.innerHTML = "💀 Your pet died. <button type='button' id='cbe-tama-respawn'>Hatch new</button>";
+          banner.innerHTML = TAMA_IC.dead + " Your pet died. <button type='button' id='cbe-tama-respawn'>Hatch new</button>";
           const btn = el("cbe-tama-respawn");
           if (btn) btn.addEventListener("click", () => { g.reset(); banner.hidden = true; });
         }
@@ -2613,9 +2633,9 @@ body {
     const hint = el("cbe-tama-hint");
     if (hint) {
       const target = g.feedMenuOpen
-        ? ("Feed: " + (g.feedMenuChoice === "meat" ? "🥩 Meat" : "🍆 Eggplant") + " — press Select")
-        : "Tip: Feed cycles meat ↔ eggplant. Press Select to feed.";
-      if (hint.textContent !== target) hint.textContent = target;
+        ? ("Feed: " + (g.feedMenuChoice === "meat" ? TAMA_IC.food + " Meat" : TAMA_IC.veg + " Eggplant") + " — press Select")
+        : "Tip: Feed cycles meat " + TAMA_IC.swap + " eggplant. Press Select to feed.";
+      if (hint.innerHTML !== target) hint.innerHTML = target;
     }
   }
 
