@@ -8094,21 +8094,10 @@ function bindPanel(context, panel) {
                    extension but it needs to use the same code Claude Code uses".
                    Per [[feedback-never-touch-anthropic-dir]] we never modify
                    Claude Code's source — we just invoke its published command. */
-                case 'claudeCodeSwitchAccount':
-                    try {
-                        await vscode.commands.executeCommand('claude-vscode.logout');
-                        // Then bring Claude Code's sidebar forward so the user
-                        // sees the new-login prompt without hunting for it.
-                        try { await vscode.commands.executeCommand('claude-vscode.sidebar.open'); }
-                        catch (_) { /* sidebar.open may be unregistered on older builds */ }
-                    } catch (e) {
-                        traceErr('claudeCodeSwitchAccount', e);
-                        vscode.window.showErrorMessage(
-                            'CBE could not invoke Claude Code’s logout command. ' +
-                            'Make sure the Anthropic Claude Code extension is installed and enabled.'
-                        );
-                    }
-                    break;
+                /* (duplicate logout-only 'claudeCodeSwitchAccount' case removed
+                   2026-05-31 — it shadowed the intended auth-picker case below,
+                   now the sole handler, which posts showAuthPicker → rendered by
+                   panel.js. Per [[feedback-never-touch-anthropic-dir]].) */
                 case 'logChatTurn':
                     logChatTurn(context, msg.role || 'USER', msg.text || '');
                     break;
