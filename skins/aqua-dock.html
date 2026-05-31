@@ -309,6 +309,10 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
    rollover"). The original empty <button> markup is preserved; the label
    is injected via ::after content so no DOM change is needed. */
 #sendBtn {
+  /* In-flow (NOT absolute) so SEND sits before Stop in the inline cluster
+     (user 2026-05-31). The skin's .send-button is position:absolute right:9px;
+     override to static so DOM order [SEND][Stop] is the visual order. */
+  position: static !important;
   width: auto !important;
   min-width: 0 !important;
   height: 38px !important;
@@ -1737,7 +1741,7 @@ body {
   align-items: center;
   /* Right padding reserves room for the absolutely-positioned #sendBtn
      (min-width 56px + right:9px + breathing room → ~72px). */
-  padding: 6px 72px 6px 20px;
+  padding: 6px 16px 6px 20px;   /* sendBtn is now in-flow (was absolute → 72px reserved) */
 }
 
 /* Narrow-panel: hide the project-path pill so label-pill + Stop can fit
@@ -1948,12 +1952,12 @@ body {
                meta cluster sits to the LEFT of sendBtn via right-padding
                on the wrap that reserves room for both. -->
           <div class="toolbar-meta toolbar-meta--inline">
+            <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" data-i18n-tip="tooltip.send" aria-label="Send message"></button>
             <button id="stopBtn" class="stop-button" type="button" data-tooltip="Stop generation" data-i18n-tip="tooltip.stop" aria-label="Stop generation">
               <span class="stop-button__icon" aria-hidden="true"></span>
               <span class="stop-button__label">Stop</span>
             </button>
           </div>
-          <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" data-i18n-tip="tooltip.send" aria-label="Send message"></button>
         </div>
 
         <div id="attachments" class="attachments" aria-label="Queued file attachments"></div>
