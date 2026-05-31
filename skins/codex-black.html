@@ -2684,7 +2684,79 @@ html body textarea#promptBox.prompt-input {
   }
   .skin-mint-dock .tool-button::after { display: none; }
   /* === END DOCK ICON SWAP === */
-  </style>
+  
+/* ════════════════════════════════════════════════════
+   2026-05-31 — UNIVERSAL prompt-row normalize (Trent). SEND bottom-LEFT,
+   Stop pinned bottom-RIGHT, brand label bottom-LEFT, project folder
+   bottom-RIGHT (left of Stop). SEND + project are chrome-free by default.
+   --cbe-label-w = reserved width for the brand pill so SEND clears it.
+   ════════════════════════════════════════════════════ */
+/* codex-black is the "Claude Code clone" look: brand pill is intentionally
+   hidden + SEND is the coral chip with a chevron. KEEP both — only re-anchor
+   SEND bottom-LEFT. label-w=0 since there's no brand pill. */
+:root { --cbe-label-w: 0px; }
+
+.prompt-input-wrap,
+#input-box.prompt-input-wrap {
+  display: block !important;
+  position: relative !important;
+  padding: 12px 14px 52px 14px !important;
+  margin-bottom: 14px !important;
+}
+.prompt-input-wrap > textarea.prompt-input,
+.prompt-input-wrap #promptBox {
+  display: block !important;
+  width: 100% !important;
+}
+.toolbar-meta--inline {
+  position: static !important;
+  display: contents !important;
+}
+/* SEND keeps its coral chip chrome (brand identity) — reposition only. */
+#sendBtn {
+  position: absolute !important;
+  left: 14px !important;
+  right: auto !important;
+  top: auto !important;
+  bottom: 12px !important;
+  transform: none !important;
+}
+#sendBtn:hover  { transform: scale(1.05) !important; }
+#sendBtn:active { transform: scale(0.96) !important; }
+.toolbar-meta--inline #stopBtn {
+  position: absolute !important;
+  right: 14px; bottom: 11px;
+  top: auto !important;
+  left: auto !important;
+  margin: 0 !important;
+  transform: none !important;
+}
+.toolbar-meta--inline #project-path {
+  position: absolute !important;
+  right: 96px; bottom: 13px;
+  top: auto !important;
+  left: auto !important;
+  margin: 0 !important;
+  max-width: 240px !important;
+}
+.toolbar-meta--inline #project-path {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 4px !important;
+  height: auto !important;
+  color: inherit !important;   /* readable on light + dark skins alike */
+}
+.toolbar-meta--inline #project-path:empty::before {
+  color: currentColor !important;
+  font-style: italic;
+  opacity: 0.55;
+}
+@media (max-width: 620px) {
+  .toolbar-meta--inline #project-path { display: none !important; }
+}
+
+</style>
 
 <!-- Webview URI map — tiny inline script. Keep small; this is the only
      inline JS that blocks the parser. The bulk of the panel's behavior is

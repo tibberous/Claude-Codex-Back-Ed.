@@ -1938,6 +1938,101 @@ body {
   opacity: 1 !important;
 }
 
+/* ════════════════════════════════════════════════════════════════════
+   2026-05-31 — UNIVERSAL prompt-row normalize (Trent). Applied to EVERY
+   skin so the composer bottom strip is consistent:
+     • SEND on the LEFT, Stop pinned to the RIGHT edge.
+     • Label (brand pill) → bottom-LEFT corner.
+     • Project folder → bottom-RIGHT (left of Stop).
+     • SEND + project are text-only / chrome-free by default.
+   The textarea spans the full top; a 44px strip along the bottom holds the
+   four controls. --cbe-label-w = the brand pill's reserved width (0 when the
+   skin hides the wordmark img, ~152 when it shows it) so SEND clears it.
+   ════════════════════════════════════════════════════════════════════ */
+:root { --cbe-label-w: 0px; }            /* xfce hides the brand img */
+
+.prompt-input-wrap,
+#input-box.prompt-input-wrap {
+  display: block !important;
+  position: relative !important;
+  padding: 12px 14px 52px 14px !important;
+  margin-bottom: 14px !important;
+}
+.prompt-input-wrap > textarea.prompt-input,
+.prompt-input-wrap #promptBox {
+  display: block !important;
+  width: 100% !important;
+}
+
+/* The meta cluster div is just a passthrough now — each control is anchored
+   individually to a corner of the wrap so nothing can overflow/clip. */
+.toolbar-meta--inline {
+  position: static !important;
+  display: contents !important;   /* let children anchor to .prompt-input-wrap */
+}
+/* label → far bottom-LEFT */
+.toolbar-meta--inline #label-pill {
+  position: absolute !important;
+  left: 14px; bottom: 11px;
+  margin: 0 !important;
+}
+/* SEND → bottom-LEFT, just right of the brand pill (clears --cbe-label-w) */
+#sendBtn {
+  position: absolute !important;
+  left: calc(14px + var(--cbe-label-w)) !important;
+  right: auto !important;
+  top: auto !important;
+  bottom: 12px !important;
+  transform: none !important;
+}
+/* Stop → bottom-RIGHT edge */
+.toolbar-meta--inline #stopBtn {
+  position: absolute !important;
+  right: 14px; bottom: 11px;
+  top: auto !important;
+  left: auto !important;
+  margin: 0 !important;
+  transform: none !important;
+}
+/* project pill → bottom-RIGHT, just LEFT of Stop (reserve ~78px for Stop) */
+.toolbar-meta--inline #project-path {
+  position: absolute !important;
+  right: 96px; bottom: 13px;
+  top: auto !important;
+  left: auto !important;
+  margin: 0 !important;
+  max-width: 240px !important;
+}
+
+/* (default) SEND text-only — no box. project pill text-only — no border/bg.
+   Skins that read better WITH chrome re-add it in their own block below. */
+#sendBtn,
+#sendBtn:hover, #sendBtn.is-hover,
+#sendBtn:active, #sendBtn.is-active {
+  box-shadow: none !important;
+  border: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+}
+.toolbar-meta--inline #project-path {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 4px !important;
+  height: auto !important;
+  color: inherit !important;   /* readable on light + dark skins alike */
+}
+.toolbar-meta--inline #project-path:empty::before {
+  color: currentColor !important;
+  font-style: italic;
+  opacity: 0.55;
+}
+
+/* Narrow panel: drop the project pill before things collide */
+@media (max-width: 620px) {
+  .toolbar-meta--inline #project-path { display: none !important; }
+}
+
 </style>
 </head>
 <body>

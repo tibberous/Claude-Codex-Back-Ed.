@@ -2523,7 +2523,90 @@ body {
   }
   .skin-mint-dock .tool-button::after { display: none; }
   /* === END DOCK ICON SWAP === */
-  </style>
+  
+/* ════════════════════════════════════════════════════
+   2026-05-31 — UNIVERSAL prompt-row normalize (Trent). SEND bottom-LEFT,
+   Stop pinned bottom-RIGHT, brand label bottom-LEFT, project folder
+   bottom-RIGHT (left of Stop). SEND + project are chrome-free by default.
+   --cbe-label-w = reserved width for the brand pill so SEND clears it.
+   ════════════════════════════════════════════════════ */
+:root { --cbe-label-w: 158px; }
+
+.prompt-input-wrap,
+#input-box.prompt-input-wrap {
+  display: block !important;
+  position: relative !important;
+  padding: 12px 14px 52px 14px !important;
+  margin-bottom: 14px !important;
+}
+.prompt-input-wrap > textarea.prompt-input,
+.prompt-input-wrap #promptBox {
+  display: block !important;
+  width: 100% !important;
+}
+.toolbar-meta--inline {
+  position: static !important;
+  display: contents !important;
+}
+.toolbar-meta--inline #label-pill {
+  position: absolute !important;
+  left: 14px; bottom: 11px;
+  margin: 0 !important;
+}
+.toolbar-meta--inline #label-pill { width: 148px !important; height: 30px !important; }
+.toolbar-meta--inline #label-pill img { display: block !important; }
+#sendBtn {
+  position: absolute !important;
+  left: calc(14px + var(--cbe-label-w)) !important;
+  right: auto !important;
+  top: auto !important;
+  bottom: 12px !important;
+  transform: none !important;
+}
+.toolbar-meta--inline #stopBtn {
+  position: absolute !important;
+  right: 14px; bottom: 11px;
+  top: auto !important;
+  left: auto !important;
+  margin: 0 !important;
+  transform: none !important;
+}
+.toolbar-meta--inline #project-path {
+  position: absolute !important;
+  right: 96px; bottom: 13px;
+  top: auto !important;
+  left: auto !important;
+  margin: 0 !important;
+  max-width: 240px !important;
+}
+/* (default) SEND + project text-only, no chrome. Skins that read better WITH
+   a box re-add it in a block placed AFTER this one. */
+#sendBtn,
+#sendBtn:hover, #sendBtn.is-hover,
+#sendBtn:active, #sendBtn.is-active {
+  box-shadow: none !important;
+  border: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+}
+.toolbar-meta--inline #project-path {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 4px !important;
+  height: auto !important;
+  color: inherit !important;   /* readable on light + dark skins alike */
+}
+.toolbar-meta--inline #project-path:empty::before {
+  color: currentColor !important;
+  font-style: italic;
+  opacity: 0.55;
+}
+@media (max-width: 620px) {
+  .toolbar-meta--inline #project-path { display: none !important; }
+}
+
+</style>
 
 <!-- Webview URI map — tiny inline script. Keep small; this is the only
      inline JS that blocks the parser. The bulk of the panel's behavior is

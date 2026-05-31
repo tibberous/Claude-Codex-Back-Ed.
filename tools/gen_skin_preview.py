@@ -123,6 +123,39 @@ def _prune_stale(skin_id: str, keep: Path) -> None:
             except OSError: pass
 
 
+def _trim_bottom_margin(pix):
+    """Crop off a solid-colour bottom band from the grabbed pixmap so a
+    fixed-bottom composer sits flush at the canvas edge. Returns a (possibly
+    shorter) QPixmap. Scans rows from the bottom up; the band is 'solid' while
+    every sampled pixel in the row matches the very-bottom row's colour within
+    a small tolerance. Always leaves at least 55% of the original height so a
+    short composer doesn't get cropped to a sliver."""
+    from PySide6.QtCore import QRect
+    img = pix.toImage()
+    w, h = img.width(), img.height()
+    if w == 0 or h == 0:
+        return pix
+    bg = img.pixel(w // 2, h - 1)
+    def row_is_bg(y):
+        for x in range(0, w, max(1, w // 24)):
+            p = img.pixel(x, y)
+            dr = abs((p >> 16 & 0xFF) - (bg >> 16 & 0xFF))
+            dg = abs((p >> 8 & 0xFF) - (bg >> 8 & 0xFF))
+            db = abs((p & 0xFF) - (bg & 0xFF))
+            if dr + dg + db > 24:
+                return False
+        return True
+    y = h - 1
+    min_keep = int(h * 0.55)
+    while y > min_keep and row_is_bg(y):
+        y -= 1
+    # keep a small breathing margin below the composer
+    bottom = min(h, y + 12)
+    if bottom >= h - 2:
+        return pix
+    return pix.copy(QRect(0, 0, w, bottom))
+
+
 def render(skin_id: str, force: bool = False) -> Path:
     PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
     out = _out_path(skin_id)
@@ -140,6 +173,7 @@ def render(skin_id: str, force: bool = False) -> Path:
     tmp_html = _prepare_html(skin_id)
     result = {"ok": False, "err": ""}
 
+    from PySide6.QtCore import QRect
     app = QApplication.instance() or QApplication(sys.argv[:1])
     view = QWebEngineView()
     view.resize(RENDER_W, RENDER_H)
@@ -148,7 +182,22 @@ def render(skin_id: str, force: bool = False) -> Path:
 
     def _grab_and_quit():
         try:
-            pix = view.grab()
+            # Grab an EXPLICIT RENDER_W×RENDER_H rect, not view.grab()'s default.
+            # Skins whose composer is `position:fixed; bottom:0` (the macOS / dock
+            # skins) only render the composer at the VIEWPORT bottom — a bare
+            # view.grab() can clip to the (shorter) content height and miss the
+            # composer entirely, yielding a blank preview. Forcing the full
+            # resized rect guarantees the fixed-bottom composer lands on-canvas.
+            view.resize(RENDER_W, RENDER_H)
+            pix = view.grab(QRect(0, 0, RENDER_W, RENDER_H))
+            # Trim uniform trailing rows at the BOTTOM so the composer ends up
+            # flush at the canvas edge. Skins whose composer is fixed-bottom
+            # anchor to the page's layout-viewport (often shorter than the full
+            # RENDER_H), leaving a band of empty page colour beneath it. We grab
+            # the full height (so dock/fixed composers are never clipped) then
+            # crop off any solid-colour bottom margin. A top margin is kept (the
+            # empty chat thread) so the composer still reads as bottom-docked.
+            pix = _trim_bottom_margin(pix)
             if THUMB_W and pix.width() > THUMB_W:
                 from PySide6.QtCore import Qt
                 pix = pix.scaledToWidth(THUMB_W, Qt.SmoothTransformation)
@@ -182,24 +231,60 @@ def _list_skins() -> list:
     return sorted(p.stem for p in SKINS_DIR.glob("*.html"))
 
 
+def _clean_previews(skin_id: str | None) -> int:
+    """Delete preview PNGs. If skin_id is given, delete only that skin's
+    content-addressed `<id>-*.png`; otherwise nuke every `previews/*.png`.
+    Content-addressed names mean stale md5 hashes pile up across edits, so a
+    clean pass before regen avoids confusing leftover thumbnails. Returns the
+    number of files removed."""
+    if not PREVIEW_DIR.exists():
+        return 0
+    pattern = f"{skin_id}-*.png" if skin_id else "*.png"
+    removed = 0
+    for p in PREVIEW_DIR.glob(pattern):
+        try:
+            p.unlink(); removed += 1
+        except OSError:
+            pass
+    return removed
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--skin", help="skin id (basename of skins/<id>.html)")
     ap.add_argument("--all", action="store_true", help="generate for every skin")
     ap.add_argument("--force", action="store_true", help="re-render even if cached")
+    ap.add_argument("--clean", action="store_true",
+                    help="delete preview PNGs first, then regenerate. "
+                         "With --skin <id>: cleans only that skin's stale "
+                         "<id>-*.png. Without --skin: cleans previews/*.png and "
+                         "regenerates --all. Implies --force for what it regens.")
     ap.add_argument("--list", action="store_true", help="list skin ids and exit")
     args = ap.parse_args()
 
     if args.list:
         print("\n".join(_list_skins())); return 0
+
+    # --clean: prune stale PNGs first. Scope to the one skin if --skin is set,
+    # otherwise wipe the whole previews dir. After cleaning we force-regenerate
+    # (a full --all sweep when no specific skin was named).
+    force = args.force
+    if args.clean:
+        removed = _clean_previews(args.skin)
+        print(f"[clean] removed {removed} preview PNG(s)"
+              + (f" for '{args.skin}'" if args.skin else " (all)"), file=sys.stderr)
+        force = True
+        if not args.skin:
+            args.all = True
+
     targets = _list_skins() if args.all else ([args.skin] if args.skin else [])
     if not targets:
-        print("nothing to do — pass --skin <id> or --all", file=sys.stderr); return 1
+        print("nothing to do — pass --skin <id>, --all, or --clean", file=sys.stderr); return 1
 
     rc = 0
     for sid in targets:
         try:
-            out = render(sid, force=args.force)
+            out = render(sid, force=force)
             print(out)
         except Exception as e:  # noqa: BLE001
             print(f"FAIL {sid}: {e}", file=sys.stderr); rc = 1
