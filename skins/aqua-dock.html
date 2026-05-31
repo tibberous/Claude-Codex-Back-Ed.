@@ -1703,6 +1703,10 @@ body {
 
 .prompt-area  { background: transparent; }
 .prompt-shell { background: transparent; border: 0; box-shadow: none; padding: 0; }
+/* Kill the codex-black base .prompt-shell::before gold inset-top line — the
+   aqua override above neutralized .prompt-shell but not its pseudo, leaving a
+   2px gold stripe at the top-left of the prompt box (user 2026-05-31). */
+.prompt-shell::before { content: none; box-shadow: none; }
 
 /* ── Floating prompt pill ─────────────────────────────────────────────── */
 /* display:flex + align-items:center vertically centers the textarea inside
