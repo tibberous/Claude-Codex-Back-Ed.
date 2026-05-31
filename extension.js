@@ -463,15 +463,76 @@ function pushUpdateToServer(context) {
             windowsHide: true,
             detached: false,    // dies with parent — don't orphan WinSCP
         });
-        child.on('error', (e) => trace(`UPDATE:PUSH spawn-error ${e.message || e}`));
+        child.on('error', (e) => {
+            trace(`UPDATE:PUSH spawn-error ${e.message || e}`);
+            try { vscode.window.showErrorMessage('CBE: server push could NOT START — ' + (e.message || e)
+                + ' (check [updates] winscp_exe in config.ini).'); } catch (_) {}
+        });
         child.on('exit', (code, signal) => {
             const ok = code === 0;
             trace(`UPDATE:PUSH ${ok ? 'OK' : 'FAILED'} exit=${code} signal=${signal || 'none'} session=${session} — see ${path.basename(xmlLog)} for per-file results`);
+            if (!ok) {
+                /* Surface failures — they used to vanish into debug.log (the
+                   spaced-path bug silently failed for ~a week). user 2026-05-31. */
+                try {
+                    vscode.window.showErrorMessage(
+                        `CBE: server push FAILED (WinSCP exit ${code}). The remote was NOT updated — clients will pull a stale build.`,
+                        'Show Log'
+                    ).then(pick => { if (pick === 'Show Log') { try { vscode.window.showTextDocument(vscode.Uri.file(sessionLog)); } catch (_) {} } });
+                } catch (_) {}
+                return;
+            }
+            /* On success, read the remote manifest back and md5-compare every
+               file to local — confirms the push actually landed + the mirror
+               deleted stale files. Dialog only on a problem. user 2026-05-31. */
+            _verifyPush(context, path.basename(sessionLog)).catch(e => trace('UPDATE:PUSH:VERIFY error ' + ((e && e.message) || e)));
         });
         child.unref();    // don't keep the extension host's event loop alive on this
     } catch (e) {
         traceErr('UPDATE:PUSH spawn', e);
     }
+}
+
+/* Verify a just-completed push by reading the remote manifest back and
+   md5-comparing every listed file to the local copy. Confirms the push landed
+   AND that the -mirror deleted stale remote files. Warns (dialog) only on a
+   real discrepancy — silent on a clean push so it doesn't nag every activate.
+   Skips paths the push excludes so they don't show as false mismatches. */
+async function _verifyPush(context, logName) {
+    const cfg = readConfigIni(context.extensionPath) || {};
+    const u = cfg.updates || {};
+    const manifestUrl = String(u.manifest_url || 'https://trentontompkins.com/cbe/manifest.xml.php').trim();
+    let buf;
+    try { buf = await _httpsGetBuffer(manifestUrl, 30000); }
+    catch (e) { trace('UPDATE:PUSH:VERIFY fetch failed ' + ((e && e.message) || e)); return; }
+    const entries = _parseManifestXml(buf.toString('utf8')) || [];
+    if (!entries.length) { trace('UPDATE:PUSH:VERIFY manifest empty/parse-failed'); return; }
+    /* Same exclusions the push filemask uses — those files are never uploaded,
+       so a remote/absent-local difference for them is expected, not a fault. */
+    const skip = (p) => /^(data|bridges|logs|chats|reports|emails|node_modules|\.git|dist)\//i.test(p)
+        || /^skins\/previews\//i.test(p) || /\.(log|bak|tmp|swp|vsix)$/i.test(p)
+        || p === 'config.ini' || p === 'config.sample.ini';
+    let okCount = 0, mismatch = 0, remoteOnly = 0;
+    const bad = [];
+    for (const e of entries) {
+        if (skip(e.path)) continue;
+        const local = path.join(context.extensionPath, e.path);
+        if (!fs.existsSync(local)) { remoteOnly++; if (bad.length < 6) bad.push(e.path); continue; }
+        const m = _md5FileSync(local);
+        if (m && m.toLowerCase() === String(e.md5).toLowerCase()) okCount++;
+        else { mismatch++; if (bad.length < 6) bad.push(e.path); }
+    }
+    trace(`UPDATE:PUSH:VERIFY total=${entries.length} ok=${okCount} mismatch=${mismatch} remoteOnly(notLocal)=${remoteOnly}`);
+    if (mismatch === 0 && remoteOnly === 0) { trace('UPDATE:PUSH:VERIFY clean — remote matches local'); return; }
+    const parts = [];
+    if (mismatch)   parts.push(`${mismatch} file(s) on the server don't match local`);
+    if (remoteOnly) parts.push(`${remoteOnly} stale remote file(s) the mirror did NOT delete`);
+    const msg = `CBE push verify: ${parts.join(' + ')}${bad.length ? ' — e.g. ' + bad.slice(0, 4).join(', ') : ''}.`;
+    try {
+        vscode.window.showWarningMessage(msg, 'Show Log').then(pick => {
+            if (pick === 'Show Log') { try { vscode.window.showTextDocument(vscode.Uri.file(path.join(context.extensionPath, 'logs', logName))); } catch (_) {} }
+        });
+    } catch (_) {}
 }
 
 /* ── Auto-pull update (client side) ───────────────────────────────────────
