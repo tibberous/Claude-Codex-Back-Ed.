@@ -394,6 +394,10 @@ function pushUpdateToServer(context) {
     }
     const session    = String(u.winscp_session || 'vps').trim();
     const remotePath = String(u.remote_path || '/home/trentontompkins.com/cbe').trim();
+    /* Secondary mirror target — a backup pull source if the primary host fails.
+       Same VPS today (so weak as DR; GitHub would be better), but free. Empty
+       string disables it. user 2026-05-31. */
+    const remotePathBackup = String(u.remote_path_backup != null ? u.remote_path_backup : '/home/tristate.digital/cbe').trim();
     const winscpExe  = String(u.winscp_exe || 'C:\\Program Files (x86)\\WinSCP\\WinSCP.com').trim();
     if (!fs.existsSync(winscpExe)) {
         trace(`UPDATE:PUSH skip — WinSCP.com not found at ${winscpExe}; set [updates] winscp_exe to the right path`);
@@ -438,6 +442,8 @@ function pushUpdateToServer(context) {
         'option confirm off',
         `open ${session}`,
         `synchronize remote -mirror -filemask="${filemask}" "${localPath}" "${remotePath}"`,
+        /* Secondary backup mirror in the same session (omitted if disabled). */
+        ...(remotePathBackup ? [`synchronize remote -mirror -filemask="${filemask}" "${localPath}" "${remotePathBackup}"`] : []),
         'exit',
         '',
     ].join('\r\n');
@@ -6149,6 +6155,11 @@ async function activate(context) {
     } else {
         trace(`UPDATE:PULL skipped — ours=${ourAutoUpdate} vscode=${vscodeAutoUpdate}`);
     }
+    /* Firstrun skin previews — generate any MISSING content-addressed
+       thumbnails (deferred, never blocks boot). Batched (--all) so PySide6
+       auto-installs ONCE and renders run sequentially, not 15 concurrent
+       pip-install races. No-ops once every skin has a preview. user 2026-05-31. */
+    setTimeout(() => { try { ensureSkinPreviews(context); } catch (e) { traceErr('ensureSkinPreviews', e); } }, 8000);
     /* Load i18n language files from languages/*.xml on activate so the
        translation table is in memory before the panel asks for strings. */
     try { loadLanguageFiles(context); } catch (e) { traceErr('loadLanguageFiles', e); }
@@ -6668,6 +6679,35 @@ function regenSkinPreview(context, id, force) {
         });
     } catch (e) {
         traceErr('regenSkinPreview', e);
+    }
+}
+
+/* Firstrun batch preview generation. Renders ALL missing skin thumbnails in
+   ONE `gen_skin_preview.py --all` process (the script skips skins that already
+   have a current preview), so the PySide6 auto-install happens ONCE and renders
+   run sequentially — NOT 15 concurrent regenSkinPreview spawns each racing to
+   pip-install PySide6. No-ops when every skin already has a preview. */
+function ensureSkinPreviews(context) {
+    try {
+        const skinsDir = path.join(context.extensionPath, 'skins');
+        const prevDir  = path.join(skinsDir, 'previews');
+        const skins = fs.existsSync(skinsDir)
+            ? fs.readdirSync(skinsDir).filter(n => n.toLowerCase().endsWith('.html')) : [];
+        let have = 0;
+        try { have = fs.existsSync(prevDir) ? fs.readdirSync(prevDir).filter(n => n.toLowerCase().endsWith('.png')).length : 0; } catch (_) {}
+        if (!skins.length || have >= skins.length) { trace(`SKIN:PREVIEWS ok (${have}/${skins.length})`); return; }
+        trace(`SKIN:PREVIEWS firstrun — have ${have}/${skins.length}, running gen_skin_preview --all (installs PySide6 once if needed)`);
+        const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
+        const script = path.join('tools', 'gen_skin_preview.py');
+        const args = (process.platform === 'win32' ? ['-3', script] : [script]).concat(['--all']);
+        const proc = spawn(pyCmd, args, { cwd: context.extensionPath, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+        let err = '';
+        if (proc.stderr) proc.stderr.on('data', d => { err += d.toString(); });
+        proc.on('error', e => traceErr('ensureSkinPreviews spawn', e));
+        proc.on('close', code => trace(`SKIN:PREVIEWS gen --all exit=${code}${code ? ' ' + err.trim().slice(0, 300) : ''}`));
+        proc.unref();
+    } catch (e) {
+        traceErr('ensureSkinPreviews', e);
     }
 }
 
