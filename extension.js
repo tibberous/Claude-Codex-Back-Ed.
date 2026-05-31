@@ -415,6 +415,8 @@ function pushUpdateToServer(context) {
         'data/',                // 1.74 GB per-machine QtWebEngine Chrome profile data
                                 // (cookies/cache/ActorSafetyLists/etc) — NEVER push
         'bridges/',             // per-target browser-profile build artifacts — per-machine
+        'skins/previews/',      // content-addressed skin thumbnails — generated
+                                // per-machine on demand (<theme>-<md5>.png); never sync
         'config.ini',           // per-machine secrets
         'domains.txt', 'wake.txt', 'prompt_history.txt',
         'tools/nssm.exe',       // bundled per-host binaries — server doesn't need

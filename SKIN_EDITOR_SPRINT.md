@@ -139,14 +139,29 @@ Status: ❌ not started. **5 ❌ tasks.** All new `case` blocks go in the big sw
 
 ---
 
-## Phase status summary
-- **Phase 0 — Single-file cutover:** ❌ not started — 6 tasks
+## Phase status summary (updated 2026-05-31)
+- **Phase 0 — Single-file cutover:** ✅ DONE (commit `4703c4a`)
+- **Phase 2 — Loader reads HTML not XML:** ✅ DONE (`4703c4a`)
+- **FLATTEN — `skins/<id>.html` + `<id>-assets/`, folders+XML gone:** ✅ DONE (commit `28ef6f6`)
 - **Phase 1 — Backup infrastructure:** ❌ not started — 4 tasks
-- **Phase 2 — Loader changes:** ❌ not started — 5 tasks
-- **Phase 3 — Settings UI:** ❌ not started — 6 tasks
-- **Phase 4 — Host handlers:** ❌ not started — 5 tasks
+- **Phase 4 — Host handlers (Save/SaveAsNew/Restore/getSource):** ❌ not started — 5 tasks
+- **Phase 3 — Settings UI (Edit/Save/SaveAsNew/Restore + warn modal):** ❌ not started — 6 tasks
+- **Phase 5 — Content-addressed auto-generated previews:** ❌ not started — see below
 
-**Total: 26 ❌ tasks, 0 ✅, 0 ⚠️.** Pre-req before any of it: commit the dirty tree (HEAD `d522934`).
+**Done:** P0 + P2 + flatten (3 commits). **Remaining:** the editor feature (P1, P4, P3) + P5 previews.
+
+---
+
+## Phase 5 — Content-addressed auto-generated skin previews (Trent, 2026-05-31)
+Status: ❌ not started.
+
+**Why:** previews are no longer shipped/synced (Trent deleted the static `.preview.png`). The extension generates them on demand, content-addressed so they self-refresh when a skin's HTML changes.
+
+- ❌ **Cache key:** `skins/previews/<id>-<md5[:6]>.png`, where `<md5[:6]>` = first 6 hex of the md5 of `skins/<id>.html`. (Generated previews live in `skins/previews/` — gitignored + push-excluded as of this session, so they never sync; each machine generates its own.)
+- ❌ **Generate-if-missing on load:** when the skin picker/loader enumerates skins, for each compute md5(html) → if `skins/previews/<id>-<md5>.png` is absent, generate it; delete any stale `skins/previews/<id>-*.png` (old md5s).
+- ❌ **Regenerate on Save:** the editor's Save (Phase 4) bumps the html → md5 changes → next load regenerates. Optionally trigger generation immediately after Save.
+- ❌ **The renderer:** `tools/render_skin_preview.py` is STALE (targets the deleted `skins/<id>/` manifest+css layout) and `render_skin.py` targets the old `.skin/index.html`. One must be updated to render a flat single-file `skins/<id>.html` → PNG (700×900 or a thumbnail). **Dependency risk:** these use Playwright → Selenium → QtWebEngine fallback — none guaranteed installed (same class as the ffmpeg gap). Decide: (a) reuse the offscreen QtWebEngine NN4 harness (`tools/nn4_agent_browser.py`) which is already in-house, or (b) render in a hidden webview via html2canvas + postMessage the PNG to the host (no external dep, less pixel-perfect), or (c) add the renderer to `_ensurePrerequisites` like ffmpeg. **OPEN — needs a decision before building.**
+- ❌ **Loader preview path:** change from `skins/<id>.preview.png` (flatten default, now always missing) to the content-addressed path above.
 
 ---
 
