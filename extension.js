@@ -89,7 +89,7 @@ const PROVIDERS = {
         keyField:   'anthropic_api_key',
         modelField: 'claude_model_choice',
         defaultModel: 'claude-sonnet-4-6',
-        models: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
+        models: ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
     },
     /* ── Logged-in Claude (the forked Claude Code path, restored) ──────────
        Hosts the REAL `claude` CLI agent (tool use, file edits, the full
@@ -105,7 +105,7 @@ const PROVIDERS = {
         cliAgent: true,
         modelField: 'claude_model_choice',
         defaultModel: 'claude-sonnet-4-6',
-        models: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
+        models: ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
     },
     openai: {
         label: 'ChatGPT (OpenAI)',
@@ -6163,6 +6163,12 @@ async function activate(context) {
        auto-installs ONCE and renders run sequentially, not 15 concurrent
        pip-install races. No-ops once every skin has a preview. user 2026-05-31. */
     setTimeout(() => { try { ensureSkinPreviews(context); } catch (e) { traceErr('ensureSkinPreviews', e); } }, 8000);
+    /* Live model-list refresh — once per day, deferred, best-effort. Fetches
+       each fetchable provider's current model list (so the dropdown shows
+       e.g. opus-4-8 instead of the hardcoded opus-4-7) and caches it in
+       globalState. Every fetch silent-fails to the hardcoded fallback — no
+       dialog, trace-only. Never blocks activation. user 2026-05-31. */
+    setTimeout(() => { ensureModelLists(context).catch(e => trace('MODELS:ENSURE failed ' + (e && e.message ? e.message : e))); }, 6000);
     /* Load i18n language files from languages/*.xml on activate so the
        translation table is in memory before the panel asks for strings. */
     try { loadLanguageFiles(context); } catch (e) { traceErr('loadLanguageFiles', e); }
@@ -7595,10 +7601,24 @@ function buildSettingsPayload(context) {
                 models = (cfg.azure && cfg.azure.deployment_name) ? [cfg.azure.deployment_name] : [];
             }
         } else {
-            models = (p.models && p.models.slice) ? p.models.slice() : [];
+            /* Today's live-fetched list if cached, else the hardcoded
+               PROVIDERS[id].models fallback (getProviderModels handles both). */
+            models = getProviderModels(context, id);
         }
-        const currentModel = getActiveModel(context, id);
-        if (currentModel && !models.includes(currentModel)) models.unshift(currentModel);
+        /* Keep the saved/active model selectable. If it's still a valid id,
+           surface it at the top. If a once-current model dropped out of the
+           freshly-fetched list, fall back to the provider's defaultModel so
+           the dropdown never shows a stale selection that no longer exists. */
+        let currentModel = getActiveModel(context, id);
+        if (currentModel && !models.includes(currentModel)) {
+            if (models.length && p.defaultModel && models.includes(p.defaultModel)) {
+                currentModel = p.defaultModel;
+            } else {
+                /* No usable default in the new list — keep showing the saved
+                   id so the user isn't silently switched off it. */
+                models.unshift(currentModel);
+            }
+        }
         return { id, label: p.label, models, current: currentModel, haveKey, bridge: !!p.bridge, bridgeTarget: p.bridgeTarget || null, cliAgent: !!p.cliAgent };
     });
     /* SFX prefs are persisted in workspaceState. Booleans + a 0..1 number;
@@ -11199,6 +11219,191 @@ function _probeOllamaDaemon(timeoutMs) {
         req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve({ ok: false }); });
         req.end();
     });
+}
+
+/* ── Live model-list fetch (once-per-day, silent-fail) ────────────────────
+   Model lists in PROVIDERS are hardcoded and drift (e.g. opus-4-7 vs the
+   current opus-4-8). ensureModelLists() fetches each fetchable provider's
+   live list ONCE PER DAY, caches it in globalState under MODEL_CACHE_KEY,
+   and getProviderModels() serves today's cached list everywhere the UI
+   surfaces models — falling back to the hardcoded PROVIDERS[id].models on
+   any miss. Every fetch is best-effort: a failure is trace()'d and the
+   hardcoded fallback is kept. NEVER a dialog/error popup. */
+const MODEL_CACHE_KEY = 'cbeModelCache';
+
+function _todayStamp() {
+    /* Local-date YYYY-MM-DD so the daily-skip flips at the user's midnight. */
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/* GET a URL with arbitrary headers (the shared _httpsGetBuffer hardcodes a
+   single UA header and can't carry x-api-key / Authorization). Resolves the
+   raw Buffer; rejects on transport error / HTTP >= 400. */
+function _httpsGetBufferWithHeaders(urlStr, headers, timeoutMs) {
+    return new Promise((resolve, reject) => {
+        const https = require('https');
+        const url = require('url');
+        const parsed = url.parse(urlStr);
+        const req = https.request({
+            method: 'GET',
+            hostname: parsed.hostname,
+            port: parsed.port || 443,
+            path: parsed.path,
+            headers: Object.assign({ 'User-Agent': 'ClaudeCodexBlack/model-list' }, headers || {}),
+            timeout: timeoutMs || 12000,
+        }, (res) => {
+            const chunks = [];
+            res.on('data', (c) => chunks.push(c));
+            res.on('end', () => {
+                if (res.statusCode && res.statusCode >= 400) {
+                    return reject(new Error(`HTTP ${res.statusCode} for ${parsed.hostname}${parsed.pathname || ''}`));
+                }
+                resolve(Buffer.concat(chunks));
+            });
+        });
+        req.on('error', reject);
+        req.on('timeout', () => req.destroy(new Error('timeout')));
+        req.end();
+    });
+}
+
+/* Per-provider live fetch. Each returns a filtered array of model-id strings
+   (may throw — the caller wraps in try/catch and keeps the fallback). Only
+   key-bearing / local providers are fetchable; bridges & keyless providers
+   return null so ensureModelLists() skips them entirely. */
+async function _fetchModelsForProvider(context, providerId) {
+    switch (providerId) {
+        case 'anthropic': {
+            const key = getProviderKey(context, providerId);
+            if (!key || key === '<bridge>') return null;
+            const buf = await _httpsGetBufferWithHeaders('https://api.anthropic.com/v1/models',
+                { 'x-api-key': key, 'anthropic-version': '2023-06-01' }, 12000);
+            const j = JSON.parse(buf.toString('utf8'));
+            return (Array.isArray(j.data) ? j.data : []).map(m => m && m.id).filter(Boolean);
+        }
+        case 'claudeCode': {
+            /* OAuth subscription path — no API key. If the token is missing /
+               expired _readClaudeOAuthToken throws; if Anthropic 401s the
+               OAuth scope against /v1/models, _httpsGetBufferWithHeaders
+               rejects. Either way the caller keeps the hardcoded fallback. */
+            const tok = _readClaudeOAuthToken();
+            const buf = await _httpsGetBufferWithHeaders('https://api.anthropic.com/v1/models',
+                { 'Authorization': `Bearer ${tok}`, 'anthropic-version': '2023-06-01' }, 12000);
+            const j = JSON.parse(buf.toString('utf8'));
+            return (Array.isArray(j.data) ? j.data : []).map(m => m && m.id).filter(Boolean);
+        }
+        case 'openai': {
+            const key = getProviderKey(context, providerId);
+            if (!key || key === '<bridge>') return null;
+            const buf = await _httpsGetBufferWithHeaders('https://api.openai.com/v1/models',
+                { 'Authorization': `Bearer ${key}` }, 12000);
+            const j = JSON.parse(buf.toString('utf8'));
+            const ids = (Array.isArray(j.data) ? j.data : []).map(m => m && m.id).filter(Boolean);
+            /* Keep chat-capable families; drop non-chat modalities. */
+            return ids.filter(id =>
+                /^(gpt-|o\d|chatgpt-)/.test(id) &&
+                !/(embed|audio|image|whisper|tts|realtime|moderation|transcribe|search|dall|davinci|babbage)/i.test(id));
+        }
+        case 'grok': {
+            const key = getProviderKey(context, providerId);
+            if (!key || key === '<bridge>') return null;
+            const buf = await _httpsGetBufferWithHeaders('https://api.x.ai/v1/models',
+                { 'Authorization': `Bearer ${key}` }, 12000);
+            const j = JSON.parse(buf.toString('utf8'));
+            return (Array.isArray(j.data) ? j.data : []).map(m => m && m.id).filter(Boolean);
+        }
+        case 'gemini': {
+            const key = getProviderKey(context, providerId);
+            if (!key || key === '<bridge>') return null;
+            const buf = await _httpsGetBufferWithHeaders(
+                'https://generativelanguage.googleapis.com/v1beta/models?key=' + encodeURIComponent(key),
+                {}, 12000);
+            const j = JSON.parse(buf.toString('utf8'));
+            return (Array.isArray(j.models) ? j.models : [])
+                .map(m => m && m.name ? String(m.name).replace(/^models\//, '') : '')
+                .filter(id => id && /^gemini-/.test(id));
+        }
+        case 'deepseek': {
+            const key = getProviderKey(context, providerId);
+            if (!key || key === '<bridge>') return null;
+            const buf = await _httpsGetBufferWithHeaders('https://api.deepseek.com/models',
+                { 'Authorization': `Bearer ${key}` }, 12000);
+            const j = JSON.parse(buf.toString('utf8'));
+            return (Array.isArray(j.data) ? j.data : []).map(m => m && m.id).filter(Boolean);
+        }
+        case 'ollama': {
+            /* Reuse the existing local-daemon tags probe. .ok=false (daemon
+               down) → null so we keep the fallback rather than wipe the list. */
+            const r = await _probeOllamaDaemon(2000);
+            if (!r || !r.ok) return null;
+            return (r.models || []).filter(Boolean);
+        }
+        default:
+            /* bridges + azure + any keyless/dynamic provider: not fetchable. */
+            return null;
+    }
+}
+
+/* Providers we attempt a live fetch for. Everything else (bridges, azure,
+   dynamically-registered bridge extensions) keeps its hardcoded list. */
+const MODEL_FETCH_PROVIDERS = ['anthropic', 'claudeCode', 'openai', 'grok', 'gemini', 'deepseek', 'ollama'];
+
+/* Returns today's cached fetched model list for a provider if present,
+   else the hardcoded PROVIDERS[providerId].models fallback. This is the
+   single accessor the UI payload routes through. */
+function getProviderModels(context, providerId) {
+    const p = PROVIDERS[providerId];
+    const fallback = (p && p.models && p.models.slice) ? p.models.slice() : [];
+    try {
+        const cache = context.globalState.get(MODEL_CACHE_KEY) || {};
+        const entry = cache[providerId];
+        if (entry && entry.date === _todayStamp() && Array.isArray(entry.models) && entry.models.length) {
+            return entry.models.slice();
+        }
+    } catch (_) { /* fall through to hardcoded fallback */ }
+    return fallback;
+}
+
+/* Deferred, best-effort, once-per-day live model-list refresh. For each
+   fetchable provider: if today's cache entry already exists, SKIP; else
+   fetch + filter + store under MODEL_CACHE_KEY. Each provider is wrapped in
+   its own try/catch — a failure traces and continues; never throws, never
+   shows a dialog. */
+async function ensureModelLists(context) {
+    let cache;
+    try {
+        cache = context.globalState.get(MODEL_CACHE_KEY) || {};
+    } catch (_) {
+        cache = {};
+    }
+    const today = _todayStamp();
+    let changed = false;
+    for (const providerId of MODEL_FETCH_PROVIDERS) {
+        try {
+            if (cache[providerId] && cache[providerId].date === today) {
+                continue;   /* already fetched today */
+            }
+            const models = await _fetchModelsForProvider(context, providerId);
+            if (Array.isArray(models) && models.length) {
+                cache[providerId] = { date: today, models };
+                changed = true;
+                trace(`MODELS:FETCH ${providerId} ok (${models.length})`);
+            } else {
+                /* null = not fetchable / no key / daemon down — keep fallback,
+                   don't poison the cache so we retry next activation. */
+                trace(`MODELS:FETCH ${providerId} skipped (no list)`);
+            }
+        } catch (e) {
+            /* Silent-fail: trace only, keep the hardcoded fallback. */
+            trace('MODELS:FETCH ' + providerId + ' failed ' + (e && e.message ? e.message : e));
+        }
+    }
+    if (changed) {
+        try { await context.globalState.update(MODEL_CACHE_KEY, cache); }
+        catch (e) { trace('MODELS:CACHE update failed ' + (e && e.message ? e.message : e)); }
+    }
 }
 
 /* Start `ollama serve` detached. Returns child or null if spawn failed. */
