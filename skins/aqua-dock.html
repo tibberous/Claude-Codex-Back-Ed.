@@ -1803,8 +1803,10 @@ body {
 
 /* ── The dock strip ───────────────────────────────────────────────────── */
 .prompt-toolbar {
-  margin: 0 auto 16px auto;
-  max-width: max-content;
+  /* Same width as the prompt box (user 2026-05-31): full panel width with the
+     same 14px side gutters, instead of centered max-content. */
+  margin: 0 14px 16px 14px;
+  max-width: none;
   display: flex;
   flex-direction: column;
   align-items: center;
