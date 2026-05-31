@@ -40,3 +40,155 @@
     radial-gradient(circle at 35% 30%, #5a8ce5, #1d4ed8 60%, #1e3a8a 100%) !important;
   transform: translateY(-50%) scale(0.96) !important;
 }
+
+/* ============================================================
+   Claude-Code clone overlay
+   Matches the official Anthropic Claude Code extension
+   (anthropic.claude-code-2.1.145) chat + composer chrome:
+   - VSCode chat font tokens
+   - 680px max-width centered chat + composer
+   - bordered cards with faint drop shadow
+   - monochrome line-art toolbar icons
+   - horizontal grey divider above toolbar
+   Values pulled from Claude Code's webview/index.css:
+     max-width:680px  margin:0 auto
+     box-shadow: 0 1px 2px #0000001a
+     border-radius: var(--corner-radius-large) = 8px
+     border: 1px solid var(--vscode-inlineChatInput-border)
+   ============================================================ */
+
+:root {
+  --cc-input-border: var(--vscode-inlineChatInput-border, rgba(255,255,255,0.08));
+  --cc-input-bg: var(--vscode-menu-background, #1f1f1f);
+  --cc-input-fg: var(--vscode-input-foreground, #cccccc);
+  --cc-divider: var(--vscode-widget-border, rgba(255,255,255,0.07));
+  --cc-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.10);
+  --cc-shadow-icon: 0 1px 1px rgba(0, 0, 0, 0.30);
+  --cc-radius: 8px;
+}
+
+body {
+  font-family: var(--vscode-chat-font-family, var(--vscode-font-family)) !important;
+  font-size: var(--vscode-chat-font-size, 13px) !important;
+}
+
+/* Chat stream — center at 680px, modest side padding */
+#main-scroll,
+.chat-scroll,
+.msgs-container,
+.main-content,
+main {
+  max-width: 680px !important;
+  margin: 0 auto !important;
+  padding-left: 12px !important;
+  padding-right: 12px !important;
+  box-sizing: border-box;
+}
+
+/* Message cards: bordered + faint shadow + rounded */
+.msg {
+  border: 1px solid var(--cc-divider) !important;
+  border-radius: var(--cc-radius) !important;
+  background: var(--cc-input-bg) !important;
+  color: var(--cc-input-fg) !important;
+  padding: 12px 14px !important;
+  margin: 8px 0 !important;
+  box-shadow: var(--cc-shadow-card) !important;
+}
+
+/* Info / banner messages stay flat (no card chrome) */
+.msg.info {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-bottom: 1px solid var(--cc-divider) !important;  /* divider #1 — under banner */
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: var(--vscode-descriptionForeground) !important;
+  opacity: 0.85;
+  padding: 8px 14px !important;
+  margin: 0 0 8px 0 !important;
+}
+
+/* Composer / prompt-shell — bordered card, 680px centered, faint shadow */
+.prompt-shell {
+  max-width: 680px !important;
+  margin: 8px auto !important;
+  border: 1px solid var(--cc-input-border) !important;
+  border-radius: var(--cc-radius) !important;
+  background: var(--cc-input-bg) !important;
+  box-shadow: var(--cc-shadow-card) !important;
+  overflow: hidden;
+}
+
+/* Divider #2 — between input row and toolbar inside the composer */
+.prompt-toolbar {
+  border-top: 1px solid var(--cc-divider) !important;
+  background: transparent !important;
+}
+
+/* Toolbar icon strip — minimal padding, tight gaps */
+.toolbar-tools {
+  padding: 4px 6px !important;
+  gap: 2px !important;
+  background: transparent !important;
+}
+
+/* Toolbar buttons — small square hit-area, no border */
+.tool-button {
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 4px !important;
+  border: none !important;
+  background: transparent !important;
+}
+
+.tool-button:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255,255,255,0.06)) !important;
+}
+
+/* Icons themselves — flat monochrome grey + real faint drop shadow.
+   `brightness(0) invert(X)` flattens any colored SVG to single-tone grey;
+   X = 0.62 reads as light grey on the VSCode dark background. */
+.tool-button img {
+  width: 16px !important;
+  height: 16px !important;
+  filter:
+    brightness(0)
+    invert(0.62)
+    drop-shadow(var(--cc-shadow-icon)) !important;
+  opacity: 0.9;
+  transition: filter 0.12s ease, opacity 0.12s ease;
+}
+
+.tool-button:hover img {
+  filter:
+    brightness(0)
+    invert(0.85)
+    drop-shadow(var(--cc-shadow-icon)) !important;
+  opacity: 1;
+}
+
+/* Disabled-state buttons fade further */
+.tool-button[disabled] img,
+.tool-button.is-disabled img {
+  opacity: 0.45;
+}
+
+/* Prompt input — match Claude Code's font (no forced monospace) */
+#promptBox,
+.prompt-input,
+.prompt-shell textarea {
+  font-family: var(--vscode-chat-font-family, var(--vscode-font-family)) !important;
+  font-size: var(--vscode-chat-font-size, 13px) !important;
+  background: transparent !important;
+  color: var(--cc-input-fg) !important;
+  border: none !important;
+}
+
+/* Focused composer — Claude Code uses a 3px translucent focus ring */
+.prompt-shell:focus-within {
+  border-color: var(--vscode-focusBorder, var(--cc-input-border)) !important;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--vscode-focusBorder, #007fd4) 12%, transparent),
+    var(--cc-shadow-card) !important;
+}

@@ -351,26 +351,30 @@
             "ElevenLabs (premium upgrade — high-quality cloud TTS, requires [elevenlabs] api_key in config.ini)",
             "OpenAI tts-1 (uses [api_keys] openai_api_key)"
           ],
-          "description": "Text-to-speech provider. TTS uses keyless WebSpeech by default. STT uses keyless whisper-local (downloads a 75MB model on first use); WebSpeech is the fallback. Category: **Voice**."
+          "description": "Text-to-speech provider. TTS uses keyless WebSpeech by default. ElevenLabs is the premium upgrade. Category: **Voice**."
         },
         "codexBlackEd.sttProvider": {
           "type": "string",
-          "default": "whisper-local",
+          "default": "elevenlabs",
           "enum": [
-            "webspeech",
-            "whisper-local",
             "elevenlabs",
+            "whisper-cpp-stream",
+            "faster-whisper-stream",
             "openai",
-            "anthropic"
+            "deepgram",
+            "anthropic",
+            "webspeech"
           ],
           "enumDescriptions": [
-            "WebSpeech (fallback — browser-native SpeechRecognition; only works when the Chromium sandbox allows mic access)",
-            "Whisper-local (recommended free — runs locally, no key, 100% offline, near-best quality; one-time 75MB download. Windows only — falls back to WebSpeech on macOS/Linux)",
-            "ElevenLabs Scribe (premium upgrade — lowest WER, requires [elevenlabs] api_key in config.ini)",
-            "OpenAI gpt-4o-transcribe (uses [api_keys] openai_api_key — NOT older Whisper)",
-            "Anthropic streaming STT (Deepgram Nova-3 proxy — uses your Claude Code OAuth login, no separate key; included with a Claude subscription and counts against its rate limits. Streams partials in real time. Undocumented endpoint — may change without notice)"
+            "ElevenLabs Scribe v2 (DEFAULT — uses [elevenlabs] api_key in config.ini; lowest WER, multilingual, ~150ms streaming latency)",
+            "Whisper.cpp realtime (free / offline — runs locally via the whisper.cpp stream binary; one-time ~75MB GitHub release download. Windows only — falls back to ElevenLabs on macOS/Linux)",
+            "Faster-Whisper realtime (free / offline — CTranslate2 backend + webrtcvad sliding window; one-time ~150MB Python venv bootstrap with faster-whisper + numpy + webrtcvad. Windows only)",
+            "OpenAI gpt-4o-transcribe (uses [api_keys] openai_api_key — batch/streaming via Realtime API)",
+            "Deepgram Nova-3 (uses [deepgram] api_key in config.ini — cloud streaming)",
+            "Anthropic streaming STT (undocumented Deepgram Nova-3 proxy — uses your Claude Code OAuth login. May break without notice; prefer Deepgram direct)",
+            "WebSpeech (last-resort fallback — browser-native SpeechRecognition; only works when the Chromium sandbox allows mic access)"
           ],
-          "description": "Speech-to-text provider. TTS uses keyless WebSpeech by default. STT uses keyless whisper-local (downloads a 75MB model on first use); WebSpeech is the fallback. 'anthropic' streams via Anthropic's own dictation endpoint using your Claude Code login. Category: **Voice**."
+          "description": "Speech-to-text provider. DEFAULT is ElevenLabs Scribe v2 (uses [elevenlabs] api_key — same key as TTS). Two realtime local options (whisper.cpp + faster-whisper) replace the deprecated whisper-local batch path as of 2026-05-30. Category: **Voice**."
         },
         "codexBlackEd.projectFolder": {
           "type": "string",

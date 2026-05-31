@@ -33,26 +33,45 @@ const STATE_TTS_ELEVEN_SIMILARITY = 'codexBlackEd.ttsElevenSimilarity'; /* 0–1
 const STATE_STT_DICTIONARY  = 'codexBlackEd.sttDictionary';   /* comma/newline terms */
 const STATE_STT_LANGUAGE    = 'codexBlackEd.sttLanguage';     /* BCP-47 or '' */
 const OPENAI_TTS_VOICES = ['alloy','echo','fable','onyx','nova','shimmer','ash','sage','coral'];
-/* Voice providers (TTS + STT). 'webspeech' = browser-native (panel-side),
-   'whisper-local' = STT via whisper.cpp's HTTP server spawned on demand
-   (keyless, offline, ~75MB first-run model download, Windows-only).
+/* Voice providers (TTS + STT). 'webspeech' = browser-native (panel-side).
+   Realtime local STT options (2026-05-30 — replaces the batch whisper-local
+   HTTP-server path):
+     'whisper-cpp-stream'    — whisper.cpp's `stream` example binary, fed raw
+                               PCM via stdin (Windows-first; SDL2 fallback
+                               possible cross-platform later).
+     'faster-whisper-stream' — Python CTranslate2 implementation w/ webrtcvad
+                               + sliding window. Bootstraps a per-repo venv on
+                               first use (~150MB model download).
    'elevenlabs' / 'openai' are network-backed premium options. 'anthropic'
    = STT only, via Anthropic's undocumented Deepgram-Nova-3 WebSocket proxy,
    authenticated with the Claude Code OAuth token (so it's included with a
    Claude subscription — no separate key). The legacy host-side
    SpeechRecognition path was retired 2026-05-26. */
-const VOICE_PROVIDERS = ['webspeech', 'whisper-local', 'elevenlabs', 'openai', 'anthropic'];
+/* `deepgram` is the BYO-key first-class Deepgram provider — user supplies
+   their own Deepgram API key via [deepgram] api_key in config.ini. Distinct
+   from `anthropic` (which proxies Deepgram Nova-3 through Anthropic's STT
+   endpoint, billed against the Claude Code OAuth token) — added 2026-05-28
+   per user request so people who already pay Deepgram can use that key
+   directly without going through Anthropic's quota. */
+const VOICE_PROVIDERS = ['webspeech', 'whisper-cpp-stream', 'faster-whisper-stream', 'elevenlabs', 'openai', 'anthropic', 'deepgram'];
+/* TTS default = webspeech (keyless, browser-native).
+   STT default = elevenlabs (per user memory `elevenlabs_default.md` — ElevenLabs
+   is the canonical default for STT + TTS across all surfaces; falls back to
+   openai → realtime-local → webspeech when the key is missing). Trent 2026-05-27. */
 const VOICE_PROVIDER_DEFAULT = 'webspeech';
-/* whisper-local ships a Windows .exe (whisper.cpp server). On macOS/Linux it
-   isn't available, so we hide it from the runtime list and soft-pin selectors
-   to webspeech.
-   TODO(fork: linux/mac whisper-local) — whisper.cpp is open-source; a fork can
-   compile Linux/macOS server binaries in Docker and swap the .exe lookup for a
-   platform-specific binary table (server-linux-x64, server-macos-arm64, etc). */
+const STT_PROVIDER_DEFAULT = 'elevenlabs';
+/* Both realtime local providers depend on ffmpeg dshow input → Windows-first.
+   On macOS/Linux we hide them from the runtime list and soft-pin selectors to
+   the default.
+   TODO(cross-platform): faster-whisper itself runs anywhere; only the ffmpeg
+   capture is platform-specific. A future PR can swap dshow → avfoundation
+   (macOS) / pulse (linux). whisper.cpp's `stream` example also has SDL2
+   capture mode which works cross-platform without ffmpeg. */
+const REALTIME_LOCAL_STT_PROVIDERS = ['whisper-cpp-stream', 'faster-whisper-stream'];
 function getRuntimeVoiceProviders() {
     return (process.platform === 'win32')
         ? VOICE_PROVIDERS
-        : VOICE_PROVIDERS.filter(p => p !== 'whisper-local');
+        : VOICE_PROVIDERS.filter(p => !REALTIME_LOCAL_STT_PROVIDERS.includes(p));
 }
 const SKINS_DIR_NAME = 'skins';
 const CONFIG_INI_NAME = 'config.ini';
@@ -65,8 +84,24 @@ const secretsCache = {};   /* providerId -> apiKey | null. Populated at activate
    targets the direct xAI API (api.x.ai) — not the grok.com browser bridge. */
 const PROVIDERS = {
     anthropic: {
-        label: 'Claude (Anthropic)',
+        label: 'Claude (API key)',
         keyField:   'anthropic_api_key',
+        modelField: 'claude_model_choice',
+        defaultModel: 'claude-sonnet-4-6',
+        models: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
+    },
+    /* ── Logged-in Claude (the forked Claude Code path, restored) ──────────
+       Hosts the REAL `claude` CLI agent (tool use, file edits, the full
+       loop) running against the Claude Code OAuth subscription login — no
+       API key. Same auth + billing as bare Claude Code. cliAgent:true routes
+       chat through streamClaudeAgent() instead of the HTTP-provider stream;
+       the spawn env strips ANTHROPIC_API_KEY so the CLI uses OAuth, not the
+       API-credit ledger. This is NOT a browser bridge — for Claude a web
+       bridge is pointless (claude.ai web + Claude Code share one subscription
+       pool), so the old claudeBridge was removed in favor of this. */
+    claudeCode: {
+        label: 'Claude (logged in)',
+        cliAgent: true,
         modelField: 'claude_model_choice',
         defaultModel: 'claude-sonnet-4-6',
         models: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
@@ -117,7 +152,11 @@ const PROVIDERS = {
     grokBridge:    { label: 'Grok (browser bridge)',    bridge: true, bridgeTarget: 'grok',    defaultModel: 'grok-4',         models: ['grok-4', 'grok-4-fast', 'grok-3'] },
     copilotBridge: { label: 'Copilot (browser bridge)', bridge: true, bridgeTarget: 'copilot', defaultModel: 'gpt-4',          models: ['gpt-4'] },
     geminiBridge:  { label: 'Gemini (browser bridge)',  bridge: true, bridgeTarget: 'gemini',  defaultModel: 'gemini-2.5-pro', models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
-    claudeBridge:  { label: 'Claude (browser bridge)',  bridge: true, bridgeTarget: 'claude',  defaultModel: 'claude-sonnet-4-6', models: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'] },
+    /* NOTE: no claudeBridge. A web bridge buys nothing for Claude — claude.ai
+       web and Claude Code draw from the SAME subscription pool — so Claude is
+       served by the `claudeCode` logged-in agent (above) + the `anthropic`
+       API-key provider. Bridges remain for ChatGPT/Grok/Copilot/Gemini where
+       web vs API billing actually differ. */
     ollamaBridge:  { label: 'Ollama (local)',           bridge: true, bridgeTarget: 'ollama',  defaultModel: 'llama3.2:3b',    models: ['llama3.2:3b', 'llama3.2', 'qwen2.5', 'mistral'] },
     /* deepseekBridge is registered dynamically from extensions/deepseek.bridge
        via loadBridgeExtensions() at activation. Add other browser-bridge
@@ -135,7 +174,6 @@ const BRIDGE_PORTS = {
     grok:     8789,
     copilot:  8790,
     gemini:   8791,
-    claude:   8792,
     ollama:   8793,
     /* deepseek: registered by loadBridgeExtensions() from extensions/deepseek.bridge */
 };
@@ -153,7 +191,6 @@ const BRIDGE_EXE_NAME = {
     grok:     UNIFIED_BRIDGE_EXE,
     copilot:  UNIFIED_BRIDGE_EXE,
     gemini:   UNIFIED_BRIDGE_EXE,
-    claude:   UNIFIED_BRIDGE_EXE,
     ollama:   UNIFIED_BRIDGE_EXE,
     /* deepseek: registered by loadBridgeExtensions() from extensions/deepseek.bridge */
 };
@@ -794,7 +831,48 @@ function readConfigIni(extensionPath) {
 function _getElevenLabsKey(context) {
     try {
         const cfg = readConfigIni(context.extensionPath) || {};
-        return (cfg.elevenlabs && cfg.elevenlabs.api_key) || process.env.ELEVENLABS_API_KEY || '';
+        let k = (cfg.elevenlabs && cfg.elevenlabs.api_key) || '';
+        if (k) return k;
+        if (process.env.ELEVENLABS_API_KEY) return process.env.ELEVENLABS_API_KEY;
+        /* Fallback to the master TrioDesktop config dump (per user policy:
+           TrioDesktop config.ini is the canonical key dump for all projects).
+           Windows-only path; harmless on macOS/Linux (file just doesn't exist). */
+        try {
+            const fs = require('fs');
+            const path = require('path');
+            const master = path.join('C:', 'TrioDesktop', 'config.ini');
+            if (fs.existsSync(master)) {
+                const txt = fs.readFileSync(master, 'utf8');
+                /* Tiny inline parser — read [elevenlabs] api_key = ... */
+                const m = /^\s*\[elevenlabs\][\s\S]*?^\s*api_key\s*=\s*([^\r\n]+)/mi.exec(txt);
+                if (m && m[1]) return m[1].trim();
+            }
+        } catch (_) { /* best-effort fallback */ }
+        return '';
+    } catch (e) { return ''; }
+}
+
+/* Mirror of _getElevenLabsKey — pulls a Deepgram API key from config.ini's
+   [deepgram] api_key, then DEEPGRAM_API_KEY env, then the master TrioDesktop
+   config.ini dump per the same canonical-keys policy. Used by the
+   `provider === 'deepgram'` STT branch below. */
+function _getDeepgramKey(context) {
+    try {
+        const cfg = readConfigIni(context.extensionPath) || {};
+        let k = (cfg.deepgram && cfg.deepgram.api_key) || '';
+        if (k) return k;
+        if (process.env.DEEPGRAM_API_KEY) return process.env.DEEPGRAM_API_KEY;
+        try {
+            const fs = require('fs');
+            const path = require('path');
+            const master = path.join('C:', 'TrioDesktop', 'config.ini');
+            if (fs.existsSync(master)) {
+                const txt = fs.readFileSync(master, 'utf8');
+                const m = /^\s*\[deepgram\][\s\S]*?^\s*api_key\s*=\s*([^\r\n]+)/mi.exec(txt);
+                if (m && m[1]) return m[1].trim();
+            }
+        } catch (_) { /* best-effort fallback */ }
+        return '';
     } catch (e) { return ''; }
 }
 
@@ -802,17 +880,33 @@ let _whisperNonWinWarned = false;
 function getVoiceProvider(context, kind /* 'tts' | 'stt' */) {
     const key = (kind === 'stt') ? STATE_STT_PROVIDER : STATE_TTS_PROVIDER;
     const v = context.workspaceState.get(key);
-    /* whisper-local is Windows-only — soft-pin to webspeech elsewhere. */
-    if (v === 'whisper-local' && process.platform !== 'win32') {
+    /* Per-kind default: STT → elevenlabs (per user memory `elevenlabs_default.md`),
+       TTS → webspeech (keyless, no key required). Trent 2026-05-27. */
+    const defaultForKind = (kind === 'stt') ? STT_PROVIDER_DEFAULT : VOICE_PROVIDER_DEFAULT;
+    /* Legacy stored value: 'whisper-local' was removed 2026-05-30 in favor of
+       the two realtime providers (whisper-cpp-stream + faster-whisper-stream).
+       Auto-migrate stale selections to the canonical realtime equivalent. */
+    if (v === 'whisper-local') return (kind === 'stt' && process.platform === 'win32')
+        ? 'whisper-cpp-stream' : defaultForKind;
+    /* Realtime local STT providers depend on ffmpeg dshow → Windows-only.
+       Soft-pin to default elsewhere. */
+    if (REALTIME_LOCAL_STT_PROVIDERS.includes(v) && process.platform !== 'win32') {
         if (!_whisperNonWinWarned) {
             _whisperNonWinWarned = true;
-            trace('whisper-local soft-pinned to webspeech: not Windows (' + process.platform + ')');
+            trace(v + ' soft-pinned to ' + defaultForKind + ': not Windows (' + process.platform + ')');
         }
-        return 'webspeech';
+        return defaultForKind;
     }
     /* anthropic is STT-only (no TTS) — if it leaked into a tts slot, fall back. */
-    if (v === 'anthropic' && kind === 'tts') return VOICE_PROVIDER_DEFAULT;
-    return VOICE_PROVIDERS.includes(v) ? v : VOICE_PROVIDER_DEFAULT;
+    if (v === 'anthropic' && kind === 'tts') return defaultForKind;
+    /* WebSpeech is structurally dead for STT inside the VSCode webview sandbox
+       (Electron denies SpeechRecognition / getUserMedia regardless of the OS
+       grant). A stale 'webspeech' selection here causes the red "WebSpeech
+       denied by sandbox" banner on every mic click. Auto-promote to the
+       canonical STT default (elevenlabs) — Trent 2026-05-29. WebSpeech remains
+       valid for TTS (speechSynthesis IS available in the webview). */
+    if (kind === 'stt' && v === 'webspeech') return defaultForKind;
+    return VOICE_PROVIDERS.includes(v) ? v : defaultForKind;
 }
 
 /* Server-side TTS: take text, return base64 audio (mp3) the panel plays
@@ -990,28 +1084,13 @@ async function handleSttRequest(panel, context, msg) {
             }
             const j = await res.json();
             text = String((j && j.text) || '').trim();
-        } else if (provider === 'whisper-local') {
-            /* Local whisper.cpp server — keyless, offline, ~75MB tiny.en model
-               downloaded on first call. Windows-only (ships a .exe). On any
-               failure (no network, can't extract release, wrong OS, etc.)
-               soft-pin the webspeech fallback so we don't pummel the user
-               every mic click. */
-            if (process.platform !== 'win32') {
-                throw new Error('whisper-local is Windows-only — select WebSpeech or a cloud provider on this OS');
-            }
-            try {
-                text = await handleWhisperLocalStt(context, buf, mime, dictionary);
-            } catch (whisperErr) {
-                trace('whisper-local failure: ' + (whisperErr && whisperErr.message));
-                try { context.globalState.update(WHISPER_GLOBAL_KEY_FALLBACK, true); } catch (_) {}
-                try {
-                    vscode.window.showWarningMessage(
-                        'Whisper-local failed: ' + ((whisperErr && whisperErr.message) || whisperErr) +
-                        '. Falling back to WebSpeech (Chromium-based).'
-                    );
-                } catch (_) {}
-                throw new Error('whisper-local: ' + ((whisperErr && whisperErr.message) || whisperErr));
-            }
+        } else if (provider === 'whisper-cpp-stream' || provider === 'faster-whisper-stream') {
+            /* Realtime local providers don't service the batch /sttRequest
+               path — they're streaming-only. The panel routes them to
+               sttHostStart{Wcpp,Fw} instead. If we still see them here it
+               means a stale code path called us with a recorded clip; surface
+               a clear error. */
+            throw new Error(provider + ' is realtime-only — no batch transcription path');
         } else if (provider === 'anthropic') {
             /* Anthropic's undocumented streaming STT (Deepgram Nova-3 proxy),
                authenticated with the Claude Code OAuth token — included with a
@@ -1022,6 +1101,47 @@ async function handleSttRequest(panel, context, msg) {
                 keyterms: _splitDictionaryTerms(dictionary),
                 language: (typeof msg.language === 'string' && msg.language) ? msg.language : String(context.workspaceState.get(STATE_STT_LANGUAGE) || ''),
             });
+        } else if (provider === 'deepgram') {
+            /* Direct Deepgram REST — user supplies their own Deepgram API key
+               via [deepgram] api_key in config.ini. Same Nova-3 model the
+               Anthropic proxy uses, but BYO billing. Custom dictionary maps
+               to `keyterm=` query params (Deepgram tokens up to 100 keyterms);
+               language maps to `language=` (Nova-3 auto-detects if blank). */
+            const key = _getDeepgramKey(context);
+            if (!key) throw new Error('no [deepgram] api_key in config.ini');
+            const params = new URLSearchParams();
+            params.set('model', 'nova-3');
+            params.set('smart_format', 'true');
+            params.set('punctuate', 'true');
+            const lang = (typeof msg.language === 'string' && msg.language)
+                ? msg.language
+                : String(context.workspaceState.get(STATE_STT_LANGUAGE) || '');
+            if (lang) params.set('language', lang);
+            for (const kt of _splitDictionaryTerms(dictionary).slice(0, 100)) {
+                if (kt) params.append('keyterm', kt);
+            }
+            const res = await fetch(`https://api.deepgram.com/v1/listen?${params.toString()}`, {
+                method: 'POST',
+                headers: { 'Authorization': `Token ${key}`, 'Content-Type': mime },
+                body: buf,
+            });
+            if (!res.ok) {
+                let detail = `HTTP ${res.status}`;
+                try {
+                    const j = await res.json();
+                    if (j && (j.err_msg || j.reason || j.message)) {
+                        detail = j.err_msg || j.reason || j.message;
+                    }
+                } catch (_) {}
+                throw new Error('Deepgram STT: ' + detail);
+            }
+            const j = await res.json();
+            text = String(
+                ((j.results && j.results.channels && j.results.channels[0]
+                  && j.results.channels[0].alternatives
+                  && j.results.channels[0].alternatives[0]
+                  && j.results.channels[0].alternatives[0].transcript) || '')
+            ).trim();
         } else {
             throw new Error('webspeech is a panel-side provider; no host call');
         }
@@ -1317,7 +1437,9 @@ function maskPassword(pw) {
    Add UI for it. */
 function defaultAccountType(providerId) {
     const p = PROVIDERS[providerId] || {};
-    if (providerId === 'ollamaBridge' || providerId === 'ollama') return 'none';
+    /* cliAgent (logged-in Claude Code) + local Ollama have no key/account —
+       auth lives in the Claude Code OAuth login / local daemon. */
+    if (p.cliAgent || providerId === 'ollamaBridge' || providerId === 'ollama') return 'none';
     return p.bridge ? 'email_password' : 'api_key';
 }
 
@@ -2019,7 +2141,6 @@ function seedDefaultAccounts(context) {
            password. Existing rows with a blank password get backfilled; rows
            that already have a non-blank password are left untouched. */
         const bridgeSeed = {
-            claudeBridge:  CLAUDE_BRIDGE_EMAILS.slice(),
             chatgptBridge: [PRIMARY_GMAIL],
             grokBridge:    [PRIMARY_GMAIL],
             copilotBridge: [PRIMARY_GMAIL],
@@ -2630,29 +2751,37 @@ let statusBar;
 let anthropicClient;
 let extensionContext = null; /* captured during activate so commands can resolve globalStorageUri */
 
-/* ── Speech-to-Text (whisper-local) ───────────────────────────────────────
-   Replaces the deprecated host-side PowerShell recognizer (2026-05-26). Spawns
-   whisper.cpp's bundled HTTP server on a free localhost port; the panel's
-   MediaRecorder path POSTs captured webm/opus blobs to /inference and we
-   return the transcribed text. On first STT request both the server binary
-   (~MBs, Windows x64 zip from GitHub releases) and the ggml-tiny.en.bin
-   model (~75MB from Hugging Face) are downloaded into globalStorageUri/whisper.
-   Network failures fall back to webspeech (soft-pinned via globalState
-   `codexBlackEd.whisperFallbackToWebspeech` so we don't keep retrying). */
+/* ── Speech-to-Text (realtime local providers) ────────────────────────────
+   Two realtime local STT providers replace the deprecated whisper-local batch
+   HTTP-server path (removed 2026-05-30, was added 2026-05-26 to replace the
+   PowerShell recognizer):
+
+     whisper-cpp-stream   — ggerganov/whisper.cpp `stream` example binary,
+                            fed raw PCM via stdin (Windows-first; SDL2
+                            capture mode could swap in cross-platform later).
+     faster-whisper-stream — Python CTranslate2 implementation w/ webrtcvad +
+                            sliding window. Bootstraps a per-repo venv on
+                            first use (~150MB model download).
+
+   Both ride the SAME host-side ffmpeg dshow → subprocess → sttDeltaEl /
+   sttResultEl protocol the ElevenLabs Realtime path uses
+   (createElevenLabsSttSession + stt-host-stream-el.js). The shared shape
+   means panel.js can dispatch on provider id and the rest of the plumbing
+   composes identically.
+
+   Models + binaries live under globalStorageUri/whisper/ (server) and
+   globalStorageUri/faster-whisper/ (CT2 models). The Python venv lives at
+   repo-root/venv-whisper/ (flat layout per CLAUDE.md). */
 const WHISPER_DIR_NAME = 'whisper';
-const WHISPER_SERVER_EXE = 'whisper-server.exe';
+const WHISPER_STREAM_EXE = 'whisper-stream.exe';
 const WHISPER_MODEL_NAME = 'ggml-tiny.en.bin';
 /* TODO: update when release pattern changes — the GitHub Releases API gets
-   parsed first; this hardcoded URL is only the fallback. Confirmed working
-   asset name 2026-05-26. */
-const WHISPER_SERVER_FALLBACK_URL =
+   parsed first; this hardcoded URL is only the fallback. The same zip ships
+   main.exe / server.exe / stream.exe. */
+const WHISPER_BIN_FALLBACK_URL =
     'https://github.com/ggerganov/whisper.cpp/releases/latest/download/whisper-bin-x64.zip';
 const WHISPER_MODEL_URL =
     'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin';
-const WHISPER_GLOBAL_KEY_FALLBACK = 'codexBlackEd.whisperFallbackToWebspeech';
-let whisperServerProc = null;
-let whisperServerPort = 0;
-let whisperServerStarting = null;   // Promise while a startup is in-flight (de-dupe concurrent calls)
 
 function _getWhisperDir(context) {
     const base = (context.globalStorageUri && context.globalStorageUri.fsPath) || os.tmpdir();
@@ -2718,8 +2847,8 @@ function _httpsDownloadToFile(urlStr, destPath, onProgress) {
 
 /* Resolve the latest whisper-bin-x64.zip download URL from GitHub. If the
    API call fails (rate-limit / no network), return the hardcoded fallback.
-   Returns a Promise<string>. */
-function _resolveWhisperServerUrl() {
+   Returns a Promise<string>. Same zip ships main / server / stream binaries. */
+function _resolveWhisperBinUrl() {
     return new Promise((resolve) => {
         const https = require('https');
         const req = https.request({
@@ -2736,34 +2865,32 @@ function _resolveWhisperServerUrl() {
             res.on('data', (c) => chunks.push(c));
             res.on('end', () => {
                 if (res.statusCode < 200 || res.statusCode >= 300) {
-                    return resolve(WHISPER_SERVER_FALLBACK_URL);
+                    return resolve(WHISPER_BIN_FALLBACK_URL);
                 }
                 try {
                     const j = JSON.parse(Buffer.concat(chunks).toString('utf8'));
                     const assets = (j && j.assets) || [];
-                    // Heuristic: pick a windows x64 zip; prefer one containing
-                    // "bin" and "x64" + .zip suffix.
                     const pick = assets.find((a) =>
                         /win|windows/i.test(a.name) && /x64|amd64/i.test(a.name) && /\.zip$/i.test(a.name)
                     ) || assets.find((a) => /\.zip$/i.test(a.name) && /win/i.test(a.name));
-                    resolve((pick && pick.browser_download_url) || WHISPER_SERVER_FALLBACK_URL);
+                    resolve((pick && pick.browser_download_url) || WHISPER_BIN_FALLBACK_URL);
                 } catch (_) {
-                    resolve(WHISPER_SERVER_FALLBACK_URL);
+                    resolve(WHISPER_BIN_FALLBACK_URL);
                 }
             });
         });
-        req.on('error', () => resolve(WHISPER_SERVER_FALLBACK_URL));
-        req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve(WHISPER_SERVER_FALLBACK_URL); });
+        req.on('error', () => resolve(WHISPER_BIN_FALLBACK_URL));
+        req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve(WHISPER_BIN_FALLBACK_URL); });
         req.end();
     });
 }
 
-/* Locate whisper-server.exe inside a freshly-unpacked zip. The release ships
-   different layouts across versions — search the extract dir recursively for
-   anything named whisper-server.exe (and tolerate server.exe as a legacy
-   name). Returns the absolute path or '' if not found. */
-function _findWhisperServerExe(rootDir) {
+/* Locate whisper.cpp's `stream` example binary inside a freshly-unpacked zip.
+   Naming has drifted across releases: `stream.exe`, `whisper-stream.exe`,
+   `whisper-cli-stream.exe`. Returns the absolute path or '' if not found. */
+function _findWhisperStreamExe(rootDir) {
     const stack = [rootDir];
+    const candidates = /^(whisper-stream|whisper-cli-stream|stream)\.exe$/i;
     while (stack.length) {
         const dir = stack.pop();
         let entries;
@@ -2772,9 +2899,7 @@ function _findWhisperServerExe(rootDir) {
         for (const e of entries) {
             const full = path.join(dir, e.name);
             if (e.isDirectory()) { stack.push(full); continue; }
-            if (/^whisper-server\.exe$/i.test(e.name) || /^server\.exe$/i.test(e.name)) {
-                return full;
-            }
+            if (candidates.test(e.name)) return full;
         }
     }
     return '';
@@ -2799,39 +2924,43 @@ function _extractZipPS(zipPath, destDir) {
     });
 }
 
-/* Ensure whisper-server.exe + model are on disk. Downloads with a VSCode
-   progress notification. On any failure throws — caller decides whether to
-   set the soft fallback flag. */
-async function _ensureWhisperFiles(context) {
+/* Ensure whisper.cpp's stream binary + the tiny.en model are on disk. Downloads
+   with a VSCode progress notification. On any failure throws — caller surfaces
+   the failure to the panel as a sttResultEl error. */
+async function _ensureWhisperStreamFiles(context) {
     const dir = _getWhisperDir(context);
-    const serverPath = path.join(dir, WHISPER_SERVER_EXE);
+    const streamPath = path.join(dir, WHISPER_STREAM_EXE);
     const modelPath  = path.join(dir, WHISPER_MODEL_NAME);
-    const needServer = !fs.existsSync(serverPath);
+    const needStream = !fs.existsSync(streamPath);
     const needModel  = !fs.existsSync(modelPath);
-    if (!needServer && !needModel) return { serverPath, modelPath };
+    if (!needStream && !needModel) return { streamPath, modelPath };
     return vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
-        title: 'Downloading Whisper (one-time, ~75MB)…',
+        title: 'Setting up whisper.cpp stream (one-time, ~75MB)…',
         cancellable: false,
     }, async (progress) => {
-        if (needServer) {
-            progress.report({ message: 'fetching whisper.cpp server…' });
-            const url = await _resolveWhisperServerUrl();
-            trace('whisper: server url = ' + url);
+        if (needStream) {
+            progress.report({ message: 'fetching whisper.cpp release…' });
+            const url = await _resolveWhisperBinUrl();
+            trace('whisper-cpp-stream: bin url = ' + url);
             const zipPath = path.join(dir, 'whisper-bin.zip');
             let lastPct = 0;
             await _httpsDownloadToFile(url, zipPath, (got, total) => {
                 const pct = total ? Math.floor((got / total) * 100) : 0;
                 if (pct - lastPct >= 5) {
-                    progress.report({ message: 'server ' + pct + '%' });
+                    progress.report({ message: 'binary ' + pct + '%' });
                     lastPct = pct;
                 }
             });
             const extractDir = path.join(dir, '_unpack');
             try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch (_) {}
             await _extractZipPS(zipPath, extractDir);
-            const found = _findWhisperServerExe(extractDir);
-            if (!found) throw new Error('whisper-server.exe not found inside ' + url);
+            const found = _findWhisperStreamExe(extractDir);
+            if (!found) {
+                throw new Error('whisper.cpp `stream` binary not found inside the release zip. ' +
+                    'The release at ' + url + ' may not bundle the stream example. ' +
+                    'Build whisper.cpp from source with -DWHISPER_BUILD_EXAMPLES=ON and drop stream.exe into ' + dir);
+            }
             // Move every file from the dir-containing-found into WHISPER_DIR so
             // any sibling DLLs (ggml.dll etc.) end up next to the exe.
             const srcDir = path.dirname(found);
@@ -2844,15 +2973,18 @@ async function _ensureWhisperFiles(context) {
             }
             try { fs.rmSync(extractDir, { recursive: true, force: true }); } catch (_) {}
             try { fs.unlinkSync(zipPath); } catch (_) {}
-            if (!fs.existsSync(serverPath)) {
-                // Some zips name the binary `server.exe` — rename it.
-                const alt = path.join(dir, 'server.exe');
-                if (fs.existsSync(alt)) {
-                    try { fs.renameSync(alt, serverPath); } catch (_) {}
+            // Normalize whatever the release named it → WHISPER_STREAM_EXE.
+            if (!fs.existsSync(streamPath)) {
+                for (const cand of ['stream.exe', 'whisper-cli-stream.exe']) {
+                    const alt = path.join(dir, cand);
+                    if (fs.existsSync(alt)) {
+                        try { fs.renameSync(alt, streamPath); } catch (_) {}
+                        break;
+                    }
                 }
             }
-            if (!fs.existsSync(serverPath)) {
-                throw new Error('whisper-server.exe missing after extract');
+            if (!fs.existsSync(streamPath)) {
+                throw new Error(WHISPER_STREAM_EXE + ' missing after extract');
             }
         }
         if (needModel) {
@@ -2866,88 +2998,97 @@ async function _ensureWhisperFiles(context) {
                 }
             });
         }
-        return { serverPath, modelPath };
+        return { streamPath, modelPath };
     });
 }
 
-/* Pick a free local port by binding net.createServer to 0. */
-function _findFreePort() {
-    return new Promise((resolve, reject) => {
-        const net = require('net');
-        const srv = net.createServer();
-        srv.unref();
-        srv.on('error', reject);
-        srv.listen(0, '127.0.0.1', () => {
-            const port = srv.address().port;
-            srv.close(() => resolve(port));
-        });
-    });
+/* ── faster-whisper Python venv ───────────────────────────────────────────
+   Bootstrap a per-repo venv at repo-root/venv-whisper/ on first use. Uses
+   resources/python/python.exe if present (CBE ships its own Python), else
+   falls back to system `python3`/`python`. Installs faster-whisper +
+   webrtcvad + numpy. The CT2 model downloads at first transcribe via
+   WhisperModel(...) into globalStorageUri/faster-whisper/.
+
+   Idempotent: subsequent calls notice the marker file and short-circuit. */
+const FASTER_WHISPER_VENV_DIR_NAME = 'venv-whisper';
+const FASTER_WHISPER_VENV_MARKER = '.ready';
+const FASTER_WHISPER_MODEL_DIR_NAME = 'faster-whisper';
+
+function _getFasterWhisperVenvDir() {
+    /* Flat layout per CLAUDE.md — venv lives at repo root. extensionContext is
+       populated by activate(); we resolve relative to the extension path. */
+    const base = (extensionContext && extensionContext.extensionPath) || __dirname;
+    return path.join(base, FASTER_WHISPER_VENV_DIR_NAME);
+}
+function _getFasterWhisperModelDir(context) {
+    const base = (context.globalStorageUri && context.globalStorageUri.fsPath) || os.tmpdir();
+    const dir = path.join(base, FASTER_WHISPER_MODEL_DIR_NAME);
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+    return dir;
+}
+function _findSystemPython() {
+    /* Prefer CBE's bundled CPython if present (matches PyEncoder convention),
+       else system python. */
+    const bundled = path.join(
+        (extensionContext && extensionContext.extensionPath) || __dirname,
+        'resources', 'python', process.platform === 'win32' ? 'python.exe' : 'python'
+    );
+    if (fs.existsSync(bundled)) return bundled;
+    return (process.platform === 'win32') ? 'python.exe' : 'python3';
+}
+function _getFasterWhisperPython() {
+    const venv = _getFasterWhisperVenvDir();
+    return (process.platform === 'win32')
+        ? path.join(venv, 'Scripts', 'python.exe')
+        : path.join(venv, 'bin', 'python');
 }
 
-/* Poll GET /  on the whisper server until it answers OK or the deadline
-   passes. Resolves true on ready, false on timeout. */
-function _waitForWhisperReady(port, timeoutMs) {
+/* Run a child process and resolve { code, stdout, stderr }. Used by venv
+   bootstrap so we can surface pip errors verbatim. */
+function _runCapture(exe, args, opts) {
     return new Promise((resolve) => {
-        const http = require('http');
-        const deadline = Date.now() + (timeoutMs || 5000);
-        const tick = () => {
-            const req = http.request({
-                method: 'GET',
-                hostname: '127.0.0.1',
-                port,
-                path: '/',
-                timeout: 800,
-            }, (res) => {
-                res.resume();
-                resolve(true);
-            });
-            req.on('error', () => {
-                if (Date.now() < deadline) setTimeout(tick, 200);
-                else resolve(false);
-            });
-            req.on('timeout', () => {
-                try { req.destroy(); } catch (_) {}
-                if (Date.now() < deadline) setTimeout(tick, 200);
-                else resolve(false);
-            });
-            req.end();
-        };
-        tick();
+        let proc;
+        try { proc = spawn(exe, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], ...(opts || {}) }); }
+        catch (e) { resolve({ code: -1, stdout: '', stderr: String((e && e.message) || e) }); return; }
+        let so = ''; let se = '';
+        proc.stdout.on('data', (d) => { so += d.toString('utf8'); });
+        proc.stderr.on('data', (d) => { se += d.toString('utf8'); });
+        proc.on('error', (e) => resolve({ code: -1, stdout: so, stderr: se + String((e && e.message) || e) }));
+        proc.on('close', (code) => resolve({ code: code == null ? -1 : code, stdout: so, stderr: se }));
     });
 }
 
-/* Spawn the whisper server lazily; idempotent. Returns the listening port. */
-async function startWhisperServer(context) {
-    if (whisperServerProc && whisperServerPort) return whisperServerPort;
-    if (whisperServerStarting) return whisperServerStarting;
-    whisperServerStarting = (async () => {
-        const { serverPath, modelPath } = await _ensureWhisperFiles(context);
-        const port = await _findFreePort();
-        trace('whisper: spawning ' + serverPath + ' --port ' + port);
-        const proc = spawn(serverPath, [
-            '-m', modelPath,
-            '--host', '127.0.0.1',
-            '--port', String(port),
-            '--inference-path', '/inference',
-        ], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-        proc.stdout.on('data', (d) => trace('whisper: ' + d.toString('utf8').trim()));
-        proc.stderr.on('data', (d) => trace('whisper(err): ' + d.toString('utf8').trim()));
-        proc.on('exit', (code, signal) => {
-            trace('whisper: server exited code=' + code + ' signal=' + signal);
-            if (whisperServerProc === proc) {
-                whisperServerProc = null;
-                whisperServerPort = 0;
+async function _ensureFasterWhisperVenv() {
+    const venv = _getFasterWhisperVenvDir();
+    const marker = path.join(venv, FASTER_WHISPER_VENV_MARKER);
+    const py = _getFasterWhisperPython();
+    if (fs.existsSync(marker) && fs.existsSync(py)) return py;
+    return vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: 'Setting up faster-whisper venv (~150MB download, one-time)…',
+        cancellable: false,
+    }, async (progress) => {
+        if (!fs.existsSync(py)) {
+            progress.report({ message: 'creating venv…' });
+            const sysPy = _findSystemPython();
+            trace('faster-whisper: creating venv with ' + sysPy + ' → ' + venv);
+            const create = await _runCapture(sysPy, ['-m', 'venv', venv]);
+            if (create.code !== 0 || !fs.existsSync(py)) {
+                throw new Error('venv creation failed (exit ' + create.code + '): ' + (create.stderr || create.stdout).slice(0, 400).trim());
             }
-        });
-        whisperServerProc = proc;
-        whisperServerPort = port;
-        const ready = await _waitForWhisperReady(port, 5000);
-        if (!ready) {
-            trace('whisper: server did not respond within 5s — best-effort continue');
         }
-        return port;
-    })().finally(() => { whisperServerStarting = null; });
-    return whisperServerStarting;
+        progress.report({ message: 'upgrading pip…' });
+        await _runCapture(py, ['-m', 'pip', 'install', '--upgrade', '--quiet', 'pip']);
+        progress.report({ message: 'installing faster-whisper + webrtcvad + numpy…' });
+        trace('faster-whisper: pip install faster-whisper webrtcvad numpy');
+        const pip = await _runCapture(py, ['-m', 'pip', 'install', '--quiet', 'faster-whisper', 'webrtcvad', 'numpy']);
+        if (pip.code !== 0) {
+            throw new Error('pip install failed (exit ' + pip.code + '): ' + (pip.stderr || pip.stdout).slice(0, 800).trim());
+        }
+        try { fs.writeFileSync(marker, new Date().toISOString()); } catch (_) {}
+        trace('faster-whisper: venv ready at ' + venv);
+        return py;
+    });
 }
 
 /* ── Anthropic streaming STT (Deepgram Nova-3 proxy) ───────────────────────
@@ -2965,6 +3106,23 @@ async function startWhisperServer(context) {
 const ANTHROPIC_STT_WS_URL = 'wss://api.anthropic.com/api/ws/speech_to_text/voice_stream';
 const ANTHROPIC_STT_SAMPLE_RATE = 16000;
 const ANTHROPIC_STT_KEEPALIVE_MS = 8000;
+
+/* OpenAI Realtime API — transcription subset. WebSocket endpoint with the
+   `transcription` intent ('intent=transcription' lets us skip the chat /
+   tool-use / TTS surface and only get conversation.item.input_audio_transcription.*
+   events back). Model id verified 2026-05-29: gpt-4o-transcribe is the
+   GA transcription model exposed via the Realtime session.
+   Audio in: PCM16 mono. Realtime canonical rate is 24kHz; the panel emits
+   linear16 @ ANTHROPIC_STT_SAMPLE_RATE (16k) so we upsample on the host
+   before append. Events of interest:
+     - conversation.item.input_audio_transcription.delta     (interim chunk)
+     - conversation.item.input_audio_transcription.completed (final per utterance)
+   Audio in events:
+     - input_audio_buffer.append { audio: <base64 pcm16> }
+     - input_audio_buffer.commit                              (on stop) */
+const OPENAI_REALTIME_WS_URL    = 'wss://api.openai.com/v1/realtime?intent=transcription';
+const OPENAI_REALTIME_SAMPLE_RATE_OUT = 24000;
+const OPENAI_REALTIME_MODEL     = 'gpt-4o-transcribe';
 const ANTHROPIC_STT_KEYTERMS = [
     'VS Code', 'IDE', 'webview', 'IntelliSense', 'MCP', 'symlink', 'grep',
     'regex', 'localhost', 'codebase', 'TypeScript', 'JSON', 'OAuth', 'webhook',
@@ -3219,31 +3377,273 @@ async function handleAnthropicStt(context, buf, mime, onPartial) {
    panel as { type:'sttPartial'|'sttFinal', reqId, text }. */
 const _activeSttStreams = new Map();   /* reqId -> { session } */
 
+/* Open ONE live OpenAI Realtime STT WebSocket session. Mirrors the shape of
+   createAnthropicSttSession so the sttStream* dispatch can treat them
+   interchangeably.
+
+   Wire:
+     1. open WS → send session.update with input_audio_format=pcm16 +
+        input_audio_transcription.model=gpt-4o-transcribe + server_vad turn
+        detection (so the model commits utterances itself without a chat loop)
+     2. caller pushes linear16 16kHz PCM via sendPcm(buf); we upsample to 24kHz
+        (zero-order hold, cheap, no extra deps) and base64-encode each chunk
+        as input_audio_buffer.append
+     3. server emits conversation.item.input_audio_transcription.delta (partial)
+        and .completed (final) events; we accumulate
+     4. on close() we send input_audio_buffer.commit + response.create-free
+        close cleanly. The close handler resolves onFinal with whatever we got.
+
+   Note: we deliberately set modalities=['text'] in session.update so the
+   Realtime server doesn't try to stream voice/text response back — we just
+   want raw STT. NO function calls, NO chat content, NO TTS. */
+function createOpenAiRealtimeSttSession({ onPartial, onFinal, onError, apiKey, dictionary, language } = {}) {
+    if (!apiKey) throw new Error('no openai api key configured');
+    const WebSocket = require('ws');
+
+    /* Optional bias text: feed the dictionary as the transcription `prompt`,
+       same way the batch /v1/audio/transcriptions path does (handleSttRequest). */
+    const promptBias = (typeof dictionary === 'string' && dictionary.trim())
+        ? dictionary.slice(0, 4096)
+        : '';
+    const lang = (typeof language === 'string' && language.trim())
+        ? language.replace(/[^A-Za-z0-9-]/g, '').slice(0, 16)
+        : '';
+
+    const ws = new WebSocket(OPENAI_REALTIME_WS_URL, {
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'OpenAI-Beta': 'realtime=v1',
+        },
+    });
+
+    /* Accumulators. The Realtime transcription stream emits per-item deltas
+       (one item == one user utterance, terminated by server VAD). We keep
+       `committedText` (sum of .completed transcripts) + `liveText` (current
+       in-progress delta buffer keyed by item_id). onPartial gets the joined
+       view so the panel can replace the live region as words grow. */
+    let committedText = '';
+    const liveByItem = new Map();     /* item_id -> in-progress delta text */
+    let settled = false;              /* onFinal/onError fired exactly once */
+    let closeRequested = false;
+    const pending = [];               /* base64 chunks queued before WS open */
+
+    const buildView = () => {
+        const live = Array.from(liveByItem.values()).join(' ').trim();
+        return [committedText, live].filter(Boolean).join(' ').trim();
+    };
+    const emitPartial = () => {
+        if (typeof onPartial === 'function') {
+            try { onPartial(buildView()); } catch (_) {}
+        }
+    };
+    const fail = (err) => {
+        if (settled) return;
+        settled = true;
+        try { ws.close(); } catch (_) {}
+        if (typeof onError === 'function') { try { onError(err); } catch (_) {} }
+    };
+    const succeed = () => {
+        if (settled) return;
+        settled = true;
+        if (typeof onFinal === 'function') { try { onFinal(buildView()); } catch (_) {} }
+    };
+
+    /* Linear16 16k -> 24k upsample. Zero-order hold (sample-and-hold) at the
+       3:2 ratio: every 2 input samples produce 3 output samples (s0, s0, s1).
+       Cheap, no FFT dep, fine for speech recognition (Realtime decodes back
+       down to mel anyway). buf is Buffer of int16 LE PCM @ 16kHz mono. */
+    const upsample16kTo24k = (buf) => {
+        if (!buf || !buf.length) return Buffer.alloc(0);
+        const inCount = buf.length >>> 1;           /* int16 samples */
+        if (inCount < 2) return buf;
+        const pairCount = inCount >>> 1;            /* whole 16k pairs */
+        const out = Buffer.allocUnsafe(pairCount * 3 * 2);   /* 3 samples per pair */
+        let oi = 0;
+        for (let i = 0; i < pairCount; i++) {
+            const s0 = buf.readInt16LE(i * 4);
+            const s1 = buf.readInt16LE(i * 4 + 2);
+            out.writeInt16LE(s0, oi); oi += 2;
+            out.writeInt16LE(s0, oi); oi += 2;
+            out.writeInt16LE(s1, oi); oi += 2;
+        }
+        return out;
+    };
+
+    ws.on('open', () => {
+        /* Configure the transcription session. We disable audio out + tools and
+           only ask for text + STT events. server_vad lets the model decide when
+           an utterance ends; without it we'd never get .completed. */
+        try {
+            ws.send(JSON.stringify({
+                type: 'session.update',
+                session: {
+                    modalities: ['text'],
+                    input_audio_format: 'pcm16',
+                    input_audio_transcription: Object.assign(
+                        { model: OPENAI_REALTIME_MODEL },
+                        promptBias ? { prompt: promptBias } : {},
+                        lang ? { language: lang } : {},
+                    ),
+                    turn_detection: {
+                        type: 'server_vad',
+                        threshold: 0.5,
+                        prefix_padding_ms: 300,
+                        silence_duration_ms: 500,
+                    },
+                },
+            }));
+        } catch (_) {}
+        /* Flush queued audio. Each entry is already a base64 string of pcm16 @ 24k. */
+        while (pending.length) {
+            try {
+                ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: pending.shift() }));
+            } catch (_) {}
+        }
+        if (closeRequested) {
+            try { ws.send(JSON.stringify({ type: 'input_audio_buffer.commit' })); } catch (_) {}
+        }
+    });
+
+    ws.on('message', (raw) => {
+        let m;
+        try { m = JSON.parse(raw.toString()); } catch (_) { return; }
+        const t = m && m.type;
+        if (!t) return;
+        if (t === 'conversation.item.input_audio_transcription.delta') {
+            /* Per-spec: { item_id, content_index, delta }. We append delta into
+               the live bucket for that item so simultaneous items (rare under
+               server_vad) don't trample each other. */
+            const itemId = String(m.item_id || m.itemId || 'live');
+            const delta  = String(m.delta || '');
+            if (!delta) return;
+            liveByItem.set(itemId, (liveByItem.get(itemId) || '') + delta);
+            emitPartial();
+            return;
+        }
+        if (t === 'conversation.item.input_audio_transcription.completed') {
+            /* { item_id, transcript } — commit to the running committed buffer
+               and drop the per-item live entry so partials reset cleanly. */
+            const itemId = String(m.item_id || m.itemId || 'live');
+            const finalChunk = String(m.transcript || liveByItem.get(itemId) || '').trim();
+            liveByItem.delete(itemId);
+            if (finalChunk) committedText = committedText ? (committedText + ' ' + finalChunk) : finalChunk;
+            emitPartial();
+            return;
+        }
+        if (t === 'error') {
+            const err = (m.error && (m.error.message || m.error.code)) || 'realtime server error';
+            fail(new Error('OpenAI Realtime STT: ' + err));
+            return;
+        }
+        /* Other events (session.created, session.updated, input_audio_buffer.*
+           speech_started/stopped, response.*) are no-ops for our STT-only flow. */
+    });
+
+    ws.on('error', (e) => {
+        /* Auth errors surface as either an HTTP code on the upgrade or a 1008
+           close — handle both. */
+        const mm = /Unexpected server response: (\d+)/.exec(e && e.message || '');
+        const code = mm ? Number(mm[1]) : 0;
+        if (code === 401 || code === 403) {
+            fail(new Error('OpenAI Realtime STT: not authorized — check [openai] api_key'));
+        } else {
+            fail(new Error('OpenAI Realtime WS error: ' + ((e && e.message) || e)));
+        }
+    });
+
+    ws.on('close', (code, reason) => {
+        if (code === 1008 || /authorization|invalid_api_key/i.test(String(reason || ''))) {
+            fail(new Error('OpenAI Realtime STT: invalid authorization — re-check [openai] api_key'));
+            return;
+        }
+        succeed();
+    });
+
+    return {
+        sendPcm(buf) {
+            if (settled || closeRequested || !buf || !buf.length) return;
+            const up = upsample16kTo24k(buf);
+            if (!up.length) return;
+            const b64 = up.toString('base64');
+            if (ws.readyState === WebSocket.OPEN) {
+                try { ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: b64 })); } catch (_) {}
+            } else {
+                pending.push(b64);
+            }
+        },
+        close() {
+            if (settled || closeRequested) return;
+            closeRequested = true;
+            if (ws.readyState === WebSocket.OPEN) {
+                /* Tell the server to flush whatever's left, then politely close. */
+                try { ws.send(JSON.stringify({ type: 'input_audio_buffer.commit' })); } catch (_) {}
+                /* Give the server ~1.5s to flush a final .completed before we
+                   yank the socket. The close handler resolves onFinal regardless. */
+                setTimeout(() => { try { ws.close(); } catch (_) {} }, 1500);
+            }
+            /* If not yet open, open handler will send commit after flushing pending. */
+        },
+    };
+}
+
 function handleSttStreamStart(panel, context, msg) {
     const reqId = String(msg.reqId || '');
     const provider = String(msg.provider || '');
     if (!reqId) return;
     if (_activeSttStreams.has(reqId)) return;   /* dup start — ignore */
-    /* Only anthropic supports live streaming in this pass. */
-    if (provider !== 'anthropic') {
+    /* Live-streaming providers supported in this pass: anthropic + openai.
+       Anything else falls back to batch via the panel's existing path. */
+    if (provider !== 'anthropic' && provider !== 'openai') {
         try { panel.webview.postMessage({ type: 'sttFinal', reqId, ok: false, error: 'provider does not support live streaming', provider }); } catch (_) {}
         return;
     }
     let session;
     try {
-        session = createAnthropicSttSession({
-            onPartial: (text) => {
-                try { panel.webview.postMessage({ type: 'sttPartial', reqId, text, provider }); } catch (_) {}
-            },
-            onFinal: (text) => {
-                _activeSttStreams.delete(reqId);
-                try { panel.webview.postMessage({ type: 'sttFinal', reqId, ok: true, text, provider }); } catch (_) {}
-            },
-            onError: (err) => {
-                _activeSttStreams.delete(reqId);
-                try { panel.webview.postMessage({ type: 'sttFinal', reqId, ok: false, error: (err && err.message) || String(err), provider }); } catch (_) {}
-            },
-        });
+        if (provider === 'openai') {
+            const key = getProviderKey(context, 'openai');
+            if (!key) throw new Error('no openai api key configured');
+            /* Pull dictionary/language preferences the same way the batch path does. */
+            const dictionary = (typeof msg.dictionary === 'string' && msg.dictionary)
+                ? msg.dictionary
+                : String(context.workspaceState.get(STATE_STT_DICTIONARY) || '');
+            const language = (typeof msg.language === 'string' && msg.language)
+                ? msg.language
+                : String(context.workspaceState.get(STATE_STT_LANGUAGE) || '');
+            session = createOpenAiRealtimeSttSession({
+                apiKey: key,
+                dictionary,
+                language,
+                onPartial: (text) => {
+                    try { panel.webview.postMessage({ type: 'sttPartial', reqId, text, provider }); } catch (_) {}
+                },
+                onFinal: (text) => {
+                    _activeSttStreams.delete(reqId);
+                    try { panel.webview.postMessage({ type: 'sttFinal', reqId, ok: true, text, provider }); } catch (_) {}
+                },
+                onError: (err) => {
+                    _activeSttStreams.delete(reqId);
+                    /* Host-side trace only — the panel surfaces a generic
+                       'falling back' info banner; we don't want a red banner
+                       for what is silently a degraded experience. */
+                    trace('openai realtime stt error: ' + ((err && err.message) || err));
+                    try { panel.webview.postMessage({ type: 'sttFinal', reqId, ok: false, error: (err && err.message) || String(err), provider }); } catch (_) {}
+                },
+            });
+        } else {
+            session = createAnthropicSttSession({
+                onPartial: (text) => {
+                    try { panel.webview.postMessage({ type: 'sttPartial', reqId, text, provider }); } catch (_) {}
+                },
+                onFinal: (text) => {
+                    _activeSttStreams.delete(reqId);
+                    try { panel.webview.postMessage({ type: 'sttFinal', reqId, ok: true, text, provider }); } catch (_) {}
+                },
+                onError: (err) => {
+                    _activeSttStreams.delete(reqId);
+                    try { panel.webview.postMessage({ type: 'sttFinal', reqId, ok: false, error: (err && err.message) || String(err), provider }); } catch (_) {}
+                },
+            });
+        }
     } catch (e) {
         try { panel.webview.postMessage({ type: 'sttFinal', reqId, ok: false, error: (e && e.message) || String(e), provider }); } catch (_) {}
         return;
@@ -3271,64 +3671,686 @@ function handleSttStreamStop(panel, context, msg) {
     try { entry.session.close(); } catch (_) {}
 }
 
-/* Transcribe a buffer via whisper-server's /inference endpoint. Returns
-   the transcript text or throws. Mirrors the elevenlabs / openai paths.
-   TODO(stream): whisper.cpp has no native streaming API, but live partials
-   are achievable with a sliding-window approach — accumulate the incoming PCM
-   and re-POST the growing buffer to /inference every ~500ms, emitting each
-   result as a cumulative partial (whisper is fast enough locally). Left as
-   request/response this pass since local transcription already feels snappy. */
-async function handleWhisperLocalStt(context, buf, mime, dictionary) {
-    const port = await startWhisperServer(context);
-    if (!port) throw new Error('whisper server unavailable');
-    let ext = 'webm';
-    if (/wav/i.test(mime)) ext = 'wav';
-    else if (/mp4|m4a/i.test(mime)) ext = 'm4a';
-    else if (/mpeg/i.test(mime)) ext = 'mp3';
-    else if (/ogg/i.test(mime)) ext = 'ogg';
-    const form = new FormData();
-    form.append('file', new Blob([buf], { type: mime }), `audio.${ext}`);
-    form.append('temperature', '0.0');
-    form.append('response_format', 'json');
-    /* Custom dictionary / vocabulary → whisper.cpp's `prompt` field biases the
-       transcription toward the supplied names / jargon / acronyms. Fall back to
-       the persisted setting if the caller didn't pass one. */
-    const dict = (typeof dictionary === 'string' && dictionary)
-        ? dictionary
-        : String((context && context.workspaceState && context.workspaceState.get(STATE_STT_DICTIONARY)) || '');
-    if (dict.trim()) form.append('prompt', dict.slice(0, 4096));
-    const res = await fetch(`http://127.0.0.1:${port}/inference`, {
-        method: 'POST',
-        body: form,
+/* ── ElevenLabs Scribe v2 Realtime (streaming WS) ─────────────────────────
+   PRIMARY ElevenLabs path as of 2026-05-29 — replaces the batch
+   /v1/speech-to-text POST with a live WS that streams partial transcripts as
+   the user speaks (~150ms latency). The batch path (handleSttRequest) stays
+   as the SILENT fallback when this WS errors / 401s.
+
+   PROTOCOL (verified live 2026-05-30 against the v2 Realtime endpoint):
+     • URL:  wss://api.elevenlabs.io/v1/speech-to-text/realtime
+             (NOT /stream — that path 403s with an empty body. The real path
+             is /realtime, confirmed via 101 Switching Protocols probe.)
+     • Query: model_id=scribe_v2_realtime, encoding=pcm_s16le, sample_rate=16000
+             ('scribe_v2_realtime' is currently the ONLY accepted model_id;
+             scribe_v1 / scribe_v2 / scribe-v2-realtime all close with 1008
+             invalid_request.)
+     • Auth: header  xi-api-key: <key>  on the WS upgrade (server-side pattern;
+             the client-side cookbook uses a single-use token instead — we're
+             host-side Node so the direct header is fine).
+     • Send: BINARY frames of raw PCM s16le 16kHz mono. We chunk ffmpeg stdout
+             into ~200ms slices (~6.4 KB) for responsive partials.
+     • Recv: JSON messages keyed by `message_type` (NOT `type` — confirmed
+             from live session_started frame). Known message_types:
+                {message_type:"session_started", session_id, config:{…}}
+                {message_type:"partial_transcript", text:"..."}   running
+                {message_type:"final_transcript",   text:"..."}   committed
+                {message_type:"completed"}                        server done
+                {message_type:"invalid_request", error:"..."}     1008 close
+             For forward-compat we ALSO tolerate `type` (old shape) and
+             {is_final:true|false, text:"..."} / bare {text:"..."}.
+     • End:  send JSON {"type":"end_of_stream"} → wait briefly for completed →
+             close socket. */
+const ELEVENLABS_STT_WS_URL = 'wss://api.elevenlabs.io/v1/speech-to-text/realtime';
+const ELEVENLABS_STT_MODEL_ID = 'scribe_v2_realtime';
+const ELEVENLABS_STT_SAMPLE_RATE = 16000;
+
+/* Open a Scribe v2 Realtime WS session. Mirrors createAnthropicSttSession's
+   shape so callers compose identically: sendPcm(buf), close(), and
+   onPartial/onFinal/onError callbacks. Caller supplies the api key — we don't
+   re-read config.ini here so the host-handler can decide WHICH key to use
+   (workspace config takes precedence over the file). */
+function createElevenLabsSttSession({ apiKey, onPartial, onFinal, onError } = {}) {
+    if (!apiKey) throw new Error('no [elevenlabs] api_key in config.ini');
+
+    const WebSocket = require('ws');
+    /* v32.12 — protocol fixed against canonical spec at
+       https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime
+       Param names were wrong before (encoding/sample_rate instead of audio_format),
+       and no commit_strategy=vad meant the server never auto-committed → no
+       partials flowing through. */
+    const params = new URLSearchParams({
+        model_id: ELEVENLABS_STT_MODEL_ID,
+        audio_format: 'pcm_16000',          /* matches sample_rate 16000 */
+        commit_strategy: 'vad',             /* server auto-commits on silence */
+        vad_silence_threshold_secs: '0.6',  /* tighter than default 1.5s for snappier finals */
     });
-    if (!res.ok) {
-        throw new Error('whisper-local HTTP ' + res.status);
-    }
-    const j = await res.json();
-    return String((j && (j.text || j.transcription)) || '').trim();
+    const ws = new WebSocket(`${ELEVENLABS_STT_WS_URL}?${params.toString()}`,
+        { headers: { 'xi-api-key': apiKey } });
+
+    let committed = '';          /* accumulator for final_transcript chunks */
+    let tail = '';               /* latest partial appended for display */
+    let settled = false;         /* onFinal/onError fired exactly once */
+    let closeRequested = false;  /* caller asked to finish */
+    const pending = [];          /* PCM chunks queued before WS open */
+
+    const fullText = () => (committed + (tail ? (committed ? ' ' : '') + tail : '')).trim();
+    const fail = (err) => {
+        if (settled) return; settled = true;
+        try { ws.close(); } catch (_) {}
+        if (typeof onError === 'function') { try { onError(err); } catch (_) {} }
+    };
+    const succeed = () => {
+        if (settled) return; settled = true;
+        if (typeof onFinal === 'function') { try { onFinal(fullText()); } catch (_) {} }
+    };
+
+    /* v32.12 — wrap PCM in the canonical {message_type:"input_audio_chunk",
+       audio_base_64, commit, sample_rate} envelope. Raw binary frames are
+       silently ignored by the server. */
+    const wrapChunk = (buf, commit = false) => JSON.stringify({
+        message_type: 'input_audio_chunk',
+        audio_base_64: Buffer.from(buf).toString('base64'),
+        commit: !!commit,
+        sample_rate: ELEVENLABS_STT_SAMPLE_RATE,
+    });
+
+    ws.on('open', () => {
+        while (pending.length) { try { ws.send(wrapChunk(pending.shift(), false)); } catch (_) {} }
+        if (closeRequested) {
+            /* End-of-stream = send an empty chunk with commit:true so the
+               server finalizes the last segment. No "end_of_stream" message
+               type exists in the canonical protocol. */
+            try { ws.send(wrapChunk(Buffer.alloc(0), true)); } catch (_) {}
+        }
+    });
+
+    ws.on('message', (raw) => {
+        let m; try { m = JSON.parse(raw.toString()); } catch (_) { return; }
+        const text = String((m && (m.text || m.transcript || (m.data && m.data.text))) || '');
+        /* v2 Realtime keys discriminator as `message_type`; older docs / future
+           revisions may use `type`. Accept either so a server-side rename
+           doesn't silently break us again. */
+        const t = m && (m.message_type || m.type);
+        if (t === 'session_started') return;   /* handshake ack, ignore */
+        if (t === 'completed') { succeed(); return; }
+        if (t === 'invalid_request' || t === 'error' || (m && m.error)) {
+            const msg = (m.error || m.message || 'transcription error');
+            fail(new Error('ElevenLabs STT: ' + msg)); return;
+        }
+        /* v32.12 — server uses `committed_transcript` not `final_transcript`.
+           Accept both for safety. Same for committed_transcript_with_timestamps. */
+        const isFinal   = (t === 'committed_transcript') || (t === 'committed_transcript_with_timestamps') || (t === 'final_transcript') || m.is_final === true;
+        const isPartial = (t === 'partial_transcript') || m.is_final === false;
+        if (isFinal && text) {
+            committed = committed ? (committed + ' ' + text) : text;
+            tail = '';
+            if (typeof onPartial === 'function') { try { onPartial(fullText()); } catch (_) {} }
+            return;
+        }
+        if (isPartial && text) {
+            tail = text;
+            if (typeof onPartial === 'function') { try { onPartial(fullText()); } catch (_) {} }
+            return;
+        }
+        /* Bare {text} (no type tag) — treat as a running partial. */
+        if (!t && text) {
+            tail = text;
+            if (typeof onPartial === 'function') { try { onPartial(fullText()); } catch (_) {} }
+        }
+    });
+
+    ws.on('error', (e) => {
+        const mm = /Unexpected server response: (\d+)/.exec((e && e.message) || '');
+        const code = mm ? Number(mm[1]) : 0;
+        if (code === 401 || code === 403) fail(new Error('ElevenLabs STT: not authorized — check [elevenlabs] api_key in config.ini'));
+        else fail(new Error('ElevenLabs STT WS error: ' + ((e && e.message) || e)));
+    });
+
+    ws.on('close', () => { succeed(); });
+
+    return {
+        sendPcm(buf) {
+            if (settled || closeRequested || !buf || !buf.length) return;
+            if (ws.readyState === WebSocket.OPEN) {
+                try { ws.send(wrapChunk(buf, false)); } catch (_) {}
+            } else {
+                pending.push(buf);   /* will flush on open */
+            }
+        },
+        close() {
+            if (settled || closeRequested) return;
+            closeRequested = true;
+            if (ws.readyState === WebSocket.OPEN) {
+                /* v32.12 — empty chunk + commit:true tells the server to
+                   finalize and emit the trailing committed_transcript. */
+                try { ws.send(wrapChunk(Buffer.alloc(0), true)); } catch (_) {}
+                /* Give the server up to 1.5s to emit `completed` + trailing
+                   committed_transcript before yanking the socket. */
+                setTimeout(() => { try { ws.close(); } catch (_) {} }, 1500);
+            }
+            /* If not yet open, open handler will send the commit chunk after flush. */
+        },
+    };
 }
 
+/* Active ElevenLabs streaming sessions keyed by reqId. Mic button is a single
+   toggle so the map has at most one entry, but keying by reqId means a stale
+   stop from a prior click can't kill a fresh session. */
+const _activeElevenLabsStreams = new Map();   /* reqId -> { session, capture } */
+
+/* Start: open ffmpeg PCM stream → open ElevenLabs WS → pipe chunks. Partials
+   post back as { type:'sttDeltaEl', reqId, text }, final as
+   { type:'sttResultEl', reqId, text }. On ANY failure (WS error, 401,
+   ffmpeg missing) we fall through to the existing batch path silently —
+   Trent already paid for the click; surfacing a red banner would be worse
+   than just transcribing the clip with batch. */
+async function handleSttHostStartElevenLabs(panel, context, msg) {
+    const reqId = String((msg && msg.reqId) || ('elstream-' + Date.now()));
+    if (_activeElevenLabsStreams.has(reqId)) return;
+    if (process.platform !== 'win32') {
+        try { panel.webview.postMessage({ type: 'sttHostResult', reqId, ok: false, error: 'host mic capture is Windows-only on this build — pick WebSpeech in Settings → Voice' }); } catch (_) {}
+        return;
+    }
+    const key = _getElevenLabsKey(context);
+    if (!key) {
+        /* No key → tell the panel to fall to the batch path (which surfaces
+           the same "no [elevenlabs] api_key" error consistently). */
+        try { panel.webview.postMessage({ type: 'sttResultEl', reqId, ok: false, error: 'no [elevenlabs] api_key in config.ini', fallback: true }); } catch (_) {}
+        return;
+    }
+
+    let session = null;
+    let capture = null;
+    let fellBack = false;
+    let started  = false;        /* did we successfully fire sttHostStarted? */
+    const fallbackToBatch = async (whyErr) => {
+        if (fellBack) return; fellBack = true;
+        trace('ElevenLabs streaming failed (' + ((whyErr && whyErr.message) || whyErr) + ') — falling back to batch path');
+        try { if (session) session.close(); } catch (_) {}
+        try { if (capture && capture.stop) capture.stop(); } catch (_) {}
+        _activeElevenLabsStreams.delete(reqId);
+        if (started) {
+            /* Mic was already open in streaming mode — by the time we get here
+               it's stopped (we just stop()'d it). The batch path can't
+               re-record a clip after the fact. Tell the panel that streaming
+               failed; it'll surface a soft info banner and reset UI. */
+            try { panel.webview.postMessage({ type: 'sttResultEl', reqId, ok: false, error: (whyErr && whyErr.message) || String(whyErr), fallback: true }); } catch (_) {}
+            return;
+        }
+        /* Streaming never started — kick off a fresh batch capture. The panel
+           gets a sttHostStarted from THAT path and a normal sttRequestResult
+           at the end, identical to the legacy click. */
+        try { await handleHostSttStart(panel, context, { ...msg, reqId }); } catch (_) {}
+    };
+
+    try {
+        session = createElevenLabsSttSession({
+            apiKey: key,
+            onPartial: (text) => {
+                try { panel.webview.postMessage({ type: 'sttDeltaEl', reqId, text }); } catch (_) {}
+            },
+            onFinal: (text) => {
+                _activeElevenLabsStreams.delete(reqId);
+                try { panel.webview.postMessage({ type: 'sttResultEl', reqId, ok: true, text }); } catch (_) {}
+                try { if (capture && capture.stop) capture.stop(); } catch (_) {}
+            },
+            onError: (err) => {
+                /* WS-side failure (401, transport error, server error). Fall
+                   back to batch so the user's click isn't wasted. */
+                fallbackToBatch(err);
+            },
+        });
+    } catch (e) {
+        /* createElevenLabsSttSession() throws synchronously on missing key —
+           we already guarded that, so this is some other config issue. */
+        try { panel.webview.postMessage({ type: 'sttResultEl', reqId, ok: false, error: (e && e.message) || String(e), fallback: true }); } catch (_) {}
+        return;
+    }
+
+    try {
+        const stream = require(path.join(context.extensionPath || __dirname, 'stt-host-stream-el.js'));
+        capture = await stream.startStream({
+            onPcm: (buf) => { try { if (session) session.sendPcm(buf); } catch (_) {} },
+            onStarted: ({ device }) => {
+                started = true;
+                trace('ElevenLabs streaming recording on device: ' + device);
+                try { panel.webview.postMessage({ type: 'sttHostStarted', reqId, device }); } catch (_) {}
+            },
+            onError: (err) => { fallbackToBatch(err); },
+        });
+        _activeElevenLabsStreams.set(reqId, { session, capture });
+    } catch (e) {
+        /* ffmpeg missing / no device / dshow open failed — render as
+           sttHostResult so the panel shows the SPECIFIC cause. */
+        traceErr('handleSttHostStartElevenLabs ffmpeg', e);
+        try { if (session) session.close(); } catch (_) {}
+        try { panel.webview.postMessage({ type: 'sttHostResult', reqId, ok: false, error: (e && e.message) || String(e) }); } catch (_) {}
+    }
+}
+
+/* Stop: close the WS (sends end_of_stream) and stop the ffmpeg stream. The
+   session's onFinal posts sttResultEl. */
+function handleSttHostStopElevenLabs(panel, context, msg) {
+    const reqId = String((msg && msg.reqId) || '');
+    const entry = reqId
+        ? _activeElevenLabsStreams.get(reqId)
+        : (_activeElevenLabsStreams.size ? _activeElevenLabsStreams.values().next().value : null);
+    if (!entry) return;
+    /* Stop the mic FIRST so we don't leak ffmpeg chunks after the WS closes —
+       any chunks already in-flight on stdout still flush through onPcm before
+       proc.close fires. Then close() the session → server flushes final. */
+    try { if (entry.capture && entry.capture.stop) entry.capture.stop(); } catch (_) {}
+    try { if (entry.session) entry.session.close(); } catch (_) {}
+}
+
+/* ── Realtime local STT providers ─────────────────────────────────────────
+   Two realtime providers (whisper-cpp-stream + faster-whisper-stream) ride
+   the SAME ffmpeg dshow → subprocess → sttDeltaEl/sttResultEl protocol the
+   ElevenLabs Scribe v2 Realtime path uses. Subprocess stdin = raw PCM s16le
+   16kHz mono; subprocess stdout = JSON-line transcripts OR whisper.cpp's
+   `[ms-->ms] text` line format. Both parse into onPartial / onFinal callbacks
+   shaped identically to createElevenLabsSttSession.
+
+   Whisper.cpp stream binary's stdout format (verified against ggerganov build):
+       [00:00:01.000 --> 00:00:03.000]  this is a test
+   We parse those + emit them as cumulative partials, then re-emit as final on
+   close. The binary supports both stdin PCM (--file -) and SDL2 mic capture;
+   we use the stdin path for protocol symmetry with the ElevenLabs flow.
+
+   faster-whisper stream uses tools/faster_whisper_stream.py — see that file
+   for the sliding-window + webrtcvad implementation. JSON-line stdout shape:
+     {"type":"partial","text":"..."}
+     {"type":"final","text":"..."} */
+
+/* createWhisperCppStreamSession — spawns whisper.cpp's stream example binary.
+   Mirrors createElevenLabsSttSession's API:
+     sendPcm(buf)     queue PCM s16le 16k mono. Buffered until process alive.
+     close()          stop subprocess; trailing transcript flushes as final.
+   Callbacks: onPartial(text) / onFinal(text) / onError(err). */
+function createWhisperCppStreamSession({ streamPath, modelPath, onPartial, onFinal, onError } = {}) {
+    if (!streamPath || !fs.existsSync(streamPath)) {
+        throw new Error('whisper.cpp stream binary missing: ' + streamPath);
+    }
+    if (!modelPath || !fs.existsSync(modelPath)) {
+        throw new Error('whisper.cpp model missing: ' + modelPath);
+    }
+    /* --step / --length / --keep tuned for snappy partials (~500ms granularity).
+       --vad-thold 0.6 reduces re-transcribing silence; -t 4 = 4 threads.
+       --file - reads raw PCM from stdin. The binary's CLI has drifted across
+       builds; if --file - is unsupported we fall back to streaming via SDL2
+       on startup (the binary captures the mic itself). */
+    const args = [
+        '-m', modelPath,
+        '--step', '500',
+        '--length', '5000',
+        '--keep', '200',
+        '--vad-thold', '0.6',
+        '--freq-thold', '100',
+        '-t', '4',
+        '--file', '-',
+    ];
+    let proc;
+    try {
+        proc = spawn(streamPath, args, {
+            windowsHide: true,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            cwd: path.dirname(streamPath),    /* find sibling DLLs */
+        });
+    } catch (e) {
+        throw new Error('failed to spawn whisper-stream: ' + ((e && e.message) || e));
+    }
+
+    let settled = false;
+    let closeRequested = false;
+    const pending = [];
+    /* Track the latest spoken segment as the "tail" + everything before it
+       as committed, so onFinal returns a coherent full transcript even when
+       the binary re-prints overlapping windows. */
+    let committed = '';
+    let tail = '';
+    const fullText = () => (committed + (tail ? (committed ? ' ' : '') + tail : '')).trim();
+
+    const fail = (err) => {
+        if (settled) return; settled = true;
+        try { proc.kill(); } catch (_) {}
+        if (typeof onError === 'function') { try { onError(err); } catch (_) {} }
+    };
+    const succeed = () => {
+        if (settled) return; settled = true;
+        if (typeof onFinal === 'function') { try { onFinal(fullText()); } catch (_) {} }
+    };
+
+    /* Flush queued PCM. Should-be-rare race because spawn is synchronous on
+       Linux/Win; defensive for slower platforms or proc.stdin not yet ready. */
+    const flushPending = () => {
+        while (pending.length) {
+            try { proc.stdin.write(pending.shift()); } catch (e) { fail(e); return; }
+        }
+    };
+
+    /* whisper.cpp stream prints segments as `[mm:ss.sss --> mm:ss.sss] text`.
+       Buffer stdout into lines + emit each non-empty text as the tail. On a
+       newline-only flush (an empty `### Transcription ... END ###` block in
+       some builds) treat as a commit boundary. */
+    let stdoutBuf = '';
+    proc.stdout.on('data', (chunk) => {
+        stdoutBuf += chunk.toString('utf8');
+        let nl;
+        while ((nl = stdoutBuf.indexOf('\n')) >= 0) {
+            const line = stdoutBuf.slice(0, nl).replace(/\r$/, '').trim();
+            stdoutBuf = stdoutBuf.slice(nl + 1);
+            if (!line) continue;
+            /* Match the timestamped line shape; pull out the text payload. */
+            const m = /^\[[^\]]+\]\s*(.+)$/.exec(line);
+            const text = m ? m[1].trim() : line.trim();
+            if (!text) continue;
+            /* Heuristic: if the new text starts with the old tail, treat as
+               an extension; otherwise treat as a new utterance (commit the
+               previous tail). */
+            if (tail && text.startsWith(tail)) {
+                tail = text;
+            } else if (tail) {
+                committed = committed ? (committed + ' ' + tail) : tail;
+                tail = text;
+            } else {
+                tail = text;
+            }
+            if (typeof onPartial === 'function') {
+                try { onPartial(fullText()); } catch (_) {}
+            }
+        }
+    });
+
+    let stderrBuf = '';
+    proc.stderr.on('data', (chunk) => {
+        stderrBuf += chunk.toString('utf8');
+        if (stderrBuf.length > 4000) stderrBuf = stderrBuf.slice(-2000);
+    });
+
+    proc.on('error', (e) => fail(new Error('whisper-stream proc error: ' + ((e && e.message) || e))));
+    proc.on('close', (code) => {
+        if (!settled) {
+            if (code && code !== 0 && !closeRequested) {
+                fail(new Error('whisper-stream exited ' + code + ': ' + stderrBuf.slice(-300).trim()));
+            } else {
+                succeed();
+            }
+        }
+    });
+
+    /* Flush any pending PCM that arrived before stdin was writable. */
+    setImmediate(flushPending);
+
+    return {
+        sendPcm(buf) {
+            if (settled || closeRequested || !buf || !buf.length) return;
+            if (proc.stdin && proc.stdin.writable) {
+                try { proc.stdin.write(buf); } catch (e) { fail(e); }
+            } else {
+                pending.push(buf);
+            }
+        },
+        close() {
+            if (settled || closeRequested) return;
+            closeRequested = true;
+            try { proc.stdin && proc.stdin.end(); } catch (_) {}
+            /* Give the binary 1.5s to flush trailing output before we kill it. */
+            setTimeout(() => { try { proc.kill(); } catch (_) {} }, 1500);
+        },
+    };
+}
+
+/* createFasterWhisperStreamSession — spawns the venv python + driver script.
+   Same shape as createWhisperCppStreamSession. Driver prints JSON-line:
+     {"type":"partial","text":"..."}  // running interim
+     {"type":"final","text":"..."}    // commit on close */
+function createFasterWhisperStreamSession({ pythonPath, scriptPath, modelDir, onPartial, onFinal, onError } = {}) {
+    if (!pythonPath || !fs.existsSync(pythonPath)) {
+        throw new Error('faster-whisper venv python missing: ' + pythonPath);
+    }
+    if (!scriptPath || !fs.existsSync(scriptPath)) {
+        throw new Error('faster-whisper driver missing: ' + scriptPath);
+    }
+    let proc;
+    try {
+        const args = [scriptPath];
+        if (modelDir) args.push(modelDir);
+        proc = spawn(pythonPath, args, {
+            windowsHide: true,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: { ...process.env, PYTHONUNBUFFERED: '1' },
+        });
+    } catch (e) {
+        throw new Error('failed to spawn faster-whisper: ' + ((e && e.message) || e));
+    }
+
+    let settled = false;
+    let closeRequested = false;
+    const pending = [];
+    let committed = '';
+    let tail = '';
+    const fullText = () => (committed + (tail ? (committed ? ' ' : '') + tail : '')).trim();
+
+    const fail = (err) => {
+        if (settled) return; settled = true;
+        try { proc.kill(); } catch (_) {}
+        if (typeof onError === 'function') { try { onError(err); } catch (_) {} }
+    };
+    const succeed = () => {
+        if (settled) return; settled = true;
+        if (typeof onFinal === 'function') { try { onFinal(fullText()); } catch (_) {} }
+    };
+
+    let stdoutBuf = '';
+    proc.stdout.on('data', (chunk) => {
+        stdoutBuf += chunk.toString('utf8');
+        let nl;
+        while ((nl = stdoutBuf.indexOf('\n')) >= 0) {
+            const line = stdoutBuf.slice(0, nl).replace(/\r$/, '').trim();
+            stdoutBuf = stdoutBuf.slice(nl + 1);
+            if (!line) continue;
+            let m; try { m = JSON.parse(line); } catch (_) { continue; }
+            const text = String((m && m.text) || '').trim();
+            if (!text) continue;
+            if (m.type === 'final') {
+                committed = committed ? (committed + ' ' + text) : text;
+                tail = '';
+                if (typeof onPartial === 'function') {
+                    try { onPartial(fullText()); } catch (_) {}
+                }
+            } else {
+                /* partial — replace tail, partials are cumulative per window. */
+                tail = text;
+                if (typeof onPartial === 'function') {
+                    try { onPartial(fullText()); } catch (_) {}
+                }
+            }
+        }
+    });
+
+    let stderrBuf = '';
+    proc.stderr.on('data', (chunk) => {
+        stderrBuf += chunk.toString('utf8');
+        if (stderrBuf.length > 4000) stderrBuf = stderrBuf.slice(-2000);
+        /* Surface python tracebacks via trace() so debug.log captures them. */
+        trace('faster-whisper(err): ' + chunk.toString('utf8').trim());
+    });
+
+    proc.on('error', (e) => fail(new Error('faster-whisper proc error: ' + ((e && e.message) || e))));
+    proc.on('close', (code) => {
+        if (!settled) {
+            if (code && code !== 0 && !closeRequested) {
+                fail(new Error('faster-whisper exited ' + code + ': ' + stderrBuf.slice(-300).trim()));
+            } else {
+                succeed();
+            }
+        }
+    });
+
+    return {
+        sendPcm(buf) {
+            if (settled || closeRequested || !buf || !buf.length) return;
+            if (proc.stdin && proc.stdin.writable) {
+                try { proc.stdin.write(buf); } catch (e) { fail(e); }
+            } else {
+                pending.push(buf);
+            }
+        },
+        close() {
+            if (settled || closeRequested) return;
+            closeRequested = true;
+            try { proc.stdin && proc.stdin.end(); } catch (_) {}
+            /* faster-whisper does a final transcribe on EOF so it can take up
+               to 2s to emit the final and exit cleanly. */
+            setTimeout(() => { try { proc.kill(); } catch (_) {} }, 3000);
+        },
+    };
+}
+
+/* Active realtime local sessions, keyed by reqId — same single-toggle pattern
+   as _activeElevenLabsStreams. */
+const _activeRealtimeLocalStreams = new Map();   /* reqId -> { session, capture, provider } */
+
+/* Generic START handler for realtime local providers. Mirrors
+   handleSttHostStartElevenLabs: open ffmpeg dshow → open subprocess → pipe
+   chunks. Partials post as sttDeltaEl; final as sttResultEl (we reuse the
+   ElevenLabs message types so the panel handler is one cleaner switch —
+   provider field distinguishes which one was used). */
+async function handleSttHostStartRealtimeLocal(panel, context, msg, provider /* 'whisper-cpp-stream' | 'faster-whisper-stream' */) {
+    const reqId = String((msg && msg.reqId) || (provider + '-' + Date.now()));
+    if (_activeRealtimeLocalStreams.has(reqId)) return;
+    if (process.platform !== 'win32') {
+        try { panel.webview.postMessage({ type: 'sttHostResult', reqId, ok: false, error: provider + ' is Windows-only on this build (ffmpeg dshow capture). Pick ElevenLabs or another provider.' }); } catch (_) {}
+        return;
+    }
+
+    let session = null;
+    let capture = null;
+    let started = false;
+
+    const reportFail = (err) => {
+        try { panel.webview.postMessage({ type: 'sttResultEl', reqId, ok: false, error: (err && err.message) || String(err), provider, fallback: false }); } catch (_) {}
+        try { if (session) session.close(); } catch (_) {}
+        try { if (capture && capture.stop) capture.stop(); } catch (_) {}
+        _activeRealtimeLocalStreams.delete(reqId);
+    };
+
+    /* 1. Resolve the subprocess (download + venv bootstrap if needed). */
+    try {
+        if (provider === 'whisper-cpp-stream') {
+            const { streamPath, modelPath } = await _ensureWhisperStreamFiles(context);
+            session = createWhisperCppStreamSession({
+                streamPath, modelPath,
+                onPartial: (text) => {
+                    try { panel.webview.postMessage({ type: 'sttDeltaEl', reqId, text, provider }); } catch (_) {}
+                },
+                onFinal: (text) => {
+                    _activeRealtimeLocalStreams.delete(reqId);
+                    try { panel.webview.postMessage({ type: 'sttResultEl', reqId, ok: true, text, provider }); } catch (_) {}
+                    try { if (capture && capture.stop) capture.stop(); } catch (_) {}
+                },
+                onError: (err) => reportFail(err),
+            });
+        } else if (provider === 'faster-whisper-stream') {
+            const py = await _ensureFasterWhisperVenv();
+            const script = path.join(
+                (context && context.extensionPath) || __dirname,
+                'tools', 'faster_whisper_stream.py'
+            );
+            if (!fs.existsSync(script)) {
+                throw new Error('faster-whisper driver script missing at ' + script);
+            }
+            const modelDir = _getFasterWhisperModelDir(context);
+            session = createFasterWhisperStreamSession({
+                pythonPath: py,
+                scriptPath: script,
+                modelDir,
+                onPartial: (text) => {
+                    try { panel.webview.postMessage({ type: 'sttDeltaEl', reqId, text, provider }); } catch (_) {}
+                },
+                onFinal: (text) => {
+                    _activeRealtimeLocalStreams.delete(reqId);
+                    try { panel.webview.postMessage({ type: 'sttResultEl', reqId, ok: true, text, provider }); } catch (_) {}
+                    try { if (capture && capture.stop) capture.stop(); } catch (_) {}
+                },
+                onError: (err) => reportFail(err),
+            });
+        } else {
+            throw new Error('unknown realtime local provider: ' + provider);
+        }
+    } catch (e) {
+        traceErr('handleSttHostStartRealtimeLocal session', e);
+        reportFail(e);
+        return;
+    }
+
+    /* 2. Open ffmpeg dshow → pipe PCM to the subprocess. */
+    try {
+        const stream = require(path.join(context.extensionPath || __dirname, 'stt-host-stream-el.js'));
+        capture = await stream.startStream({
+            onPcm: (buf) => { try { if (session) session.sendPcm(buf); } catch (_) {} },
+            onStarted: ({ device }) => {
+                started = true;
+                trace(provider + ' streaming recording on device: ' + device);
+                try { panel.webview.postMessage({ type: 'sttHostStarted', reqId, device, provider }); } catch (_) {}
+            },
+            onError: (err) => reportFail(err),
+        });
+        _activeRealtimeLocalStreams.set(reqId, { session, capture, provider });
+    } catch (e) {
+        traceErr('handleSttHostStartRealtimeLocal ffmpeg', e);
+        try { if (session) session.close(); } catch (_) {}
+        try { panel.webview.postMessage({ type: 'sttHostResult', reqId, ok: false, error: (e && e.message) || String(e), provider }); } catch (_) {}
+    }
+}
+
+/* Generic STOP — close the subprocess (sends EOF / kills after grace) +
+   stop ffmpeg. The session's onFinal posts sttResultEl. */
+function handleSttHostStopRealtimeLocal(panel, context, msg) {
+    const reqId = String((msg && msg.reqId) || '');
+    const entry = reqId
+        ? _activeRealtimeLocalStreams.get(reqId)
+        : (_activeRealtimeLocalStreams.size ? _activeRealtimeLocalStreams.values().next().value : null);
+    if (!entry) return;
+    try { if (entry.capture && entry.capture.stop) entry.capture.stop(); } catch (_) {}
+    try { if (entry.session) entry.session.close(); } catch (_) {}
+}
+
+
 /* Legacy entry: panel posts {type:'sttStart'} when WebSpeech got denied.
-   Route to whisper-local; on download failure fall back to a webspeech
-   prompt + soft-pin the fallback so we don't keep retrying. The panel
-   receives the result as {type:'sttResult', text|error} (same shape the
-   old host-side path used, so panel.js needs no changes here). */
+   The previous whisper-local-download-failed soft-pin flag is gone with the
+   batch path; ElevenLabs is the canonical fallback (per
+   `elevenlabs_default.md`). */
+let _lastSttHintAt = 0;
 function startHostSttHint(panel) {
     if (!extensionContext) return;
     const context = extensionContext;
-    // If user has previously been switched to webspeech-fallback, honor that.
-    if (context.globalState.get(WHISPER_GLOBAL_KEY_FALLBACK)) {
-        try { panel.webview.postMessage({ type: 'sttResult', text: '', error: 'whisper-local unavailable (previous download failed); use WebSpeech in Settings → Voice.' }); } catch (_) {}
+    /* Dedupe back-to-back fires — WebSpeech can emit `not-allowed` followed
+       by `service-not-allowed` (or onend after onerror) in <1s, which used
+       to double-post the same red banner. Trent saw it twice in the same
+       click 2026-05-29. Suppress the second hit within 1500ms. */
+    const nowTs = Date.now();
+    if (nowTs - _lastSttHintAt < 1500) {
+        trace('startHostSttHint: dedupe (last hint ' + (nowTs - _lastSttHintAt) + 'ms ago)');
         return;
     }
-    // Webview won't have raw mic audio here — this entry point is only hit
-    // when the panel's WebSpeech path was denied. We can't drive whisper
-    // without audio bytes, so prompt the user to switch providers explicitly.
+    _lastSttHintAt = nowTs;
+    /* Webview won't have raw mic audio here — this entry point is only hit
+       when the panel's WebSpeech path was denied. Auto-promote the STT
+       provider to ElevenLabs (canonical default per `elevenlabs_default.md`)
+       and post a clear banner. If the ElevenLabs key is missing, surface a
+       specific instruction instead of the legacy WebSpeech message. */
     try {
-        panel.webview.postMessage({
-            type: 'sttResult', text: '',
-            error: 'WebSpeech denied by sandbox. Switch STT provider in Settings → Voice to whisper-local (recommended, keyless) or elevenlabs/openai.',
-        });
+        context.workspaceState.update(STATE_STT_PROVIDER, 'elevenlabs');
+        trace('startHostSttHint: auto-promoted STT provider to elevenlabs');
+    } catch (_) {}
+    const haveKey = !!_getElevenLabsKey(context);
+    const errMsg = haveKey
+        ? 'WebSpeech is unavailable in the VSCode webview — switched STT to ElevenLabs. Click the mic again to record.'
+        : 'WebSpeech is unavailable in the VSCode webview. Add `api_key = sk_...` under `[elevenlabs]` in config.ini, then click the mic again.';
+    try {
+        panel.webview.postMessage({ type: 'sttResult', text: '', error: errMsg });
     } catch (_) {}
 }
 
@@ -3337,6 +4359,77 @@ function startHostSttHint(panel) {
    booted; nothing to tear down per-request. */
 function stopHostStt() { /* deprecated — whisper-server is long-lived */ }
 function prewarmHostStt() { /* deprecated — whisper-server is lazy-spawned */ }
+
+/* ── Host-side mic capture (PRIMARY STT path) ─────────────────────────────
+   VSCode webviews can't getUserMedia (sandboxed iframe; Electron denies media
+   capture regardless of the OS grant to Code.exe — no extension API to fix it).
+   So the mic button posts {type:'sttHostStart'} / {type:'sttHostStop'} and we
+   capture the mic HERE in the Node host via ffmpeg dshow, then transcribe via
+   the EXISTING handleSttRequest path (ElevenLabs Scribe by default). The panel
+   never touches getUserMedia on this path. See stt-host-capture.js for the
+   ffmpeg/shim/graceful-stop details (memory: cbe_stt_stop_bug.md). */
+let _sttHostCapture = null;   /* lazy require of stt-host-capture.js */
+function _getSttHostCapture(context) {
+    if (_sttHostCapture) return _sttHostCapture;
+    const mod = path.join((context && context.extensionPath) || __dirname, 'stt-host-capture.js');
+    _sttHostCapture = require(mod);
+    return _sttHostCapture;
+}
+
+/* Begin host capture. On success the UI's red recording-ring stays on (panel
+   already set it before posting); on failure we post a SPECIFIC error so the
+   user sees the real cause ("ffmpeg not found" / "no microphone device")
+   instead of the misleading "access denied" banner. */
+async function handleHostSttStart(panel, context, msg) {
+    if (process.platform !== 'win32') {
+        try { panel.webview.postMessage({ type: 'sttHostResult', ok: false, error: 'host mic capture is Windows-only on this build — pick WebSpeech in Settings → Voice' }); } catch (_) {}
+        return;
+    }
+    try {
+        const cap = _getSttHostCapture(context);
+        const { device } = await cap.startRecording();
+        trace('host STT recording started on device: ' + device);
+        try { panel.webview.postMessage({ type: 'sttHostStarted', device }); } catch (_) {}
+    } catch (e) {
+        traceErr('handleHostSttStart', e);
+        try { panel.webview.postMessage({ type: 'sttHostResult', ok: false, error: (e && e.message) || String(e) }); } catch (_) {}
+    }
+}
+
+/* Stop host capture, grab the WAV bytes, and transcribe via the existing
+   provider dispatch. We construct a synthetic 'sttRequest' message and reuse
+   handleSttRequest verbatim — that posts {type:'sttRequestResult', ok, text}
+   which the panel already pastes into the input via appendToInput(). Reusing
+   that path means ZERO new transcription/paste code and the ElevenLabs key is
+   read from its existing _getElevenLabsKey() (config.ini [elevenlabs]). */
+async function handleHostSttStop(panel, context, msg) {
+    const cap = _sttHostCapture;
+    if (!cap || !cap.isRecording()) {
+        /* Stop arrived with nothing recording (e.g. start failed already). The
+           panel reset its UI on the error; nothing to do. */
+        return;
+    }
+    const reqId = String((msg && msg.reqId) || ('hoststt-' + Date.now()));
+    const provider = String((msg && msg.provider) || getVoiceProvider(context, 'stt'));
+    try {
+        const buf = await cap.stopRecording();
+        const audioB64 = buf.toString('base64');
+        trace('host STT captured ' + buf.length + ' WAV bytes; transcribing via ' + provider);
+        /* Reuse the existing host transcription + sttRequestResult paste path. */
+        await handleSttRequest(panel, context, {
+            type: 'sttRequest',
+            reqId,
+            provider,
+            mime: 'audio/wav',
+            audioB64,
+            dictionary: (msg && typeof msg.dictionary === 'string') ? msg.dictionary : '',
+            language: (msg && typeof msg.language === 'string') ? msg.language : '',
+        });
+    } catch (e) {
+        traceErr('handleHostSttStop', e);
+        try { panel.webview.postMessage({ type: 'sttRequestResult', reqId, ok: false, error: (e && e.message) || String(e), provider }); } catch (_) {}
+    }
+}
 
 /* ── Tracing ──────────────────────────────────────────────────────────── */
 
@@ -3570,6 +4663,124 @@ async function _cleanStaleCBEVersions(context) {
     }
 }
 
+/* ── Windows microphone-permission auto-fix ─────────────────────────────
+ * On a fresh Windows 10/11 install the OS gates desktop apps behind a
+ * per-exe "Microphone access" toggle in Settings → Privacy. Until the
+ * user flips it, getUserMedia() inside the webview fails silently and
+ * STT shows "microphone access denied. Grant mic permission to VSCode".
+ *
+ * The consent state lives in three HKCU registry values (per-user — no
+ * admin needed):
+ *
+ *   HKCU\Software\Microsoft\Windows\CurrentVersion
+ *        \CapabilityAccessManager\ConsentStore\microphone\Value         (global, REG_SZ "Allow"/"Deny")
+ *        \...\microphone\NonPackaged\Value                              (all win32 apps, REG_SZ)
+ *        \...\microphone\NonPackaged\<mangledExePath>\Value             (per-exe, REG_SZ)
+ *
+ * The per-exe subkey name is the full path with BOTH ":" AND "\" replaced
+ * by "#". A "C:#Users#..." (colon-preserved) subkey also exists in HKCU
+ * but it only stores LastUsedTimeStart/Stop usage telemetry — Chromium
+ * reads consent from the colon-stripped "C##Users#..." variant. Verified
+ * by `reg query` against the live consent store on this machine 2026-05-27.
+ *   C:\Users\foo\AppData\Local\Programs\Microsoft VS Code\Code.exe
+ *   →   C##Users#foo#AppData#Local#Programs#Microsoft VS Code#Code.exe
+ *
+ * Sources (confirmed 2026-05-27):
+ *   - sysmansquad.com/2023/01/21/microphone_app_permissions
+ *   - svch0st on Medium ("Tracking processes accessing the camera/mic")
+ *   - Velociraptor Windows.Registry.CapabilityAccessManager artifact
+ *   - davidarno.org/using-the-registry-to-monitor-webcam-and-microphone-use
+ *
+ * Chromium re-reads the consent value on every getUserMedia() call so no
+ * window reload is required after we write it — the next mic click just
+ * succeeds. If the write fails (rare: locked-down policy hive, GPO-pinned
+ * value), we fall back to opening ms-settings:privacy-microphone so the
+ * user lands one click from the right toggle.
+ */
+async function _ensureMicPermission(context) {
+    if (process.platform !== 'win32') return;          /* Linux/macOS gate elsewhere */
+    const CHECK_KEY = '_cbeMicPermCheck';
+    const TTL_MS = 7 * 24 * 60 * 60 * 1000;            /* re-probe weekly */
+    try {
+        const last = context.globalState.get(CHECK_KEY);
+        if (typeof last === 'number' && Date.now() - last < TTL_MS) return;
+    } catch (_) { /* globalState read failure — proceed */ }
+
+    const cp = require('child_process');
+    const exePath = process.execPath;                  /* e.g. C:\...\Code.exe */
+    /* Mangling: BOTH colon and backslash → #. The colon-kept form
+       ("C:#…") is a usage-telemetry key; the canonical consent key is
+       the colon-stripped form ("C##…"). Verified live 2026-05-27. */
+    const mangled = exePath.replace(/[:\\]/g, '#');
+
+    const BASE_GLOBAL    = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone';
+    const BASE_NONPKG    = BASE_GLOBAL + '\\NonPackaged';
+    const KEY_PER_EXE    = BASE_NONPKG + '\\' + mangled;
+
+    /* Run `reg query KEY /v Value` and return current REG_SZ data or null. */
+    const queryValue = (regKey) => {
+        try {
+            const r = cp.spawnSync('reg', ['query', regKey, '/v', 'Value'],
+                { encoding: 'utf8', windowsHide: true, timeout: 5000 });
+            if (r.status !== 0) return null;
+            const m = /Value\s+REG_SZ\s+(\w+)/i.exec(r.stdout || '');
+            return m ? m[1] : null;
+        } catch (_) { return null; }
+    };
+    /* Run `reg add KEY /v Value /t REG_SZ /d Allow /f`. Returns true on success. */
+    const writeAllow = (regKey) => {
+        try {
+            const r = cp.spawnSync('reg',
+                ['add', regKey, '/v', 'Value', '/t', 'REG_SZ', '/d', 'Allow', '/f'],
+                { encoding: 'utf8', windowsHide: true, timeout: 5000 });
+            return r.status === 0;
+        } catch (_) { return false; }
+    };
+
+    let wroteSomething = false;
+    let allOk = true;
+    const targets = [
+        { name: 'microphone (global)',  key: BASE_GLOBAL },
+        { name: 'NonPackaged (apps)',   key: BASE_NONPKG },
+        { name: 'per-exe Code.exe',     key: KEY_PER_EXE },
+    ];
+    for (const t of targets) {
+        const cur = queryValue(t.key);
+        if (cur === 'Allow') {
+            trace('MIC-PERM: ' + t.name + ' already Allow');
+            continue;
+        }
+        const ok = writeAllow(t.key);
+        if (ok) {
+            wroteSomething = true;
+            trace('MIC-PERM: wrote Allow → ' + t.name + (cur ? ' (was ' + cur + ')' : ' (missing)'));
+        } else {
+            allOk = false;
+            trace('MIC-PERM: FAILED to write ' + t.name + ' — reg add returned non-zero');
+        }
+    }
+
+    if (allOk) {
+        try { context.globalState.update(CHECK_KEY, Date.now()); } catch (_) {}
+        if (wroteSomething) {
+            try { outChan && outChan.appendLine('[CBE] Granted Windows mic permission for ' + path.basename(exePath)); } catch (_) {}
+        }
+    } else {
+        /* Fallback: registry write blocked (locked-down policy, GPO, etc).
+           Open the Settings page so the user is one click from done. */
+        try {
+            vscode.window.showWarningMessage(
+                'Could not auto-grant microphone access. Click the toggle for Visual Studio Code on the next screen.',
+                'Open Settings'
+            ).then(choice => {
+                if (choice === 'Open Settings') {
+                    try { vscode.env.openExternal(vscode.Uri.parse('ms-settings:privacy-microphone')); } catch (_) {}
+                }
+            });
+        } catch (_) { /* even the toast failed — give up silently */ }
+    }
+}
+
 /* ── Prerequisite checker ─────────────────────────────────────────────── */
 /**
  * Verify every external program/library CBE shells out to at runtime is
@@ -3766,7 +4977,7 @@ async function cliHeadlessChat(context, text, onEvent) {
     const model = getActiveModel(context, providerId);
     const maxTokens = getMaxTokens();
     const pInfo = PROVIDERS[providerId] || {};
-    if (!pInfo.bridge && !getProviderKey(context, providerId)) {
+    if (!pInfo.bridge && !pInfo.cliAgent && !getProviderKey(context, providerId)) {
         throw new Error(`${providerId}: no API key. Set one in the panel, config.ini [api_keys], or the provider env var.`);
     }
 
@@ -3981,6 +5192,30 @@ async function activate(context) {
     /* File-backed log so we can read the timing offline (debug.log next to
        the extension — truncated on each activate). */
     _setLogFilePath(path.join(context.extensionPath, 'debug.log'));
+    /* Windows-only: pre-grant the per-exe microphone permission so STT
+       getUserMedia() doesn't silent-fail on a fresh install. HKCU writes,
+       no admin needed. Runs AFTER trace logging is wired so we can see
+       what it did in debug.log. See _ensureMicPermission() for details. */
+    try { await _ensureMicPermission(context); }
+    catch (e) { console.warn('[CBE mic-perm] top-level fail:', e); }
+    /* One-time STT provider migration (2026-05-27): users who had STT pinned
+       to 'anthropic' kept hitting the "Anthropic STT: microphone access
+       denied" red banner because the Anthropic Deepgram-proxy endpoint is
+       undocumented and unreliable. Per user memory `elevenlabs_default.md`
+       ElevenLabs is the canonical default. Migrate stale 'anthropic'
+       selections to 'elevenlabs' ONCE per machine; the user can still pick
+       'anthropic' explicitly afterwards if they want. */
+    try {
+        const MIG_KEY = '_cbeSttAnthropicMigrationDone';
+        if (!context.globalState.get(MIG_KEY)) {
+            const current = context.workspaceState.get(STATE_STT_PROVIDER);
+            if (current === 'anthropic') {
+                await context.workspaceState.update(STATE_STT_PROVIDER, 'elevenlabs');
+                trace('STT migration: anthropic -> elevenlabs (one-time)');
+            }
+            await context.globalState.update(MIG_KEY, Date.now());
+        }
+    } catch (e) { console.warn('[CBE STT migration] failed:', e); }
     /* Drop any cached Config from a previous activation so this run picks
        up edits the user made to config.ini between sessions. */
     Config.invalidate();
@@ -4625,7 +5860,7 @@ function maybeShowFirstRun(context) {
     } catch (_) { return; }
     const msg =
         'Welcome to Claude Codex — Black Edition.\n\n' +
-        'Works out of the box: voice is keyless (WebSpeech for TTS, whisper-local for STT — ~75MB first-run download).\n\n' +
+        'Works out of the box: voice is keyless (WebSpeech for TTS, whisper.cpp realtime for STT — ~75MB first-run download).\n\n' +
         'For higher-quality chat/voice, add keys in config.ini:\n' +
         '  • ElevenLabs / OpenAI / Anthropic for premium voice + chat\n' +
         '  • NameSilo for domain features\n' +
@@ -4667,13 +5902,16 @@ function deactivate() {
     try {
         if (_cliServer) { _cliServer.close(); _cliServer = null; trace('CLI:server closed on deactivate'); }
     } catch (e) { traceErr('deactivate:cliServer', e); }
-    /* Kill the whisper.cpp server if we spawned one. */
+    /* Kill any live realtime STT subprocesses (whisper.cpp stream / faster-
+       whisper python) — the per-session capture handles its own ffmpeg
+       teardown, this is a paranoia sweep for the subprocess + the venv
+       python so a panel close doesn't leak. */
     try {
-        if (whisperServerProc) {
-            try { whisperServerProc.kill(); } catch (_) {}
-            whisperServerProc = null;
-            whisperServerPort = 0;
+        for (const [, entry] of _activeRealtimeLocalStreams) {
+            try { if (entry && entry.capture && entry.capture.stop) entry.capture.stop(); } catch (_) {}
+            try { if (entry && entry.session) entry.session.close(); } catch (_) {}
         }
+        _activeRealtimeLocalStreams.clear();
     } catch (_) {}
 }
 
@@ -5762,7 +7000,7 @@ function buildSettingsPayload(context) {
         }
         const currentModel = getActiveModel(context, id);
         if (currentModel && !models.includes(currentModel)) models.unshift(currentModel);
-        return { id, label: p.label, models, current: currentModel, haveKey, bridge: !!p.bridge, bridgeTarget: p.bridgeTarget || null };
+        return { id, label: p.label, models, current: currentModel, haveKey, bridge: !!p.bridge, bridgeTarget: p.bridgeTarget || null, cliAgent: !!p.cliAgent };
     });
     /* SFX prefs are persisted in workspaceState. Booleans + a 0..1 number;
        defaults match the panel's window.SFX_* defaults so a fresh install
@@ -5792,10 +7030,13 @@ function buildSettingsPayload(context) {
     }
     /* Voice (TTS / STT) provider selection. TTS defaults to 'webspeech' —
        the only keyless TTS option (whisper.cpp doesn't synthesize). STT
-       defaults to 'whisper-local' (keyless, offline, ~75MB one-time model
-       download). ElevenLabs / OpenAI remain the premium upgrades when the
-       user drops keys into config.ini. The legacy host-side SpeechRecognition
-       path was retired 2026-05-26 in favor of whisper-local. */
+       defaults to 'elevenlabs' (per elevenlabs_default.md); keyless realtime
+       fallbacks are whisper-cpp-stream + faster-whisper-stream (~75MB and
+       ~150MB respective one-time bootstraps). ElevenLabs / OpenAI remain the
+       premium upgrades when the user drops keys into config.ini. The legacy
+       host-side SpeechRecognition path was retired 2026-05-26; the batch
+       whisper-local HTTP-server path was retired 2026-05-30 in favor of the
+       two realtime streaming providers above. */
     const ttsProvider = getVoiceProvider(context, 'tts');
     const sttProvider = getVoiceProvider(context, 'stt');
     /* Voice tuning values (persisted in workspaceState; defaults match the
@@ -6306,6 +7547,12 @@ function bindPanel(context, panel) {
                         }
                         if (context) context.__cbeActiveBridgeSocket = null;
                     } catch (_e) { /* swallow — best-effort */ }
+                    /* Logged-in Claude agent: kill the in-flight `claude` child. */
+                    try {
+                        const _ch = panel.__cbeClaudeChild;
+                        if (_ch && !_ch.killed) { _ch.kill(); }
+                        panel.__cbeClaudeChild = null;
+                    } catch (_e) { /* best-effort */ }
                     panel.webview.postMessage({ type: 'info', text: 'Stopped.' });
                     /* Force a teardown signal in case the stream loop is
                        blocked somewhere the cancel flag won't reach. The
@@ -6315,6 +7562,9 @@ function bindPanel(context, panel) {
                     break;
                 case 'reset':
                     conversation = [];
+                    /* Drop the logged-in Claude agent session so the next turn
+                       starts a brand-new `claude` session (no --resume). */
+                    panel.__cbeClaudeSessionId = null;
                     panel.webview.postMessage({ type: 'info', text: 'Conversation reset.' });
                     /* Re-fire the auto-context (dir tree + handbook) so each
                        fresh conversation starts with the model knowing the
@@ -6370,6 +7620,79 @@ function bindPanel(context, panel) {
                 case 'setBigFont':
                     await context.workspaceState.update('codexBlackEd.bigFont', !!msg.value);
                     break;
+                case 'setSttProvider':
+                    /* Dedicated STT-only persistence — used by the panel's
+                       sandbox-auto-promote (webspeech → elevenlabs at click
+                       time) without disturbing the active LLM provider. */
+                    if (typeof msg.sttProvider === 'string' && VOICE_PROVIDERS.includes(msg.sttProvider)) {
+                        await context.workspaceState.update(STATE_STT_PROVIDER, msg.sttProvider);
+                        trace('STT provider persisted (setSttProvider): ' + msg.sttProvider);
+                    }
+                    break;
+                case 'setProviderKey': {
+                    /* In-Settings API key save. Writes config.ini under the
+                       provider's [section] key. Mirrors the bumpRunCount /
+                       pinned-extensions write pattern (writeConfigPatch +
+                       Config.reload). Section + key chosen by the panel from
+                       KEY_PROVIDER_META — webspeech / whisper-cpp-stream /
+                       faster-whisper-stream / anthropic-OAuth never get here.
+                       Added 2026-05-30 — user feedback: "DG needs a key. BUT
+                       theres no where in settings to actually ENTER the key!" */
+                    try {
+                        const section = String(msg.section || '').trim();
+                        const keyName = String(msg.key || 'api_key').trim();
+                        const value   = String(msg.value || '').trim();
+                        if (!section || !value) {
+                            panel.webview.postMessage({ type: 'providerKeySaved', ok: false, error: 'missing section or value' });
+                            break;
+                        }
+                        if (!/^[A-Za-z0-9_-]+$/.test(section) || !/^[A-Za-z0-9_-]+$/.test(keyName)) {
+                            panel.webview.postMessage({ type: 'providerKeySaved', ok: false, error: 'invalid section/key chars' });
+                            break;
+                        }
+                        const iniPath = path.join(context.extensionPath, CONFIG_INI_NAME);
+                        writeConfigPatch(iniPath, { [`${section}.${keyName}`]: value });
+                        try { if (Config && Config.reload) Config.reload(context.extensionPath); } catch (_) {}
+                        trace(`provider key saved: [${section}] ${keyName} = (${value.length} chars)`);
+                        panel.webview.postMessage({ type: 'providerKeySaved', ok: true, section, key: keyName });
+                    } catch (e) {
+                        traceErr('setProviderKey', e);
+                        panel.webview.postMessage({ type: 'providerKeySaved', ok: false, error: (e && e.message) || String(e) });
+                    }
+                    break;
+                }
+                case 'fetchElevenLabsVoices': {
+                    /* Settings → Read Aloud (TTS) → ElevenLabs Voice dropdown.
+                       Calls GET https://api.elevenlabs.io/v1/voices and posts
+                       {type:'elevenLabsVoicesResult', ok, voices:[{voice_id,name,...}]}
+                       back to the panel. Used to replace the raw 20-char Voice
+                       ID text input with a real selector. Added 2026-05-30 —
+                       user feedback: "htf are they supposed [to know] the 16
+                       digit alpha numeric voice id?" */
+                    try {
+                        const key = _getElevenLabsKey(context);
+                        if (!key) {
+                            panel.webview.postMessage({ type: 'elevenLabsVoicesResult', ok: false, error: 'no [elevenlabs] api_key in config.ini — save one in Settings first' });
+                            break;
+                        }
+                        const res = await fetch('https://api.elevenlabs.io/v1/voices', {
+                            headers: { 'xi-api-key': key, 'Accept': 'application/json' },
+                        });
+                        if (!res.ok) {
+                            const errText = await res.text().catch(() => '');
+                            panel.webview.postMessage({ type: 'elevenLabsVoicesResult', ok: false, error: `HTTP ${res.status}: ${errText.slice(0, 200)}` });
+                            break;
+                        }
+                        const body = await res.json();
+                        const voices = Array.isArray(body.voices) ? body.voices : [];
+                        trace(`elevenlabs voices fetched: ${voices.length}`);
+                        panel.webview.postMessage({ type: 'elevenLabsVoicesResult', ok: true, voices: voices.map(v => ({ voice_id: v.voice_id, name: v.name, category: v.category })) });
+                    } catch (e) {
+                        traceErr('fetchElevenLabsVoices', e);
+                        panel.webview.postMessage({ type: 'elevenLabsVoicesResult', ok: false, error: (e && e.message) || String(e) });
+                    }
+                    break;
+                }
                 case 'setProvider':
                     await context.workspaceState.update(STATE_PROVIDER, msg.provider);
                     if (msg.model) await context.workspaceState.update(STATE_MODEL + ':' + msg.provider, msg.model);
@@ -6915,7 +8238,21 @@ function bindPanel(context, panel) {
                                 .then((s) => activePanel.webview.postMessage({ type: 'ollamaStatus', ...s }))
                                 .catch(() => {});
                         }
-                    }).catch((e) => traceErr('pullOllamaModel', e));
+                    }).catch((e) => {
+                        traceErr('pullOllamaModel', e);
+                        /* 2026-05-30: ensure the panel's Pull button gets
+                           re-enabled on throw — without this `fail` message
+                           the spinner stays forever (updateOllamaPullProgress
+                           only resets the button on step === 'done' | 'fail'). */
+                        if (activePanel) {
+                            activePanel.webview.postMessage({
+                                type: 'ollamaPullStatus',
+                                step: 'fail',
+                                model: name,
+                                text: `Pull error: ${e && e.message || e}`,
+                            });
+                        }
+                    });
                     break;
                 }
                 case 'ensureBridge': {
@@ -7630,6 +8967,52 @@ function bindPanel(context, panel) {
                 case 'sttStop':
                     stopHostStt();
                     break;
+                case 'sttHostStart':
+                    /* PRIMARY STT path: capture the mic in the Node host via
+                       ffmpeg dshow (webview getUserMedia is sandbox-blocked
+                       regardless of the OS grant to Code.exe). */
+                    handleHostSttStart(panel, context, msg);
+                    break;
+                case 'sttHostStop':
+                    /* Stop host capture + transcribe via the existing provider
+                       dispatch (ElevenLabs Scribe by default). Result comes
+                       back as sttRequestResult and pastes into the input. */
+                    handleHostSttStop(panel, context, msg);
+                    break;
+                case 'sttHostStartEl':
+                    /* ElevenLabs Scribe v2 Realtime (streaming WS). Opens
+                       ffmpeg → host WS → partial transcripts stream back to
+                       the panel as sttDeltaEl events. Final commit comes as
+                       sttResultEl. On WS error / 401 we silently fall through
+                       to the batch sttHostStart path. */
+                    handleSttHostStartElevenLabs(panel, context, msg);
+                    break;
+                case 'sttHostStopEl':
+                    /* Mic-up for the ElevenLabs streaming path. Stops ffmpeg
+                       + sends end_of_stream to the WS; final transcript posts
+                       as sttResultEl. */
+                    handleSttHostStopElevenLabs(panel, context, msg);
+                    break;
+                case 'sttHostStartWcpp':
+                    /* Realtime local: whisper.cpp `stream` example binary
+                       fed PCM via stdin. Same ffmpeg dshow capture as the
+                       ElevenLabs path; partials post as sttDeltaEl, final
+                       as sttResultEl. Lazy-downloads the stream.exe + tiny
+                       model on first use. */
+                    handleSttHostStartRealtimeLocal(panel, context, msg, 'whisper-cpp-stream');
+                    break;
+                case 'sttHostStopWcpp':
+                    handleSttHostStopRealtimeLocal(panel, context, msg);
+                    break;
+                case 'sttHostStartFw':
+                    /* Realtime local: faster-whisper (CTranslate2) + webrtcvad
+                       sliding window. Lazy-bootstraps a per-repo venv at
+                       repo-root/venv-whisper on first use (~150MB download). */
+                    handleSttHostStartRealtimeLocal(panel, context, msg, 'faster-whisper-stream');
+                    break;
+                case 'sttHostStopFw':
+                    handleSttHostStopRealtimeLocal(panel, context, msg);
+                    break;
                 case 'ttsRequest':
                     /* Server-side TTS: panel handed us text + provider; we
                        call ElevenLabs / OpenAI and return base64 mp3 so the
@@ -7658,6 +9041,20 @@ function bindPanel(context, panel) {
                 case 'sttStreamStop':
                     /* Mic stopped — flush + finalize the open stream. */
                     handleSttStreamStop(panel, context, msg);
+                    break;
+                case 'openWindowsMicSettings':
+                    /* User clicked the "Open Windows Privacy → Microphone"
+                       link in a mic-denied banner (panel.js addMicDeniedMsg).
+                       Opens the OS-level toggle one click away. (Trent 2026-05-27.) */
+                    try {
+                        if (process.platform === 'win32') {
+                            vscode.env.openExternal(vscode.Uri.parse('ms-settings:privacy-microphone'));
+                        } else if (process.platform === 'darwin') {
+                            vscode.env.openExternal(vscode.Uri.parse('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'));
+                        } else {
+                            vscode.window.showInformationMessage('Grant microphone access to VSCode in your OS privacy settings, then click the mic again.');
+                        }
+                    } catch (_) {}
                     break;
                 case '_cbeDbg':
                     /* Diagnostic mirror from panel.js — we serialize the
@@ -9941,6 +11338,199 @@ async function tryHandleImageGeneration(context, panel, text) {
     return true;
 }
 
+/* ── Logged-in Claude Code agent host ─────────────────────────────────────
+   Resolve the native `claude` binary. The npm install ships a real exe at
+   <prefix>/node_modules/@anthropic-ai/claude-code/bin/claude.exe (the .cmd
+   launcher just shells to it). Spawning the exe directly avoids a shell, so
+   project paths with spaces are safe. Falls back to `claude(.cmd)` on PATH. */
+function resolveClaudeExe() {
+    const isWin = process.platform === 'win32';
+    const exe = isWin ? 'claude.exe' : 'claude';
+    const cands = [];
+    if (process.env.APPDATA) cands.push(path.join(process.env.APPDATA, 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'bin', exe));
+    cands.push(path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'bin', exe));
+    cands.push(path.join(os.homedir(), '.claude', 'local', 'node_modules', '@anthropic-ai', 'claude-code', 'bin', exe));
+    if (process.env.npm_config_prefix) cands.push(path.join(process.env.npm_config_prefix, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', exe));
+    for (const c of cands) { try { if (c && fs.existsSync(c)) return { cmd: c, shell: false }; } catch (_) {} }
+    /* PATH fallback — the Windows launcher is a .cmd, which needs a shell. */
+    return { cmd: isWin ? 'claude.cmd' : 'claude', shell: isWin };
+}
+
+/* Permission mode for the hosted agent. The panel has no interactive
+   approval UI, so the default (prompting) mode would auto-deny tools in
+   print mode. Honor [claude_code] permission_mode from config.ini; default
+   to bypassPermissions so the agent can actually run tools end-to-end on the
+   user's own machine. Valid: acceptEdits | bypassPermissions | default | plan. */
+function getClaudePermissionMode(context) {
+    try {
+        const cfg = readConfigIni(context.extensionPath) || {};
+        const m = cfg.claude_code && cfg.claude_code.permission_mode;
+        if (m && ['acceptEdits', 'bypassPermissions', 'default', 'plan', 'dontAsk', 'auto'].includes(String(m).trim())) {
+            return String(m).trim();
+        }
+    } catch (_) { /* config optional */ }
+    return 'bypassPermissions';
+}
+
+/* Summarize a tool_use input for a one-line ▶ notice (don't dump full args). */
+function summarizeClaudeToolInput(input) {
+    if (!input || typeof input !== 'object') return '';
+    const pick = input.command || input.file_path || input.path || input.pattern || input.query || input.url || input.description;
+    if (pick) return String(pick).split(/\r?\n/)[0].slice(0, 120);
+    try { return JSON.stringify(input).slice(0, 100); } catch (_) { return ''; }
+}
+
+/* Host the real `claude` CLI agent for one user turn and stream its events to
+   the panel using the same protocol as the HTTP-provider path (assistantStart
+   was already posted by the caller; we post chunk / info / assistantDone).
+   The agent runs its OWN tool loop (Bash/Edit/etc.) — we don't daisy-chain
+   tools here. Session continuity is via --resume <session_id>, stored per
+   panel on panel.__cbeClaudeSessionId. */
+function streamClaudeAgent(context, panel, text, images) {
+    return new Promise((resolve) => {
+        const cp = require('child_process');
+        const model = getActiveModel(context, 'claudeCode') || 'claude-sonnet-4-6';
+        const projectFolder = context.workspaceState.get('codexBlackEd.projectFolder', '') || os.homedir();
+        const permMode = getClaudePermissionMode(context);
+
+        let prompt = String(text || '').trim();
+        if (images && images.length) prompt += `\n\n[${images.length} image(s) attached — image forwarding to the Claude Code agent is not wired yet]`;
+        if (!prompt) { resolve(); return; }
+
+        conversation.push({ role: 'user', content: prompt });
+        try { touchActiveAccount(context, 'claudeCode'); } catch (_) {}
+        setStatus('streaming', true, 'claudeCode');
+        panel.webview.postMessage({ type: 'assistantStart' });
+
+        const args = [
+            '-p',
+            '--output-format', 'stream-json',
+            '--include-partial-messages',
+            '--verbose',
+            '--model', model,
+            '--permission-mode', permMode,
+            '--add-dir', projectFolder,
+        ];
+        const sid = panel.__cbeClaudeSessionId;
+        if (sid) args.push('--resume', sid);
+
+        /* Strip API-key env so the CLI authenticates via the Claude Code OAuth
+           subscription (NOT the API-credit ledger). This is the whole point of
+           "logged-in" mode. */
+        const env = Object.assign({}, process.env);
+        delete env.ANTHROPIC_API_KEY;
+        delete env.ANTHROPIC_AUTH_TOKEN;
+
+        const bin = resolveClaudeExe();
+        trace(`claudeCode spawn: ${bin.cmd} model=${model} perm=${permMode} resume=${sid ? sid.slice(0, 8) : 'new'} cwd=${projectFolder}`);
+
+        let child;
+        try {
+            child = cp.spawn(bin.cmd, args, { cwd: projectFolder, env, shell: bin.shell, windowsHide: true });
+        } catch (e) {
+            panel.webview.postMessage({ type: 'error', message: `claude spawn failed: ${(e && e.message) || e}` });
+            try { setStatus('idle', false, 'claudeCode'); } catch (_) {}
+            resolve();
+            return;
+        }
+        panel.__cbeClaudeChild = child;
+
+        let assembled = '';
+        let stderrBuf = '';
+        let stdoutBuf = '';
+        let finished = false;
+
+        const finish = () => {
+            if (finished) return;
+            finished = true;
+            if (panel.__cbeClaudeChild === child) panel.__cbeClaudeChild = null;
+            conversation.push({ role: 'assistant', content: assembled });
+            panel.webview.postMessage({ type: 'assistantDone', text: assembled });
+            try { setStatus('idle', false, 'claudeCode'); } catch (_) {}
+            resolve();
+        };
+
+        const onEvent = (ev) => {
+            if (!ev || typeof ev !== 'object') return;
+            if (ev.session_id) panel.__cbeClaudeSessionId = ev.session_id;
+            const t = ev.type;
+            if (t === 'system' && ev.subtype === 'init') {
+                panel.webview.postMessage({ type: 'status', text: `claude ${ev.model || model} · ${permMode} · session ${String(ev.session_id || '').slice(0, 8)}` });
+                return;
+            }
+            /* Incremental text via --include-partial-messages. */
+            if (t === 'stream_event' && ev.event) {
+                const se = ev.event;
+                if (se.type === 'content_block_delta' && se.delta && se.delta.type === 'text_delta' && se.delta.text) {
+                    assembled += se.delta.text;
+                    panel.webview.postMessage({ type: 'chunk', text: se.delta.text });
+                }
+                return;
+            }
+            /* Assistant turn — surface tool_use as ▶ notices. Text already
+               streamed via partials, so don't re-emit it here (avoids dupes). */
+            if (t === 'assistant' && ev.message && Array.isArray(ev.message.content)) {
+                for (const b of ev.message.content) {
+                    if (b && b.type === 'tool_use') {
+                        panel.webview.postMessage({ type: 'info', text: `▶ ${b.name} ${summarizeClaudeToolInput(b.input)}` });
+                    }
+                }
+                return;
+            }
+            /* Tool results come back as a synthetic user turn. */
+            if (t === 'user' && ev.message && Array.isArray(ev.message.content)) {
+                for (const b of ev.message.content) {
+                    if (b && b.type === 'tool_result') {
+                        const sz = typeof b.content === 'string' ? b.content.length : JSON.stringify(b.content || '').length;
+                        panel.webview.postMessage({ type: 'info', text: `◀ tool result (${sz}B)${b.is_error ? ' [error]' : ''}` });
+                    }
+                }
+                return;
+            }
+            /* Terminal result event. If partials never delivered text (e.g.
+               a pure tool turn), fall back to the final result string. */
+            if (t === 'result') {
+                if (!assembled && ev.result) {
+                    assembled = String(ev.result);
+                    panel.webview.postMessage({ type: 'chunk', text: assembled });
+                }
+                if (ev.is_error) {
+                    panel.webview.postMessage({ type: 'info', text: `claude: ${ev.subtype || 'error'}` });
+                }
+                return;
+            }
+        };
+
+        child.stdout.on('data', (d) => {
+            stdoutBuf += d.toString('utf8');
+            let nl;
+            while ((nl = stdoutBuf.indexOf('\n')) >= 0) {
+                const line = stdoutBuf.slice(0, nl).trim();
+                stdoutBuf = stdoutBuf.slice(nl + 1);
+                if (!line) continue;
+                let ev; try { ev = JSON.parse(line); } catch (_) { continue; }
+                try { onEvent(ev); } catch (e) { traceErr('claudeCode onEvent', e); }
+            }
+        });
+        child.stderr.on('data', (d) => { stderrBuf += d.toString('utf8'); });
+        child.on('error', (e) => {
+            panel.webview.postMessage({ type: 'error', message: `claude process error: ${(e && e.message) || e}` });
+            finish();
+        });
+        child.on('close', (code) => {
+            if (code !== 0 && !assembled) {
+                panel.webview.postMessage({ type: 'error', message: `claude exited ${code}${stderrBuf ? ': ' + stderrBuf.slice(0, 500) : ''}` });
+            }
+            finish();
+        });
+
+        /* Feed the prompt over stdin (default --input-format text) so user
+           text never touches a shell command line. */
+        try { child.stdin.write(prompt); child.stdin.end(); }
+        catch (e) { traceErr('claudeCode stdin', e); }
+    });
+}
+
 async function handleSendText(context, panel, text, images) {
     /* Capture retry markers off the (possibly boxed-String) argument BEFORE
        trimming coerces it to a primitive and drops them. __cbeRotateCount
@@ -9959,6 +11549,18 @@ async function handleSendText(context, panel, text, images) {
        bridge providers skip this — they authenticate via the tray exe's
        QtWebEngine profile (or local ollama daemon), not an API key. */
     const _pInfo = PROVIDERS[providerId] || {};
+
+    /* Logged-in Claude Code agent: host the real `claude` CLI over the OAuth
+       subscription (no API key, runs its own tool loop). Bypasses the whole
+       HTTP-provider stream + CBE tool daisy-chain below. */
+    if (_pInfo.cliAgent) {
+        await streamClaudeAgent(context, panel, text, images);
+        return;
+    }
+
+    /* If no key for this provider, prompt up-front and store it. Native
+       bridge providers skip this — they authenticate via the tray exe's
+       QtWebEngine profile (or local ollama daemon), not an API key. */
     if (!_pInfo.bridge && !getProviderKey(context, providerId)) {
         const got = await promptForKey(context, providerId);
         if (!got) {

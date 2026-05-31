@@ -326,8 +326,11 @@ body {
 #compactBtn        { background-image: url('icons/compact.svg')   !important; }
 #handbookBtn       { background-image: url('icons/book.svg')      !important; }
 #settingsBtn       { background-image: url('icons/gear.svg')      !important; }
+#accountsBtn       { background-image: url('icons/accounts.svg')  !important; }
 #extensionsBtn     { background-image: url('icons/puzzle.svg')    !important; }
+#emailBtn          { background-image: url('icons/email.svg')     !important; }
 #projectFolderBtn  { background-image: url('icons/folder.svg')    !important; }
+#browserBtn        { background-image: url('icons/browser.svg')   !important; }
 #monitorBtn        { background-image: url('icons/monitor.svg')   !important; }
 #terminalBtn       { background-image: url('icons/terminal.svg')  !important; }
 #setupBtn          { background-image: url('icons/toolbox.svg')   !important; }
@@ -336,6 +339,7 @@ body {
 #domainsBtn        { background-image: url('icons/globe.svg')     !important; }
 #fontSizeBtn       { background-image: url('icons/font.svg')      !important; }
 #helpBtn           { background-image: url('icons/help.svg')      !important; }
+#tamaBtn           { background-image: url('icons/tama.svg')      !important; }
 
 /* Stop button — round red power button, mirrors the reference dock's
    far-right shutdown icon. */

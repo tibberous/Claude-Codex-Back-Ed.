@@ -17,6 +17,198 @@
 # ============================================================================
 from __future__ import annotations
 
+# === Theme Asset Slicer (ported from CutiePy) ===========================
+# Self-contained: no external deps beyond stdlib + Pillow at slice-time.
+# Routes --theme-slicer / --slicer / --slice-assets / --slice-theme-assets
+# BEFORE the main app launches so it never bootstraps a heavy GUI.
+import sys as _slicer_sys
+def _slicer_requested(_argv):
+    _flags = {'--theme-slicer', '-theme-slicer', '/theme-slicer', '--slice-theme-assets', '-slice-theme-assets', '/slice-theme-assets', '--slice-assets', '-slice-assets', '/slice-assets', '--slicer', '-slicer', '/slicer'}
+    _toks = {str(t or '').strip().lower() for t in (_argv or [])}
+    return bool(_toks & _flags)
+if _slicer_requested(_slicer_sys.argv[1:]):
+    import sys, os, re, json, hashlib, datetime
+    from pathlib import Path
+    BASE_DIR_SLICER = Path(__file__).resolve().parent
+    def _themeSlicerRecordException(*a, **kw): pass
+    class _SlicerReportFile:
+        def __init__(self, p): self.p = Path(p)
+        def writeText(self, t): self.p.write_text(t, encoding='utf-8')
+    def _themeSlicerOption(argv, *names, default=''):
+        lowered_names = {str(n or '').strip().lower() for n in names if str(n or '').strip()}
+        items = list(argv or [])
+        for index, raw in enumerate(items):
+            token = str(raw or '').strip()
+            lowered = token.lower()
+            for name in lowered_names:
+                if lowered == name and index + 1 < len(items):
+                    return str(items[index + 1] or '').strip()
+                if lowered.startswith(name + '='):
+                    return token.split('=', 1)[1].strip()
+                if lowered.startswith(name + ':'):
+                    return token.split(':', 1)[1].strip()
+        return str(default or '')
+    def _themeSlicerParseSize(value, default=(0, 0)):
+        raw = str(value or '').strip().lower().replace(',', 'x').replace('×', 'x')
+        if 'x' not in raw:
+            return default
+        left, right = raw.split('x', 1)
+        try:
+            return max(1, int(float(left.strip()))), max(1, int(float(right.strip())))
+        except Exception:
+            _themeSlicerRecordException('start.py:theme-slicer-size', sys.exc_info()[1], handled=True)
+            return default
+    def _themeSlicerMd5(path):
+        try:
+            return hashlib.md5(Path(path).read_bytes()).hexdigest()
+        except Exception:
+            _themeSlicerRecordException('start.py:theme-slicer-md5', sys.exc_info()[1], handled=True)
+            return ''
+    def _themeSlicerLoadSpec(path):
+        try:
+            payload = json.loads(Path(path).read_text(encoding='utf-8', errors='replace'))
+        except Exception as error:
+            raise RuntimeError(f'could not read slicer spec {path}: {type(error).__name__}: {error}') from error
+        if isinstance(payload, dict):
+            payload = payload.get('slices', [])
+        if not isinstance(payload, list):
+            raise RuntimeError('slicer spec must be a list or an object with a slices list')
+        rows = []
+        for index, item in enumerate(payload):
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get('name') or item.get('id') or f'slice_{index + 1:03d}').strip() or f'slice_{index + 1:03d}'
+            rows.append({'name': name, 'x': int(float(item.get('x', 0) or 0)), 'y': int(float(item.get('y', 0) or 0)), 'width': int(float(item.get('width', item.get('w', 1)) or 1)), 'height': int(float(item.get('height', item.get('h', 1)) or 1))})
+        return rows
+    def _themeSlicerGridSpec(argv, image_size):
+        grid = _themeSlicerParseSize(_themeSlicerOption(argv, '--grid', '-grid', '/grid', default=''), (0, 0))
+        cell = _themeSlicerParseSize(_themeSlicerOption(argv, '--cell', '-cell', '/cell', '--cell-size', '-cell-size', '/cell-size', default=''), (0, 0))
+        if grid == (0, 0) and cell == (0, 0):
+            raise RuntimeError('provide either --spec slices.json or --grid CxR / --cell WxH')
+        image_width, image_height = image_size
+        cols, rows = grid
+        cell_width, cell_height = cell
+        if cols <= 0 and cell_width > 0: cols = max(1, image_width // cell_width)
+        if rows <= 0 and cell_height > 0: rows = max(1, image_height // cell_height)
+        if cell_width <= 0 and cols > 0: cell_width = max(1, image_width // cols)
+        if cell_height <= 0 and rows > 0: cell_height = max(1, image_height // rows)
+        names_raw = _themeSlicerOption(argv, '--names', '-names', '/names', default='')
+        names = [p.strip() for p in re.split(r'[,;|]', names_raw) if p.strip()]
+        prefix = _themeSlicerOption(argv, '--prefix', '-prefix', '/prefix', default='slice') or 'slice'
+        slices = []
+        for row in range(rows):
+            for col in range(cols):
+                index = row * cols + col
+                name = names[index] if index < len(names) else f'{prefix}_{index + 1:03d}'
+                slices.append({'name': name, 'x': col * cell_width, 'y': row * cell_height, 'width': cell_width, 'height': cell_height})
+        return slices
+    class ThemeAssetSlicer:
+        """Class-owned sprite/contact-sheet slicer for XML theme assets."""
+        def __init__(self, base_dir=None):
+            self.base_dir = Path(base_dir or BASE_DIR_SLICER)
+        def option(self, argv, *names, default=''):
+            return _themeSlicerOption(argv, *names, default=default)
+        def load_spec(self, path): return _themeSlicerLoadSpec(path)
+        def grid_spec(self, argv, image_size): return _themeSlicerGridSpec(argv, image_size)
+        def resolve_path(self, raw):
+            path = Path(str(raw or '')).expanduser()
+            if not path.is_absolute():
+                path = (self.base_dir / path).resolve()
+            return path
+        def run(self, argv=None):
+            argv = list(argv or sys.argv[1:])
+            source_raw = self.option(argv, '--source', '-source', '/source', '--src', '-src', '/src', default='')
+            out_raw = self.option(argv, '--out', '-out', '/out', '--output', '-output', '/output', default='')
+            spec_raw = self.option(argv, '--spec', '-spec', '/spec', '--json', '-json', '/json', default='')
+            if not source_raw or not out_raw:
+                _usage_lines = [
+                    '[theme-slicer] Usage:',
+                    '  python start.py <mode> --source <image> --out <dir> [region-options]',
+                    '',
+                    'Mode flag (any of these — same behavior):',
+                    '  --theme-slicer   --slicer   --slice-assets   --slice-theme-assets',
+                    '',
+                    'Required:',
+                    '  --source <path>   input image (PNG/JPG/etc. — anything Pillow opens)',
+                    '                    aliases: --src  -source  -src  /source  /src',
+                    '  --out <dir>       output directory; will be created if missing',
+                    '                    aliases: --output  -out  -output  /out  /output',
+                    '',
+                    'Region mode — pick exactly ONE of:',
+                    '  (a) --spec <slices.json>     JSON spec of arbitrary regions (see SHAPE below)',
+                    '       aliases: --json  -spec  -json  /spec  /json',
+                    '  (b) --grid CxR               uniform grid: C columns by R rows of equal cells',
+                    '      [--cell WxH]             explicit cell size (default: source-w/C by source-h/R)',
+                    '      [--names a,b,c,...]      per-cell names in row-major order; default slice_001..',
+                    '',
+                    'Paths: relative paths resolve against the project base dir; absolute paths are used as-is.',
+                    '',
+                    'JSON spec shape (--spec):',
+                    '  [',
+                    '    {"name":"top_left",   "x":0,    "y":0,   "width":36,  "height":36},',
+                    '    {"name":"top_mid",    "x":36,   "y":0,   "width":888, "height":36},',
+                    '    ...',
+                    '  ]',
+                    '  name is sanitized (non [A-Za-z0-9._-] -> "_"); missing/0 width or height is skipped.',
+                    '',
+                    'Output:',
+                    '  <out>/<name>.png            one PNG per region',
+                    '  <out>/theme_slicer_report.txt   list of regions written + md5 of each',
+                    '',
+                    'Exit codes:',
+                    '  0 = wrote at least one slice; 2 = bad args, Pillow missing, or no slices written.',
+                    '',
+                    'Examples:',
+                    '  python start.py --theme-slicer --source assets/themes/red_neon/tool_sheet.png \\',
+                    '                  --grid 6x3 --names select,blade,zoom --out assets/themes/red_neon/buttons',
+                    '  python start.py --slicer --source sheet.png --spec theme_slices.json --out assets/themes/glass/panels',
+                ]
+                print('\n'.join(_usage_lines), file=sys.stderr, flush=True)
+                return 2
+            source = self.resolve_path(source_raw)
+            output_dir = self.resolve_path(out_raw)
+            try:
+                from PIL import Image
+            except Exception as error:
+                _themeSlicerRecordException('start.py:theme-slicer-pillow', sys.exc_info()[1], handled=True)
+                print(f'[theme-slicer] FAILED: Pillow/PIL is required to slice image assets: {type(error).__name__}: {error}', file=sys.stderr, flush=True)
+                return 2
+            try:
+                output_dir.mkdir(parents=True, exist_ok=True)
+                image = Image.open(source).convert('RGBA')
+                slices = self.load_spec(self.resolve_path(spec_raw)) if spec_raw else self.grid_spec(argv, image.size)
+                if not slices:
+                    raise RuntimeError('no slices were defined')
+                report_lines = ['CUTIEPY THEME ASSET SLICER REPORT', '=================================', f'Generated at: {datetime.datetime.now().isoformat(timespec="seconds")}', f'Source: {source}', f'Source size: {image.size[0]}x{image.size[1]}', f'Output: {output_dir}', '']
+                count = 0
+                for item in slices:
+                    name = re.sub(r'[^A-Za-z0-9._-]+', '_', str(item.get('name') or f'slice_{count + 1:03d}')).strip('._') or f'slice_{count + 1:03d}'
+                    x = max(0, int(item.get('x', 0) or 0)); y = max(0, int(item.get('y', 0) or 0))
+                    width = max(1, int(item.get('width', 1) or 1)); height = max(1, int(item.get('height', 1) or 1))
+                    right = min(image.size[0], x + width); bottom = min(image.size[1], y + height)
+                    if right <= x or bottom <= y:
+                        report_lines.append(f'SKIP {name}: empty crop x={x} y={y} width={width} height={height}')
+                        continue
+                    target = output_dir / f'{name}.png'
+                    image.crop((x, y, right, bottom)).save(target)
+                    md5 = _themeSlicerMd5(target)
+                    count += 1
+                    report_lines.append(f'OK {name}: x={x} y={y} width={right - x} height={bottom - y} file={target.name} md5={md5}')
+                    print(f'[theme-slicer] OK {name} -> {target} md5={md5}', flush=True)
+                report_lines.append('')
+                report_lines.append(f'Total written: {count}')
+                _SlicerReportFile(output_dir / 'theme_slicer_report.txt').writeText('\n'.join(report_lines) + '\n')
+                print(f'[theme-slicer] report={output_dir / "theme_slicer_report.txt"}', flush=True)
+                return 0 if count else 2
+            except Exception as error:
+                _themeSlicerRecordException('start.py:theme-slicer', sys.exc_info()[1], handled=True)
+                print(f'[theme-slicer] FAILED: {type(error).__name__}: {error}', file=sys.stderr, flush=True)
+                return 2
+    def runThemeAssetSlicer(argv=None):
+        return ThemeAssetSlicer(BASE_DIR_SLICER).run(argv)
+    raise SystemExit(int(runThemeAssetSlicer(_slicer_sys.argv[1:])))
+# === end Theme Asset Slicer =============================================
+
 import argparse
 import base64
 import builtins
@@ -1213,6 +1405,8 @@ def managedSubprocessRun(command: list[str], *, cwd: Path | None = None, timeout
             command,
             cwd=str(cwd or ROOT),
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             timeout=timeout,
             check=False,
@@ -2261,7 +2455,7 @@ def detectStaleBridgeSocket(port: int) -> dict[str, Any] | None:
         )
         proc = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
         )  # lifecycle-bypass-ok: read-only diagnostic, spawns no app process.
         out = (proc.stdout or "").strip()
         if out:
@@ -2281,7 +2475,7 @@ def detectStaleBridgeSocket(port: int) -> dict[str, Any] | None:
         try:
             tl = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {listening_pid}", "/NH", "/FO", "CSV"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
             )
             stdout = tl.stdout or ""
             pid_alive = (str(listening_pid) in stdout) and ("No tasks" not in stdout)
@@ -2954,7 +3148,7 @@ def _gptVisionPilotCallModel(screenshotPath: Path, systemPrompt: str, userPrompt
     try:
         proc = subprocess.run(
             [sys.executable, str(GPT_VISION_PILOT_HOOK_PATH), "vision", str(screenshotPath), combinedPrompt],
-            capture_output=True, text=True, timeout=timeoutSec,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeoutSec,
         )
     except subprocess.TimeoutExpired as error:
         return {"ok": False, "error": f"vision call timed out after {timeoutSec}s: {error}"}
@@ -3536,7 +3730,7 @@ def _findNssmExe() -> str:
     try:
         result = subprocess.run(
             ["where.exe", "nssm"],
-            capture_output=True, text=True, timeout=5, check=False,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=False,
         )
         first = (result.stdout or "").splitlines()[0].strip() if result.returncode == 0 else ""
         if first and os.path.isfile(first):
@@ -3580,7 +3774,7 @@ def _pythonwExeForTray() -> str:
 def _runProcess(cmd: list[str], debug: bool = False) -> tuple[int, str, str]:
     """Run a subprocess, capture stdout/stderr, log if debug."""
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=False)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, check=False)
         if debug:
             print(f"[svc-cmd] {' '.join(shlex.quote(c) for c in cmd)} -> rc={result.returncode}", file=sys.stderr, flush=True)
             if (result.stdout or "").strip():
@@ -4472,7 +4666,7 @@ def main(argv: list[str] | None = None) -> int:
                                 import subprocess as _sp_refresh
                                 _refresh_proc = _sp_refresh.run(
                                     [sys.executable, str(_LPath(__file__).resolve()), '--library', 'auth-save'],
-                                    capture_output=True, text=True, timeout=30,
+                                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
                                 )
                                 if _refresh_proc.returncode == 0:
                                     print(f'[library] auth-save refresh ok: {_refresh_proc.stdout.strip()[:200]}', file=sys.stderr, flush=True)
@@ -4747,7 +4941,7 @@ def main(argv: list[str] | None = None) -> int:
                         )
                         import subprocess as _sp
                         proc = _sp.run([sys.executable, str(hook), 'ask', prompt],
-                                       capture_output=True, text=True, timeout=45)
+                                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=45)
                         diag = (proc.stdout or '').strip() or (proc.stderr or '').strip() or '<no GPT output>'
                         print(f'[gpt-diagnose]\n{diag}', file=sys.stderr, flush=True)
                         return {

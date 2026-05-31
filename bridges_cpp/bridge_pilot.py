@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import sys
 from pathlib import Path
 
@@ -30,6 +32,51 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # Make `import start` work no matter where python is launched from.
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+# Force UTF-8 on stdout/stderr so emoji / accented characters survive the
+# C++ tray's pipe capture. Without this, Python on Windows defaults to the
+# console codepage (e.g. cp1252), so non-ASCII bytes get mangled and the
+# panel sees U+FFFD replacement boxes (Bug 4). reconfigure() lands on Py3.7+.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+except Exception:
+    # Older Python — fall back to setting the env var for child subprocesses.
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
+# Same env var propagates to any subprocess the start.py path may spawn
+# (gpt_vision_pilot, web_vision_driver, etc.) so their stdout is also UTF-8.
+os.environ["PYTHONIOENCODING"] = "utf-8"
+
+# Control-character regex (Bug 2). Strips the bytes that make json.loads
+# barf: NULs, low-ASCII control bytes, lone \r mid-string, etc. Keep
+# \t (0x09), \n (0x0a), and printable bytes intact.
+_CTRL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def sanitizeJsonLine(line: str) -> str:
+    """Strip control chars that break json.loads. Keeps \\t \\n intact."""
+    return _CTRL_CHAR_RE.sub("", line or "")
+
+
+def loadJsonSafe(raw: str) -> tuple[object, str]:
+    """Strict json.loads first; on failure, retry on a sanitized copy.
+
+    Returns (parsed_or_None, warning_text). warning_text is empty on
+    first-try success. Used by the C++ tray's `runChatScript` path AND
+    any caller that pipes bridge output through bridge_pilot.py.
+    """
+    try:
+        return json.loads(raw), ""
+    except Exception as strictExc:
+        cleaned = sanitizeJsonLine(raw)
+        if cleaned == raw:
+            return None, f"json.loads failed (no control chars stripped): {strictExc}"
+        try:
+            parsed = json.loads(cleaned)
+            return parsed, f"json.loads recovered after stripping control chars: {strictExc}"
+        except Exception as recoverExc:
+            return None, f"json.loads failed even after sanitize: {recoverExc}"
 
 
 def emit(payload: dict) -> int:

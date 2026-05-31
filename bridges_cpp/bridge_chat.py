@@ -25,10 +25,20 @@ from __future__ import annotations
 import argparse
 import configparser
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+# Force stdout to UTF-8 so non-ASCII chars (em-dashes, emoji, quotes) survive
+# the C++ tray's pipe capture (Bug 4 — magic-box replacement chars).
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+except Exception:
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+os.environ["PYTHONIOENCODING"] = "utf-8"
 
 REPO_ROOT  = Path(__file__).resolve().parent.parent
 CONFIG_INI = REPO_ROOT / "config.ini"

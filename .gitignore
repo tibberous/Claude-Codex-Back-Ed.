@@ -14,14 +14,13 @@ prompt_history.txt
 prompts.txt
 chats/
 
-
-# Security policy 2026-05-30: no keys in source
-*.ini
+# Runtime data — browser-bridge Chromium profiles, bridge DBs, caches.
+# These hold login cookies/sessions + tokens; NEVER track (hard rule).
+data/
 *.db
 *.sqlite
 *.sqlite3
-.env
-.env.*
-*.snapshot
-*.bak
-*.log
+*.sqlite3.real-backup
+*.lastgood.db
+emails/
+logs/

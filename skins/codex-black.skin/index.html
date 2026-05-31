@@ -526,9 +526,16 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   position: absolute !important;
   top: 50% !important;
   left: 50% !important;
-  width: 100% !important;
-  height: 100% !important;
-  transform: translate(-50%, -50%) scale(0.85) !important;
+  /* SAME-SIZE FIX (Trent "those circles" 2026-05-28): pinned to a FIXED
+     32x32 box so this ring matches the monitor / STT spinners exactly.
+     Was width/height:100% (~43px) + scale(0.85->1.06) -> too big. */
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  transform: translate(-50%, -50%) scale(0.92) !important;
   pointer-events: none;
   opacity: 0;
   transition: opacity .18s ease, transform .18s ease, filter .18s ease;
@@ -541,7 +548,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   opacity: 1;
   /* Stay centered while pulsing — translate(-50%,-50%) keeps the SVG
      anchored at the button center regardless of the scale tween. */
-  transform: translate(-50%, -50%) scale(1.06) !important;
+  transform: translate(-50%, -50%) scale(1.0) !important;
 }
 /* While auto-read is active also pulse the underlying tts icon subtly so
    the whole button reads as "listening for the next reply". */
@@ -652,8 +659,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   /* Render icons in full color (no white-out tint). Slight drop-shadow gives
      them depth on the glass. image-rendering keeps PNG icons crisp at the
      larger dock size. */
-  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55))
-          drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+  filter: drop-shadow(2px 2px 3px rgba(0, 0, 0, 0.25));
   image-rendering: -webkit-optimize-contrast;
   -webkit-user-drag: none;
   user-select: none;
@@ -711,34 +717,34 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
    has visual confirmation that the extension is processing. */
 #monitorBtn { position: relative; display: inline-flex !important; align-items: center !important; justify-content: center !important; }
 #monitorBtn .cbe-spinner {
-  /* Center an explicitly-sized SVG over the button regardless of which
-     skin is active. Skins apply `.tool-button img { width:20px !important }`
-     which beats ID-scoped rules without !important — so every geometry
-     property here is `!important` too. A FIXED 22x22 box (not a %) keeps
-     the ring a perfect circle and dead-centered even if the button is not
-     square; margin:0 cancels any skin img margin that would shift it. */
+  /* Normalized 32x32 — all toolbar busy-indicators SAME SIZE
+     (Trent 2026-05-27). monitor=green, everything-else=blue. */
   position: absolute !important;
   top: 50% !important;
   left: 50% !important;
-  width: 43px !important;
-  height: 43px !important;
-  min-width: 43px !important;
-  min-height: 43px !important;
-  max-width: 43px !important;
-  max-height: 43px !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
   margin: 0 !important;
   padding: 0 !important;
   transform: translate(-50%, -50%) !important;
-  transform-origin: center center !important;
   pointer-events: none;
   opacity: 0;
   transition: opacity .15s ease;
-  filter: none !important;          /* don't get re-tinted by .tool-button img */
+  filter: none !important;
+
 }
-#monitorBtn.is-monitoring .cbe-spinner { opacity: 1; }
+/* DOUBLED-CIRCLE FIX (Trent "those circles" 2026-05-28): hide the baked-in
+   loading_green.svg img spinner so only the JS .cbe-monitor-ring renders
+   (the two used to stack into a thick juddering double ring). */
+#monitorBtn .cbe-spinner { display: none !important; }
+#monitorBtn.is-monitoring .cbe-spinner { display: none !important; }
 #monitorBtn.is-monitoring > img:first-of-type {
   opacity: 0.45;
-  filter: brightness(0) invert(1) drop-shadow(0 0 6px rgba(255,139,0,0.65));
+  filter: brightness(0) invert(1) drop-shadow(0 0 6px rgba(62,196,109,0.65));
 }
 
 /* Auto Prompt button — visually identical to the TTS auto-read pulsing
@@ -751,9 +757,16 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   position: absolute !important;
   top: 50% !important;
   left: 50% !important;
-  width: 100% !important;
-  height: 100% !important;
-  transform: translate(-50%, -50%) scale(0.85) !important;
+  /* SAME-SIZE FIX (Trent "those circles" 2026-05-28): pinned to a FIXED
+     32x32 box so this ring matches the monitor / STT spinners exactly.
+     Was width/height:100% (~43px) + scale(0.85->1.06) -> too big. */
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  transform: translate(-50%, -50%) scale(0.92) !important;
   pointer-events: none;
   opacity: 0;
   transition: opacity .18s ease, transform .18s ease, filter .18s ease;
@@ -763,7 +776,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 }
 #autoReplyBtn.is-autoprompting .cbe-spinner {
   opacity: 1;
-  transform: translate(-50%, -50%) scale(1.06) !important;
+  transform: translate(-50%, -50%) scale(1.0) !important;
 }
 /* Pulse the underlying auto_reply icon subtly so the whole button reads
    as "actively firing prompts" — mirrors the .autoread > img treatment. */
@@ -845,18 +858,25 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
    the #monitorBtn rules above so the visual language is consistent. */
 #sttBtn { position: relative; }
 #sttBtn .cbe-spinner {
-  /* See #monitorBtn .cbe-spinner — every geometry property is !important
-     to beat skin's `.tool-button img { ... !important }`. */
+  /* Normalized 32x32 — all toolbar busy-indicators SAME SIZE
+     (Trent 2026-05-27). monitor=green, everything-else=blue. */
   position: absolute !important;
   top: 50% !important;
   left: 50% !important;
-  width: 70% !important;
-  height: 70% !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  margin: 0 !important;
+  padding: 0 !important;
   transform: translate(-50%, -50%) !important;
   pointer-events: none;
   opacity: 0;
   transition: opacity .15s ease;
   filter: none !important;
+
 }
 #sttBtn.is-recording .cbe-spinner { opacity: 1; }
 #sttBtn.is-recording > img:first-of-type {
@@ -1322,8 +1342,8 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     display: inline-block;
     color: #ffffff;
     background-color: currentColor;
-    -webkit-mask: url("icons/close-x.svg") no-repeat center / 14px 14px;
-            mask: url("icons/close-x.svg") no-repeat center / 14px 14px;
+    -webkit-mask: url("{{ASSETS_BASE}}/close-x.svg") no-repeat center / 14px 14px;
+            mask: url("{{ASSETS_BASE}}/close-x.svg") no-repeat center / 14px 14px;
     border-radius: 4px;
     transition: background-color .12s ease, color .12s ease;
   }
@@ -1541,11 +1561,9 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     font-size: 11px; padding: 4px 10px; border-radius: 4px;
     font-family: system-ui, sans-serif; font-weight: 700;
   }
-  #cbe-source-modal .cbe-close {
-    background: none; border: none; color: #fff; cursor: pointer;
-    font-size: 14px; padding: 2px 6px;
-    font-family: system-ui, sans-serif; opacity: 0.85;
-  }
+  /* .cbe-close now also carries the shared .cbe-x SVG-mask class; keep only
+     opacity here so the mask + currentColor background from .cbe-x survive. */
+  #cbe-source-modal .cbe-close { opacity: 0.85; }
   #cbe-source-modal .cbe-close:hover { opacity: 1; }
   #cbe-source-modal .cbe-scroller {
     overflow: auto; flex: 1; background: #1e1e1e;
@@ -1622,49 +1640,371 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
      refs were rewritten to use {{SKIN_BASE}} so the skin's own assets
      (icons/, wallpaper.png, fonts/) resolve from the .skin/ folder. -->
 <style data-cbe-skin="codex-black">
-/* CBE skin — Codex Black (the original). The panel's inline <style> block
-   IS the Black Edition look. Selecting this skin simply swaps the previous
-   skin's <link href> away so the inline rules apply unmodified. Kept as a
-   named, distributable package so the user can pick "Codex Black" in the
-   dropdown to return to the default.
+/* CBE skin — Codex Black, 2026-05-26 retuned to mirror the official
+   Anthropic Claude Code extension chrome (anthropic.claude-code-2.1.145).
+   Values pulled from that ext's webview/index.css:
+     max-width: 680px  margin: 0 auto
+     box-shadow: 0 1px 2px #0000001a
+     border-radius: var(--corner-radius-large) = 8px
+     border: 1px solid var(--vscode-inlineChatInput-border)
+     font: var(--vscode-chat-font-family)
+   Source of truth mirrored in skins/codex-black.skin/styles.css. */
 
-   2026-05-17 polish: override the base 61×65 orange send.png with a circular
-   steel-blue orb sized to match the toolbar icons. The base `.send-button::before`
-   in panel/index.html draws the white chevron on top via mask-image, so the
-   arrow stays crisp on the new blue background. Preserves translateY(-50%)
-   on hover/active to avoid the mint-dock "janky slide-down" regression. */
+:root {
+  --cc-input-border: var(--vscode-inlineChatInput-border, rgba(255,255,255,0.08));
+  --cc-input-bg: var(--vscode-menu-background, #1f1f1f);
+  --cc-input-fg: var(--vscode-input-foreground, #cccccc);
+  --cc-divider: var(--vscode-widget-border, rgba(255,255,255,0.07));
+  --cc-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.10);
+  --cc-shadow-icon: 0 1px 1px rgba(0, 0, 0, 0.30);
+  --cc-radius: 8px;
+}
+
+/* Body / font: VSCode chat tokens, NOT monospace */
+html, body {
+  background: var(--vscode-editor-background, #1e1e1e) !important;
+  color: var(--cc-input-fg) !important;
+  font-family: var(--vscode-chat-font-family, var(--vscode-font-family)) !important;
+  font-size: var(--vscode-chat-font-size, 13px) !important;
+}
+
+/* Chat thread — centered 680px max */
+#thread,
+#main-scroll,
+.chat-scroll,
+.msgs-container,
+.main-content,
+main.demo-stage {
+  max-width: 680px !important;
+  margin: 0 auto !important;
+  padding-left: 12px !important;
+  padding-right: 12px !important;
+  box-sizing: border-box;
+  background: transparent !important;
+}
+
+/* Message cards — bordered + faint shadow + rounded */
+.msg {
+  border: 1px solid var(--cc-divider) !important;
+  border-radius: var(--cc-radius) !important;
+  background: var(--cc-input-bg) !important;
+  color: var(--cc-input-fg) !important;
+  padding: 12px 14px !important;
+  margin: 8px 0 !important;
+  box-shadow: var(--cc-shadow-card) !important;
+  font-family: inherit !important;
+}
+
+/* Info banner — flat, bottom-bordered (acts as divider #1) */
+.msg.info {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-bottom: 1px solid var(--cc-divider) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: var(--vscode-descriptionForeground, #9d9d9d) !important;
+  opacity: 0.85;
+  padding: 8px 14px !important;
+  margin: 0 0 8px 0 !important;
+  font-style: normal !important;
+}
+
+/* Composer / prompt-shell — bordered card, 680px centered, faint shadow */
+.prompt-shell {
+  max-width: 680px !important;
+  margin: 8px auto !important;
+  border: 1px solid var(--cc-input-border) !important;
+  border-radius: var(--cc-radius) !important;
+  background: var(--cc-input-bg) !important;
+  box-shadow: var(--cc-shadow-card) !important;
+  overflow: hidden;
+  padding: 0 !important;
+}
+
+/* Divider #2 — between input row and toolbar inside composer */
+.prompt-toolbar {
+  border-top: 1px solid var(--cc-divider) !important;
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+.toolbar-tools {
+  padding: 4px 6px !important;
+  gap: 2px !important;
+  background: transparent !important;
+}
+
+/* Toolbar buttons — small, no border, no chrome until hover */
+.tool-button {
+  width: 26px !important;
+  height: 26px !important;
+  border-radius: 4px !important;
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+.tool-button:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255,255,255,0.08)) !important;
+}
+
+/* Icons: flat monochrome grey + real faint drop shadow */
+.tool-button img {
+  width: 16px !important;
+  height: 16px !important;
+  filter:
+    brightness(0)
+    invert(0.62)
+    drop-shadow(var(--cc-shadow-icon)) !important;
+  opacity: 0.9;
+  transition: filter 0.12s ease, opacity 0.12s ease;
+}
+
+.tool-button:hover img {
+  filter:
+    brightness(0)
+    invert(0.85)
+    drop-shadow(var(--cc-shadow-icon)) !important;
+  opacity: 1;
+}
+
+.tool-button[disabled] img,
+.tool-button.is-disabled img {
+  opacity: 0.4;
+}
+
+/* Prompt input — chat font, transparent, no border */
+#promptBox,
+.prompt-input,
+.prompt-shell textarea {
+  font-family: var(--vscode-chat-font-family, var(--vscode-font-family)) !important;
+  font-size: var(--vscode-chat-font-size, 13px) !important;
+  background: transparent !important;
+  color: var(--cc-input-fg) !important;
+  border: none !important;
+  outline: none !important;
+}
+
+/* Send button — neutralize the steel-blue orb in favor of a subtle
+   Claude-orange chip so it reads as "send" without competing chrome */
 .send-button {
-  opacity: 0.8 !important;
-  width: 38px !important;
-  height: 38px !important;
-  right: 10px !important;
+  opacity: 0.85 !important;
+  width: 28px !important;
+  height: 28px !important;
+  right: 8px !important;
   top: 50% !important;
   transform: translateY(-50%) !important;
-  background:
-    radial-gradient(circle at 35% 30%, #7aa8ff, #3b82f6 55%, #1d4ed8 100%) !important;
-  border: 1px solid rgba(180, 210, 255, 0.55) !important;
-  border-radius: 50% !important;
-  box-shadow:
-    0 6px 14px rgba(0, 0, 0, 0.45),
-    0 2px 4px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    inset 0 -3px 6px rgba(0, 0, 0, 0.25) !important;
-  transition: transform 0.12s ease, box-shadow 0.14s ease, background 0.14s ease;
+  background: #d97757 !important;
+  border: none !important;
+  border-radius: 6px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.20) !important;
+  transition: transform 0.12s ease, opacity 0.12s ease, background 0.14s ease;
 }
 .send-button:hover,
 .send-button.is-hover {
   opacity: 1 !important;
-  background:
-    radial-gradient(circle at 35% 30%, #a0c0ff, #4f8df6 55%, #1d4ed8 100%) !important;
-  transform: translateY(-50%) scale(1.08) !important;
+  background: #e08866 !important;
+  transform: translateY(-50%) scale(1.05) !important;
 }
 .send-button:active,
 .send-button.is-active {
-  background:
-    radial-gradient(circle at 35% 30%, #5a8ce5, #1d4ed8 60%, #1e3a8a 100%) !important;
+  background: #c6613f !important;
   transform: translateY(-50%) scale(0.96) !important;
 }
 
+/* Focused composer — Claude Code's translucent ring */
+.prompt-shell:focus-within {
+  border-color: #d97757 !important;
+  box-shadow:
+    0 0 0 3px rgba(217, 119, 87, 0.12),
+    var(--cc-shadow-card) !important;
+}
+
+/* Hide the orange-asterisk "Claude Codex — Black Edition" brand-label pill.
+   It's the #label-pill button in .toolbar-meta--inline — opens Settings.
+   Claude Code has no such mid-composer brand chip, so it reads as visual
+   noise in the clone look. Settings is still reachable via #settingsBtn. */
+#label-pill,
+.label-button {
+  display: none !important;
+}
+
+/* Flatten the .stop-button chrome — original is a black pill w/ inset
+   shadows. Claude Code's equivalent (when generating) is a small square. */
+.stop-button,
+.toolbar-meta--inline .stop-button {
+  background: transparent !important;
+  border: 1px solid var(--cc-divider) !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+  color: var(--cc-input-fg) !important;
+  height: 24px !important;
+  padding: 0 8px !important;
+  font-size: 11px !important;
+  font-family: inherit !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+.stop-button:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255,255,255,0.08)) !important;
+}
+
+/* SEND BUTTON — clone Claude Code's orange-chip + up-arrow chevron.
+   The base CSS uses #sendBtn (ID specificity) + ::after { content:"SEND" }
+   to render text. Must override at #sendBtn level to win specificity. */
+#sendBtn {
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  right: 8px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  background: #d97757 !important;
+  background-image: none !important;
+  border: none !important;
+  border-radius: 6px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.20) !important;
+  padding: 0 !important;
+  font-size: 0 !important;
+  color: transparent !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  opacity: 0.95 !important;
+  position: absolute !important;
+}
+#sendBtn:hover {
+  background: #e08866 !important;
+  transform: translateY(-50%) scale(1.05) !important;
+  opacity: 1 !important;
+}
+#sendBtn:active {
+  background: #c6613f !important;
+  transform: translateY(-50%) scale(0.96) !important;
+}
+/* Kill the literal "SEND" text injected by ::after */
+#sendBtn::after {
+  content: none !important;
+  display: none !important;
+}
+/* Draw an up-arrow chevron via ::before mask — matches Claude Code icon */
+#sendBtn::before {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  background: #ffffff !important;
+  background-image: none !important;
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 4L5 11l1.5 1.5L11 8v12h2V8l4.5 4.5L19 11z' fill='black'/></svg>") !important;
+          mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 4L5 11l1.5 1.5L11 8v12h2V8l4.5 4.5L19 11z' fill='black'/></svg>") !important;
+  -webkit-mask-repeat: no-repeat !important;
+          mask-repeat: no-repeat !important;
+  -webkit-mask-position: center !important;
+          mask-position: center !important;
+  -webkit-mask-size: 14px 14px !important;
+          mask-size: 14px 14px !important;
+  opacity: 1 !important;
+  transform: none !important;
+  filter: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+/* Project-path label — smaller, secondary tone (matches Claude Code's
+   "command (04j7sz)" file-context label style). */
+.toolbar-meta--inline .project-path {
+  color: var(--vscode-descriptionForeground, #9d9d9d) !important;
+  font-size: 11px !important;
+  font-family: inherit !important;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 6px !important;
+  font-style: normal !important;
+  opacity: 0.85;
+}
+
+/* Kill the prompt-input wrap's white gradient + chunky pill chrome.
+   It's INSIDE .prompt-shell so the outer border is already drawn
+   there; this just needs to be a flat transparent area. */
+.prompt-input-wrap,
+#input-box.prompt-input-wrap {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 6px 44px 6px 12px !important;
+  margin: 0 !important;
+}
+
+/* Textarea itself */
+html body .prompt-input-wrap textarea.prompt-input#promptBox,
+html body textarea#promptBox.prompt-input {
+  background: transparent !important;
+  color: var(--cc-input-fg) !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  font-family: var(--vscode-chat-font-family, var(--vscode-font-family)) !important;
+  font-size: var(--vscode-chat-font-size, 13px) !important;
+  padding: 0 !important;
+  min-height: 32px !important;
+}
+.prompt-input::placeholder {
+  color: var(--vscode-input-placeholderForeground, #888) !important;
+  opacity: 1 !important;
+}
+
+/* Toolbar-meta inline strip — kill bottom border + paddings */
+.toolbar-meta.toolbar-meta--inline {
+  background: transparent !important;
+  border: none !important;
+  border-top: 1px solid var(--cc-divider) !important;
+  padding: 4px 8px !important;
+  min-height: 28px !important;
+}
+
+/* ── Claude Code parity lock (2026-05-26) ──────────────────────────────
+   Final overrides for the base orange-shell rules the clone overlay above
+   doesn't reach. Kept LAST so it wins the cascade. */
+
+/* The base .prompt-shell::before draws a cream-top + dark-red-bottom inset
+   bevel (the orange shell's highlight). In the dark clone look it reads as
+   bright/colored border lines — kill it. The two clean grey dividers
+   (.prompt-toolbar border-top + .toolbar-meta--inline border-top) are the
+   only horizontal lines we want. */
+.prompt-shell::before {
+  box-shadow: none !important;
+  background: none !important;
+  border: 0 !important;
+}
+
+/* Placeholder font: the base locks it to monospace at this same specificity
+   but earlier in source — restate with the chat font so it matches CC. */
+.prompt-input::placeholder,
+#promptBox::placeholder {
+  font-family: var(--vscode-chat-font-family, var(--vscode-font-family)) !important;
+  color: var(--vscode-input-placeholderForeground, #8a8a8a) !important;
+  opacity: 1 !important;
+}
+
+/* Icons: lighter (CC reads ~light grey, not mid-grey) + even square margins
+   and a uniform gap so spacing is consistent across the whole strip. */
+.tool-button img {
+  filter: brightness(0) invert(0.8) drop-shadow(var(--cc-shadow-icon)) !important;
+  opacity: 0.92 !important;
+}
+.tool-button:hover img {
+  filter: brightness(0) invert(1) drop-shadow(var(--cc-shadow-icon)) !important;
+  opacity: 1 !important;
+}
+.toolbar-tools {
+  gap: 4px !important;
+  row-gap: 4px !important;
+  padding: 6px 8px !important;
+}
+.tool-button {
+  width: 28px !important;
+  height: 28px !important;
+  margin: 0 !important;
+}
 </style>
 </head>
 <body>
@@ -1731,14 +2071,14 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
             <!-- Spinner overlay: hidden until ttsBtn.classList contains
                  `autoread`. Then it animates over the tts icon to signal
                  that every incoming assistant message is being read. -->
-            <img class="cbe-autoread-ring" src="{{ASSETS_BASE}}/auto_read_spinner.svg" alt="" aria-hidden="true" />
+            <img class="cbe-autoread-ring" src="{{ASSETS_BASE}}/loading_blue.svg" alt="" aria-hidden="true" />
           </button>
           <button id="sttBtn" class="tool-button" type="button" data-tooltip="Speech to text" data-i18n-tip="tooltip.stt" aria-label="Speech to text">
             <img src="{{ASSETS_BASE}}/stt.svg" alt="" />
             <!-- Blue spinner overlay shown while #sttBtn.is-recording. Same
                  pattern as #monitorBtn so the user gets clear feedback that
                  the host-side SAPI mic is actively listening. -->
-            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_orange.svg" alt="" />
+            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_blue.svg" alt="" />
           </button>
           <button id="autoReplyBtn" class="tool-button" type="button" data-tooltip="Auto Prompt" data-i18n-tip="tooltip.autoprompt" aria-label="Auto Prompt">
             <img src="{{ASSETS_BASE}}/auto_reply.svg" alt="" />
@@ -1746,7 +2086,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
                  so a running Auto Prompt visually matches Auto Read instead
                  of the simple monitor-style blue arc. The countdown badge
                  sits over the corner in the active skin's highlight color. -->
-            <img class="cbe-spinner" src="{{ASSETS_BASE}}/auto_read_spinner.svg" alt="" aria-hidden="true" />
+            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_blue.svg" alt="" aria-hidden="true" />
             <span class="cbe-countdown" aria-hidden="true">0</span>
           </button>
           <button id="wakeUpBtn" class="tool-button" type="button" data-tooltip="Wake-up response" data-i18n-tip="tooltip.wake" aria-label="Wake-up response">
@@ -1799,7 +2139,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
           </button>
           <button id="monitorBtn" class="tool-button" type="button" data-tooltip="VSCode monitor" data-i18n-tip="tooltip.monitor" aria-label="VSCode monitor">
             <img src="{{ASSETS_BASE}}/vscode_monitor.svg" alt="" />
-            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_orange.svg" alt="" />
+            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_green.svg" alt="" />
           </button>
           <button id="terminalBtn" class="tool-button" type="button" data-tooltip="Terminal" data-i18n-tip="tooltip.terminal" aria-label="Terminal">
             <img src="{{ASSETS_BASE}}/terminal.svg" alt="" />
@@ -1908,7 +2248,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     <div class="cbe-tama-frame">
       <div class="cbe-tama-titlebar">
         <span class="cbe-tama-title">Tamagotchi</span>
-        <button id="cbe-tama-close" type="button" aria-label="Close Tamagotchi" title="Close">×</button>
+        <button id="cbe-tama-close" class="cbe-x" type="button" aria-label="Close Tamagotchi" title="Close" style="color:#d8e8b8;"></button>
       </div>
       <div id="cbe-tama-status" role="status" aria-live="polite">
         <span class="tama-stat" data-stat="stage"       data-tooltip="Lifecycle stage"   title="Lifecycle stage">🥚 egg</span>
@@ -1972,10 +2312,8 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
       font-weight: 600; font-size: 13px; letter-spacing: 0.04em;
       color: #d8e8b8;
     }
-    #cbe-tama-shell #cbe-tama-close {
-      background: transparent; border: 0; color: #d8e8b8;
-      font-size: 20px; line-height: 1; cursor: pointer; padding: 0 4px;
-    }
+    /* #cbe-tama-close carries the shared .cbe-x SVG-mask class; only the
+       hover tint is kept here (color = currentColor drives the mask fill). */
     #cbe-tama-shell #cbe-tama-close:hover { color: #fff; }
     #cbe-tama-shell #cbe-tama-status {
       display: flex; flex-wrap: wrap; gap: 4px 8px;

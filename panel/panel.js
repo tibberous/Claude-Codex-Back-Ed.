@@ -199,6 +199,37 @@ function addMsg(text, cls) {
   return d;
 }
 
+/* Mic-denied banner: textContent message + a clickable "Open Windows
+   Privacy → Microphone" link that posts {type:'openWindowsMicSettings'}
+   to the host (handled in extension.js, which calls vscode.env.openExternal
+   on ms-settings:privacy-microphone). Replaces the old hardcoded "Anthropic
+   STT: ..." string which lied about the provider and offered no action.
+   (Trent 2026-05-27.) */
+function addMicDeniedMsg(provider) {
+  const d = document.createElement('div');
+  d.className = 'msg error';
+  const p = String(provider || 'STT');
+  d.appendChild(document.createTextNode(
+    'STT (' + p + '): microphone access denied. '
+  ));
+  const btn = document.createElement('a');
+  btn.href = '#';
+  btn.textContent = 'Open Windows Privacy → Microphone';
+  btn.style.cssText = 'color:#4aa3df;text-decoration:underline;cursor:pointer;';
+  btn.onclick = (ev) => {
+    ev.preventDefault();
+    try { (api || acquireVsCodeApi()).postMessage({ type: 'openWindowsMicSettings' }); } catch (_) {}
+  };
+  d.appendChild(btn);
+  d.appendChild(document.createTextNode(
+    ' — flip the toggle for Visual Studio Code, then click the mic again.'
+  ));
+  thread.appendChild(d);
+  thread.scrollTop = thread.scrollHeight;
+  playSfx('error');
+  return d;
+}
+
 /* ── Markdown fence rendering ────────────────────────────────────────── */
 const LANG_MAP = {
   'powershell':'powershell','posh':'powershell','ps1':'powershell','ps':'powershell','psm1':'powershell',
@@ -501,40 +532,21 @@ addBtn.onclick = () => {
    reported its real state. The next poll (3s cadence) either keeps the
    circle on (service is healthy) or removes it (start failed / probe down).
    Right-click still shows the trace channel for diagnostics. */
-/* Bulletproof blue spinner — built from pure inline CSS, NO svg asset, NO
-   external stylesheet, NO class that a skin could override. As long as the
-   webview can run JS, this circle renders. The @keyframes is injected once. */
-(function ensureMonitorSpinnerKeyframes() {
-  if (document.getElementById('cbe-monitor-spin-kf')) return;
-  const st = document.createElement('style');
-  st.id = 'cbe-monitor-spin-kf';
-  st.textContent = '@keyframes cbeMonitorSpin{to{transform:translate(-50%,-50%) rotate(360deg)}}';
-  document.head.appendChild(st);
-})();
+/* Trent canon 2026-05-28 (5th-attempt fix): the JS-rendered border-ring is
+   REMOVED. All toolbar busy-rings now use the static `<img class="cbe-spinner"
+   src="loading_blue.svg">` (blue) or `loading_green.svg` (green) pattern wired
+   in index.html, sized to 32×32 via the #monitorBtn .cbe-spinner CSS rule.
+   Both SVGs share viewBox 50×50 and the same ring path so the rendered
+   diameter is IDENTICAL across the monitor / STT / autoReply / TTS buttons.
+   Prior 4 attempts kept hitting a "same CSS box but different SVG viewBox"
+   trap (auto_read_spinner.svg was 64×64 = visibly smaller ring; monitor's
+   CSS-border ring drew at yet another effective diameter). One SVG family +
+   one CSS rule + one toggling class = single source of truth.
+   The signature stays so existing call sites (left-click toggle + supervisor
+   poll at the bottom of the file) keep working. */
 function cbeShowMonitorSpinner(on) {
   const btn = document.getElementById('monitorBtn');
-  if (!btn) return;
-  if (getComputedStyle(btn).position === 'static') btn.style.position = 'relative';
-  let ring = btn.querySelector('.cbe-monitor-ring');
-  if (on) {
-    if (!ring) {
-      ring = document.createElement('span');
-      ring.className = 'cbe-monitor-ring';
-      ring.style.cssText = [
-        /* 43px = ~90% of the 48px tool-button square. Border scaled up so the
-           ring still reads as a thin halo rather than a filled disc. */
-        'position:absolute', 'top:50%', 'left:50%', 'width:43px', 'height:43px',
-        'margin:0', 'padding:0', 'box-sizing:border-box', 'border-radius:50%',
-        'border:4px solid rgba(78,168,255,0.25)', 'border-top-color:#4ea8ff',
-        'transform:translate(-50%,-50%)', 'pointer-events:none', 'z-index:5',
-        'animation:cbeMonitorSpin .7s linear infinite',
-      ].join(';');
-      btn.appendChild(ring);
-    }
-    ring.style.display = 'block';
-  } else if (ring) {
-    ring.remove();
-  }
+  if (btn) btn.classList.toggle('is-monitoring', !!on);
 }
 document.getElementById('monitorBtn').onclick = () => {
   /* Sticky visual toggle: clicking turns the blue ring on and it STAYS on
@@ -797,9 +809,13 @@ const tts = (function() {
                     gpt-4o-transcribe (NOT older Whisper — see memory
                     stt_model_choice.md). Pro-tier accuracy.
      'webspeech'  : Browser-native SpeechRecognition (Anthropic's stub API).
-                    If sandbox denies mic, the host surfaces a hint asking
-                    the user to switch to whisper-local. */
-window.__cbeSttProvider = window.__cbeSttProvider || 'webspeech';
+                    BROKEN in the VSCode webview sandbox — kept as a value
+                    for back-compat only; the click handler auto-promotes
+                    it to 'elevenlabs' before any attempt. */
+/* Default = elevenlabs (per user memory `elevenlabs_default.md`). The host's
+   init payload re-hydrates this from workspaceState, but if that was stale-set
+   to 'webspeech' the click handler below promotes it anyway. 2026-05-29. */
+window.__cbeSttProvider = window.__cbeSttProvider || 'elevenlabs';
 /* STT dictionary / language window state — hydrated on `init`, set by
    Settings → Speech to Text, read by the sttRequest / sttStreamStart posts
    and startWebSpeech's recog.lang. */
@@ -815,11 +831,19 @@ if (window.__cbeSttLanguage   === undefined) window.__cbeSttLanguage   = '';
   let recChunks = [];
   let recProvider = '';
   let pendingSttReqId = '';
-  /* Live PCM streaming (anthropic) state. */
+  /* Live PCM streaming (anthropic + openai realtime) state. */
   let streamReqId = '';
   let audioCtx = null;
   let captureNode = null;     /* AudioWorkletNode or ScriptProcessorNode */
   let captureSource = null;   /* MediaStreamAudioSourceNode */
+  /* Set true when we start a realtime openai stream so the sttFinal handler
+     knows it's allowed to silently fall back to the host batch path on a
+     WS error / 401 (no red banner — user already paid for the click). */
+  let __cbeOpenAiRealtimeFallbackPending = false;
+  /* Tracks whether any partial actually arrived during the openai realtime
+     session. If no partials AND the session errored, we degrade silently
+     via startHostRecording('openai') (host batch) — that's the safety net. */
+  let __cbeOpenAiRealtimeGotPartial = false;
 
   function setListeningUI(on) {
     /* `.speaking` is the legacy red-tint state. `.is-recording` drives the
@@ -869,6 +893,59 @@ if (window.__cbeSttLanguage   === undefined) window.__cbeSttLanguage   = '';
         try { api.postMessage({ type: 'sttStreamStop', reqId: streamReqId }); } catch (_) {}
       }
       stopPcmCapture();
+    }
+    if (mode === 'hostrec') {
+      /* Host-side ffmpeg capture (PRIMARY path). Tell the host to stop the
+         mic + transcribe; the transcript comes back as sttRequestResult and
+         pastes into the input. Keep the recording-ring on until then — the
+         transcribe round-trip can take a second. We DON'T reset to idle here
+         for hostrec; the sttRequestResult handler does that when the text
+         (or error) lands. */
+      if (api) {
+        try {
+          api.postMessage({
+            type: 'sttHostStop', reqId: pendingSttReqId, provider: recProvider,
+            dictionary: String(window.__cbeSttDictionary || ''),
+            language:   String(window.__cbeSttLanguage || ''),
+          });
+        } catch (_) {}
+      }
+      /* Leave listening=true / mode unchanged so a stray second click can't
+         double-fire; the result handler clears state. Just drop the wasMode
+         disable-sfx (fires on transcript land instead). */
+      return;
+    }
+    if (mode === 'hostrec-el') {
+      /* ElevenLabs Scribe v2 Realtime streaming. Tell the host to stop
+         ffmpeg + send end_of_stream to the WS; the final transcript lands
+         as sttResultEl and we commit-live-dictation there. Keep the
+         recording-ring on until then so the user sees the cap closing. */
+      if (api) {
+        try {
+          api.postMessage({ type: 'sttHostStopEl', reqId: pendingSttReqId, provider: 'elevenlabs' });
+        } catch (_) {}
+      }
+      return;
+    }
+    if (mode === 'hostrec-wcpp') {
+      /* Realtime local: whisper.cpp stream. Host kills the subprocess +
+         ffmpeg; trailing transcript flushes as sttResultEl. */
+      if (api) {
+        try {
+          api.postMessage({ type: 'sttHostStopWcpp', reqId: pendingSttReqId, provider: 'whisper-cpp-stream' });
+        } catch (_) {}
+      }
+      return;
+    }
+    if (mode === 'hostrec-fw') {
+      /* Realtime local: faster-whisper. Host closes stdin → python does one
+         final transcribe on the residual buffer + exits → sttResultEl. */
+      if (api) {
+        try {
+          api.postMessage({ type: 'sttHostStopFw', reqId: pendingSttReqId, provider: 'faster-whisper-stream' });
+        } catch (_) {}
+      }
+      return;
     }
     listening = false;
     mode = 'idle';
@@ -1048,12 +1125,7 @@ if (window.__cbeSttLanguage   === undefined) window.__cbeSttLanguage   = '';
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (e) {
       console.debug('[cbe.stt] getUserMedia denied for ' + provider, e && e.message);
-      addMsg(
-        'Anthropic STT: microphone access denied. Grant mic permission to ' +
-        'VSCode (or check OS Privacy → Microphone), then click the mic again. ' +
-        'Your STT provider was not changed.',
-        'error'
-      );
+      addMicDeniedMsg(provider);
       mode = 'idle'; listening = false; setListeningUI(false);
       return;
     }
@@ -1124,12 +1196,7 @@ if (window.__cbeSttLanguage   === undefined) window.__cbeSttLanguage   = '';
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (e) {
       console.debug('[cbe.stt] getUserMedia denied for ' + provider, e && e.message);
-      addMsg(
-        'STT (' + provider + '): microphone access denied. Grant mic permission to ' +
-        'VSCode (or check OS Privacy → Microphone), then click the mic again. ' +
-        'Your STT provider was not changed.',
-        'error'
-      );
+      addMicDeniedMsg(provider);
       mode = 'idle'; listening = false; setListeningUI(false);
       return;
     }
@@ -1266,6 +1333,40 @@ if (window.__cbeSttLanguage   === undefined) window.__cbeSttLanguage   = '';
     api.postMessage({ type: 'sttStart' });
   }
 
+  /* PRIMARY STT capture for elevenlabs / openai / whisper-local. We DO NOT
+     call getUserMedia here — the VSCode webview is a sandboxed iframe and
+     Electron denies media capture regardless of the OS grant to Code.exe
+     (no extension API can grant it), so getUserMedia always threw
+     NotAllowedError → the misleading "microphone access denied" banner.
+     Instead we record the mic in the Node extension HOST via ffmpeg dshow.
+     We post sttHostStart; the host opens the mic and replies sttHostStarted
+     (confirmed live) or sttHostResult{ok:false,error} (real cause: ffmpeg
+     missing / no device). On stop, stopMic() posts sttHostStop and the host
+     transcribes → sttRequestResult → pastes into the input. */
+  function startHostRecording(provider) {
+    if (!api) {
+      addMsg('Voice: extension API unavailable — cannot record.', 'error');
+      return;
+    }
+    recProvider = provider;
+    pendingSttReqId = 'hoststt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    mode = 'hostrec';
+    listening = true;
+    setListeningUI(true);
+    playSfx('connect');
+    try {
+      api.postMessage({
+        type: 'sttHostStart', reqId: pendingSttReqId, provider,
+        dictionary: String(window.__cbeSttDictionary || ''),
+        language:   String(window.__cbeSttLanguage || ''),
+      });
+    } catch (e) {
+      console.debug('[cbe.stt] sttHostStart postMessage threw', e && e.message);
+      mode = 'idle'; listening = false; setListeningUI(false);
+      addMsg('Voice (' + provider + '): cannot reach host to start recording.', 'error');
+    }
+  }
+
   function startWebSpeech() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
@@ -1334,42 +1435,208 @@ if (window.__cbeSttLanguage   === undefined) window.__cbeSttLanguage   = '';
 
   sttBtn.onclick = () => {
     if (listening) { stopMic(); return; }
-    const provider = window.__cbeSttProvider || 'webspeech';
+    /* STT default = elevenlabs (per user memory `elevenlabs_default.md`).
+       Previously 'webspeech' which kept routing Trent's clicks through the
+       Anthropic streaming path on a stale workspaceState selection. 2026-05-27. */
+    let provider = window.__cbeSttProvider || 'elevenlabs';
+    /* VSCode webview sandbox detection — Electron denies SpeechRecognition
+       AND getUserMedia in the webview iframe regardless of OS mic grant, so
+       'webspeech' will always emit `not-allowed` here and surface the red
+       "WebSpeech denied by sandbox" banner. Auto-promote to 'elevenlabs' on
+       the spot and persist the change so the user isn't stuck. Trent saw
+       the banner double-fire on a single click 2026-05-29. */
+    const inVscodeWebview = (typeof acquireVsCodeApi === 'function')
+      || (typeof api !== 'undefined' && api && typeof api.postMessage === 'function');
+    if (provider === 'webspeech' && inVscodeWebview) {
+      console.debug('[cbe.stt] sandbox auto-promote: webspeech -> elevenlabs');
+      provider = 'elevenlabs';
+      window.__cbeSttProvider = 'elevenlabs';
+      /* Persist so the next click also routes correctly. Dedicated message
+         instead of `setProvider` (which would overwrite the active LLM
+         provider). Host handler at extension.js case 'setSttProvider'. */
+      try { api && api.postMessage({ type: 'setSttProvider', sttProvider: 'elevenlabs' }); } catch (_) {}
+    }
     if (provider === 'webspeech') {
-      /* Browser-native live streaming (interim results, like gemini.com). */
+      /* Browser-native live streaming (only reachable outside the sandbox). */
       startWebSpeech();
       return;
     }
-    if (provider === 'anthropic') {
-      /* Live "words appear as you speak" via Web Audio PCM → host WS
-         (Deepgram Nova-3 proxy). Falls back to MediaRecorder request/response
-         then WebSpeech on any failure. */
-      startPcmStream(provider);
+    /* ElevenLabs Scribe v2 Realtime (streaming WS, 2026-05-29). Host opens
+       ffmpeg → ElevenLabs WS → partial transcripts stream back as
+       sttDeltaEl events while the user speaks (~150ms latency). On WS
+       error / 401 the HOST silently falls through to the batch path
+       (handleHostSttStart) and we end up in the same sttRequestResult
+       flow — the panel doesn't need to know. */
+    if (provider === 'elevenlabs') {
+      startElevenLabsStreaming();
       return;
     }
-    /* whisper-local / elevenlabs / openai use the host-mediated MediaRecorder
-       request/response path.
-       TODO(stream): elevenlabs has a realtime STT WebSocket (input_audio
-       chunks → partial transcripts) that could be wired the same way as
-       anthropic (Web Audio PCM → host → WS). Left as request/response this
-       pass to avoid landing it untested. */
-    startMediaRecorder(provider);
+    /* Realtime local providers (2026-05-30 — replaces the batch whisper-local
+       path). Same host-side ffmpeg → subprocess → sttDeltaEl/sttResultEl
+       protocol as the ElevenLabs streaming flow. */
+    if (provider === 'whisper-cpp-stream') {
+      startWhisperCppStreaming();
+      return;
+    }
+    if (provider === 'faster-whisper-stream') {
+      startFasterWhisperStreaming();
+      return;
+    }
+    /* anthropic / openai ALL go through the HOST ffmpeg capture path.
+       openai's webview-side getUserMedia path was sandbox-blocked in VSCode
+       (always NotAllowedError → false "mic denied" banner) even though the
+       OS grant was correct — confirmed 2026-05-30 by ElevenLabs (host
+       ffmpeg) working seconds before openai failed on the same mic. Host
+       capture = single safe default for everything except the streaming
+       providers above. */
+    startHostRecording(provider);
   };
+
+  /* PRIMARY ElevenLabs path: host-side ffmpeg streams raw PCM straight into
+     the ElevenLabs Scribe v2 Realtime WS. Partial transcripts arrive as
+     sttDeltaEl messages and we render them via the existing live-dictation
+     helpers (the same words-grow-in-place UX Anthropic streaming uses). On
+     mic-up the host commits the WS + we get sttResultEl with the final text.
+     If the WS errors / 401s, the host falls back to the batch path silently
+     and the panel sees a sttRequestResult instead — handled below. */
+  function startElevenLabsStreaming() {
+    if (!api) {
+      addMsg('Voice: extension API unavailable — cannot record.', 'error');
+      return;
+    }
+    recProvider = 'elevenlabs';
+    pendingSttReqId = 'elstream-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    mode = 'hostrec-el';   /* distinct from 'hostrec' so stopMic routes correctly */
+    listening = true;
+    setListeningUI(true);
+    playSfx('connect');
+    beginLiveDictation();   /* arm the prefix + live region for word-grow */
+    try {
+      api.postMessage({
+        type: 'sttHostStartEl',
+        reqId: pendingSttReqId,
+        provider: 'elevenlabs',
+        dictionary: String(window.__cbeSttDictionary || ''),
+        language:   String(window.__cbeSttLanguage || ''),
+      });
+    } catch (e) {
+      console.debug('[cbe.stt] sttHostStartEl postMessage threw', e && e.message);
+      cancelLiveDictation();
+      mode = 'idle'; listening = false; setListeningUI(false);
+      addMsg('Voice (elevenlabs): cannot reach host to start streaming.', 'error');
+    }
+  }
+
+  /* Realtime local: whisper.cpp `stream` example binary. Lazy-downloaded by
+     the host on first use (~75MB tiny.en model + ggerganov release zip).
+     Same protocol as ElevenLabs streaming — partials arrive as sttDeltaEl
+     (with provider:'whisper-cpp-stream'); final as sttResultEl. */
+  function startWhisperCppStreaming() {
+    if (!api) {
+      addMsg('Voice: extension API unavailable — cannot record.', 'error');
+      return;
+    }
+    recProvider = 'whisper-cpp-stream';
+    pendingSttReqId = 'wcppstream-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    mode = 'hostrec-wcpp';
+    listening = true;
+    setListeningUI(true);
+    playSfx('connect');
+    beginLiveDictation();
+    try {
+      api.postMessage({
+        type: 'sttHostStartWcpp',
+        reqId: pendingSttReqId,
+        provider: 'whisper-cpp-stream',
+        dictionary: String(window.__cbeSttDictionary || ''),
+        language:   String(window.__cbeSttLanguage || ''),
+      });
+    } catch (e) {
+      console.debug('[cbe.stt] sttHostStartWcpp postMessage threw', e && e.message);
+      cancelLiveDictation();
+      mode = 'idle'; listening = false; setListeningUI(false);
+      addMsg('Voice (whisper-cpp-stream): cannot reach host to start streaming.', 'error');
+    }
+  }
+
+  /* Realtime local: faster-whisper (CTranslate2) + webrtcvad sliding window
+     via python venv. First use triggers a ~150MB venv bootstrap progress
+     notification; subsequent uses skip that. */
+  function startFasterWhisperStreaming() {
+    if (!api) {
+      addMsg('Voice: extension API unavailable — cannot record.', 'error');
+      return;
+    }
+    recProvider = 'faster-whisper-stream';
+    pendingSttReqId = 'fwstream-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    mode = 'hostrec-fw';
+    listening = true;
+    setListeningUI(true);
+    playSfx('connect');
+    beginLiveDictation();
+    try {
+      api.postMessage({
+        type: 'sttHostStartFw',
+        reqId: pendingSttReqId,
+        provider: 'faster-whisper-stream',
+        dictionary: String(window.__cbeSttDictionary || ''),
+        language:   String(window.__cbeSttLanguage || ''),
+      });
+    } catch (e) {
+      console.debug('[cbe.stt] sttHostStartFw postMessage threw', e && e.message);
+      cancelLiveDictation();
+      mode = 'idle'; listening = false; setListeningUI(false);
+      addMsg('Voice (faster-whisper-stream): cannot reach host to start streaming.', 'error');
+    }
+  }
 
   /* Host responses — the legacy WebSpeech-denied fallback (sttResult) and
      the MediaRecorder remote-provider transcript (sttRequestResult) come
      back as separate message types so the panel can't confuse them. */
+  let _lastSttErrMsg = '';
+  let _lastSttErrAt  = 0;
   window.addEventListener('message', (e) => {
     const m = e.data || {};
     if (m.type === 'sttResult') {
       /* Host fallback hint (WebSpeech denied). Reset UI regardless. */
       if (m.error) {
-        addMsg('Voice: ' + m.error, 'error');
+        /* Dedupe identical errors within 1.5s — WebSpeech can fire
+           `not-allowed` + `service-not-allowed` + onend in rapid succession
+           and stale recog handlers can re-fire after the host already replied.
+           Trent saw the same red banner twice for a single click 2026-05-29. */
+        const nowMs = Date.now();
+        const same  = (String(m.error) === _lastSttErrMsg) && (nowMs - _lastSttErrAt < 1500);
+        if (!same) {
+          addMsg('Voice: ' + m.error, 'error');
+          _lastSttErrMsg = String(m.error);
+          _lastSttErrAt  = nowMs;
+        } else {
+          console.debug('[cbe.stt] dedupe identical sttResult error');
+        }
       } else if (m.text) {
         appendToInput(String(m.text).trim());
       } else {
         addMsg('Voice: no speech detected.', 'info');
       }
+      listening = false;
+      mode = 'idle';
+      setListeningUI(false);
+      playSfx('disable');
+      return;
+    }
+    if (m.type === 'sttHostStarted') {
+      /* Host ffmpeg capture confirmed live (mic open). The red recording-ring
+         is already on from startHostRecording(); nothing to do but keep it. */
+      console.debug('[cbe.stt] host recording started on', m.device || '?');
+      return;
+    }
+    if (m.type === 'sttHostResult') {
+      /* Host-capture FAILURE before any audio (ffmpeg missing / no mic device
+         / device busy). Surface the SPECIFIC cause — NOT "access denied". */
+      if (m.ok === false) {
+        addMsg('Voice: ' + (m.error || 'host mic capture failed') + '.', 'error');
+      }
+      pendingSttReqId = '';
       listening = false;
       mode = 'idle';
       setListeningUI(false);
@@ -1397,10 +1664,12 @@ if (window.__cbeSttLanguage   === undefined) window.__cbeSttLanguage   = '';
       return;
     }
     if (m.type === 'sttPartial') {
-      /* Live interim transcript for the anthropic streaming session. The text
-         is CUMULATIVE — replace the in-progress dictation each time so the
-         words grow in place. Ignore stale (post-stop) partials. */
+      /* Live interim transcript for streaming providers (anthropic +
+         openai realtime). Text is CUMULATIVE — replace the in-progress
+         dictation each time so the words grow in place. Ignore stale
+         (post-stop) partials. */
       if (m.reqId && m.reqId !== streamReqId) return;
+      if (String(m.text || '').trim()) __cbeOpenAiRealtimeGotPartial = true;
       updateLiveDictation(String(m.text || ''));
       return;
     }
@@ -1408,15 +1677,78 @@ if (window.__cbeSttLanguage   === undefined) window.__cbeSttLanguage   = '';
       /* Stream finished (clean close / endpoint / error). Commit whatever we
          have and reset UI. */
       if (m.reqId && m.reqId !== streamReqId) return;
+      const wasRealtimeOpenAi = (m.provider === 'openai' && __cbeOpenAiRealtimeFallbackPending);
       streamReqId = '';
       if (m.ok) {
         commitLiveDictation(m.text != null ? String(m.text) : undefined);
+        __cbeOpenAiRealtimeFallbackPending = false;
+        __cbeOpenAiRealtimeGotPartial = false;
+      } else if (wasRealtimeOpenAi && !__cbeOpenAiRealtimeGotPartial) {
+        /* Realtime failed BEFORE any audio made it through (auth / WS handshake
+           / network). Silently degrade to the host batch path — no red banner;
+           the user just clicked the mic, they shouldn't see infra noise. The
+           host already traced the real error to debug.log. */
+        console.debug('[cbe.stt] openai realtime failed pre-partial — silent batch fallback');
+        cancelLiveDictation();
+        stopPcmCapture();
+        __cbeOpenAiRealtimeFallbackPending = false;
+        __cbeOpenAiRealtimeGotPartial = false;
+        listening = false;
+        mode = 'idle';
+        setListeningUI(false);
+        /* Don't auto-restart — the user wasn't speaking yet anyway, and
+           kicking off a host recording behind their back would surprise-record.
+           Next click will go through the same path (which will try realtime
+           again — but if it's a persistent auth issue, that's a Settings fix). */
+        return;
       } else {
         /* Keep the partial that was already showing, but tell the user. */
         cancelLiveDictation();
         addMsg('Voice (' + (m.provider || 'anthropic') + '): ' + (m.error || 'stream error'), 'info');
+        __cbeOpenAiRealtimeFallbackPending = false;
+        __cbeOpenAiRealtimeGotPartial = false;
       }
       stopPcmCapture();
+      listening = false;
+      mode = 'idle';
+      setListeningUI(false);
+      playSfx('disable');
+      return;
+    }
+    if (m.type === 'sttDeltaEl') {
+      /* ElevenLabs Scribe v2 Realtime partial. text is the CUMULATIVE
+         running transcript (committed + tail) so we replace the live region
+         the same way Anthropic's TranscriptInterim flow does. Ignore stale
+         partials from a prior click. */
+      if (m.reqId && m.reqId !== pendingSttReqId) return;
+      updateLiveDictation(String(m.text || ''));
+      return;
+    }
+    if (m.type === 'sttResultEl') {
+      /* ElevenLabs streaming final / error. Commit the live dictation into
+         #promptBox (mirrors the existing batch sttRequestResult paste path)
+         then reset UI. On WS error the host already silently fell back to
+         the batch path when possible — if .fallback is set we either just
+         got the final text from the batch path OR we got a soft info
+         (mic was already mid-stream when WS dropped); either way no red
+         banner. */
+      if (m.reqId && m.reqId !== pendingSttReqId) return;
+      pendingSttReqId = '';
+      if (m.ok) {
+        commitLiveDictation(m.text != null ? String(m.text) : undefined);
+      } else if (m.fallback) {
+        /* Streaming failed AND batch couldn't transparently retake the click
+           (mic was already streaming). Keep whatever partial we had — same
+           as cancel-via-commit. Soft info, no red banner. */
+        commitLiveDictation();
+        const provLabel = String(m.provider || recProvider || 'elevenlabs');
+        console.debug('[cbe.stt] ' + provLabel + ' streaming fell back: ' + (m.error || ''));
+        addMsg('Voice (' + provLabel + '): streaming unavailable — used partial transcript.', 'info');
+      } else {
+        cancelLiveDictation();
+        const provLabel = String(m.provider || recProvider || 'elevenlabs');
+        addMsg('Voice (' + provLabel + '): ' + (m.error || 'streaming error'), 'info');
+      }
       listening = false;
       mode = 'idle';
       setListeningUI(false);
@@ -1660,6 +1992,7 @@ function _amShowError(text) {
 function _amProviderType(providerId) {
   if (providerId === 'ollama' || providerId === 'ollamaBridge') return 'none';
   const p = (__cbeProviders || []).find(x => x.id === providerId);
+  if (p && p.cliAgent) return 'none';   /* logged-in Claude Code — OAuth, no key/account */
   return (p && p.bridge) ? 'email_password' : 'api_key';
 }
 
@@ -1678,7 +2011,7 @@ function _amPopulateProviders() {
   choices.forEach(p => {
     const o = document.createElement('option');
     o.value = p.id;
-    const suffix = p.bridge ? '  (browser login)' : (p.haveKey ? '' : '  (no key)');
+    const suffix = p.cliAgent ? '  (logged in)' : (p.bridge ? '  (browser login)' : (p.haveKey ? '' : '  (no key)'));
     o.textContent = p.label + suffix;
     sel.appendChild(o);
   });
@@ -2139,7 +2472,7 @@ function openAutoPromptModal() {
     '<div class="cbe-box" style="background:var(--cbe-modal-bg);color:var(--cbe-modal-fg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:520px;max-width:92vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
       '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
         '<span>Auto Prompt</span>' +
-        '<button type="button" data-act="cancel" aria-label="Close" style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:18px;cursor:pointer;">×</button>' +
+        '<button type="button" class="cbe-x" data-act="cancel" aria-label="Close" style="color:var(--cbe-modal-title-fg);"></button>' +
       '</div>' +
       '<div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;">' +
         '<label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">Prompt' +
@@ -2211,7 +2544,7 @@ function openGitModal() {
       '<div class="cbe-box" style="background:var(--cbe-modal-bg);color:var(--cbe-modal-fg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:480px;max-width:92vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
         '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
           '<span>Git</span>' +
-          '<button type="button" data-act="cancel" aria-label="Close" style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:18px;cursor:pointer;">×</button>' +
+          '<button type="button" class="cbe-x" data-act="cancel" aria-label="Close" style="color:var(--cbe-modal-title-fg);"></button>' +
         '</div>' +
         '<div style="padding:24px 22px;text-align:center;line-height:1.5;">' +
           '<div style="font-size:15px;margin-bottom:8px;">Please select a Project Folder to use Git.</div>' +
@@ -2224,7 +2557,7 @@ function openGitModal() {
       '<div class="cbe-box" style="background:var(--cbe-modal-bg);color:var(--cbe-modal-fg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:760px;max-width:94vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
         '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
           `<span>Git <span style="font-weight:400;opacity:.75;font-size:12px;">· ${escapeHtml(__cbeGitProjectFolder)}</span></span>` +
-          '<button type="button" data-act="cancel" aria-label="Close" style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:18px;cursor:pointer;">×</button>' +
+          '<button type="button" class="cbe-x" data-act="cancel" aria-label="Close" style="color:var(--cbe-modal-title-fg);"></button>' +
         '</div>' +
         '<div style="padding:14px 18px;display:flex;flex-direction:column;gap:10px;">' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap;font-size:12px;">' +
@@ -2309,7 +2642,7 @@ function showWakeModal(initialText) {
     '<div class="cbe-box" style="background:var(--cbe-modal-bg);color:var(--cbe-modal-fg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:600px;max-width:92vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
       '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
         '<span>Wake-up Prompt <span style="opacity:.6;font-weight:400;font-size:12px;">· wake.txt</span></span>' +
-        '<button type="button" data-act="cancel" aria-label="Close" style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:18px;cursor:pointer;">×</button>' +
+        '<button type="button" class="cbe-x" data-act="cancel" aria-label="Close" style="color:var(--cbe-modal-title-fg);"></button>' +
       '</div>' +
       '<div style="padding:16px 18px;display:flex;flex-direction:column;gap:8px;">' +
         '<div style="font-size:12px;opacity:.7;">Sent to the model when a stream stalls. Leave blank to disable.</div>' +
@@ -2395,7 +2728,7 @@ function showDomainsModal(payload) {
     '<div class="cbe-box" style="background:var(--cbe-modal-bg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:700px;max-width:92vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
       '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
         `<span>NameSilo Domains${countStr}${cacheStr}</span>` +
-        '<button type="button" data-act="close" aria-label="Close" style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:18px;cursor:pointer;">×</button>' +
+        '<button type="button" class="cbe-x" data-act="close" aria-label="Close" style="color:var(--cbe-modal-title-fg);"></button>' +
       '</div>' +
       bodyHtml +
       '<div class="cbe-foot" style="padding:10px 16px;background:var(--cbe-modal-foot-bg);border-top:1px solid rgba(0,0,0,.25);display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
@@ -2477,7 +2810,7 @@ function showGitHubReposModal(payload) {
     '<div class="cbe-box" style="background:var(--cbe-modal-bg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:900px;max-width:94vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
       '<div class="cbe-hdr" style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
         `<span>GitHub Repositories${titleCount}</span>` +
-        '<button type="button" data-act="close" aria-label="Close" style="background:transparent;border:0;color:#fff;font-size:18px;cursor:pointer;">×</button>' +
+        '<button type="button" class="cbe-x" data-act="close" aria-label="Close" style="color:#fff;"></button>' +
       '</div>' +
       searchBar +
       bodyHost +
@@ -2780,6 +3113,11 @@ function openSettings(payload) {
     +     '</div>'
     /*   openai sub-controls */
     +     '<div class="cbe-voice-sub" id="cbe-tts-sub-openai" hidden>'
+    +       '<div><label for="cbe-tts-oa-apikey">OpenAI API key</label>'
+    +         '<div style="display:flex;gap:6px;">'
+    +           '<input type="password" id="cbe-tts-oa-apikey" class="cbe-voice-text" spellcheck="false" autocomplete="off" placeholder="sk-proj-... from platform.openai.com" style="flex:1;">'
+    +           '<button type="button" id="cbe-tts-oa-apikey-save" class="cbe-key-save-btn" style="padding:6px 12px;background:var(--cbe-modal-accent,#2a5d8f);color:#fff;border:1px solid var(--cbe-modal-accent,#2a5d8f);border-radius:4px;cursor:pointer;font:inherit;">Save</button>'
+    +         '</div></div>'
     +       '<div><label for="cbe-tts-oa-voice">Voice</label>'
     +         '<select id="cbe-tts-oa-voice">'
     +           '<option value="alloy">alloy</option><option value="echo">echo</option>'
@@ -2793,8 +3131,17 @@ function openSettings(payload) {
     +     '</div>'
     /*   elevenlabs sub-controls */
     +     '<div class="cbe-voice-sub" id="cbe-tts-sub-elevenlabs" hidden>'
-    +       '<div><label for="cbe-tts-el-voice">Voice ID</label>'
-    +         '<input type="text" id="cbe-tts-el-voice" class="cbe-voice-text" spellcheck="false" placeholder="21m00Tcm4TlvDq8ikWAM (Rachel)"></div>'
+    +       '<div><label for="cbe-tts-el-apikey">ElevenLabs API key</label>'
+    +         '<div style="display:flex;gap:6px;">'
+    +           '<input type="password" id="cbe-tts-el-apikey" class="cbe-voice-text" spellcheck="false" autocomplete="off" placeholder="paste from elevenlabs.io/app/settings" style="flex:1;">'
+    +           '<button type="button" id="cbe-tts-el-apikey-save" class="cbe-key-save-btn" style="padding:6px 12px;background:var(--cbe-modal-accent,#2a5d8f);color:#fff;border:1px solid var(--cbe-modal-accent,#2a5d8f);border-radius:4px;cursor:pointer;font:inherit;">Save</button>'
+    +         '</div></div>'
+    +       '<div><label for="cbe-tts-el-voice">Voice</label>'
+    +         '<select id="cbe-tts-el-voice-select" class="cbe-voice-text" style="margin-bottom:4px;"><option value="">(enter API key + click Refresh)</option></select>'
+    +         '<div style="display:flex;gap:6px;align-items:center;">'
+    +           '<input type="text" id="cbe-tts-el-voice" class="cbe-voice-text" spellcheck="false" placeholder="or paste a custom voice ID" style="flex:1;">'
+    +           '<button type="button" id="cbe-tts-el-voice-refresh" style="padding:6px 12px;background:rgba(255,255,255,.05);color:inherit;border:1px solid var(--cbe-modal-border,#444);border-radius:4px;cursor:pointer;font:inherit;">Refresh list</button>'
+    +         '</div></div>'
     +       '<div style="display:flex;gap:10px;">'
     +         '<div style="flex:1;"><label for="cbe-tts-el-stability">Stability <span id="cbe-tts-el-stability-val" style="opacity:.65;font-weight:400;">0.50</span></label>'
     +           '<input type="range" id="cbe-tts-el-stability" min="0" max="1" step="0.05" value="0.5" style="width:100%;accent-color:var(--cbe-modal-accent);cursor:pointer;"></div>'
@@ -2808,12 +3155,31 @@ function openSettings(payload) {
     +     '<div class="cbe-cat-title">Speech to Text (Dictation)</div>'
     +     '<div><label for="cbe-set-stt-provider">STT provider</label>'
     +       '<select id="cbe-set-stt-provider">'
-    +         '<option value="webspeech">WebSpeech (browser-native)</option>'
-    +         '<option value="whisper-local">Whisper-local (keyless, offline)</option>'
-    +         '<option value="elevenlabs">ElevenLabs Scribe (premium)</option>'
-    +         '<option value="openai">OpenAI gpt-4o-transcribe</option>'
-    +         '<option value="anthropic">Anthropic (Claude login)</option>'
+    /* WebSpeech intentionally omitted — Electron blocks SpeechRecognition
+       inside the VSCode webview sandbox so it can't actually work here.
+       2026-05-29. Stored value remains valid for back-compat (auto-promoted
+       to elevenlabs at click time + in getVoiceProvider on the host).
+       whisper-local (batch HTTP server) removed 2026-05-30 — replaced by
+       the two realtime local providers below. */
+    +         '<option value="elevenlabs" title="Cloud, lowest latency. Needs [elevenlabs] api_key in config.ini.">ElevenLabs Scribe v2 (cloud, streaming)</option>'
+    +         '<option value="whisper-cpp-stream" title="Local realtime via whisper.cpp stream binary. Keyless. ~75MB one-time download. Windows-first.">Whisper.cpp (local, realtime)</option>'
+    +         '<option value="faster-whisper-stream" title="Local realtime via faster-whisper (CTranslate2) + webrtcvad sliding window. Keyless. ~150MB one-time venv bootstrap. Windows-first.">Faster-Whisper (local, realtime, CTranslate2)</option>'
+    +         '<option value="openai" title="Cloud streaming via OpenAI Realtime API. Needs openai_api_key.">OpenAI Whisper (cloud, batch/streaming)</option>'
+    +         '<option value="anthropic" title="Cloud streaming via Anthropic’s Deepgram Nova-3 proxy. Auth via your Claude Code login — no separate key.">Anthropic Claude (cloud, streaming)</option>'
+    +         '<option value="deepgram" title="Cloud streaming via Deepgram Nova-3. Needs [deepgram] api_key in config.ini.">Deepgram (cloud, streaming)</option>'
     +       '</select>'
+    +     '</div>'
+    /*   Per-provider API key (shown only when the selected STT provider needs
+         one — keyless providers like webspeech / whisper-cpp-stream /
+         faster-whisper-stream / anthropic-OAuth hide this row). Save writes
+         to config.ini under the right [section] via the host. */
+    +     '<div id="cbe-stt-key-row" hidden>'
+    +       '<label for="cbe-stt-apikey"><span id="cbe-stt-apikey-label">API key</span></label>'
+    +       '<div style="display:flex;gap:6px;">'
+    +         '<input type="password" id="cbe-stt-apikey" class="cbe-voice-text" spellcheck="false" autocomplete="off" placeholder="" style="flex:1;">'
+    +         '<button type="button" id="cbe-stt-apikey-save" class="cbe-key-save-btn" style="padding:6px 12px;background:var(--cbe-modal-accent,#2a5d8f);color:#fff;border:1px solid var(--cbe-modal-accent,#2a5d8f);border-radius:4px;cursor:pointer;font:inherit;">Save</button>'
+    +       '</div>'
+    +       '<div id="cbe-stt-apikey-hint" style="opacity:.6;font-size:11px;margin-top:3px;"></div>'
     +     '</div>'
     +     '<div><label for="cbe-stt-language">Language <span style="opacity:.55;font-weight:400;font-size:.85em;">(BCP-47, e.g. en, en-US, fr)</span></label>'
     +       '<input type="text" id="cbe-stt-language" class="cbe-voice-text" spellcheck="false" placeholder="auto / en-US"></div>'
@@ -3174,7 +3540,8 @@ function openSettings(payload) {
     const o = document.createElement('option');
     o.value = p.id;
     let suffix = '';
-    if (p.bridge) suffix = '  (bridge)';
+    if (p.cliAgent) suffix = '  (logged in)';
+    else if (p.bridge) suffix = '  (bridge)';
     else if (!p.haveKey) suffix = '  (no key)';
     o.textContent = p.label + suffix;
     sel.appendChild(o);
@@ -3202,7 +3569,9 @@ function openSettings(payload) {
        no API key — auth lives in the tray exe's QtWebEngine profile (or
        in the local ollama daemon). Suppress the no-key warning. */
     const warn = overlay.querySelector('#cbe-set-warn');
-    if (prov.bridge) {
+    /* cliAgent (logged-in Claude Code) authenticates via the Claude Code
+       OAuth login — like bridges, it has no API key to warn about. */
+    if (prov.bridge || prov.cliAgent) {
       warn.classList.remove('show');
       ms.disabled = false;
     } else {
@@ -3210,11 +3579,11 @@ function openSettings(payload) {
       warn.classList.toggle('show', !prov.haveKey);
     }
     /* Refresh the multi-account section for the newly-selected provider.
-       Hidden entirely for bridge providers (no API keys to manage). */
+       Hidden entirely for bridge + cliAgent providers (no API keys to manage). */
     const acctWrap = overlay.querySelector('#cbe-accounts-wrap');
     if (acctWrap) {
-      acctWrap.style.display = prov.bridge ? 'none' : '';
-      if (!prov.bridge) {
+      acctWrap.style.display = (prov.bridge || prov.cliAgent) ? 'none' : '';
+      if (!prov.bridge && !prov.cliAgent) {
         __cbeAccountsProvider = prov.id;
         _hideAccountForm();
         if (api) api.postMessage({ type: 'getAccounts', provider: prov.id });
@@ -3517,7 +3886,21 @@ function openSettings(payload) {
 
   /* Hydrate provider selection from payload (validated server-side). */
   if (ttsProvSel) ttsProvSel.value = ['webspeech','elevenlabs','openai'].includes(payload.ttsProvider) ? payload.ttsProvider : 'webspeech';
-  if (sttProvSel) sttProvSel.value = ['webspeech','whisper-local','elevenlabs','openai','anthropic'].includes(payload.sttProvider) ? payload.sttProvider : 'webspeech';
+  /* STT default = elevenlabs (per user memory `elevenlabs_default.md`). The
+     old default 'webspeech' fell through to Anthropic STT after Trent picked
+     it once, then bombed on getUserMedia. 2026-05-27.
+     WebSpeech is no longer a user-selectable option (sandbox-blocked) — coerce
+     any stored 'webspeech' to 'elevenlabs' when populating the dropdown so the
+     user sees the active path. 2026-05-29. */
+  if (sttProvSel) {
+    const stored = String(payload.sttProvider || '');
+    const coerced = (stored === 'webspeech') ? 'elevenlabs' : stored;
+    /* whisper-local removed 2026-05-30 — replaced by whisper-cpp-stream + faster-whisper-stream.
+       Auto-migrate any stale stored 'whisper-local' to 'whisper-cpp-stream' so users with old
+       settings don't get silently re-pinned to elevenlabs. */
+    const migrated = (coerced === 'whisper-local') ? 'whisper-cpp-stream' : coerced;
+    sttProvSel.value = ['whisper-cpp-stream','faster-whisper-stream','elevenlabs','openai','anthropic','deepgram'].includes(migrated) ? migrated : 'elevenlabs';
+  }
 
   /* Snapshot the live TTS window values so Cancel can restore them after any
      live preview / typing. */
@@ -3614,6 +3997,139 @@ function openSettings(payload) {
   }
   if (sttProvSel) sttProvSel.addEventListener('change', _syncSttDict);
   _syncSttDict();
+
+  /* ── API-key UI wiring (added 2026-05-30) ──────────────────────────────
+     Each keyed provider gets its config.ini section + an optional explicit
+     key-name (otherwise defaults to "api_key"). 'webspeech',
+     'whisper-cpp-stream', 'faster-whisper-stream', and 'anthropic'
+     (Claude-Code OAuth) are intentionally absent — they don't take a key. */
+  const KEY_PROVIDER_META = {
+    elevenlabs: { section: 'elevenlabs', key: 'api_key',
+                  label: 'ElevenLabs API key',
+                  hint:  'From elevenlabs.io/app/settings → API Keys. Stored in [elevenlabs] api_key.' },
+    openai:     { section: 'api_keys',  key: 'openai_api_key',
+                  label: 'OpenAI API key',
+                  hint:  'From platform.openai.com/api-keys. Stored in [api_keys] openai_api_key.' },
+    deepgram:   { section: 'deepgram',  key: 'api_key',
+                  label: 'Deepgram API key',
+                  hint:  'From console.deepgram.com → API Keys. Stored in [deepgram] api_key.' },
+  };
+
+  const sttKeyRow   = overlay.querySelector('#cbe-stt-key-row');
+  const sttKeyInput = overlay.querySelector('#cbe-stt-apikey');
+  const sttKeyLabel = overlay.querySelector('#cbe-stt-apikey-label');
+  const sttKeyHint  = overlay.querySelector('#cbe-stt-apikey-hint');
+  const sttKeySave  = overlay.querySelector('#cbe-stt-apikey-save');
+
+  function _syncSttKeyRow() {
+    if (!sttKeyRow || !sttProvSel) return;
+    const p = String(sttProvSel.value || '');
+    const meta = KEY_PROVIDER_META[p];
+    if (!meta) { sttKeyRow.hidden = true; return; }
+    sttKeyRow.hidden = false;
+    if (sttKeyLabel) sttKeyLabel.textContent = meta.label;
+    if (sttKeyHint)  sttKeyHint.textContent  = meta.hint;
+    if (sttKeyInput) {
+      sttKeyInput.value = '';
+      sttKeyInput.placeholder = '•••• (saved — paste a new value to replace)';
+      sttKeyInput.setAttribute('data-section', meta.section);
+      sttKeyInput.setAttribute('data-key', meta.key);
+    }
+  }
+  if (sttProvSel) sttProvSel.addEventListener('change', _syncSttKeyRow);
+  _syncSttKeyRow();
+
+  /* Save buttons — three of them (STT row + TTS-elevenlabs + TTS-openai),
+     all post the same {type:'setProviderKey', section, key, value} shape. */
+  function _postKeySave(section, keyName, value, btn) {
+    if (!value || !api) return;
+    try { api.postMessage({ type: 'setProviderKey', section, key: keyName, value }); } catch (_) {}
+    if (btn) {
+      const orig = btn.textContent;
+      /* Inline-SVG check (U+2713 tofus in the webview font). Restored to the
+         plain original label via textContent after the timeout. */
+      btn.innerHTML = 'Saved <svg viewBox="0 0 24 24" width="12" height="12" fill="none" ' +
+        'aria-hidden="true" style="vertical-align:-1px;"><path d="M5 13l4 4L19 7" ' +
+        'stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      btn.disabled = true;
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
+    }
+  }
+  if (sttKeySave) {
+    sttKeySave.addEventListener('click', () => {
+      const v = (sttKeyInput && sttKeyInput.value) || '';
+      const section = (sttKeyInput && sttKeyInput.getAttribute('data-section')) || '';
+      const keyName = (sttKeyInput && sttKeyInput.getAttribute('data-key')) || 'api_key';
+      if (v && section) _postKeySave(section, keyName, v.trim(), sttKeySave);
+    });
+  }
+  const elKeyInput = overlay.querySelector('#cbe-tts-el-apikey');
+  const elKeySave  = overlay.querySelector('#cbe-tts-el-apikey-save');
+  if (elKeySave && elKeyInput) {
+    elKeySave.addEventListener('click', () => {
+      const v = (elKeyInput.value || '').trim();
+      if (v) _postKeySave('elevenlabs', 'api_key', v, elKeySave);
+    });
+  }
+  const oaKeyInput = overlay.querySelector('#cbe-tts-oa-apikey');
+  const oaKeySave  = overlay.querySelector('#cbe-tts-oa-apikey-save');
+  if (oaKeySave && oaKeyInput) {
+    oaKeySave.addEventListener('click', () => {
+      const v = (oaKeyInput.value || '').trim();
+      if (v) _postKeySave('api_keys', 'openai_api_key', v, oaKeySave);
+    });
+  }
+
+  /* ── ElevenLabs voice list (auto-populate from /v1/voices) ──────────────
+     On TTS provider change to elevenlabs OR Refresh button click, request
+     the voice list from the host. Host hits api.elevenlabs.io/v1/voices and
+     replies with {type:'elevenLabsVoicesResult', ok, voices:[{voice_id,name,...}]}.
+     We populate the select; the text input remains as an override for custom
+     voice IDs not in the list. */
+  const elVoiceSelect  = overlay.querySelector('#cbe-tts-el-voice-select');
+  const elVoiceText    = overlay.querySelector('#cbe-tts-el-voice');
+  const elVoiceRefresh = overlay.querySelector('#cbe-tts-el-voice-refresh');
+  function _requestElVoices() {
+    if (!api) return;
+    if (elVoiceSelect) {
+      elVoiceSelect.innerHTML = '<option value="">(loading…)</option>';
+    }
+    try { api.postMessage({ type: 'fetchElevenLabsVoices' }); } catch (_) {}
+  }
+  if (elVoiceRefresh) elVoiceRefresh.addEventListener('click', _requestElVoices);
+  if (elVoiceSelect) {
+    elVoiceSelect.addEventListener('change', () => {
+      if (elVoiceSelect.value && elVoiceText) elVoiceText.value = elVoiceSelect.value;
+    });
+  }
+  /* Listen for the host's voice-list response. We tack onto the existing
+     window-level message listener path rather than adding a new one to avoid
+     duplicate-handler risk. */
+  window.addEventListener('message', (ev) => {
+    const m = (ev && ev.data) || {};
+    if (m.type !== 'elevenLabsVoicesResult') return;
+    if (!elVoiceSelect) return;
+    if (!m.ok || !Array.isArray(m.voices)) {
+      elVoiceSelect.innerHTML = '<option value="">(error: ' + (m.error ? String(m.error).slice(0, 60) : 'load failed') + ')</option>';
+      return;
+    }
+    const current = (elVoiceText && elVoiceText.value) || '';
+    const opts = ['<option value="">(pick a voice)</option>'];
+    for (const v of m.voices) {
+      const id = String(v.voice_id || v.id || '');
+      const name = String(v.name || id);
+      const sel = (id === current) ? ' selected' : '';
+      opts.push('<option value="' + id + '"' + sel + '>' + name + ' (' + id.slice(0, 8) + '…)</option>');
+    }
+    elVoiceSelect.innerHTML = opts.join('');
+  });
+  /* Trigger voice list fetch when ElevenLabs becomes the selected TTS provider. */
+  if (ttsProvSel) {
+    ttsProvSel.addEventListener('change', () => {
+      if (ttsProvSel.value === 'elevenlabs') _requestElVoices();
+    });
+    if (String(ttsProvSel.value || '') === 'elevenlabs') _requestElVoices();
+  }
 
   /* Backdrop click = cancel. Direct buttons (apply/cancel) call
      _cbeDoApply()/_cbeDoCancel() directly — see top of openSettings. */
@@ -4373,23 +4889,28 @@ function openHelp() {
    three messages at random per fire so the rotation feels fresh.
    Each CTA opens its URL via the existing host openExternal handler
    (vscode.env.openExternal) so the user's default browser handles it. */
+/* Inline-SVG nag icons. The webview's font has no glyph for 💛/❤️/☕
+   (they rendered as tofu boxes), so each card carries a small currentColor
+   SVG inserted via innerHTML alongside the title. */
+const __nagSvgHeart = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true" style="vertical-align:-3px;"><path d="M12 21s-7.5-4.6-10-9.3C.4 8.4 2 5 5.2 5c2 0 3.3 1.1 4 2.2C9.9 6.1 11.2 5 13.2 5 16.4 5 18 8.4 16.4 11.7 14 16.4 12 21 12 21z"/></svg>';
+const __nagSvgCoffee = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-3px;"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9z"/><path d="M17 10h2a2 2 0 0 1 0 4h-2"/><path d="M7 4c0 1-1 1-1 2M11 4c0 1-1 1-1 2"/></svg>';
 const CBE_NAGS = [
   {
-    icon: '💛',
+    icon: __nagSvgHeart,
     title: 'Help keep this open-source',
     body:  'Claude Codex Black is free, open source, and built solo. If it makes your day better, a one-time tip on GoFundMe lets me keep shipping features and fixing bugs.',
     cta:   'Open GoFundMe',
     url:   'https://www.gofundme.com/manage/donate-today-to-support-the-creation-of-open-source-tools',
   },
   {
-    icon: '❤️',
+    icon: __nagSvgHeart,
     title: 'Sponsor on GitHub',
     body:  'Prefer recurring? Sponsor me monthly on GitHub. Any tier funds the next sprint — extensions, skins, bridges, the whole stack.',
     cta:   'Open GitHub Sponsors',
     url:   'https://github.com/sponsors/tibberous?preview=true',
   },
   {
-    icon: '☕',
+    icon: __nagSvgCoffee,
     title: 'Free consultation',
     body:  'Need help wiring this into your own workflow, or have a custom build idea? Book a free consultation — no obligation.',
     cta:   'Book a free consultation',
@@ -4416,7 +4937,7 @@ function openNag(run) {
         'font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
         '<span style="font-size:15px;">' + nag.icon + '  ' + escapeHtmlExt(nag.title) + '</span>' +
         '<button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)" ' +
-          'style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:20px;cursor:pointer;line-height:1;">×</button>' +
+          'style="color:var(--cbe-modal-title-fg);"></button>' +
       '</div>' +
       '<div style="padding:18px 20px;color:var(--cbe-modal-fg,#e7eaef);font:14px/1.55 system-ui,sans-serif;">' +
         escapeHtmlExt(nag.body) +
@@ -4472,13 +4993,13 @@ function openAuthPicker() {
         'font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
         '<span style="font-size:15px;">Switch account</span>' +
         '<button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)" ' +
-          'style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:20px;cursor:pointer;line-height:1;">×</button>' +
+          'style="color:var(--cbe-modal-title-fg);"></button>' +
       '</div>' +
       '<div style="padding:18px 22px;color:var(--cbe-modal-fg,#e7eaef);font:14px/1.55 system-ui,sans-serif;">' +
         '<div style="margin-bottom:6px;">Claude Codex Black Ed. can be used with your Claude subscription or billed based on API usage through your Console account.</div>' +
         '<div style="' + subStyle + '">How do you want to log in?</div>' +
-        '<button class="cbe-ap-claude"    type="button" style="' + btnStyle + '">Claude.ai Subscription</button>' +
-        '<div style="' + subStyle + '">Use your Claude Pro, Team, or Enterprise subscription (browser bridge).</div>' +
+        '<button class="cbe-ap-claude"    type="button" style="' + btnStyle + '">Claude Subscription (logged in)</button>' +
+        '<div style="' + subStyle + '">Run the real Claude Code agent on your Claude Pro/Max/Team subscription — same login &amp; billing as Claude Code, no API key.</div>' +
         '<button class="cbe-ap-autologin" type="button" style="' + btnStyle + 'background:var(--cbe-modal-bg,#22262d);border-color:var(--cbe-modal-border,#3a414c);">Auto-login all accounts (Vision Pilot)</button>' +
         '<div style="' + subStyle + '">Cycle every seeded Claude.ai email, screenshot the login page, ask ChatGPT what to click, poll IMAP for magic links, persist cookies per account.</div>' +
         '<button class="cbe-ap-anthropic" type="button" style="' + btnStyle + '">Anthropic Console</button>' +
@@ -4492,10 +5013,13 @@ function openAuthPicker() {
   overlay.querySelector('.cbe-x').addEventListener('click', close);
   overlay.querySelector('.cbe-ap-claude').addEventListener('click', () => {
     close();
-    /* Pre-target the standalone Accounts modal at the Claude browser bridge
-       so the user lands directly in the "add bridge login" form. */
-    __cbeAmProvider = 'claudeBridge';
-    openAccountsModal();
+    /* Logged-in mode: switch to the real Claude Code agent (claudeCode),
+       which rides your Claude Code OAuth subscription — no API key, no
+       browser bridge. Just `claude login` once in a terminal if you haven't. */
+    if (api) {
+      api.postMessage({ type: 'setProvider', provider: 'claudeCode', model: 'claude-sonnet-4-6' });
+      api.postMessage({ type: 'info', text: 'Claude (logged in) active — uses your Claude Code subscription. Run `claude login` in a terminal if prompted to authenticate.' });
+    }
   });
   overlay.querySelector('.cbe-ap-autologin').addEventListener('click', () => {
     close();
@@ -4598,7 +5122,7 @@ function openExtensionsMarketplace() {
         'font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
         '<span>Extensions Marketplace</span>' +
         '<button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)" ' +
-          'style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:18px;cursor:pointer;">×</button>' +
+          'style="color:var(--cbe-modal-title-fg);"></button>' +
       '</div>' +
       '<div id="cbe-ext-body" style="flex:1 1 auto;overflow:auto;padding:16px 18px;' +
         'color:var(--cbe-modal-fg,#e7eaef);font:13px/1.5 system-ui,sans-serif;">' +
@@ -4695,7 +5219,9 @@ function renderExtensionsCatalog(items, error) {
     ).join(' ');
     const stateBadge = ext.installed
       ? '<span style="color:#6fd58a;font-size:11px;font-family:ui-monospace,monospace;border:1px solid #285b3f;' +
-        'border-radius:3px;padding:1px 5px;margin-left:6px;">✓ Installed</span>'
+        'border-radius:3px;padding:1px 5px;margin-left:6px;">' +
+        '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" aria-hidden="true" style="vertical-align:-1px;margin-right:2px;">' +
+        '<path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Installed</span>'
       : '';
     const iconGlyph = String((ext.icon || '')).trim();
     const iconUri   = String((ext.iconUri || '')).trim();
@@ -4800,7 +5326,7 @@ function openExtensionRunner(payload) {
         'font-weight:700;display:flex;justify-content:space-between;align-items:center;">' +
         '<span>' + safeName + '</span>' +
         '<button class="cbe-x" type="button" aria-label="Close" title="Close (Esc)" ' +
-          'style="background:transparent;border:0;color:var(--cbe-modal-title-fg);font-size:18px;cursor:pointer;">×</button>' +
+          'style="color:var(--cbe-modal-title-fg);"></button>' +
       '</div>' +
       '<iframe srcdoc="" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" ' +
         'style="flex:1 1 auto;width:100%;border:0;background:#1c1f24;"></iframe>' +
@@ -5281,16 +5807,18 @@ window.addEventListener('message', e => {
     if (!__cbeStatusEl || !__cbeStatusEl.isConnected) {
       __cbeStatusEl = addMsg('', 'info cbe-progress');
     }
-    /* Use the loading_orange.svg spinner instead of a ⏳ emoji prefix. Consolas
+    /* Inline progress spinner instead of a ⏳ emoji prefix. Consolas
        (and the webview's monospace stack) has no glyph for U+23F3, so it
        rendered as a tofu box — user 2026-05-22: "magic boxing" / "see that
        square under yo?". An SVG icon + the existing .cbe-spinner animation
-       renders crisply with zero font dependency, like the toolbar icons. */
+       renders crisply with zero font dependency, like the toolbar icons.
+       Color convention (Trent 2026-05-27): every busy-indicator is BLUE
+       (green is reserved for the VSCode monitor). Was loading_orange.svg. */
     __cbeStatusEl.textContent = '';
     const __ab = String(window.__cbeAssetsBase || '').replace(/\/$/, '');
     if (__ab) {
       const __sp = document.createElement('img');
-      __sp.src = __ab + '/loading_orange.svg';
+      __sp.src = __ab + '/loading_blue.svg';
       __sp.alt = '';
       __sp.className = 'cbe-spinner';
       __sp.style.cssText = 'width:13px;height:13px;vertical-align:-2px;margin-right:6px;';
@@ -5435,14 +5963,18 @@ window.addEventListener('message', e => {
       body.textContent = m.command || '';
       const btns = document.createElement('div');
       btns.style.cssText = 'display:flex;gap:6px;';
+      /* Inline-SVG check/cross prefixes (Consolas has no U+2713/U+2717 glyph
+         → tofu). currentColor inherits the button's white text color. */
+      const __svgCheck = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true" style="vertical-align:-2px;margin-right:4px;"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      const __svgCross = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true" style="vertical-align:-2px;margin-right:4px;"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>';
       const allowBtn = document.createElement('button');
       allowBtn.type = 'button';
-      allowBtn.textContent = '✓ Allow';
+      allowBtn.innerHTML = __svgCheck + 'Allow';
       allowBtn.className = 'cbe-btn';
       allowBtn.style.cssText = 'background:#6a3;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;';
       const denyBtn = document.createElement('button');
       denyBtn.type = 'button';
-      denyBtn.textContent = '✗ Deny';
+      denyBtn.innerHTML = __svgCross + 'Deny';
       denyBtn.className = 'cbe-btn';
       denyBtn.style.cssText = 'background:#c33;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;';
       let answered = false;
@@ -5451,7 +5983,7 @@ window.addEventListener('message', e => {
         answered = true;
         allowBtn.disabled = true;
         denyBtn.disabled = true;
-        head.textContent = allow ? '✓ Allowed' : '✗ Denied';
+        head.innerHTML = allow ? (__svgCheck + 'Allowed') : (__svgCross + 'Denied');
         if (api) api.postMessage({ type: 'toolConfirmResponse', id: m.id, allow });
       };
       allowBtn.addEventListener('click', () => reply(true));
@@ -5837,7 +6369,16 @@ function renderGeneratedImage(m) {
   cap.style.cssText = 'font-size:12px;opacity:0.75;margin-bottom:6px;';
   const promptTxt = m.prompt ? ('"' + String(m.prompt).slice(0, 200) + '"') : '';
   const qTxt = m.quality ? (' · ' + m.quality) : '';
-  cap.textContent = '🖼 ' + (m.providerLabel || m.provider || 'image-gen') + qTxt + (promptTxt ? ' — ' + promptTxt : '');
+  /* Picture-icon prefix as inline SVG (🖼 U+1F5BC tofus in the webview font). */
+  cap.innerHTML =
+    '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true" ' +
+          'style="vertical-align:-2px;margin-right:5px;">' +
+      '<rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="2"/>' +
+      '<circle cx="8.5" cy="10" r="1.5" fill="currentColor"/>' +
+      '<path d="M5 17l4.5-4.5L13 16l3-3 3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '</svg>';
+  cap.appendChild(document.createTextNode(
+    (m.providerLabel || m.provider || 'image-gen') + qTxt + (promptTxt ? ' — ' + promptTxt : '')));
   wrap.appendChild(cap);
 
   /* The image itself. */
@@ -5881,7 +6422,13 @@ function renderFileDownload(m) {
   link.style.color = '#4ec9b0';
   link.style.textDecoration = 'underline';
   const label = document.createElement('span');
-  label.textContent = '📎 ' + name + ' (' + sizeStr + ', ' + mime + ')';
+  label.innerHTML =
+    '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true" ' +
+          'style="vertical-align:-2px;margin-right:4px;">' +
+      '<path d="M16.5 6.5l-7 7a2.5 2.5 0 0 0 3.5 3.5l7-7a4.5 4.5 0 0 0-6.4-6.4l-7 7a6.5 6.5 0 0 0 9.2 9.2l6-6" ' +
+            'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '</svg>';
+  label.appendChild(document.createTextNode(name + ' (' + sizeStr + ', ' + mime + ')'));
   wrap.appendChild(label);
   wrap.appendChild(link);
   /* If image and small enough, inline a thumbnail preview. */
@@ -5925,7 +6472,13 @@ function renderAttachments() {
 
     const nameEl = document.createElement('span');
     nameEl.className = 'attach-name';
-    nameEl.textContent = '📎 ' + a.name;
+    nameEl.innerHTML =
+      '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true" ' +
+            'style="vertical-align:-2px;margin-right:4px;">' +
+        '<path d="M16.5 6.5l-7 7a2.5 2.5 0 0 0 3.5 3.5l7-7a4.5 4.5 0 0 0-6.4-6.4l-7 7a6.5 6.5 0 0 0 9.2 9.2l6-6" ' +
+              'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '</svg>';
+    nameEl.appendChild(document.createTextNode(a.name));
     chip.appendChild(nameEl);
 
     if (a.bytes) {
@@ -6009,6 +6562,55 @@ function buildAttachmentImages() {
   }
   return imgs;
 }
+
+/* Paste-/drop-to-attach: capture a screenshot or image dropped/pasted into the
+   composer and queue it as an image attachment — renders an "image.png" chip
+   and ships the data out-of-band via send()'s images[] to vision-capable
+   providers. Mirrors the native Claude Code composer. Non-image content falls
+   through to default behavior. */
+(function wireImageAttach() {
+  if (!ti) return;
+
+  function attachImageFile(file) {
+    if (!file) return;
+    const mime = file.type || 'image/png';
+    const ext  = (mime.split('/')[1] || 'png').replace('jpeg', 'jpg');
+    const fr = new FileReader();
+    fr.onload  = () => pushAttachment({
+      name: `image.${ext}`, kind: 'image', mime,
+      dataUri: fr.result, bytes: file.size || 0,
+    });
+    fr.onerror = () => { try { console.error('[cbe] image read failed'); } catch (_) {} };
+    fr.readAsDataURL(file);
+  }
+
+  /* Paste */
+  ti.addEventListener('paste', (e) => {
+    const cd = e.clipboardData || window.clipboardData;
+    if (!cd || !cd.items) return;
+    const files = [];
+    for (const it of cd.items) {
+      if (it.kind === 'file' && /^image\//.test(it.type)) files.push(it.getAsFile());
+    }
+    if (!files.length) return;      /* not an image → let the text paste through */
+    e.preventDefault();             /* don't dump the blob as garbage text */
+    files.forEach(attachImageFile);
+  });
+
+  /* Drag-and-drop */
+  const dropCue = (on) => { ti.style.boxShadow = on ? 'inset 0 0 0 2px #2b6cb0' : ''; };
+  ti.addEventListener('dragover', (e) => { e.preventDefault(); dropCue(true); });
+  ti.addEventListener('dragleave', () => dropCue(false));
+  ti.addEventListener('drop', (e) => {
+    dropCue(false);
+    const dt = e.dataTransfer;
+    if (!dt || !dt.files || !dt.files.length) return;
+    const imgs = Array.from(dt.files).filter(f => /^image\//.test(f.type));
+    if (!imgs.length) return;       /* non-image drop → let default handle it */
+    e.preventDefault();
+    imgs.forEach(attachImageFile);
+  });
+})();
 
 /* ── Project folder pill ────────────────────────────────────────────────
    Display only — the actual picker lives in extension.js, triggered by
@@ -6450,7 +7052,7 @@ window.addEventListener('resize', fitProjectPath);
       '<div class="cbe-box" style="max-width:520px;">' +
         '<div class="cbe-hdr">' +
           '<span class="cbe-title">About Claude Codex Black</span>' +
-          '<div class="cbe-actions"><button class="cbe-close" type="button" aria-label="Close">×</button></div>' +
+          '<div class="cbe-actions"><button class="cbe-close cbe-x" type="button" aria-label="Close"></button></div>' +
         '</div>' +
         '<div class="cbe-body" style="padding:18px 22px;font-family:inherit;font-size:13.5px;line-height:1.6;">' +
           '<p style="margin:0 0 10px;font-size:15px;"><b>Claude Codex — Black Edition</b></p>' +

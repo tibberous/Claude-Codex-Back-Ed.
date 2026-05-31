@@ -526,9 +526,16 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   position: absolute !important;
   top: 50% !important;
   left: 50% !important;
-  width: 100% !important;
-  height: 100% !important;
-  transform: translate(-50%, -50%) scale(0.85) !important;
+  /* SAME-SIZE FIX (Trent "those circles" 2026-05-28): pinned to a FIXED
+     32x32 box so this ring matches the monitor / STT spinners exactly.
+     Was width/height:100% (~43px) + scale(0.85->1.06) -> too big. */
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  transform: translate(-50%, -50%) scale(0.92) !important;
   pointer-events: none;
   opacity: 0;
   transition: opacity .18s ease, transform .18s ease, filter .18s ease;
@@ -541,7 +548,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   opacity: 1;
   /* Stay centered while pulsing — translate(-50%,-50%) keeps the SVG
      anchored at the button center regardless of the scale tween. */
-  transform: translate(-50%, -50%) scale(1.06) !important;
+  transform: translate(-50%, -50%) scale(1.0) !important;
 }
 /* While auto-read is active also pulse the underlying tts icon subtly so
    the whole button reads as "listening for the next reply". */
@@ -652,8 +659,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   /* Render icons in full color (no white-out tint). Slight drop-shadow gives
      them depth on the glass. image-rendering keeps PNG icons crisp at the
      larger dock size. */
-  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55))
-          drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+  filter: drop-shadow(2px 2px 3px rgba(0, 0, 0, 0.25));
   image-rendering: -webkit-optimize-contrast;
   -webkit-user-drag: none;
   user-select: none;
@@ -711,34 +717,34 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
    has visual confirmation that the extension is processing. */
 #monitorBtn { position: relative; display: inline-flex !important; align-items: center !important; justify-content: center !important; }
 #monitorBtn .cbe-spinner {
-  /* Center an explicitly-sized SVG over the button regardless of which
-     skin is active. Skins apply `.tool-button img { width:20px !important }`
-     which beats ID-scoped rules without !important — so every geometry
-     property here is `!important` too. A FIXED 22x22 box (not a %) keeps
-     the ring a perfect circle and dead-centered even if the button is not
-     square; margin:0 cancels any skin img margin that would shift it. */
+  /* Normalized 32x32 — all toolbar busy-indicators SAME SIZE
+     (Trent 2026-05-27). monitor=green, everything-else=blue. */
   position: absolute !important;
   top: 50% !important;
   left: 50% !important;
-  width: 43px !important;
-  height: 43px !important;
-  min-width: 43px !important;
-  min-height: 43px !important;
-  max-width: 43px !important;
-  max-height: 43px !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
   margin: 0 !important;
   padding: 0 !important;
   transform: translate(-50%, -50%) !important;
-  transform-origin: center center !important;
   pointer-events: none;
   opacity: 0;
   transition: opacity .15s ease;
-  filter: none !important;          /* don't get re-tinted by .tool-button img */
+  filter: none !important;
+
 }
-#monitorBtn.is-monitoring .cbe-spinner { opacity: 1; }
+/* DOUBLED-CIRCLE FIX (Trent "those circles" 2026-05-28): hide the baked-in
+   loading_green.svg img spinner so only the JS .cbe-monitor-ring renders
+   (the two used to stack into a thick juddering double ring). */
+#monitorBtn .cbe-spinner { display: none !important; }
+#monitorBtn.is-monitoring .cbe-spinner { display: none !important; }
 #monitorBtn.is-monitoring > img:first-of-type {
   opacity: 0.45;
-  filter: brightness(0) invert(1) drop-shadow(0 0 6px rgba(255,139,0,0.65));
+  filter: brightness(0) invert(1) drop-shadow(0 0 6px rgba(62,196,109,0.65));
 }
 
 /* Auto Prompt button — visually identical to the TTS auto-read pulsing
@@ -751,9 +757,16 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   position: absolute !important;
   top: 50% !important;
   left: 50% !important;
-  width: 100% !important;
-  height: 100% !important;
-  transform: translate(-50%, -50%) scale(0.85) !important;
+  /* SAME-SIZE FIX (Trent "those circles" 2026-05-28): pinned to a FIXED
+     32x32 box so this ring matches the monitor / STT spinners exactly.
+     Was width/height:100% (~43px) + scale(0.85->1.06) -> too big. */
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  transform: translate(-50%, -50%) scale(0.92) !important;
   pointer-events: none;
   opacity: 0;
   transition: opacity .18s ease, transform .18s ease, filter .18s ease;
@@ -763,7 +776,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 }
 #autoReplyBtn.is-autoprompting .cbe-spinner {
   opacity: 1;
-  transform: translate(-50%, -50%) scale(1.06) !important;
+  transform: translate(-50%, -50%) scale(1.0) !important;
 }
 /* Pulse the underlying auto_reply icon subtly so the whole button reads
    as "actively firing prompts" — mirrors the .autoread > img treatment. */
@@ -845,18 +858,25 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
    the #monitorBtn rules above so the visual language is consistent. */
 #sttBtn { position: relative; }
 #sttBtn .cbe-spinner {
-  /* See #monitorBtn .cbe-spinner — every geometry property is !important
-     to beat skin's `.tool-button img { ... !important }`. */
+  /* Normalized 32x32 — all toolbar busy-indicators SAME SIZE
+     (Trent 2026-05-27). monitor=green, everything-else=blue. */
   position: absolute !important;
   top: 50% !important;
   left: 50% !important;
-  width: 70% !important;
-  height: 70% !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  margin: 0 !important;
+  padding: 0 !important;
   transform: translate(-50%, -50%) !important;
   pointer-events: none;
   opacity: 0;
   transition: opacity .15s ease;
   filter: none !important;
+
 }
 #sttBtn.is-recording .cbe-spinner { opacity: 1; }
 #sttBtn.is-recording > img:first-of-type {
@@ -1322,8 +1342,8 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     display: inline-block;
     color: #ffffff;
     background-color: currentColor;
-    -webkit-mask: url("icons/close-x.svg") no-repeat center / 14px 14px;
-            mask: url("icons/close-x.svg") no-repeat center / 14px 14px;
+    -webkit-mask: url("{{ASSETS_BASE}}/close-x.svg") no-repeat center / 14px 14px;
+            mask: url("{{ASSETS_BASE}}/close-x.svg") no-repeat center / 14px 14px;
     border-radius: 4px;
     transition: background-color .12s ease, color .12s ease;
   }
@@ -1541,11 +1561,9 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     font-size: 11px; padding: 4px 10px; border-radius: 4px;
     font-family: system-ui, sans-serif; font-weight: 700;
   }
-  #cbe-source-modal .cbe-close {
-    background: none; border: none; color: #fff; cursor: pointer;
-    font-size: 14px; padding: 2px 6px;
-    font-family: system-ui, sans-serif; opacity: 0.85;
-  }
+  /* .cbe-close now also carries the shared .cbe-x SVG-mask class; keep only
+     opacity here so the mask + currentColor background from .cbe-x survive. */
+  #cbe-source-modal .cbe-close { opacity: 0.85; }
   #cbe-source-modal .cbe-close:hover { opacity: 1; }
   #cbe-source-modal .cbe-scroller {
     overflow: auto; flex: 1; background: #1e1e1e;
@@ -1897,14 +1915,14 @@ body {
             <!-- Spinner overlay: hidden until ttsBtn.classList contains
                  `autoread`. Then it animates over the tts icon to signal
                  that every incoming assistant message is being read. -->
-            <img class="cbe-autoread-ring" src="{{ASSETS_BASE}}/auto_read_spinner.svg" alt="" aria-hidden="true" />
+            <img class="cbe-autoread-ring" src="{{ASSETS_BASE}}/loading_blue.svg" alt="" aria-hidden="true" />
           </button>
           <button id="sttBtn" class="tool-button" type="button" data-tooltip="Speech to text" data-i18n-tip="tooltip.stt" aria-label="Speech to text">
             <img src="{{ASSETS_BASE}}/stt.svg" alt="" />
             <!-- Blue spinner overlay shown while #sttBtn.is-recording. Same
                  pattern as #monitorBtn so the user gets clear feedback that
                  the host-side SAPI mic is actively listening. -->
-            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_orange.svg" alt="" />
+            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_blue.svg" alt="" />
           </button>
           <button id="autoReplyBtn" class="tool-button" type="button" data-tooltip="Auto Prompt" data-i18n-tip="tooltip.autoprompt" aria-label="Auto Prompt">
             <img src="{{ASSETS_BASE}}/auto_reply.svg" alt="" />
@@ -1912,7 +1930,7 @@ body {
                  so a running Auto Prompt visually matches Auto Read instead
                  of the simple monitor-style blue arc. The countdown badge
                  sits over the corner in the active skin's highlight color. -->
-            <img class="cbe-spinner" src="{{ASSETS_BASE}}/auto_read_spinner.svg" alt="" aria-hidden="true" />
+            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_blue.svg" alt="" aria-hidden="true" />
             <span class="cbe-countdown" aria-hidden="true">0</span>
           </button>
           <button id="wakeUpBtn" class="tool-button" type="button" data-tooltip="Wake-up response" data-i18n-tip="tooltip.wake" aria-label="Wake-up response">
@@ -1965,7 +1983,7 @@ body {
           </button>
           <button id="monitorBtn" class="tool-button" type="button" data-tooltip="VSCode monitor" data-i18n-tip="tooltip.monitor" aria-label="VSCode monitor">
             <img src="{{ASSETS_BASE}}/vscode_monitor.svg" alt="" />
-            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_orange.svg" alt="" />
+            <img class="cbe-spinner" src="{{ASSETS_BASE}}/loading_green.svg" alt="" />
           </button>
           <button id="terminalBtn" class="tool-button" type="button" data-tooltip="Terminal" data-i18n-tip="tooltip.terminal" aria-label="Terminal">
             <img src="{{ASSETS_BASE}}/terminal.svg" alt="" />
@@ -2074,7 +2092,7 @@ body {
     <div class="cbe-tama-frame">
       <div class="cbe-tama-titlebar">
         <span class="cbe-tama-title">Tamagotchi</span>
-        <button id="cbe-tama-close" type="button" aria-label="Close Tamagotchi" title="Close">×</button>
+        <button id="cbe-tama-close" class="cbe-x" type="button" aria-label="Close Tamagotchi" title="Close" style="color:#d8e8b8;"></button>
       </div>
       <div id="cbe-tama-status" role="status" aria-live="polite">
         <span class="tama-stat" data-stat="stage"       data-tooltip="Lifecycle stage"   title="Lifecycle stage">🥚 egg</span>
@@ -2138,10 +2156,8 @@ body {
       font-weight: 600; font-size: 13px; letter-spacing: 0.04em;
       color: #d8e8b8;
     }
-    #cbe-tama-shell #cbe-tama-close {
-      background: transparent; border: 0; color: #d8e8b8;
-      font-size: 20px; line-height: 1; cursor: pointer; padding: 0 4px;
-    }
+    /* #cbe-tama-close carries the shared .cbe-x SVG-mask class; only the
+       hover tint is kept here (color = currentColor drives the mask fill). */
     #cbe-tama-shell #cbe-tama-close:hover { color: #fff; }
     #cbe-tama-shell #cbe-tama-status {
       display: flex; flex-wrap: wrap; gap: 4px 8px;

@@ -175,3 +175,5 @@ assets/*.color.png
 # Raw gpt-image-1 backdrop cache (banner.png is built FROM this — only the final banner needs to ship).
 resources/banner_backdrop.png
 
+.openai_key_tmp
+*.key_tmp

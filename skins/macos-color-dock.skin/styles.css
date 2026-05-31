@@ -230,8 +230,11 @@ body {
 #compactBtn        { background-image: url('icons/compress.svg')    !important; }
 #handbookBtn       { background-image: url('icons/ibooks.svg')      !important; }
 #settingsBtn       { background-image: url('icons/preferences.svg') !important; }
+#accountsBtn       { background-image: url('icons/contacts.svg')    !important; }
 #extensionsBtn     { background-image: url('icons/appstore.svg')    !important; }
+#emailBtn          { background-image: url('icons/inbox.svg')       !important; }
 #projectFolderBtn  { background-image: url('icons/folder.svg')      !important; }
+#browserBtn        { background-image: url('icons/globe.svg')       !important; }
 #monitorBtn        { background-image: url('icons/safari.svg')      !important; }
 #terminalBtn       { background-image: url('icons/terminal.svg')    !important; }
 #setupBtn          { background-image: url('icons/toolbox.svg')     !important; }
@@ -240,6 +243,7 @@ body {
 #domainsBtn        { background-image: url('icons/maps.svg')        !important; }
 #fontSizeBtn       { background-image: url('icons/fontbook.svg')    !important; }
 #helpBtn           { background-image: url('icons/help.svg')        !important; }
+#tamaBtn           { background-image: url('icons/tamagotchi.svg')  !important; }
 
 /* Stop button — Apple red with the same wet-glass shimmer. */
 .stop-button {
