@@ -13,9 +13,28 @@
 
 ---
 
-## Architecture as-built (verified 2026-05-31)
+## ✅ FLATTEN DONE (2026-05-31) — flat single-file layout landed (working tree, not committed)
 
-**Skin layout:** 15 `.skin/` dirs under `skins/`, each holding `index.html` + `manifest.xml` + `styles.css` + `preview.png` (some also `icons/`, `wallpaper.png`, `assets/`). There are ALSO 15 legacy bare `skins/<id>/` peers (CSS-overlay format) kept for back-compat; `.skin` wins when both exist (`_scanSkinDirs` Pass 2 overwrites Pass 1).
+The per-skin FOLDERS were collapsed into single flat files. **New canonical layout under `skins/`:**
+```
+skins/
+  <id>.html              ← the whole skin (markup + CSS + palette/metadata in :root, self-contained)
+  <id>.preview.png       ← picker thumbnail (sibling file)
+  <id>-assets/           ← ONLY for skins that ship assets (icons/wallpaper/fonts)
+```
+- 15 skins now exist as `skins/<id>.html` + `skins/<id>.preview.png`.
+- 3 of them have a sibling asset dir: `macos-color-dock-assets/` (icons/), `mint-dock-assets/` (icons/ + wallpaper.png), `tamagotchi-assets/` (Jersey10-Regular.ttf + tamagotchi.gif).
+- ALL 15 `.skin/` dirs and ALL 14 legacy bare `skins/<id>/` dirs were DELETED (manifest.xml + styles.css gone).
+- **author + description recovered into `:root`** from the git `d522934` manifests as `--cbe-skin-author` / `--cbe-skin-description` (CSS-string-escaped). The loader now reads them.
+- **`{{SKIN_BASE}}` now resolves to `skins/<id>-assets/`** (was the `.skin/` dir). The 3 asset skins' working asset refs were rewritten to `url('{{SKIN_BASE}}/...')`; tamagotchi's `../../assets/label-square.png` → `{{ASSETS_BASE}}/label-square.png`. (The dead `assets/dock_icons/...` rules — scoped to a never-set `.skin-<id>` class against a nonexistent dir — were left inert.)
+- **`parseSkinManifestLegacy` + the legacy bare-dir branch removed** from the loader. `_scanSkinDirs` now scans `skins/*.html`. Tool added: `tools/inject_skin_authordesc.js` (one-shot recover-from-git). Stale `tools/smoke_skin_loader.js` deleted.
+- `node --check extension.js` + `node --check panel/panel.js` both pass. aqua-dock hand-edits verified intact (`max-width: none`, `color: #243240`, `toolbar-meta--panel`, `{{ASSETS_BASE}}/close-x`).
+
+---
+
+## Architecture as-built (PRE-FLATTEN — historical, superseded by the section above)
+
+**Skin layout (OLD):** 15 `.skin/` dirs under `skins/`, each holding `index.html` + `manifest.xml` + `styles.css` + `preview.png` (some also `icons/`, `wallpaper.png`, `assets/`). There were ALSO 15 legacy bare `skins/<id>/` peers (CSS-overlay format); `.skin` won when both existed.
 
 **The double-style problem (the thing single-file kills):** each `.skin/index.html` contains
 1. an inline `<style data-cbe-skin="<id>">` block (e.g. aqua-dock line 1665, ~242 lines) that is the **generated inline copy** of `styles.css` (produced by `tools/reinline_skins.py`), AND
@@ -25,14 +44,14 @@ So the same CSS loads twice. The inline block already contains everything; the r
 
 **Color palette:** lives in BOTH places today — the `:root` defaults baked into each `index.html` (aqua-dock lines 44-60, the ORANGE codex-black defaults) AND `manifest.xml <colors>` which `parseSkinManifest` reads and the host pushes down at runtime (`skinColors` in `init` + `applySkin`), applied by `applySkinColors()` (panel.js 2393) as `--cbe-modal-*` inline `:root` props that override the baked defaults. **Single-file requires each skin's OWN palette to live in its own `index.html` `:root` so XML is not needed.**
 
-### Key code map
+### Key code map (UPDATED for flat layout 2026-05-31)
 | Concern | File | Symbol / line |
 |---|---|---|
-| Scan skins dir | `extension.js` | `_scanSkinDirs` ~6226 (`SKINS_DIR_NAME='skins'` @76) |
-| Parse XML metadata | `extension.js` | `parseSkinManifest` ~6171 (id/name/accent/stylesheet/panelHtml/colors) |
-| List for picker | `extension.js` | `listSkins` ~6259 → posts `skinsList` |
-| Resolve active skin | `extension.js` | `resolveSkin` ~6299 (returns name/uri/colors/format/root/panelHtml/panelHtmlPath) |
-| Mount panel HTML | `extension.js` | `getPanelHtml` ~9323 (picks `panelHtmlPath` else `panel/index.html`; token subst; `{{SKIN_BASE}}`) |
+| Scan skins dir | `extension.js` | `_scanSkinDirs` ~6309 — scans `skins/*.html`, returns map of id → `{ htmlPath, assetsDir }` (`SKIN_ASSETS_SUFFIX='-assets'`; `SKINS_DIR_NAME='skins'` @76). Excludes `*.preview.png`/`*.bak`. |
+| Read metadata from HTML `:root` | `extension.js` | `parseSkinHtmlMeta(htmlPath, logicalId)` ~6230 — reads `--cbe-skin-name`/`-accent`/`-author`/`-description` + 11 palette vars; name falls back to title-cased slug. Helpers `_firstRootBody`/`_readRootVar`. (`parseSkinManifestLegacy` REMOVED.) |
+| List for picker | `extension.js` | `listSkins` ~6309 → posts `skinsList`; preview = `skins/<id>.preview.png`. |
+| Resolve active skin | `extension.js` | `resolveSkin` ~6340 (returns name/uri:null/colors/format:'new'/root=`<id>.html`/**assetsDir**/panelHtml/panelHtmlPath). |
+| Mount panel HTML | `extension.js` | `getPanelHtml` ~9349 (picks `panelHtmlPath`=`skins/<id>.html` else `panel/index.html`; token subst; **`{{SKIN_BASE}}` → `resolvedSkin.assetsDir`** = `skins/<id>-assets/`). |
 | Runtime styles.css inject (init) | `extension.js` | ~7456-7506 (`savedSkinName`, `skinUri`, `skinColors` in `init` payload) |
 | Skin-change handler (remount/applySkin) | `extension.js` | ~7992-8012 (`STATE_SKIN`) |
 | `listSkins` msg case | `extension.js` | ~8509 |
@@ -173,11 +192,13 @@ Status: ❌ not started. **5 ❌ tasks.** All new `case` blocks go in the big sw
   - `applySkin` receive handler: comment updated to LEGACY-only; logic unchanged.
   - Live-preview `<select>` change handler (~3822): UNCHANGED — still previews via `applySkinColors(dataset.colors)`; `listSkins` still ships `colors` (now from `:root`) so preview works.
 
-**Contract for next agents (Phase 1/3/4):**
-- **`:root` var names the loader reads:** `--cbe-skin-name` (double-quoted string), `--cbe-skin-accent` (hex), plus the 11 palette vars `--cbe-modal-bg/-fg/-border/-title-bg-1/-title-bg-2/-title-fg/-foot-bg/-accent`, `--cbe-highlight-color`, `--cbe-code-bar-bg/-fg`. All in the FIRST `:root` block of `index.html`.
-- **Loader fn signatures:** `parseSkinHtmlMeta(indexHtmlPath, logicalId) -> {id,name,accent,stylesheet:'',panelHtml:'index.html',colors}`; `resolveSkin(context, requestedName) -> {name,uri,colors,format,root,panelHtml,panelHtmlPath}` (new-format: `uri:null`, `panelHtmlPath=<root>/index.html`); `_firstRootBody(text)` + `_readRootVar(rootBody, cssVar)` are reusable for any future `:root` reads.
-- **`.bak` files are already safe** — `_scanSkinDirs` only treats `<id>.skin/` DIRS containing `index.html` as skins, and `getPanelHtml` only reads `index.html`. Phase 1's `.bak` snapshots in the same dir are inert. (Phase 1 still owns adding the snapshot helper + comment.)
-- **Save/Save-as-New handlers (Phase 4)** must write the FULL `index.html` (it IS the skin). To change a skin's picker label/accent/palette programmatically, edit the `--cbe-skin-*` / `--cbe-modal-*` vars in its `:root` — `tools/colors_xml_to_html.js` shows the exact regex approach.
+**Contract for next agents (Phase 1/3/4) — UPDATED for flat layout 2026-05-31:**
+- **`:root` var names the loader reads:** `--cbe-skin-name` (double-quoted string), `--cbe-skin-accent` (hex), **`--cbe-skin-author` (double-quoted)**, **`--cbe-skin-description` (double-quoted)**, plus the 11 palette vars `--cbe-modal-bg/-fg/-border/-title-bg-1/-title-bg-2/-title-fg/-foot-bg/-accent`, `--cbe-highlight-color`, `--cbe-code-bar-bg/-fg`. All in the FIRST `:root` block of `skins/<id>.html`.
+- **Loader fn signatures (flat):** `parseSkinHtmlMeta(htmlPath, logicalId) -> {id,name,accent,author,description,stylesheet:'',panelHtml:'<id>.html',colors}` (name falls back to title-cased slug); `resolveSkin(context, requestedName) -> {name,uri:null,colors,format:'new',root:'<id>.html',assetsDir:'skins/<id>-assets/'|'',panelHtml:'<id>.html',panelHtmlPath:'skins/<id>.html'}`; `_firstRootBody(text)` + `_readRootVar(rootBody, cssVar)` reusable. `_scanSkinDirs(context) -> { <id>: {htmlPath, assetsDir} }`.
+- **`{{SKIN_BASE}}`** resolves to `resolvedSkin.assetsDir` (= `skins/<id>-assets/`) for skins that have assets, else the extension's shared `assets/` dir. `{{ASSETS_BASE}}` is the shared icon dir for ALL skins (send.png, close-x.svg, label-square.png, etc.).
+- **`.bak` files are safe** — `_scanSkinDirs` only enumerates `skins/*.html` (excluding `*.preview.png`/`*.bak`), and `getPanelHtml` only reads the resolved `<id>.html`. Phase 1's `.bak` snapshots (whatever naming chosen) are inert as long as they don't end in a bare `.html`. (Phase 1 still owns the snapshot helper.)
+- **Save/Save-as-New handlers (Phase 4)** must write the FULL `skins/<id>.html` (it IS the skin); Save-as-New also copies the optional `<id>-assets/` dir + `<id>.preview.png`. To change a skin's picker label/accent/author/desc/palette programmatically, edit the `--cbe-skin-*` / `--cbe-modal-*` vars in its `:root` — `tools/inject_skin_authordesc.js` + `tools/colors_xml_to_html.js` show the exact `:root`-rewrite regex approach.
+- **`skins-original-backup/` (Phase 1)** should mirror the flat layout: `skins-original-backup/<id>.html` + `<id>.preview.png` + optional `<id>-assets/` (NOT `.skin/` subdirs).
 
 **⚠️ WARNING — do NOT run `tools/reinline_skins.py` against these skins.** It reads `styles.css` as source; those are now DELETED so it no-ops safely. But more importantly: during this work the styles.css files were found to be STALE (older than the inline `<style data-cbe-skin>` blocks, which carried 2026-05-31 hand-edits e.g. aqua-dock's full-width prompt + white-on-white text fix). The **inline `<style data-cbe-skin>` block in each index.html is the source of truth.** Never regenerate it from a styles.css.
 

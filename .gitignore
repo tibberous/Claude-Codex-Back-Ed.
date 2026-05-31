@@ -13,3 +13,18 @@ panel/index.png
 prompt_history.txt
 prompts.txt
 chats/
+
+# Runtime data — browser-bridge Chromium profiles + bridge runtime state.
+# Hold login cookies/sessions/tokens; NEVER track (hard rule). data/ is fully
+# untracked; bridges/ has some legacy-tracked source files (see note) but new
+# runtime/profile files under it must never be added.
+data/
+bridges/
+emails/
+logs/
+*.db
+*.sqlite
+*.sqlite3
+*.lastgood.db
+*.real-backup
+*.bak
