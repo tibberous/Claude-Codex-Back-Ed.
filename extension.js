@@ -3944,6 +3944,219 @@ function handleSttHostStopElevenLabs(panel, context, msg) {
     try { if (entry.session) entry.session.close(); } catch (_) {}
 }
 
+/* ── Deepgram Nova-3 streaming STT (BYO key, real-time) ────────────────────
+   Mirrors the ElevenLabs streaming path: host-side ffmpeg dshow capture
+   (stt-host-stream-el.js) streams raw linear16 16kHz PCM straight into a
+   Deepgram streaming WebSocket; partial transcripts post back to the panel as
+   sttDeltaEl events (final as sttResultEl) — the SAME generic streaming
+   delta/result protocol el/wcpp/fw use. BYO key from config.ini [deepgram]
+   api_key (distinct from the Anthropic-proxy 'anthropic' STT). This replaces
+   the old batch REST path (handleSttRequest 'deepgram'), which stays as the
+   silent fallback when the WS can't open.
+
+   Deepgram native streaming protocol (verified at developers.deepgram.com):
+     wss://api.deepgram.com/v1/listen?model=nova-3&encoding=linear16&...
+     Auth header: Authorization: Token <key>  (NOT Bearer)
+     server→client JSON: { type:'Results', is_final, speech_final,
+       channel:{ alternatives:[{ transcript }] } } — is_final=false is an
+       interim for the current segment; is_final=true finalizes it (append).
+     client→server control: {"type":"KeepAlive"} (every 8s; the server drops
+       the socket after ~10s with no audio) and {"type":"CloseStream"} to
+       flush + finish. Audio is raw linear16 PCM binary frames. */
+const _activeDeepgramStreams = new Map();   /* reqId -> { session, capture } */
+const DEEPGRAM_STT_WS_URL = 'wss://api.deepgram.com/v1/listen';
+const DEEPGRAM_STT_SAMPLE_RATE = 16000;
+const DEEPGRAM_STT_KEEPALIVE_MS = 8000;
+
+/* Open ONE live Deepgram streaming STT session. Same callback + return shape
+   as createAnthropicSttSession / createElevenLabsSttSession so the host
+   streaming handler composes identically: sendPcm(buf), close(). */
+function createDeepgramSttSession({ key, dictionary, language, onPartial, onFinal, onError } = {}) {
+    if (!key) throw new Error('no [deepgram] api_key in config.ini');
+    const WebSocket = require('ws');
+
+    const params = new URLSearchParams({
+        model: 'nova-3',
+        encoding: 'linear16',
+        sample_rate: String(DEEPGRAM_STT_SAMPLE_RATE),
+        channels: '1',
+        smart_format: 'true',
+        punctuate: 'true',
+        interim_results: 'true',
+        endpointing: '300',
+        utterance_end_ms: '1000',
+    });
+    const lang = (typeof language === 'string' && language.trim())
+        ? language.replace(/[^A-Za-z0-9-]/g, '').slice(0, 16) : '';
+    if (lang) params.set('language', lang);
+    /* Custom dictionary → Nova-3 keyterm prompting (singular param, repeated;
+       cap at 100 per Deepgram's limit). Same source the batch REST path uses. */
+    for (const kt of _splitDictionaryTerms(dictionary).slice(0, 100)) {
+        if (kt) params.append('keyterm', kt);
+    }
+
+    const ws = new WebSocket(`${DEEPGRAM_STT_WS_URL}?${params.toString()}`,
+        { headers: { Authorization: `Token ${key}` } });
+
+    let keepalive = null;
+    let latest = '';            /* current in-progress interim segment */
+    let finalText = '';         /* concatenated is_final segments */
+    let settled = false;
+    let closeRequested = false;
+    const pending = [];         /* PCM chunks queued before WS open */
+
+    const cleanup = () => { if (keepalive) { clearInterval(keepalive); keepalive = null; } };
+    const fullText = () => [finalText, latest].filter(Boolean).join(' ').trim();
+    const fail = (err) => {
+        if (settled) return;
+        settled = true; cleanup();
+        try { ws.close(); } catch (_) {}
+        if (typeof onError === 'function') { try { onError(err); } catch (_) {} }
+    };
+    const succeed = () => {
+        if (settled) return;
+        settled = true; cleanup();
+        if (typeof onFinal === 'function') { try { onFinal(fullText()); } catch (_) {} }
+    };
+
+    ws.on('open', () => {
+        keepalive = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'KeepAlive' }));
+        }, DEEPGRAM_STT_KEEPALIVE_MS);
+        while (pending.length) { try { ws.send(pending.shift()); } catch (_) {} }
+        if (closeRequested) { try { ws.send(JSON.stringify({ type: 'CloseStream' })); } catch (_) {} }
+    });
+
+    ws.on('message', (raw) => {
+        let m; try { m = JSON.parse(raw.toString()); } catch (_) { return; }
+        if (m.type === 'Results') {
+            const alt = m.channel && m.channel.alternatives && m.channel.alternatives[0];
+            const txt = (alt && alt.transcript) ? alt.transcript : '';
+            if (!txt) return;
+            if (m.is_final) { finalText = finalText ? (finalText + ' ' + txt) : txt; latest = ''; }
+            else { latest = txt; }
+            if (typeof onPartial === 'function') { try { onPartial(fullText()); } catch (_) {} }
+        } else if (m.type === 'Error' || m.type === 'error') {
+            fail(new Error('Deepgram STT: ' + (m.description || m.message || 'stream error')));
+        }
+        /* 'UtteranceEnd' / 'Metadata' / 'SpeechStarted' need no handling —
+           finalText already accumulates on each is_final Results. */
+    });
+
+    ws.on('error', (e) => {
+        const mm = /Unexpected server response: (\d+)/.exec(e.message || '');
+        const code = mm ? Number(mm[1]) : 0;
+        if (code === 401 || code === 403) fail(new Error('Deepgram STT: not authorized — check [deepgram] api_key'));
+        else fail(new Error('Deepgram STT WS error: ' + (e.message || e)));
+    });
+
+    ws.on('close', (code, reason) => {
+        if (code === 4001 || code === 4003 || /auth/i.test(String(reason || ''))) {
+            fail(new Error('Deepgram STT: authorization rejected — check [deepgram] api_key'));
+            return;
+        }
+        succeed();   /* clean close — emit whatever we collected */
+    });
+
+    return {
+        sendPcm(buf) {
+            if (settled || closeRequested || !buf || !buf.length) return;
+            if (ws.readyState === WebSocket.OPEN) { try { ws.send(buf); } catch (_) {} }
+            else pending.push(buf);
+        },
+        close() {
+            if (settled || closeRequested) return;
+            closeRequested = true;
+            if (ws.readyState === WebSocket.OPEN) { try { ws.send(JSON.stringify({ type: 'CloseStream' })); } catch (_) {} }
+        },
+    };
+}
+
+/* Begin Deepgram streaming: host ffmpeg PCM → Deepgram WS → sttDeltaEl/
+   sttResultEl. Mirror of handleSttHostStartElevenLabs; falls back to the batch
+   REST path (handleHostSttStart → handleSttRequest 'deepgram') on any WS /
+   capture failure so the user's click isn't wasted. */
+async function handleSttHostStartDeepgram(panel, context, msg) {
+    const reqId = String((msg && msg.reqId) || ('dgstream-' + Date.now()));
+    if (_activeDeepgramStreams.has(reqId)) return;
+    if (process.platform !== 'win32') {
+        try { panel.webview.postMessage({ type: 'sttHostResult', reqId, ok: false, error: 'host mic capture is Windows-only on this build — pick WebSpeech in Settings → Voice' }); } catch (_) {}
+        return;
+    }
+    const key = _getDeepgramKey(context);
+    if (!key) {
+        try { panel.webview.postMessage({ type: 'sttResultEl', reqId, ok: false, error: 'no [deepgram] api_key in config.ini', fallback: true }); } catch (_) {}
+        return;
+    }
+
+    let session = null;
+    let capture = null;
+    let fellBack = false;
+    let started  = false;
+    const dictionary = (msg && typeof msg.dictionary === 'string') ? msg.dictionary : '';
+    const language   = (msg && typeof msg.language === 'string') ? msg.language : '';
+    const fallbackToBatch = async (whyErr) => {
+        if (fellBack) return; fellBack = true;
+        trace('Deepgram streaming failed (' + ((whyErr && whyErr.message) || whyErr) + ') — falling back to batch path');
+        try { if (session) session.close(); } catch (_) {}
+        try { if (capture && capture.stop) capture.stop(); } catch (_) {}
+        _activeDeepgramStreams.delete(reqId);
+        if (started) {
+            try { panel.webview.postMessage({ type: 'sttResultEl', reqId, ok: false, error: (whyErr && whyErr.message) || String(whyErr), fallback: true }); } catch (_) {}
+            return;
+        }
+        try { await handleHostSttStart(panel, context, { ...msg, reqId }); } catch (_) {}
+    };
+
+    try {
+        session = createDeepgramSttSession({
+            key, dictionary, language,
+            onPartial: (text) => {
+                try { panel.webview.postMessage({ type: 'sttDeltaEl', reqId, text }); } catch (_) {}
+            },
+            onFinal: (text) => {
+                _activeDeepgramStreams.delete(reqId);
+                try { panel.webview.postMessage({ type: 'sttResultEl', reqId, ok: true, text }); } catch (_) {}
+                try { if (capture && capture.stop) capture.stop(); } catch (_) {}
+            },
+            onError: (err) => { fallbackToBatch(err); },
+        });
+    } catch (e) {
+        try { panel.webview.postMessage({ type: 'sttResultEl', reqId, ok: false, error: (e && e.message) || String(e), fallback: true }); } catch (_) {}
+        return;
+    }
+
+    try {
+        const stream = require(path.join(context.extensionPath || __dirname, 'stt-host-stream-el.js'));
+        capture = await stream.startStream({
+            onPcm: (buf) => { try { if (session) session.sendPcm(buf); } catch (_) {} },
+            onStarted: ({ device }) => {
+                started = true;
+                trace('Deepgram streaming recording on device: ' + device);
+                try { panel.webview.postMessage({ type: 'sttHostStarted', reqId, device }); } catch (_) {}
+            },
+            onError: (err) => { fallbackToBatch(err); },
+        });
+        _activeDeepgramStreams.set(reqId, { session, capture });
+    } catch (e) {
+        traceErr('handleSttHostStartDeepgram ffmpeg', e);
+        try { if (session) session.close(); } catch (_) {}
+        try { panel.webview.postMessage({ type: 'sttHostResult', reqId, ok: false, error: (e && e.message) || String(e) }); } catch (_) {}
+    }
+}
+
+/* Mic-up for Deepgram streaming: stop ffmpeg first, then CloseStream → server
+   flushes its final transcript → sttResultEl. */
+function handleSttHostStopDeepgram(panel, context, msg) {
+    const reqId = String((msg && msg.reqId) || '');
+    const entry = reqId
+        ? _activeDeepgramStreams.get(reqId)
+        : (_activeDeepgramStreams.size ? _activeDeepgramStreams.values().next().value : null);
+    if (!entry) return;
+    try { if (entry.capture && entry.capture.stop) entry.capture.stop(); } catch (_) {}
+    try { if (entry.session) entry.session.close(); } catch (_) {}
+}
+
 /* ── Realtime local STT providers ─────────────────────────────────────────
    Two realtime providers (whisper-cpp-stream + faster-whisper-stream) ride
    the SAME ffmpeg dshow → subprocess → sttDeltaEl/sttResultEl protocol the
@@ -4873,6 +5086,20 @@ async function _ensurePrerequisites(context) {
     const gitProbe = await run('git', ['--version']);
     if (!gitProbe.ok) missing.push({
         what: 'Git', winget: 'Git.Git', brew: 'git', aptHint: 'sudo apt install git',
+    });
+
+    // ── ffmpeg (REQUIRED for all voice / speech-to-text) ───────────────
+    // Every STT provider except WebSpeech (which the VSCode webview sandbox
+    // blocks) captures the mic via host-side ffmpeg dshow, so a missing
+    // ffmpeg = no voice at all. Probe the SAME executable resolveFfmpeg()
+    // picks (Chocolatey lib path → PATH) so this check matches what STT
+    // actually runs, not just bare-PATH.
+    let _ffExe = 'ffmpeg';
+    try { _ffExe = require(path.join(context.extensionPath, 'stt-host-capture.js')).resolveFfmpeg(); } catch (_) {}
+    const ffProbe = await run(_ffExe, ['-version']);
+    if (!ffProbe.ok) missing.push({
+        what: 'ffmpeg (required for voice / speech-to-text)',
+        winget: 'Gyan.FFmpeg', brew: 'ffmpeg', aptHint: 'sudo apt install ffmpeg',
     });
 
     // ── PowerShell (Windows only — verification only, no install path) ─
@@ -8992,6 +9219,15 @@ function bindPanel(context, panel) {
                        + sends end_of_stream to the WS; final transcript posts
                        as sttResultEl. */
                     handleSttHostStopElevenLabs(panel, context, msg);
+                    break;
+                case 'sttHostStartDg':
+                    /* Deepgram Nova-3 streaming (BYO key). Host ffmpeg → Deepgram
+                       WS → sttDeltaEl partials / sttResultEl final. Falls back to
+                       the batch REST path on WS / auth failure. */
+                    handleSttHostStartDeepgram(panel, context, msg);
+                    break;
+                case 'sttHostStopDg':
+                    handleSttHostStopDeepgram(panel, context, msg);
                     break;
                 case 'sttHostStartWcpp':
                     /* Realtime local: whisper.cpp `stream` example binary

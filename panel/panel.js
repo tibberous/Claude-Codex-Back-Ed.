@@ -947,6 +947,16 @@ if (window.__cbeSttLanguage   === undefined) window.__cbeSttLanguage   = '';
       }
       return;
     }
+    if (mode === 'hostrec-dg') {
+      /* Deepgram streaming. Host stops ffmpeg + sends CloseStream to the WS;
+         the final transcript flushes as sttResultEl. */
+      if (api) {
+        try {
+          api.postMessage({ type: 'sttHostStopDg', reqId: pendingSttReqId, provider: 'deepgram' });
+        } catch (_) {}
+      }
+      return;
+    }
     listening = false;
     mode = 'idle';
     setListeningUI(false);
@@ -1482,6 +1492,14 @@ if (window.__cbeSttLanguage   === undefined) window.__cbeSttLanguage   = '';
       startFasterWhisperStreaming();
       return;
     }
+    /* Deepgram Nova-3 streaming (BYO key, 2026-05-31) — real-time host ffmpeg
+       → Deepgram WS → sttDeltaEl partials. Same streaming protocol as
+       ElevenLabs; on WS / auth error the host silently falls back to the
+       batch REST path (sttRequestResult). */
+    if (provider === 'deepgram') {
+      startDeepgramStreaming();
+      return;
+    }
     /* anthropic / openai ALL go through the HOST ffmpeg capture path.
        openai's webview-side getUserMedia path was sandbox-blocked in VSCode
        (always NotAllowedError → false "mic denied" banner) even though the
@@ -1587,6 +1605,39 @@ if (window.__cbeSttLanguage   === undefined) window.__cbeSttLanguage   = '';
       cancelLiveDictation();
       mode = 'idle'; listening = false; setListeningUI(false);
       addMsg('Voice (faster-whisper-stream): cannot reach host to start streaming.', 'error');
+    }
+  }
+
+  /* Deepgram Nova-3 streaming (BYO key, 2026-05-31). Host opens ffmpeg →
+     Deepgram WS → partial transcripts stream back as sttDeltaEl while the user
+     speaks (~sub-second), final as sttResultEl. Same generic streaming
+     protocol as ElevenLabs/whisper-stream. On WS error / 401 the host silently
+     falls through to the batch REST path (sttRequestResult). */
+  function startDeepgramStreaming() {
+    if (!api) {
+      addMsg('Voice: extension API unavailable — cannot record.', 'error');
+      return;
+    }
+    recProvider = 'deepgram';
+    pendingSttReqId = 'dgstream-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    mode = 'hostrec-dg';
+    listening = true;
+    setListeningUI(true);
+    playSfx('connect');
+    beginLiveDictation();
+    try {
+      api.postMessage({
+        type: 'sttHostStartDg',
+        reqId: pendingSttReqId,
+        provider: 'deepgram',
+        dictionary: String(window.__cbeSttDictionary || ''),
+        language:   String(window.__cbeSttLanguage || ''),
+      });
+    } catch (e) {
+      console.debug('[cbe.stt] sttHostStartDg postMessage threw', e && e.message);
+      cancelLiveDictation();
+      mode = 'idle'; listening = false; setListeningUI(false);
+      addMsg('Voice (deepgram): cannot reach host to start streaming.', 'error');
     }
   }
 
@@ -3035,7 +3086,7 @@ function openSettings(payload) {
   styleEl.textContent =
       '#cbe-settings .cbe-catnav{display:flex;flex-direction:column;gap:2px;'
     + 'width:150px;min-width:150px;flex:0 0 150px;align-self:stretch;'
-    + 'overflow-y:auto;padding-right:8px;border-right:1px solid var(--cbe-modal-border,#444);box-sizing:border-box;}'
+    + 'overflow-x:hidden;overflow-y:auto;padding-right:8px;border-right:1px solid var(--cbe-modal-border,#444);box-sizing:border-box;}'
     + '#cbe-settings .cbe-catnav-item{display:block;width:100%;text-align:left;'
     + 'padding:8px 10px;background:transparent;color:var(--cbe-modal-fg,#eee);'
     + 'border:1px solid transparent;border-radius:5px;cursor:pointer;font:inherit;'
@@ -3043,7 +3094,7 @@ function openSettings(payload) {
     + '#cbe-settings .cbe-catnav-item:hover{background:rgba(255,255,255,.06);}'
     + '#cbe-settings .cbe-catnav-item.is-active{background:var(--cbe-modal-accent,#2a5d8f);'
     + 'color:#fff;border-color:var(--cbe-modal-accent,#2a5d8f);font-weight:600;}'
-    + '#cbe-settings .cbe-catpane-wrap{flex:1 1 auto;min-width:0;overflow-y:auto;'
+    + '#cbe-settings .cbe-catpane-wrap{flex:1 1 auto;min-width:0;overflow-x:hidden;overflow-y:auto;'
     + 'padding-left:16px;box-sizing:border-box;}'
     + '#cbe-settings .cbe-cat-pane{display:flex;flex-direction:column;gap:10px;min-width:0;}'
     + '#cbe-settings .cbe-cat-pane[hidden]{display:none;}'

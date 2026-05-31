@@ -13,14 +13,3 @@ panel/index.png
 prompt_history.txt
 prompts.txt
 chats/
-
-# Runtime data — browser-bridge Chromium profiles, bridge DBs, caches.
-# These hold login cookies/sessions + tokens; NEVER track (hard rule).
-data/
-*.db
-*.sqlite
-*.sqlite3
-*.sqlite3.real-backup
-*.lastgood.db
-emails/
-logs/
