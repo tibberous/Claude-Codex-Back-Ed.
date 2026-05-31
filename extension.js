@@ -8009,6 +8009,26 @@ function bindPanel(context, panel) {
                     }
                     break;
                 }
+                case 'revealProjectFolder': {
+                    /* Clicking the project pill when a folder IS set opens it in
+                       the OS file explorer (user 2026-05-31). */
+                    const cur = context.workspaceState.get('codexBlackEd.projectFolder', '');
+                    if (cur && fs.existsSync(cur)) {
+                        try { await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(cur)); }
+                        catch (_) { try { await vscode.env.openExternal(vscode.Uri.file(cur)); } catch (__) {} }
+                    } else {
+                        /* Stale/missing folder — fall back to the picker. */
+                        try { panel.webview.postMessage({ type: 'projectFolder', path: '' }); } catch (_) {}
+                    }
+                    break;
+                }
+                case 'clearProjectFolder': {
+                    /* The ✕ on the project pill unsets the folder → back to
+                       "no project folder" (user 2026-05-31). */
+                    await context.workspaceState.update('codexBlackEd.projectFolder', '');
+                    panel.webview.postMessage({ type: 'projectFolder', path: '' });
+                    break;
+                }
                 case 'sendText':
                     await handleSendText(context, panel, msg.text || '', Array.isArray(msg.images) ? msg.images : null);
                     break;

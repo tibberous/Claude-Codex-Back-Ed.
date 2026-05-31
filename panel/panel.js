@@ -6946,6 +6946,51 @@ function setProjectFolder(p) {
 }
 window.addEventListener('resize', fitProjectPath);
 
+/* Project-pill interactivity (user 2026-05-31):
+   - click the pill with NO folder set → open the picker (same as the folder btn)
+   - click the pill WITH a folder set → reveal it in the OS file explorer
+   - a small ✕ at the row's top-right clears the folder → "no project folder"
+   The ✕ is a sibling positioned over the pill's corner, NOT a child of
+   #project-path (whose text is set via textContent, which would wipe a child).
+   Uses an inline <svg> X — a glyph would tofu in the webview. */
+(function wireProjectPill() {
+  if (!__cbeProjectEl || typeof api === 'undefined' || !api) return;
+  __cbeProjectEl.style.cursor = 'pointer';
+  __cbeProjectEl.addEventListener('click', () => {
+    try { api.postMessage({ type: __cbeProjectFolder ? 'revealProjectFolder' : 'pickProjectFolder' }); } catch (_) {}
+  });
+  const row = (__cbeProjectEl.closest && __cbeProjectEl.closest('.toolbar-meta')) || __cbeProjectEl.parentElement;
+  if (!row) return;
+  if (getComputedStyle(row).position === 'static') row.style.position = 'relative';
+  const x = document.createElement('button');
+  x.type = 'button';
+  x.id = '__cbe-project-clear';
+  x.title = 'Clear project folder';
+  x.setAttribute('aria-label', 'Clear project folder');
+  x.innerHTML = '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" style="display:block"><path d="M6 6 L18 18 M18 6 L6 18"/></svg>';
+  x.style.cssText = 'position:absolute;top:-7px;right:-7px;width:16px;height:16px;'
+    + 'display:none;align-items:center;justify-content:center;padding:0;border-radius:50%;'
+    + 'border:1px solid rgba(255,255,255,.55);background:#c0392b;cursor:pointer;z-index:6;';
+  x.addEventListener('click', (e) => {
+    e.stopPropagation();
+    try { api.postMessage({ type: 'clearProjectFolder' }); } catch (_) {}
+  });
+  row.appendChild(x);
+  window.__cbeProjectClearBtn = x;
+})();
+
+/* Show/hide the clear-✕ whenever the project folder changes. Wraps the
+   original setProjectFolder so both the display update + the ✕ toggle stay
+   in sync (and the pill's empty-state cursor still makes sense). */
+(function () {
+  const _origSetProjectFolder = setProjectFolder;
+  setProjectFolder = function (p) {
+    _origSetProjectFolder(p);
+    const x = window.__cbeProjectClearBtn;
+    if (x) x.style.display = (p && String(p).trim()) ? 'inline-flex' : 'none';
+  };
+})();
+
 /* ────────────────────────────────────────────────────────────────────────
    Data-tooltip overlay (GPT's prompt-bar design uses #tooltip + data-tooltip
    attrs instead of native title=). One delegated mouseover handler positions
