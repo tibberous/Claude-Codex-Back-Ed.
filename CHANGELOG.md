@@ -8,9 +8,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **Paste & drag-drop image attachments** in the composer. Pasting a screenshot or dragging an image file onto the prompt box now queues an `image.png` attachment chip and ships the image natively to vision-capable providers via the existing out-of-band `images[]` channel. Non-image content falls through to default behavior.
+- **Daily live model-list fetch per provider.** On first use each day the Settings model dropdown is refreshed from each provider's live models endpoint (cached once/day, silent-fail back to built-in defaults on error, no dialog). Fixes the dropdown showing a stale newest model (e.g. it listed `claude-opus-4-7` after `claude-opus-4-8` shipped).
 
 ### Fixed
 
+- **`/switch` (Switch Account) opened nothing** — a duplicate, earlier `claudeCodeSwitchAccount` handler that only called `claude-vscode.logout` shadowed the intended one, so the in-app auth picker never showed. Removed the dead logout-only handler; `/switch` / `/switch account` now open CBE's own 3-option auth picker (Claude.ai subscription / Anthropic Console / Bedrock·Foundry·Vertex) as documented.
 - **Modal close buttons rendered as solid "magic boxes"** in every skin. The shared `.cbe-x` close button used `mask: url("icons/close-x.svg")`, but that file never existed and the relative path doesn't resolve in a webview — so the mask 404'd and `background-color: currentColor` filled the whole button. Created `assets/close-x.svg` and repointed every mask (`panel/index.html` + 15 skins) to `{{ASSETS_BASE}}/close-x.svg`.
 - **Webview "tofu" icon glyphs converted to SVG.** Inline modal close `×` (11 sites), the About + Tamagotchi close buttons, the attachment/download paperclip, tool-confirm Allow/Deny `✓`/`✗`, Saved/Installed `✓`, image-result, and nag-card icons now render as SVG (mask-reuse for close buttons, inline `<svg>` elsewhere) instead of font-dependent Unicode.
 - **aqua-dock: prompt text was white-on-white** (invisible until selected) — `#promptBox` forced `--aq-text` (#f1f8ff) over the light glass input bar. Now dark slate (`#243240`) with a readable placeholder.
@@ -20,6 +22,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **aqua-dock: label + project-folder pills moved out of the prompt bar** back into the dock panel chrome (centered row atop the toolbar). The prompt bar's inline cluster keeps only Stop.
 - **aqua-dock: prompt input now spans the full panel width** (was capped at `max-width: 720px` and centered).
+- **xfce (Classic GTK) skin — prompt-row polish.** Reversed the Stop/Send order (Send left, Stop pinned to the right edge); SEND is now text-only (killed the leftover `.send-button` box-shadow box bleeding through the `#sendBtn` lock); equal ~14px margins on all four sides of the white prompt box + a matching gap under the toolbar; all toolbar glyphs forced solid black (the trailing terminal/git/branch icons were light-grey-on-light-grey and nearly invisible); neutralized the orange-theme inset bevel that bled onto the grey shell as a gold/maroon hairline.
 
 ---
 

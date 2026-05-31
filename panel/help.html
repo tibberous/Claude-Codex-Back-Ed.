@@ -324,7 +324,7 @@
 <details open><summary><b>Settings modal</b> — provider / model / skin / language / SFX</summary>
 <ul>
   <li><b>Provider</b>: full dropdown of every direct-API + bridge provider. Picking one switches the active session AND auto-starts the matching bridge exe (if applicable).</li>
-  <li><b>Model</b>: per-provider list of allowed models (e.g. <code>claude-opus-4-7</code>, <code>claude-sonnet-4-6</code>, <code>claude-haiku-4-5</code> for Anthropic).</li>
+  <li><b>Model</b>: per-provider list of models (e.g. <code>claude-opus-4-8</code>, <code>claude-sonnet-4-6</code>, <code>claude-haiku-4-5</code> for Anthropic). The list is refreshed from each provider's live models endpoint once per day (cached; silent-fail to the built-in defaults if the fetch errors), so newly released models show up without an extension update.</li>
   <li><b>Skin</b>: visual theme. See <a href="#skins">Skins</a>.</li>
   <li><b>Language</b>: 39 locales available. Switching re-pulls the strings map and re-translates every tooltip / label / help button live.</li>
   <li><b>SFX enabled</b>: toggle UI sound effects (clicks, ticks, modal open/close, etc.).</li>
