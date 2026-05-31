@@ -268,8 +268,8 @@
 <dt>Extensions <span class="pill">extensionsBtn</span></dt>
 <dd>Opens the in-panel extensions browser. Lists what's installed under <code>extensions/</code> (each with a <code>manifest.xml</code> + an <code>entry</code> HTML), lets you pin extensions to the toolbar, install new ones from the public catalog, or remove them.</dd>
 
-<dt>Project folder <span class="pill">projectFolderBtn</span></dt>
-<dd>Picks the working directory used by Attach File, Terminal, Git, and any tools that need a project root. The current folder is shown next to the provider pill.</dd>
+<dt>Project folder <span class="pill">project pill</span></dt>
+<dd>The project-folder <b>pill</b> next to the provider pill is the project-folder control. <b>Click it</b> to pick a folder when none is set, or to reveal the current folder in the file explorer when one is. The small <b>✕</b> on the pill clears it back to "no project folder". The chosen directory is used by Attach File, Terminal, Git, and any tools that need a project root. <em>(The dock's separate Project-Folder button was removed as redundant — the pill does everything it did.)</em></dd>
 
 <dt>Browser <span class="pill">browserBtn</span></dt>
 <dd>Opens a side-by-side QtWebEngine browser pane for quick lookups without leaving the panel.</dd>
@@ -444,7 +444,7 @@
 <tr><td><code>/history</code></td><td>Browse chat history</td></tr>
 <tr><td><code>/font</code></td><td>Toggle big font</td></tr>
 <tr><td><code>/attach</code></td><td>Attach a file to next prompt</td></tr>
-<tr><td><code>/folder</code></td><td>Pick project folder</td></tr>
+<tr><td><code>/folder</code></td><td>Pick the project folder (same as clicking the project pill)</td></tr>
 <tr><td><code>/compact</code></td><td>Compact the conversation (summarize + prune)</td></tr>
 <tr><td><code>/git</code></td><td>Open Source Control</td></tr>
 <tr><td><code>/github</code></td><td>List GitHub repos</td></tr>
@@ -498,6 +498,15 @@
   <li><b>terminal</b> / <b>arch</b> / <b>kde</b> / <b>gnome</b> / <b>xfce</b> / <b>ubuntu</b> / <b>redhat</b> — Linux desktop themes</li>
 </ul>
 <p>Modal colors come from <code>&lt;colors&gt;</code> entries in each skin's manifest and get pushed onto <code>:root</code> as <code>--cbe-modal-*</code> variables so every modal (including this help) renders in-theme.</p>
+
+<h4>Edit Skin</h4>
+<p>Pick a skin in <b>Settings → Appearance</b>, then click <b>Edit Skin</b> to open the skin editor in a large modal. It shows the skin's raw single-file source in a near-full-height monospace editor.</p>
+<ul>
+  <li><b>Save</b> — writes your changes back to the skin (a timestamped backup is kept) and remounts the skin live.</li>
+  <li><b>Save as New</b> — prompts for a new name (blank names and illegal filename characters like <code>/ \ : * ? " &lt; &gt; |</code> are rejected) and creates a copy, then selects it.</li>
+  <li><b>Restore Original</b> — discards your edits and restores the shipped original (after a confirm).</li>
+  <li><b>Close</b> / <b>Esc</b> / backdrop / <b>✕</b> — closes the editor. If you have unsaved changes you'll be asked whether to <b>Save</b>, <b>Save as New</b>, <b>Discard changes</b>, or <b>Cancel</b> (stay in the editor).</li>
+</ul>
 </section>
 
 <section id="extensions">

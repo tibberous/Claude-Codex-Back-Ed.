@@ -2039,9 +2039,9 @@ body {
           <button id="emailBtn" class="tool-button" type="button" data-tooltip="Email — open inbox panel" data-i18n-tip="tooltip.email" aria-label="Email">
             <img src="{{ASSETS_BASE}}/email.svg" alt="" />
           </button>
-          <button id="projectFolderBtn" class="tool-button" type="button" data-tooltip="Project folder" data-i18n-tip="tooltip.project_folder" aria-label="Project folder">
-            <img src="{{ASSETS_BASE}}/project_folder.svg" alt="" />
-          </button>
+          <!-- Project-folder dock button removed (redundant): the project-folder
+               pill next to the provider pill now picks / reveals / clears the
+               folder. See panel.js "Project folder pill". -->
           <!-- Browser — uses the lightweight currentColor browser.svg (the old
                browser.png was a 122 KB raster that rendered blank, leaving the
                Browser button invisible — user 2026-05-22). SVG matches every

@@ -297,3 +297,37 @@ All four `case` blocks are in the big message switch in `extension.js`, immediat
 - ⚠️ No standalone `{type:'snapshotSkin', id}` message case (a "backup now" affordance) — lower priority; the `snapshotSkin` helper fires automatically inside saveSkin + restoreSkinOriginal. Add a case later if Trent wants the button.
 - Stale-md5 preview pruning relies on `gen_skin_preview.py`'s own prune-on-render; the host does not separately delete old `<id>-*.png`.
 - **NOT runtime-tested in a live CBE panel** — `node --check` + standalone unit-verification of the pure helpers (`_bakTimestamp`/`slugifySkinName`/`setSkinNameInHtml`) + a real `gen_skin_preview.py --skin terminal` render (produced the exact md5-addressed PNG my JS computes) ONLY. The full UI↔host round-trip needs a live panel to confirm.
+
+---
+
+## Phase 6 — Editor MODAL + dirty-guard + name validation + project-button removal (UX AGENT, 2026-05-31, working tree only — NOT committed)
+
+**Scope:** `panel/panel.js`, `panel/help.html`, `skins/aqua-dock.html` (markup) only. `extension.js` untouched (host handlers already correct). `node --check panel/panel.js` PASSES. The 4 contract message names are still sent VERBATIM: `getSkinSource` / `saveSkin` / `saveSkinAsNew` / `restoreSkinOriginal` (replies `skinSource`/`skinSaved`/`skinSavedAsNew`/`skinRestored` handled unchanged).
+
+### TASK 1 — editor moved into a real MODAL
+- The cramped inline `#cbe-skin-editor` sub-panel inside the Appearance pane was REMOVED. The **"Edit Skin"** button stays in Appearance; clicking it now opens a dedicated large modal **`#cbe-skin-editor-modal`** (built on demand in `openSkinEditor(id)` via createElement), overlaying Settings at `z-index:2147483646`. It reuses the `cbe-box`/`cbe-hdr`/`cbe-body`/`cbe-foot` chrome classes (so it matches the active skin) but is forced big: `92vw × 88vh` (max-width 1100px) with a **flex:1 near-full-height monospace `<textarea>`** (`#cbe-skin-editor-ta`), a title showing the skin name (`#cbe-skin-editor-name`), a status line (`#cbe-skin-editor-status`), and footer buttons **Restore Original** / **Save as New** / **Close** / **Save**, plus a header **✕** (`#cbe-skin-editor-x`).
+- On open it posts `getSkinSource`; the `skinSource` reply fills the textarea AND records the loaded text as `__cbeSkinEditor.original` (the dirty baseline).
+
+### TASK 2 — dirty-guard on close
+- `skinEditorIsDirty()` = `textarea.value !== __cbeSkinEditor.original` (treated NOT dirty until source loads, so an in-flight load can't trip it).
+- All four close paths — **Close** button, **Esc**, **backdrop click**, header **✕** — route through `skinEditorAttemptClose()`. When clean → closes immediately. When dirty → shows a NEW in-DOM 4-way `cbeChoice()` dialog: **Save** (→ saveSkin then close on success), **Save as New** (→ validated name flow then close on success), **Discard changes** (close without saving), **Cancel** (stay). Close-on-success is plumbed via `__cbeSkinEditor.closeOnSaveOk`, consumed in the `skinSaved`/`skinSavedAsNew` reply handlers.
+
+### TASK 3 — "Save as New" name validation
+- Both the footer **Save as New** button and the dirty-guard's "Save as New" option call `skinEditorSaveAs()` → new `cbePromptValidated(title, placeholder, initial, validate)` dialog with LIVE inline validation (OK disabled + inline error while invalid).
+- Validator `skinNameValidationError(name)` rejects: blank/whitespace-only, control chars (`\x00-\x1f`, `\x7f`), the illegal filename chars `/ \ : * ? " < > |` (error names the offending char), and leading/trailing space or dot. Unit-verified in node against every case. On valid submit → posts `saveSkinAsNew`; on `skinSavedAsNew` ok → refreshes `listSkins`, selects `newId`, clears dirty, closes (if requested); on host error (e.g. collision) → inline status, stays open.
+
+### TASK 4 — removed redundant Project-Folder dock button
+- Removed `<button id="projectFolderBtn">` markup from `skins/aqua-dock.html` (other skins still have it, left untouched). Replaced with an explanatory comment. The CSS `#projectFolderBtn > img` rules elsewhere in the file are now inert (no element to match) and were left as-is per "markup only".
+- `panel.js` null-safety: `bind('projectFolderBtn','pickProjectFolder')` was already null-safe (bind() early-returns on missing element). The `/folder` slash-command no longer does `getElementById('projectFolderBtn').click()` (would NPE now) — it posts `{type:'pickProjectFolder'}` directly. No other live `projectFolderBtn` refs remain (the only other hit is a comment, updated). The project pill itself (lines ~7196/7214) drives pick/reveal/clear and is unchanged.
+
+### TASK 5 — help.html
+- Updated the project-folder entry (now "project pill") + the `/folder` row to describe the pill-driven UX (click to pick/reveal, ✕ to clear, dock button removed as redundant).
+- Added an **Edit Skin** subsection under Skins documenting the editor modal: Save / Save as New (with name-validation note) / Restore Original / Close, and the unsaved-changes prompt.
+
+### New helpers / element ids added (panel.js)
+- Dialogs: `cbeChoice(message, {title, buttons:[{id,label,primary}]})` (4-way), `cbePromptValidated(title, placeholder, initial, validate)` (live-validated text input, ids `#cbe-pv-input`/`#cbe-pv-err`/`#cbe-pv-ok`).
+- Editor: `openSkinEditor(id)` (builds modal `#cbe-skin-editor-modal`), `closeSkinEditor()` (hard close, no guard), `skinEditorAttemptClose()` (guarded), `skinEditorSave(opts)`, `skinEditorSaveAs(opts)`, `skinEditorRestore()`, `skinEditorIsDirty()`, `skinNameValidationError(raw)`, plus existing `skinLabelFor`/`setSkinEditorStatus`/`skinEditorEl` (now points at the modal).
+- State: `__cbeSkinEditor = { id, label, original, closeOnSaveOk }`.
+
+### NOT runtime-tested
+- Cannot run the webview from here — verified `node --check panel/panel.js` passes + the name validator was unit-tested in node (rejects blank, all illegal chars including backslash, leading/trailing space/dot; accepts normal names). No claim of visual correctness; the host handlers in extension.js (unchanged) drive the actual fs round-trips.
