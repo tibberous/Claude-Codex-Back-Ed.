@@ -488,14 +488,16 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 }
 .toolbar-meta > .project-path { margin: 0 auto; }
 
-/* Panel variant — label-pill + project-path moved out of the prompt bar into
-   the dock panel (user 2026-05-31). Compact centered row above the tools. */
+/* Panel variant — label-pill (bottom-LEFT) + project-path (bottom-RIGHT) row
+   BELOW the dock icons (user 2026-05-31). space-between pushes them to the
+   dock's edges. */
 .toolbar-meta.toolbar-meta--panel {
   width: 100%;
   flex: 0 0 auto;
-  justify-content: center;
+  justify-content: space-between;
+  align-items: center;
   gap: 10px;
-  margin: 0 0 8px 0;
+  margin: 8px 0 0 0;
 }
 .toolbar-meta--panel .label-button { width: auto; height: 30px; max-width: 240px; }
 .toolbar-meta--panel .label-button img { height: 100%; width: auto; display: block; }
@@ -1716,6 +1718,11 @@ body {
 .prompt-input-wrap {
   /* Full panel width (user 2026-05-31) — was capped at 720px + centered. */
   max-width: none;
+  /* width:auto (not the inherited 100%) so the 14px side margins SUBTRACT from
+     the width instead of adding outside it — base `.prompt-input-wrap` is
+     width:100%, which with margins = 100%+28px → right edge clipped off-panel
+     (user 2026-05-31). auto = fill container minus margins, symmetric gutters. */
+  width: auto !important;
   margin: 6px 14px 14px 14px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.07));
   border: 1px solid var(--aq-stroke);
@@ -1952,15 +1959,6 @@ body {
         <div id="attachments" class="attachments" aria-label="Queued file attachments"></div>
 
         <div class="prompt-toolbar">
-        <!-- Label + project-folder pills moved OUT of the prompt bar back into
-             the panel chrome (user 2026-05-31). Centered row atop the dock
-             toolbar; IDs preserved so panel.js wiring is unchanged. -->
-        <div class="toolbar-meta toolbar-meta--panel">
-          <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" data-i18n-tip="tooltip.settings" aria-label="Current assistant profile">
-            <img id="brandLabelImg" src="{{ASSETS_BASE}}/labels/en.svg" data-cbe-brand alt="Claude Codex — Black Edition" />
-          </button>
-          <div id="project-path" class="project-path" data-tooltip="No project folder — click the folder button to pick one" data-i18n-tip="label.no_project" aria-label="Active project folder" title=""></div>
-        </div>
         <div class="toolbar-tools">
           <button id="addBtn" class="tool-button" type="button" data-tooltip="New conversation" data-i18n-tip="tooltip.new_conversation" aria-label="New conversation">
             <img src="{{ASSETS_BASE}}/add.svg" alt="" />
@@ -2085,6 +2083,14 @@ body {
                Populated by renderPinnedExtensionButtons() in panel.js from
                config.ini's [extensions] pinned list. -->
           <span id="cbe-pinned-ext-row" class="cbe-pinned-ext-row" style="display:inline-flex;align-items:center;gap:4px;"></span>
+        </div>
+        <!-- Label (bottom-left) + project-folder (bottom-right), below the dock
+             icons (user 2026-05-31). IDs preserved so panel.js wiring is intact. -->
+        <div class="toolbar-meta toolbar-meta--panel">
+          <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" data-i18n-tip="tooltip.settings" aria-label="Current assistant profile">
+            <img id="brandLabelImg" src="{{ASSETS_BASE}}/labels/en.svg" data-cbe-brand alt="Claude Codex — Black Edition" />
+          </button>
+          <div id="project-path" class="project-path" data-tooltip="No project folder — click the folder button to pick one" data-i18n-tip="label.no_project" aria-label="Active project folder" title=""></div>
         </div>
 
         </div>
