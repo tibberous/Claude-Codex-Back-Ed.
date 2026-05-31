@@ -425,24 +425,34 @@ function pushUpdateToServer(context) {
     ];
     const filemask = '|' + excludes.join(';');
 
-    const commands = [
-        `open ${session}`,
+    /* Commands go in a SCRIPT FILE (/script=), NOT /command. With /command,
+       each command is a separate spawn argv, and Node's Windows arg-escaping
+       mangles the nested quotes around a localPath that contains a SPACE
+       ("…\Claude Codex Black") — WinSCP then truncates the path at the space
+       ("…\Claude\*.*") and aborts with exit 1 (the push silently failed for a
+       week this way). A script file is read by WinSCP directly, so quoted
+       spaced paths survive intact. CRLF line endings; one command per line. */
+    const scriptPath = path.join(logDir, `winscp_push_${stampedSlug}.script.txt`);
+    const scriptBody = [
         'option batch abort',
         'option confirm off',
+        `open ${session}`,
         `synchronize remote -mirror -filemask="${filemask}" "${localPath}" "${remotePath}"`,
         'exit',
-    ];
+        '',
+    ].join('\r\n');
+    try { fs.writeFileSync(scriptPath, scriptBody, 'utf8'); }
+    catch (e) { traceErr('UPDATE:PUSH write script', e); return; }
 
-    /* Spawn detached + stdio:'ignore' so the push runs concurrently with
-       the panel session and dies with our process if the user quits.
-       Output goes to the session + xml logs we asked WinSCP to write —
-       NOT to stdout (which is ignored). */
+    /* Output goes to the session + xml logs we asked WinSCP to write — NOT to
+       stdout (which is ignored). The spaced switch-paths (/log=, /script=) are
+       each a single argv that Node quotes as a whole; WinSCP accepts that (the
+       /log= path already worked even while the inline /command path failed). */
     const args = [
         `/log=${sessionLog}`,
         '/loglevel=1',
         `/xmllog=${xmlLog}`,
-        '/command',
-        ...commands,
+        `/script=${scriptPath}`,
     ];
     trace(`UPDATE:PUSH starting session=${session} remote=${remotePath} log=${sessionLog} xml=${xmlLog}`);
     try {
