@@ -2927,6 +2927,91 @@ function _extractZipPS(zipPath, destDir) {
     });
 }
 
+/* ── ffmpeg auto-bootstrap ─────────────────────────────────────────────────
+   ffmpeg is a hard dependency for ALL voice/STT (host-side mic capture). If it
+   isn't found via stt-host-capture.resolveFfmpeg() (Chocolatey candidates) nor
+   on PATH, download a STATIC build into globalStorageUri/ffmpeg/ and register
+   it via setFfmpegPath() — no winget, no admin, no Store; works on every
+   Windows. Mirrors the whisper.cpp lazy-download. Cross-platform URLs included
+   (Windows is the live path today; Linux/macOS ready for the dshow→alsa/
+   avfoundation work). Best-effort: callers still fall back to the specific
+   "ffmpeg not found" error if the download fails. */
+const FFMPEG_DIR_NAME = 'ffmpeg';
+const FFMPEG_STATIC_URLS = {
+    win32:  'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip',
+    linux:  'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz',
+    darwin: 'https://evermeet.cx/ffmpeg/getrelease/zip',
+};
+
+function _findFfmpegBin(dir) {
+    const exe = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+    let found = '';
+    const walk = (d) => {
+        if (found) return;
+        let entries; try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch (_) { return; }
+        for (const e of entries) {
+            if (found) return;
+            const full = path.join(d, e.name);
+            if (e.isDirectory()) walk(full);
+            else if (e.name === exe) found = full;
+        }
+    };
+    walk(dir);
+    return found;
+}
+
+let _ensureFfmpegInFlight = null;
+async function ensureFfmpeg(context) {
+    const cap = require(path.join(context.extensionPath || __dirname, 'stt-host-capture.js'));
+    /* 1. Already a real file via the Chocolatey candidates? */
+    const cur = cap.resolveFfmpeg();
+    if (cur && cur !== 'ffmpeg' && fs.existsSync(cur)) return cur;
+    /* 2. On PATH? */
+    try {
+        const r = require('child_process').spawnSync('ffmpeg', ['-version'], { windowsHide: true });
+        if (r && r.status === 0) return 'ffmpeg';
+    } catch (_) {}
+    /* 3. Previously auto-downloaded into globalStorage? */
+    const base = (context.globalStorageUri && context.globalStorageUri.fsPath) || os.tmpdir();
+    const ffDir = path.join(base, FFMPEG_DIR_NAME);
+    let bin = _findFfmpegBin(ffDir);
+    if (bin && fs.existsSync(bin)) { cap.setFfmpegPath(bin); return bin; }
+    /* 4. Download once (deduped if concurrent). */
+    if (_ensureFfmpegInFlight) return _ensureFfmpegInFlight;
+    _ensureFfmpegInFlight = (async () => {
+        const url = FFMPEG_STATIC_URLS[process.platform];
+        if (!url) throw new Error('no static ffmpeg build URL for platform ' + process.platform);
+        try { fs.mkdirSync(ffDir, { recursive: true }); } catch (_) {}
+        const isTar = url.endsWith('.tar.xz') || url.endsWith('.tar.gz');
+        const archive = path.join(ffDir, isTar ? 'ffmpeg-dl.tar.xz' : 'ffmpeg-dl.zip');
+        await vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Notification, title: 'Downloading ffmpeg (one-time, ~80 MB)…', cancellable: false },
+            async (prog) => {
+                let lastPct = 0;
+                await _httpsDownloadToFile(url, archive, (got, total) => {
+                    if (!total) return;
+                    const pct = Math.floor(got / total * 100);
+                    if (pct > lastPct) { prog.report({ increment: pct - lastPct, message: pct + '%' }); lastPct = pct; }
+                });
+                if (isTar) {
+                    const r = require('child_process').spawnSync('tar', ['-xf', archive, '-C', ffDir], { windowsHide: true });
+                    if (r.status !== 0) throw new Error('tar extract failed: ' + (r.stderr || r.status));
+                } else {
+                    await _extractZipPS(archive, ffDir);   /* PowerShell Expand-Archive (win/mac-with-pwsh) */
+                }
+            }
+        );
+        try { fs.unlinkSync(archive); } catch (_) {}
+        bin = _findFfmpegBin(ffDir);
+        if (!bin) throw new Error('ffmpeg binary not found after extract under ' + ffDir);
+        if (process.platform !== 'win32') { try { fs.chmodSync(bin, 0o755); } catch (_) {} }
+        cap.setFfmpegPath(bin);
+        trace('FFMPEG:BOOTSTRAP downloaded → ' + bin);
+        return bin;
+    })().finally(() => { _ensureFfmpegInFlight = null; });
+    return _ensureFfmpegInFlight;
+}
+
 /* Ensure whisper.cpp's stream binary + the tiny.en model are on disk. Downloads
    with a VSCode progress notification. On any failure throws — caller surfaces
    the failure to the panel as a sttResultEl error. */
@@ -3855,6 +3940,7 @@ async function handleSttHostStartElevenLabs(panel, context, msg) {
         try { panel.webview.postMessage({ type: 'sttHostResult', reqId, ok: false, error: 'host mic capture is Windows-only on this build — pick WebSpeech in Settings → Voice' }); } catch (_) {}
         return;
     }
+    try { await ensureFfmpeg(context); } catch (e) { trace('ensureFfmpeg: ' + ((e && e.message) || e)); }
     const key = _getElevenLabsKey(context);
     if (!key) {
         /* No key → tell the panel to fall to the batch path (which surfaces
@@ -4086,6 +4172,7 @@ async function handleSttHostStartDeepgram(panel, context, msg) {
         try { panel.webview.postMessage({ type: 'sttHostResult', reqId, ok: false, error: 'host mic capture is Windows-only on this build — pick WebSpeech in Settings → Voice' }); } catch (_) {}
         return;
     }
+    try { await ensureFfmpeg(context); } catch (e) { trace('ensureFfmpeg: ' + ((e && e.message) || e)); }
     const key = _getDeepgramKey(context);
     if (!key) {
         try { panel.webview.postMessage({ type: 'sttResultEl', reqId, ok: false, error: 'no [deepgram] api_key in config.ini', fallback: true }); } catch (_) {}
@@ -4440,6 +4527,7 @@ async function handleSttHostStartRealtimeLocal(panel, context, msg, provider /* 
         try { panel.webview.postMessage({ type: 'sttHostResult', reqId, ok: false, error: provider + ' is Windows-only on this build (ffmpeg dshow capture). Pick ElevenLabs or another provider.' }); } catch (_) {}
         return;
     }
+    try { await ensureFfmpeg(context); } catch (e) { trace('ensureFfmpeg: ' + ((e && e.message) || e)); }
 
     let session = null;
     let capture = null;
@@ -4601,6 +4689,7 @@ async function handleHostSttStart(panel, context, msg) {
         try { panel.webview.postMessage({ type: 'sttHostResult', ok: false, error: 'host mic capture is Windows-only on this build — pick WebSpeech in Settings → Voice' }); } catch (_) {}
         return;
     }
+    try { await ensureFfmpeg(context); } catch (e) { trace('ensureFfmpeg: ' + ((e && e.message) || e)); }
     try {
         const cap = _getSttHostCapture(context);
         const { device } = await cap.startRecording();
@@ -5091,19 +5180,10 @@ async function _ensurePrerequisites(context) {
         what: 'Git', winget: 'Git.Git', brew: 'git', aptHint: 'sudo apt install git',
     });
 
-    // ── ffmpeg (REQUIRED for all voice / speech-to-text) ───────────────
-    // Every STT provider except WebSpeech (which the VSCode webview sandbox
-    // blocks) captures the mic via host-side ffmpeg dshow, so a missing
-    // ffmpeg = no voice at all. Probe the SAME executable resolveFfmpeg()
-    // picks (Chocolatey lib path → PATH) so this check matches what STT
-    // actually runs, not just bare-PATH.
-    let _ffExe = 'ffmpeg';
-    try { _ffExe = require(path.join(context.extensionPath, 'stt-host-capture.js')).resolveFfmpeg(); } catch (_) {}
-    const ffProbe = await run(_ffExe, ['-version']);
-    if (!ffProbe.ok) missing.push({
-        what: 'ffmpeg (required for voice / speech-to-text)',
-        winget: 'Gyan.FFmpeg', brew: 'ffmpeg', aptHint: 'sudo apt install ffmpeg',
-    });
+    // ── ffmpeg — NOT prompted here anymore. ensureFfmpeg() auto-downloads a
+    // static build into globalStorage silently on first STT use (no winget, no
+    // admin), so nagging the user at activation to winget-install it would be
+    // redundant — and they don't need ffmpeg at all unless they use voice.
 
     // ── PowerShell (Windows only — verification only, no install path) ─
     if (process.platform === 'win32') {
