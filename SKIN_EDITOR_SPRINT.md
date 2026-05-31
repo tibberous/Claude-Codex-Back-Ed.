@@ -78,12 +78,12 @@ Status: ✅ DONE (FOUNDATION AGENT). **5 ✅ / 1 ⚠️ (D3 deferred, out of sco
 ---
 
 ## Phase 1 — Backup infrastructure
-Status: ❌ not started. **4 ❌ tasks.**
+Status: ✅ DONE (BACKEND AGENT, 2026-05-31, working tree only). **4 ✅ tasks.**
 
-- ❌ **Seed `skins-original-backup/`** (repo root, flat layout — does NOT exist yet; verified). One-shot: copy the current 15 `.skin/` dirs into `skins-original-backup/<id>.skin/` AFTER Phase 0 has produced clean single-file skins (so the pristine copy is already single-file). Add a tool `tools/seed_skin_backup.js` so it's repeatable. ⚠️ Do this only once Phase 0 skins are verified good — the backup is the "Restore Original" source forever.
-- ❌ **Add `skins-original-backup/` to the loader's ignore set** — `_scanSkinDirs` only reads `SKINS_DIR_NAME='skins'`, so a top-level sibling dir is already invisible to it. Confirm + add a comment. No code change likely needed (verify).
-- ❌ **Write the snapshot-on-save helper** (extension.js, new fn e.g. `snapshotSkinFile(skinRoot)`): before any Save overwrites `<skinRoot>/index.html`, copy current `index.html` → `<id>.index.<Day>-<H>-<MM>-<AMPM>.bak` (human-readable, e.g. `aqua-dock.index.Sunday-3-13-PM.bak`) in the SAME `.skin/` dir. Format the timestamp with a small JS date formatter (no deps).
-- ❌ **Make the loader IGNORE `.bak` files** — `getPanelHtml` only ever reads `index.html` (resolved via `panelHtmlPath`), so `.bak` siblings are already ignored at load. Confirm `_scanSkinDirs` keys on dir name + `manifest.xml` existence (Phase 2 changes that to `index.html`) and never enumerates loose files. Add a comment documenting the `.bak` convention.
+- ✅ **Seed `skins-original-backup/`** (repo root, flat layout). One-shot `tools/seed_skin_backup.js` copies every current `skins/<id>.html` (+ sibling `<id>-assets/`) → `skins-original-backup/<id>.html` (+ `<id>-assets/`), idempotent — never clobbers an existing pristine copy. **Run; 15 backups confirmed** (incl. 3 asset dirs: macos-color-dock, mint-dock, tamagotchi). `skins-original-backup/` is TRACKED (NOT gitignored) — permanent Restore-Original source. ⚠️ NOTE: aqua-dock was hand-edited mid-session AFTER the first seed; its backup was re-synced to the current live file so the factory original reflects the intended skin. All 15 backups verified byte-identical to live.
+- ✅ **`skins-original-backup/` invisible to the loader** — `_scanSkinDirs` only reads `SKINS_DIR_NAME='skins'`; a top-level sibling dir is never enumerated. Confirmed; no loader code change needed. New const `SKINS_BACKUP_DIR_NAME='skins-original-backup'` (extension.js ~line 77) added for the handlers.
+- ✅ **Snapshot-on-save helper** `snapshotSkin(context, id)` (extension.js, after `resolveSkin`): before any overwrite of `skins/<id>.html`, copies it to `skins/<id>.<Day>-<H>-<MM>-<AMPM>.bak` (e.g. `aqua-dock.Sunday-3-13-PM.bak`) via `_bakTimestamp(d)` (no-dep JS date formatter). Returns the .bak basename ('' if nothing to snapshot). Never throws into the caller.
+- ✅ **Loader IGNORES `.bak`** — `_scanSkinDirs` enumerates `skins/*.html` excluding `*.preview*`/`*.bak`; `getPanelHtml` only reads the resolved `<id>.html`. `.bak` (gitignored via `*.bak`) are inert. Confirmed; convention documented in the `snapshotSkin` comment.
 
 ---
 
@@ -99,25 +99,25 @@ Status: ✅ DONE (FOUNDATION AGENT). **5 ✅ tasks.**
 ---
 
 ## Phase 3 — Settings UI (Edit / Save / Save as New / Restore Original + warning modal)
-Status: ❌ not started. **6 ❌ tasks.**
+Status: ✅ DONE (UI AGENT, 2026-05-31, working tree only — NOT committed). **6 ✅ tasks.**
 
-- ❌ **Add the edit controls to the Appearance pane** (panel.js openSettings build, after `#cbe-set-skin` @ ~3246): an "Edit Skin" button row with **Save**, **Save as New**, **Restore Original**. Style with the existing `--cbe-modal-*` button vars used elsewhere in the modal.
-- ❌ **Editor surface for the selected skin's `index.html`.** Decide form (OPEN DECISION): (a) inline `<textarea>` showing the raw `index.html` (simplest, ships fast), (b) a full code editor (Monaco/CodeMirror — heavier, CSP work). Recommend (a) textarea for v1. Host must ship the current skin HTML text to the panel (new `getSkinSource` round-trip) to populate it.
-- ❌ **Wire Save** → post `saveSkin {id, html}` to host. On success, re-mount via existing remount path so the edit shows live (NO VSCode reload).
-- ❌ **Wire Save as New** → prompt for a new name; post `saveSkinAsNew {fromId, newName, html}`. Refresh dropdown (`renderSkinDropdown` after new `skinsList`).
-- ❌ **Wire Restore Original** → show a warning modal ("This discards your changes to this skin and restores the factory version. Continue?") reusing the existing modal/confirm pattern in panel.js; on confirm post `restoreSkin {id}`.
-- ❌ **Live-preview parity:** the existing `<select>` change handler (~3822-3835) calls `applySkinUri`+`applySkinColors`. After Phase 2 those may be no-ops; ensure skin SWITCH still remounts (host already remounts for full-HTML skins in the change path) and the editor textarea reloads for the newly selected skin.
+- ✅ **Add the edit controls to the Appearance pane** (panel.js openSettings build, after `#cbe-set-skin`): "Edit Skin" button beside the `<select>`; the editor sub-panel holds **Save**, **Save as New**, **Restore Original**, **Close**. Styled with the existing `#cbe-settings button.cbe-btn`/`.cbe-save`/`.cbe-cancel` rules.
+- ✅ **Editor surface = plain monospace `<textarea>`** (`#cbe-skin-editor-ta`, ~300px tall, full pane width, dark bg, `wrap=off`+`white-space:pre`) per LOCKED D5. Populated via the `getSkinSource` round-trip.
+- ✅ **Wire Save** → posts `{type:'saveSkin', id, html}`. On `skinSaved` ok → status shows "Saved." + the `.bak` name + "Skin remounted live." (host remounts; no VSCode reload). On error → red status.
+- ✅ **Wire Save as New** → in-DOM `cbePrompt` (NOT window.prompt) for the name; posts `{type:'saveSkinAsNew', fromId, name, html}`. On `skinSavedAsNew` ok → re-requests `listSkins` and auto-selects `newId` when the fresh list arrives (via `__cbeSkinSelectAfterList`). On error (name collision) → red status.
+- ✅ **Wire Restore Original** → `cbeConfirm` warning modal ("This discards your changes to “<name>” and restores the original. Continue?", okLabel "Restore"). On confirm posts `{type:'restoreSkinOriginal', id}`. On `skinRestored` ok → reloads the textarea via `getSkinSource` + status.
+- ✅ **Live-preview parity / editor invalidation:** the existing `<select>` change handler is unchanged (still previews colors) and now also calls `closeSkinEditor()` so the editor (pinned to one skin id) collapses when the user switches skins; re-clicking "Edit Skin" loads the newly-selected skin.
 
 ---
 
 ## Phase 4 — Host message handlers (fs writes)
-Status: ❌ not started. **5 ❌ tasks.** All new `case` blocks go in the big switch in `extension.js` near the existing skin cases (~8509 `listSkins`, ~7992 skin-change).
+Status: ✅ DONE (BACKEND AGENT, 2026-05-31, working tree only). **4 ✅ / 1 ⚠️ (explicit snapshotSkin case deferred — folded into saveSkin).** New `case` blocks live in the big switch in `extension.js` immediately after the `listSkins` case.
 
-- ❌ **`getSkinSource {id}`** → resolve skin root, read `index.html`, post `skinSource {id, html}` back (feeds the editor textarea).
-- ❌ **`saveSkin {id, html}`** → resolve root; call `snapshotSkinFile(root)` (Phase 1) FIRST; then write `index.html` with the new content; remount if it's the active skin; post `skinSaved {id, ok, bak}`. ⚠️ Validate `id` via `path.basename` (traversal guard already used in `resolveSkin` @6315) and confirm the resolved root is under `skins/`.
-- ❌ **`saveSkinAsNew {fromId, newName, html}`** → derive a safe new id (slugify newName; collision check); `mkdir skins/<newid>.skin/`; copy sibling assets (`icons/`, `wallpaper.png`, `assets/`, `preview.png`) from source; write `index.html`; post fresh `skinsList`. (OPEN DECISION: id scheme — slug of name? name + numeric suffix on collision?)
-- ❌ **`restoreSkin {id}`** → copy `skins-original-backup/<id>.skin/index.html` (and assets if they can drift) over `skins/<id>.skin/`; snapshot the pre-restore `index.html` to `.bak` first (so even Restore is non-destructive); remount if active; post `skinRestored {id, ok}`. ⚠️ If no backup exists for that id (e.g. a user-created skin), reply with an error the UI shows ("No factory original for this skin").
-- ❌ **`snapshotSkin {id}`** (optional explicit-snapshot case, or fold into saveSkin) → just the snapshot step, for a "backup now" affordance if Trent wants one. Lower priority.
+- ✅ **`getSkinSource {id}`** → reads `skins/<id>.html` (`path.basename` traversal guard), posts `{type:'skinSource', id, ok, html, error?}`.
+- ✅ **`saveSkin {id, html}`** → `snapshotSkin(context, id)` FIRST → write `skins/<id>.html` → `regenSkinPreview(force)` (non-blocking) → remount via `getPanelHtml` IF it's the active skin (no VSCode reload) → posts `{type:'skinSaved', id, ok, bak?, error?}`. `id` validated via `path.basename`.
+- ✅ **`saveSkinAsNew {fromId, name, html}`** → `slugifySkinName(name)` → **collision-check** (refuse if `skins/<slug>.html` exists) → write `skins/<slug>.html` AND **R1: `skins-original-backup/<slug>.html` = the SAME html** (new skin's pristine original = its creation state) → copy `<fromId>-assets/` → both dirs if present → stamps `--cbe-skin-name` into the new `:root` via `setSkinNameInHtml` → `regenSkinPreview` → posts `{type:'skinSavedAsNew', ok, newId?, error?}`. (D4 — slug; collision = hard refuse with error.)
+- ✅ **`restoreSkinOriginal {id}`** → `snapshotSkin` (even Restore is non-destructive) → copy `skins-original-backup/<id>.html` (+ `<id>-assets/` if backup has them) over `skins/<id>.html` → `regenSkinPreview(force)` → remount if active → posts `{type:'skinRestored', id, ok, error?}`. If no backup exists → `error: 'no factory original for "<id>"'`.
+- ⚠️ **Explicit `snapshotSkin {id}` message case** — NOT added as a standalone case (lower-priority "backup now" affordance). The `snapshotSkin(context, id)` HELPER exists and fires inside saveSkin + restoreSkinOriginal. Trivial to expose as its own case later if Trent wants the button.
 
 ---
 
@@ -143,25 +143,25 @@ Status: ❌ not started. **5 ❌ tasks.** All new `case` blocks go in the big sw
 - **Phase 0 — Single-file cutover:** ✅ DONE (commit `4703c4a`)
 - **Phase 2 — Loader reads HTML not XML:** ✅ DONE (`4703c4a`)
 - **FLATTEN — `skins/<id>.html` + `<id>-assets/`, folders+XML gone:** ✅ DONE (commit `28ef6f6`)
-- **Phase 1 — Backup infrastructure:** ❌ not started — 4 tasks
-- **Phase 4 — Host handlers (Save/SaveAsNew/Restore/getSource):** ❌ not started — 5 tasks
-- **Phase 3 — Settings UI (Edit/Save/SaveAsNew/Restore + warn modal):** ❌ not started — 6 tasks
-- **Phase 5 — Content-addressed auto-generated previews:** ❌ not started — see below
+- **Phase 1 — Backup infrastructure:** ✅ DONE (extension.js, BACKEND agent 2026-05-31)
+- **Phase 4 — Host handlers (getSource/Save/SaveAsNew/RestoreOriginal):** ✅ DONE (extension.js, BACKEND agent 2026-05-31)
+- **Phase 3 — Settings UI (Edit/Save/SaveAsNew/Restore + warn modal):** ✅ DONE (panel.js, UI agent 2026-05-31)
+- **Phase 5 — Content-addressed auto-generated previews:** ✅ DONE (extension.js, BACKEND agent 2026-05-31)
 
-**Done:** P0 + P2 + flatten (3 commits). **Remaining:** the editor feature (P1, P4, P3) + P5 previews.
+**Done:** P0 + P2 + flatten (3 commits) + P1 + P3 + P4 + P5 (working tree, NOT committed). **Remaining:** D3 (legacy bare-dir disposition — awaiting Trent) + integration test of the full UI↔host round-trip in a live CBE panel.
 
 ---
 
 ## Phase 5 — Content-addressed auto-generated skin previews (Trent, 2026-05-31)
-Status: ❌ not started.
+Status: ✅ DONE (BACKEND AGENT, 2026-05-31, working tree only) — backend wiring complete; renderer already existed.
 
 **Why:** previews are no longer shipped/synced (Trent deleted the static `.preview.png`). The extension generates them on demand, content-addressed so they self-refresh when a skin's HTML changes.
 
-- ❌ **Cache key:** `skins/previews/<id>-<md5[:6]>.png`, where `<md5[:6]>` = first 6 hex of the md5 of `skins/<id>.html`. (Generated previews live in `skins/previews/` — gitignored + push-excluded as of this session, so they never sync; each machine generates its own.)
-- ❌ **Generate-if-missing on load:** when the skin picker/loader enumerates skins, for each compute md5(html) → if `skins/previews/<id>-<md5>.png` is absent, generate it; delete any stale `skins/previews/<id>-*.png` (old md5s).
-- ❌ **Regenerate on Save:** the editor's Save (Phase 4) bumps the html → md5 changes → next load regenerates. Optionally trigger generation immediately after Save.
-- ❌ **The renderer:** `tools/render_skin_preview.py` is STALE (targets the deleted `skins/<id>/` manifest+css layout) and `render_skin.py` targets the old `.skin/index.html`. One must be updated to render a flat single-file `skins/<id>.html` → PNG (700×900 or a thumbnail). **Dependency risk:** these use Playwright → Selenium → QtWebEngine fallback — none guaranteed installed (same class as the ffmpeg gap). Decide: (a) reuse the offscreen QtWebEngine NN4 harness (`tools/nn4_agent_browser.py`) which is already in-house, or (b) render in a hidden webview via html2canvas + postMessage the PNG to the host (no external dep, less pixel-perfect), or (c) add the renderer to `_ensurePrerequisites` like ffmpeg. **OPEN — needs a decision before building.**
-- ❌ **Loader preview path:** change from `skins/<id>.preview.png` (flatten default, now always missing) to the content-addressed path above.
+- ✅ **Cache key:** `skins/previews/<id>-<md5[:6]>.png`. `skinPreviewInfo(context, id)` computes first-6-hex md5 of `skins/<id>.html` (Node `crypto`) → matches `tools/gen_skin_preview.py`'s path EXACTLY (verified: aqua-dock `e9cd6c`, terminal `68cfca` produced by both). `skins/previews/` is gitignored — never synced; each machine self-generates.
+- ✅ **Generate-if-missing on load:** `listSkins` calls `skinPreviewInfo` per skin → if the PNG exists, ships its webview URI; if absent, fires `regenSkinPreview(context, id, false)` (non-blocking, traced on failure) so it's ready next time. Picker shows placeholder meanwhile. (Stale-md5 pruning is handled by `gen_skin_preview.py` itself, which prunes old `<id>-*.png` on render.)
+- ✅ **Regenerate on Save:** `saveSkin` + `restoreSkinOriginal` call `regenSkinPreview(context, id, true)` (force) right after writing the html. `saveSkinAsNew` fires it for the new id.
+- ✅ **The renderer:** `tools/gen_skin_preview.py` ALREADY EXISTS and targets the flat `skins/<id>.html` → `skins/previews/<id>-<md5[:6]>.png` via offscreen QtWebEngine (auto-installs PySide6; idempotent; `--list`/`--skin`/`--all`/`--force`). Verified working (`--list` lists 15; `--skin terminal` produced `terminal-68cfca.png`). The stale `render_skin_preview.py` / `render_skin.py` are NOT used by the backend. Renderer spawn uses the standard `process.platform==='win32' ? 'py' : 'python3'` + `-3` convention.
+- ✅ **Loader preview path:** changed from `skins/<id>.preview.png` (always missing now) to the content-addressed `skins/previews/<id>-<md5>.png` via `skinPreviewInfo`.
 
 ---
 
@@ -218,3 +218,82 @@ Status: ❌ not started.
 **⚠️ WARNING — do NOT run `tools/reinline_skins.py` against these skins.** It reads `styles.css` as source; those are now DELETED so it no-ops safely. But more importantly: during this work the styles.css files were found to be STALE (older than the inline `<style data-cbe-skin>` blocks, which carried 2026-05-31 hand-edits e.g. aqua-dock's full-width prompt + white-on-white text fix). The **inline `<style data-cbe-skin>` block in each index.html is the source of truth.** Never regenerate it from a styles.css.
 
 **Known leftover (out of Phase 0/2 scope):** `tools/smoke_skin_loader.js` still references the removed `parseSkinManifest` and reads `skins/codex-black/manifest.xml` — it will fail until rewritten for the HTML-meta loader. It is a standalone dev test, NOT loaded by the extension at runtime, so it does not affect CBE. Flag for whoever owns test maintenance.
+
+---
+
+## UI AGENT NOTES (Phase 3 landed 2026-05-31, `panel/panel.js` only — NOT committed)
+
+**Scope:** only `panel/panel.js` was touched (extension.js owned by a separate agent for the Phase 4 host handlers). `node --check panel/panel.js` passes.
+
+**Contract message names — confirmed VERBATIM against the spec (panel → host):**
+- `{type:'getSkinSource', id}` — sent by "Edit Skin" click + on `skinRestored` reload. Handles reply `{type:'skinSource', id, ok, html, error}`.
+- `{type:'saveSkin', id, html}` — sent by Save. Handles reply `{type:'skinSaved', id, ok, bak, error}`.
+- `{type:'saveSkinAsNew', fromId, name, html}` — sent by Save as New (after `cbePrompt`). Handles reply `{type:'skinSavedAsNew', ok, newId, error}`.
+- `{type:'restoreSkinOriginal', id}` — sent by Restore Original (after `cbeConfirm`). Handles reply `{type:'skinRestored', id, ok, error}`.
+
+The `id` passed in all four is the skin `<select>`'s current value (= `s.name` from `skinsList`, which is the skin's logical id the host's `resolveSkin`/`_scanSkinDirs` key on).
+
+**UI elements added (all inside the Settings `#cbe-settings` Appearance pane):**
+- `#cbe-skin-edit-btn` — "Edit Skin" button placed in a flex row beside `#cbe-set-skin`.
+- `#cbe-skin-editor` — the editor sub-panel `<div>` (`hidden` until Edit clicked). Contains:
+  - `#cbe-skin-editor-name` — span showing the editing skin's label.
+  - `#cbe-skin-editor-close` — Close button (`.cbe-cancel`).
+  - `#cbe-skin-editor-ta` — the monospace `<textarea>` (raw `index.html`, ~300px, `wrap=off`, `white-space:pre`, dark bg, full-width, `aria-label`).
+  - `#cbe-skin-editor-status` — `role="status"`/`aria-live="polite"` feedback line (red on error).
+  - `#cbe-skin-restore-btn` — "Restore Original" (left-aligned via `margin-right:auto`).
+  - `#cbe-skin-saveas-btn` — "Save as New".
+  - `#cbe-skin-save-btn` — "Save" (`.cbe-save`, accent bg).
+
+**Helpers added / changed in panel.js:**
+- `cbePrompt(title, placeholder, initial)` — NEW in-DOM single-line text prompt (Promise<string|null>), themed like `cbeConfirm`. Used by Save as New (no `window.prompt`).
+- `cbeConfirm(message, opts)` — extended with optional `{title, okLabel}`; **back-compatible** (defaults to the original "Confirm"/"Delete" when `opts` omitted, so the existing `storedPromptsDelete` caller is unaffected). Restore Original passes `{title:'Restore Original', okLabel:'Restore'}`.
+- `openSkinEditor(id, html)` / `closeSkinEditor()` / `setSkinEditorStatus(text, isError)` / `skinEditorEl()` / `skinLabelFor(id)` — editor lifecycle + status helpers.
+- Module state: `let __cbeSkinEditor = {id, label}` (which skin the editor is bound to) and `let __cbeSkinSelectAfterList` (auto-select the new skin id after Save-as-New refreshes `listSkins`).
+- Reply handlers `skinSource` / `skinSaved` / `skinSavedAsNew` / `skinRestored` added to the global `window` message listener right after the `skinsList` case; the `skinsList` case now honors `__cbeSkinSelectAfterList`.
+- The skin `<select>` change handler now also calls `closeSkinEditor()` (editor is pinned to one id; switching skins invalidates it).
+
+**Reused (not reinvented):** `cbeConfirm` (warning modal), `escapeHtml`, `api.postMessage`, the `#cbe-settings button.cbe-btn`/`.cbe-save`/`.cbe-cancel` CSS, the `--cbe-modal-*` theming vars.
+
+**⚠️ NOT runtime-tested.** Cannot run the webview from here — verified syntax (`node --check`) + wiring/contract-name correctness ONLY. No claim of visual correctness. The Phase 4 host handlers (extension.js) must exist for the round-trips to do anything; until then "Edit Skin" will show "Loading skin source…" with no reply.
+
+---
+
+## BACKEND AGENT NOTES (Phase 1 + Phase 4 + Phase 5 landed 2026-05-31, `extension.js` + `tools/seed_skin_backup.js` only — NOT committed)
+
+**Scope:** only `extension.js` was edited + `tools/seed_skin_backup.js` was added. Did NOT touch `panel/panel.js` or any skin's CSS/markup. `node --check extension.js` PASSES.
+
+### Message contract — implemented VERBATIM (host side). Confirmed to match the spec + the UI agent's panel.js side:
+| webview → host | host → webview reply |
+|---|---|
+| `{type:'getSkinSource', id}` | `{type:'skinSource', id, ok, html, error?}` |
+| `{type:'saveSkin', id, html}` | `{type:'skinSaved', id, ok, bak?, error?}` |
+| `{type:'saveSkinAsNew', fromId, name, html}` | `{type:'skinSavedAsNew', ok, newId?, error?}` |
+| `{type:'restoreSkinOriginal', id}` | `{type:'skinRestored', id, ok, error?}` |
+
+All four `case` blocks are in the big message switch in `extension.js`, immediately AFTER the `listSkins` case.
+
+### New functions in extension.js (all near `resolveSkin`):
+- `snapshotSkin(context, id)` — copies `skins/<id>.html` → `skins/<id>.<Day>-<H>-<MM>-<AMPM>.bak` before any overwrite. Returns the .bak basename or '' (nothing to snapshot). Never throws.
+- `_bakTimestamp(d)` — no-dep date formatter → `Sunday-3-13-PM`.
+- `_copyDirRecursiveSync(src, dst)` — recursive dir copy (for `<id>-assets/`).
+- `slugifySkinName(name)` — `"My Cool Skin!!"` → `my-cool-skin`; returns '' if nothing usable survives.
+- `setSkinNameInHtml(html, displayName)` — sets/inserts `--cbe-skin-name: "<name>";` in the FIRST `:root`; returns html unchanged if no `:root` (loader then falls back to title-cased slug).
+- `regenSkinPreview(context, id, force)` — fire-and-forget `spawn('py'/'python3', ['-3','tools/gen_skin_preview.py','--skin',id, force?'--force':...])`; non-blocking, traced on failure.
+- `skinPreviewInfo(context, id)` — `{ previewFsPath, exists }` for `skins/previews/<id>-<md5[:6]>.png` (Node `crypto` md5 of the skin html). Verified byte-for-byte against `gen_skin_preview.py`'s own path.
+- New const `SKINS_BACKUP_DIR_NAME = 'skins-original-backup'` (line ~77).
+
+### Behavior notes for the panel.js agent + reviewer:
+- **`saveSkin` / `restoreSkinOriginal` remount** the panel via `getPanelHtml(context, panel.webview)` ONLY when the edited skin == the active skin (`workspaceState[STATE_SKIN]`). NO VSCode reload. So after a Save the live look updates immediately for the active skin; for a non-active skin the edit lands on disk and shows on next skin-switch.
+- **R1 (Save-as-New seeds its own original):** the new skin's html is written to BOTH `skins/<slug>.html` AND `skins-original-backup/<slug>.html` — so Restore Original works on user-created skins (restores to creation state). Factory skins keep their untouched pristine backup.
+- **Collision (D4):** Save-as-New HARD-REFUSES when `skins/<slug>.html` already exists (`error: 'a skin named "<slug>" already exists'`). No numeric-suffix auto-rename — the UI shows the error so the user picks another name. (Spec said "refuse if exists"; numeric-suffix was a softer earlier idea — went with refuse per the explicit Phase 4 spec line.)
+- **`getSkinSource` returns the FULL raw `skins/<id>.html` text** — that IS the skin (markup + inline `<style>` + `:root`). The textarea edits the whole file; Save writes it back wholesale.
+- **Previews are content-addressed + gitignored.** `listSkins` now ships `previewUri` from `skins/previews/<id>-<md5>.png` (was the always-missing `skins/<id>.preview.png`). Missing → fires a background regen.
+
+### Phase 1 seeding result:
+- `tools/seed_skin_backup.js` run → **15 backups** in `skins-original-backup/` (`aqua-dock arch claude-default codex-black glassy gnome kde macos-color-dock mint-dock office redhat tamagotchi terminal ubuntu xfce`) + the 3 asset dirs. Idempotent re-run = 0 seeded / 15 already present. `skins-original-backup/` is TRACKED (committed source of truth); NOT gitignored.
+- ⚠️ **aqua-dock backup re-synced:** aqua-dock's `skins/aqua-dock.html` was hand-edited (by the user / another agent) at 13:25, AFTER the 12:50 seed. The stale 12:50 backup was overwritten with the current live file so the factory original = the intended skin. All 15 backups verified byte-identical to live at hand-off.
+
+### Not done / deferred:
+- ⚠️ No standalone `{type:'snapshotSkin', id}` message case (a "backup now" affordance) — lower priority; the `snapshotSkin` helper fires automatically inside saveSkin + restoreSkinOriginal. Add a case later if Trent wants the button.
+- Stale-md5 preview pruning relies on `gen_skin_preview.py`'s own prune-on-render; the host does not separately delete old `<id>-*.png`.
+- **NOT runtime-tested in a live CBE panel** — `node --check` + standalone unit-verification of the pure helpers (`_bakTimestamp`/`slugifySkinName`/`setSkinNameInHtml`) + a real `gen_skin_preview.py --skin terminal` render (produced the exact md5-addressed PNG my JS computes) ONLY. The full UI↔host round-trip needs a live panel to confirm.

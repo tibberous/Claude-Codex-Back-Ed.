@@ -3252,7 +3252,29 @@ function openSettings(payload) {
     /* — Appearance — */
     +   '<div class="cbe-cat-pane" data-cat="appearance" hidden>'
     +     '<div class="cbe-cat-title">Appearance</div>'
-    +     '<div><label>Skin</label><select id="cbe-set-skin"><option value="">Loading skins…</option></select></div>'
+    +     '<div><label>Skin</label>'
+    +       '<div style="display:flex;gap:8px;align-items:center;">'
+    +         '<select id="cbe-set-skin" style="flex:1;"><option value="">Loading skins…</option></select>'
+    +         '<button type="button" id="cbe-skin-edit-btn" class="cbe-btn" style="padding:6px 12px;font-size:12px;white-space:nowrap;">Edit Skin</button>'
+    +       '</div>'
+    +     '</div>'
+    /* — Skin editor sub-panel (Phase 3). Hidden until "Edit Skin" is clicked.
+       Raw single-file index.html in a monospace <textarea>; Save / Save as New
+       / Restore Original / Close. Contract msg names match SKIN_EDITOR_SPRINT
+       verbatim: getSkinSource / saveSkin / saveSkinAsNew / restoreSkinOriginal. */
+    +     '<div id="cbe-skin-editor" hidden style="margin-top:4px;padding:10px;border:1px solid var(--cbe-modal-border,#444);border-radius:6px;background:var(--cbe-modal-bg,#181818);display:flex;flex-direction:column;gap:8px;">'
+    +       '<div style="display:flex;align-items:center;gap:8px;">'
+    +         '<label for="cbe-skin-editor-ta" id="cbe-skin-editor-label" style="margin:0;flex:1;font-weight:600;">Editing: <span id="cbe-skin-editor-name" style="font-weight:400;opacity:.85;"></span></label>'
+    +         '<button type="button" id="cbe-skin-editor-close" class="cbe-btn cbe-cancel" style="padding:4px 12px;font-size:12px;">Close</button>'
+    +       '</div>'
+    +       '<textarea id="cbe-skin-editor-ta" spellcheck="false" wrap="off" aria-label="Skin HTML source" style="width:100%;height:300px;font:12px Consolas,monospace;background:#000;color:#dcdcdc;border:1px solid var(--cbe-modal-border,#444);border-radius:4px;padding:8px;box-sizing:border-box;resize:vertical;white-space:pre;overflow:auto;"></textarea>'
+    +       '<div id="cbe-skin-editor-status" role="status" aria-live="polite" style="min-height:16px;font-size:12px;opacity:.85;"></div>'
+    +       '<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;">'
+    +         '<button type="button" id="cbe-skin-restore-btn" class="cbe-btn" style="padding:5px 12px;font-size:12px;margin-right:auto;">Restore Original</button>'
+    +         '<button type="button" id="cbe-skin-saveas-btn" class="cbe-btn" style="padding:5px 12px;font-size:12px;">Save as New</button>'
+    +         '<button type="button" id="cbe-skin-save-btn" class="cbe-btn cbe-save" style="padding:5px 14px;font-size:12px;background:var(--cbe-modal-accent,#2a5d8f);color:#fff;border:1px solid var(--cbe-modal-accent,#2a5d8f);">Save</button>'
+    +       '</div>'
+    +     '</div>'
     +     '<div><label>Language</label><div id="cbe-set-language-wrap" style="position:relative;"></div></div>'
     +     '<div style="display:flex;align-items:center;gap:10px;margin-top:4px;">'
     +       '<label for="cbe-set-sfx-enabled" style="margin:0;flex:1;">Sound Effects</label>'
@@ -3841,6 +3863,60 @@ function openSettings(payload) {
     try { colors = opt && opt.dataset && opt.dataset.colors ? JSON.parse(opt.dataset.colors) : null; }
     catch (_) { colors = null; }
     applySkinColors(colors);
+    /* The editor is pinned to a specific skin id; switching skins invalidates
+       its contents, so collapse it. User re-clicks "Edit Skin" for the new one. */
+    closeSkinEditor();
+  });
+
+  /* ── Skin editor (Phase 3) ──────────────────────────────────────────────
+     "Edit Skin" requests the selected skin's raw index.html from the host
+     (getSkinSource), reveals the monospace <textarea> sub-panel, and wires
+     Save / Save as New / Restore Original / Close. The host replies
+     (skinSource / skinSaved / skinSavedAsNew / skinRestored) are handled in
+     the global message listener, which calls back into the helpers below via
+     the module-level __cbeSkinEditor state. All four outbound message names
+     match the FIXED contract in SKIN_EDITOR_SPRINT verbatim. */
+  const editBtn = overlay.querySelector('#cbe-skin-edit-btn');
+  if (editBtn) editBtn.addEventListener('click', () => {
+    const sel = overlay.querySelector('#cbe-set-skin');
+    const id = (sel && sel.value) || '';
+    if (!id) { setSkinEditorStatus('Select a skin first.', true); openSkinEditor(id, ''); return; }
+    openSkinEditor(id, '');
+    setSkinEditorStatus('Loading skin source…');
+    if (api) api.postMessage({ type: 'getSkinSource', id: id });
+  });
+  const edClose = overlay.querySelector('#cbe-skin-editor-close');
+  if (edClose) edClose.addEventListener('click', () => closeSkinEditor());
+  const edSave = overlay.querySelector('#cbe-skin-save-btn');
+  if (edSave) edSave.addEventListener('click', () => {
+    const id = __cbeSkinEditor.id;
+    const ta = document.getElementById('cbe-skin-editor-ta');
+    if (!id || !ta) return;
+    setSkinEditorStatus('Saving…');
+    if (api) api.postMessage({ type: 'saveSkin', id: id, html: ta.value });
+  });
+  const edSaveAs = overlay.querySelector('#cbe-skin-saveas-btn');
+  if (edSaveAs) edSaveAs.addEventListener('click', async () => {
+    const id = __cbeSkinEditor.id;
+    const ta = document.getElementById('cbe-skin-editor-ta');
+    if (!id || !ta) return;
+    const name = await cbePrompt('Save as New Skin', 'New skin name', '');
+    if (name === null) return;                 // user cancelled
+    const trimmed = String(name).trim();
+    if (!trimmed) { setSkinEditorStatus('Name cannot be empty.', true); return; }
+    setSkinEditorStatus('Creating “' + trimmed + '”…');
+    if (api) api.postMessage({ type: 'saveSkinAsNew', fromId: id, name: trimmed, html: ta.value });
+  });
+  const edRestore = overlay.querySelector('#cbe-skin-restore-btn');
+  if (edRestore) edRestore.addEventListener('click', async () => {
+    const id = __cbeSkinEditor.id;
+    if (!id) return;
+    const label = __cbeSkinEditor.label || id;
+    const ok = await cbeConfirm('This discards your changes to “' + label +
+      '” and restores the original. Continue?', { okLabel: 'Restore', title: 'Restore Original' });
+    if (!ok) return;
+    setSkinEditorStatus('Restoring original…');
+    if (api) api.postMessage({ type: 'restoreSkinOriginal', id: id });
   });
 
   /* Tool-call settings — hydrate from payload.toolCall (extension's
@@ -4801,10 +4877,14 @@ function storedPromptsDelete() {
   });
 }
 
-function cbeConfirm(message) {
+function cbeConfirm(message, opts) {
   /* Tiny replacement for window.confirm() that works inside a VSCode
      webview. Themed via the same --cbe-modal-* vars the rest of the
-     modals use, so it matches the active skin. Returns a Promise<bool>. */
+     modals use, so it matches the active skin. Returns a Promise<bool>.
+     opts (optional): { title:'Confirm', okLabel:'Delete' } — back-compat:
+     when omitted, keeps the original "Confirm"/"Delete" labels. */
+  const title   = (opts && opts.title)   || 'Confirm';
+  const okLabel = (opts && opts.okLabel) || 'Delete';
   return new Promise(resolve => {
     const old = document.getElementById('cbe-confirm');
     if (old) old.remove();
@@ -4813,11 +4893,11 @@ function cbeConfirm(message) {
     overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;';
     overlay.innerHTML =
       '<div style="background:var(--cbe-modal-bg);color:var(--cbe-modal-fg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:420px;max-width:92vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
-        '<div style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;">Confirm</div>' +
+        '<div style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;">' + escapeHtml(title) + '</div>' +
         '<div style="padding:16px 18px;white-space:pre-wrap;line-height:1.45;">' + escapeHtml(message) + '</div>' +
         '<div style="padding:10px 16px;background:var(--cbe-modal-foot-bg);border-top:1px solid rgba(0,0,0,.25);display:flex;justify-content:flex-end;gap:8px;">' +
           '<button type="button" data-act="cancel" style="background:transparent;color:var(--cbe-modal-fg);border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:6px 14px;cursor:pointer;">Cancel</button>' +
-          '<button type="button" data-act="ok" style="background:var(--cbe-modal-accent);color:var(--cbe-modal-title-fg);border:0;border-radius:6px;padding:6px 14px;cursor:pointer;font-weight:600;">Delete</button>' +
+          '<button type="button" data-act="ok" style="background:var(--cbe-modal-accent);color:var(--cbe-modal-title-fg);border:0;border-radius:6px;padding:6px 14px;cursor:pointer;font-weight:600;">' + escapeHtml(okLabel) + '</button>' +
         '</div>' +
       '</div>';
     document.body.appendChild(overlay);
@@ -4840,6 +4920,94 @@ function cbeConfirm(message) {
     const cancelBtn = overlay.querySelector('button[data-act="cancel"]');
     if (cancelBtn) cancelBtn.focus();
   });
+}
+
+/* ── cbePrompt — in-DOM single-line text prompt (NOT window.prompt, which is
+   unavailable in the VSCode webview). Same theming as cbeConfirm. Resolves
+   to the entered string, or null if cancelled/Esc. Used by "Save as New". */
+function cbePrompt(title, placeholder, initial) {
+  return new Promise(resolve => {
+    const old = document.getElementById('cbe-prompt');
+    if (old) old.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'cbe-prompt';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;';
+    overlay.innerHTML =
+      '<div style="background:var(--cbe-modal-bg);color:var(--cbe-modal-fg);border:2px solid var(--cbe-modal-border);border-radius:10px;width:420px;max-width:92vw;box-shadow:0 12px 50px rgba(0,0,0,.7);display:flex;flex-direction:column;">' +
+        '<div style="padding:12px 16px;background:linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2));color:var(--cbe-modal-title-fg);font-weight:700;">' + escapeHtml(title || 'Enter a value') + '</div>' +
+        '<div style="padding:16px 18px;">' +
+          '<input type="text" id="cbe-prompt-input" spellcheck="false" placeholder="' + escapeHtml(placeholder || '') + '" value="' + escapeHtml(initial || '') + '" style="width:100%;padding:6px 8px;background:var(--cbe-modal-bg,#1c1c1c);color:var(--cbe-modal-fg,#eee);border:1px solid var(--cbe-modal-border,#444);border-radius:4px;font:inherit;box-sizing:border-box;">' +
+        '</div>' +
+        '<div style="padding:10px 16px;background:var(--cbe-modal-foot-bg);border-top:1px solid rgba(0,0,0,.25);display:flex;justify-content:flex-end;gap:8px;">' +
+          '<button type="button" data-act="cancel" style="background:transparent;color:var(--cbe-modal-fg);border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:6px 14px;cursor:pointer;">Cancel</button>' +
+          '<button type="button" data-act="ok" style="background:var(--cbe-modal-accent);color:var(--cbe-modal-title-fg);border:0;border-radius:6px;padding:6px 14px;cursor:pointer;font-weight:600;">OK</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    const input = overlay.querySelector('#cbe-prompt-input');
+    function done(result) {
+      try { overlay.remove(); } catch (_) {}
+      document.removeEventListener('keydown', onKey, true);
+      resolve(result);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); done(null); }
+      else if (e.key === 'Enter') { e.preventDefault(); done(input ? input.value : null); }
+    }
+    overlay.addEventListener('click', (e) => {
+      const act = e.target && e.target.getAttribute && e.target.getAttribute('data-act');
+      if (act === 'ok') done(input ? input.value : null);
+      else if (act === 'cancel' || e.target === overlay) done(null);
+    });
+    document.addEventListener('keydown', onKey, true);
+    if (input) { input.focus(); try { input.select(); } catch (_) {} }
+  });
+}
+
+/* ── Skin editor state + helpers (Phase 3) ───────────────────────────────
+   __cbeSkinEditor tracks which skin id the editor sub-panel is currently
+   bound to. The host-reply handlers (skinSource/skinSaved/skinSavedAsNew/
+   skinRestored) in the global message listener call these helpers. */
+let __cbeSkinEditor = { id: '', label: '' };
+/* After "Save as New" the host sends skinSavedAsNew{newId}; we re-request
+   listSkins, and when the fresh skinsList arrives we auto-select this id. */
+let __cbeSkinSelectAfterList = '';
+
+function skinEditorEl() { return document.getElementById('cbe-skin-editor'); }
+
+function skinLabelFor(id) {
+  /* Resolve the picker label for a skin id from the cached skins list. */
+  if (Array.isArray(__cbeSkinsList)) {
+    const hit = __cbeSkinsList.find(s => s && s.name === id);
+    if (hit) return hit.label || hit.name || id;
+  }
+  return id;
+}
+
+function openSkinEditor(id, html) {
+  const wrap = skinEditorEl();
+  if (!wrap) return;
+  __cbeSkinEditor.id = id || '';
+  __cbeSkinEditor.label = skinLabelFor(id);
+  const nameEl = document.getElementById('cbe-skin-editor-name');
+  if (nameEl) nameEl.textContent = __cbeSkinEditor.label || '(none)';
+  const ta = document.getElementById('cbe-skin-editor-ta');
+  if (ta && typeof html === 'string') ta.value = html;
+  wrap.hidden = false;
+}
+
+function closeSkinEditor() {
+  const wrap = skinEditorEl();
+  if (wrap) wrap.hidden = true;
+  setSkinEditorStatus('');
+  __cbeSkinEditor = { id: '', label: '' };
+}
+
+function setSkinEditorStatus(text, isError) {
+  const el = document.getElementById('cbe-skin-editor-status');
+  if (!el) return;
+  el.textContent = text || '';
+  el.style.color = isError ? '#ff6b6b' : '';
 }
 
 function storedPromptsUse() {
@@ -6269,7 +6437,53 @@ window.addEventListener('message', e => {
   } else if (m.type === 'skinsList') {
     /* Lazy-discovered skin list — populates the dropdown if settings is open. */
     __cbeSkinsList = Array.isArray(m.skins) ? m.skins.slice() : [];
+    /* If a "Save as New" just landed, select the freshly-created skin now
+       that it's in the list. Setting .value before renderSkinDropdown is
+       wiped, so set __cbeActiveSkin (which renderSkinDropdown honors). */
+    if (__cbeSkinSelectAfterList) {
+      __cbeActiveSkin = __cbeSkinSelectAfterList;
+      __cbeSkinSelectAfterList = '';
+    }
     renderSkinDropdown();
+  } else if (m.type === 'skinSource') {
+    /* Host shipped the selected skin's raw index.html. Fill the editor. */
+    if (m.id === __cbeSkinEditor.id) {
+      if (m.ok) {
+        const ta = document.getElementById('cbe-skin-editor-ta');
+        if (ta) ta.value = (typeof m.html === 'string') ? m.html : '';
+        setSkinEditorStatus('Loaded ' + (__cbeSkinEditor.label || m.id) + '.');
+      } else {
+        setSkinEditorStatus(m.error || 'Failed to load skin source.', true);
+      }
+    }
+  } else if (m.type === 'skinSaved') {
+    if (m.id === __cbeSkinEditor.id) {
+      if (m.ok) {
+        setSkinEditorStatus('Saved.' + (m.bak ? ' Backup: ' + m.bak : '') +
+          ' Skin remounted live.');
+      } else {
+        setSkinEditorStatus(m.error || 'Save failed.', true);
+      }
+    }
+  } else if (m.type === 'skinSavedAsNew') {
+    if (m.ok) {
+      setSkinEditorStatus('Created new skin “' + (m.newId || '') + '”.');
+      /* Refresh dropdown then auto-select the new skin when it arrives. */
+      __cbeSkinSelectAfterList = m.newId || '';
+      if (api) api.postMessage({ type: 'listSkins' });
+    } else {
+      setSkinEditorStatus(m.error || 'Could not create new skin (name in use?).', true);
+    }
+  } else if (m.type === 'skinRestored') {
+    if (m.id === __cbeSkinEditor.id) {
+      if (m.ok) {
+        setSkinEditorStatus('Original restored. Reloading source…');
+        /* Reload the editor textarea from the now-restored file. */
+        if (api) api.postMessage({ type: 'getSkinSource', id: m.id });
+      } else {
+        setSkinEditorStatus(m.error || 'Restore failed.', true);
+      }
+    }
   } else if (m.type === 'contextUsage') {
     /* Update the Compact button's conic-gradient fill ring. Host estimates
        tokens-used / max-context and posts the ratio after every assistant

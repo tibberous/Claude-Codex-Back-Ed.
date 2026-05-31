@@ -74,6 +74,7 @@ function getRuntimeVoiceProviders() {
         : VOICE_PROVIDERS.filter(p => !REALTIME_LOCAL_STT_PROVIDERS.includes(p));
 }
 const SKINS_DIR_NAME = 'skins';
+const SKINS_BACKUP_DIR_NAME = 'skins-original-backup';   /* pristine "Restore Original" source (tracked) */
 const CONFIG_INI_NAME = 'config.ini';
 const secretsCache = {};   /* providerId -> apiKey | null. Populated at activate. */
 
@@ -6317,11 +6318,18 @@ function listSkins(context, webview) {
            from the skin's own `<id>.html` :root. */
         const meta = parseSkinHtmlMeta(htmlPath, id);
         if (!meta) continue;
-        /* Optional preview thumbnail: `skins/<id>.preview.png`. */
-        const previewPath = path.join(context.extensionPath, SKINS_DIR_NAME, `${id}.preview.png`);
-        const previewUri = (webview && fs.existsSync(previewPath))
-            ? webview.asWebviewUri(vscode.Uri.file(previewPath)).toString()
-            : '';
+        /* Content-addressed preview thumbnail (Phase 5):
+           `skins/previews/<id>-<md5[:6]>.png`. If absent, fire-and-forget a
+           generation so it's ready next time; the picker shows a placeholder
+           meanwhile. The md5 of the skin HTML is the cache key, so a saved
+           edit self-refreshes the preview. */
+        let previewUri = '';
+        const pi = skinPreviewInfo(context, id);
+        if (pi && pi.exists && webview) {
+            previewUri = webview.asWebviewUri(vscode.Uri.file(pi.previewFsPath)).toString();
+        } else if (pi && !pi.exists) {
+            regenSkinPreview(context, id, false);
+        }
         out.push({
             name:        id,                            /* logical id — picker value */
             label:       meta.name || id,               /* pretty display name from --cbe-skin-name */
@@ -6383,6 +6391,150 @@ function resolveSkin(context, requestedName) {
         };
     } catch (_) {
         return miss;
+    }
+}
+
+/* ── Skin editor backend (Phase 1/4/5) ───────────────────────────────────
+   The in-app skin editor (Settings → Appearance) reads/writes the flat
+   `skins/<id>.html` files. Every overwrite is non-destructive: we snapshot
+   the current file to a human-readable `.bak` first, and a pristine copy of
+   every factory skin lives in `skins-original-backup/` for Restore Original. */
+
+/* Recursive directory copy (no deps). Creates dst, copies files + subdirs. */
+function _copyDirRecursiveSync(src, dst) {
+    fs.mkdirSync(dst, { recursive: true });
+    for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
+        const s = path.join(src, ent.name);
+        const d = path.join(dst, ent.name);
+        if (ent.isDirectory()) _copyDirRecursiveSync(s, d);
+        else if (ent.isFile()) fs.copyFileSync(s, d);
+    }
+}
+
+/* Human-readable timestamp for `.bak` filenames, e.g. `Sunday-3-13-PM`.
+   No deps — local time. */
+function _bakTimestamp(d) {
+    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    d = d || new Date();
+    let h = d.getHours();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12; if (h === 0) h = 12;
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${days[d.getDay()]}-${h}-${mm}-${ampm}`;
+}
+
+/* Snapshot `skins/<id>.html` → `skins/<id>.<Day>-<H>-<MM>-<AMPM>.bak` BEFORE
+   any overwrite. `.bak` files are gitignored (`*.bak`) and the loader skips
+   them (`_scanSkinDirs` only enumerates `*.html`, excluding `*.bak`). Returns
+   the basename of the snapshot written, or '' if there was nothing to snapshot.
+   Never throws into the caller — a snapshot failure must not block the save,
+   but we trace it. */
+function snapshotSkin(context, id) {
+    try {
+        const safe = path.basename(String(id || ''));
+        if (!safe) return '';
+        const src = path.join(context.extensionPath, SKINS_DIR_NAME, `${safe}.html`);
+        if (!fs.existsSync(src)) return '';   /* nothing to snapshot (e.g. brand-new skin) */
+        const bakName = `${safe}.${_bakTimestamp()}.bak`;
+        const dst = path.join(context.extensionPath, SKINS_DIR_NAME, bakName);
+        fs.copyFileSync(src, dst);
+        trace(`SKIN:SNAPSHOT ${safe} -> ${bakName}`);
+        return bakName;
+    } catch (e) {
+        traceErr('snapshotSkin', e);
+        return '';
+    }
+}
+
+/* Slugify a display name into a safe skin id: lowercase, spaces→'-', strip
+   anything that isn't [a-z0-9-], collapse repeats, trim leading/trailing '-'.
+   Returns '' when nothing usable survives (caller treats as invalid name). */
+function slugifySkinName(name) {
+    return String(name || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+}
+
+/* Set (or insert) the `--cbe-skin-name: "..."` declaration in the FIRST :root
+   block of a skin HTML string, so a Save-as-New picks up the entered display
+   name in the picker. Best-effort: if there's no :root, returns html unchanged
+   (loader falls back to the title-cased slug). Mirrors the :root-rewrite
+   approach used by tools/inject_skin_authordesc.js. */
+function setSkinNameInHtml(html, displayName) {
+    try {
+        const safeName = String(displayName || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        const decl = `--cbe-skin-name: "${safeName}";`;
+        const rootIdx = html.indexOf(':root');
+        if (rootIdx < 0) return html;
+        const open = html.indexOf('{', rootIdx);
+        if (open < 0) return html;
+        /* Find the matching close brace of this :root block. */
+        let depth = 0, close = -1;
+        for (let i = open; i < html.length; i++) {
+            const c = html[i];
+            if (c === '{') depth++;
+            else if (c === '}') { depth--; if (depth === 0) { close = i; break; } }
+        }
+        if (close < 0) return html;
+        const body = html.slice(open + 1, close);
+        const re = /--cbe-skin-name\s*:\s*[^;]*;?/;
+        let newBody;
+        if (re.test(body)) {
+            newBody = body.replace(re, decl);
+        } else {
+            /* Insert right after the opening brace, preserving indentation feel. */
+            newBody = `\n    ${decl}${body}`;
+        }
+        return html.slice(0, open + 1) + newBody + html.slice(close);
+    } catch (_) {
+        return html;
+    }
+}
+
+/* Fire-and-forget regen of a skin's content-addressed preview PNG. Non-blocking
+   — the picker shows a placeholder until it lands; failures are traced only.
+   Uses the same python command resolution as the rest of extension.js. */
+function regenSkinPreview(context, id, force) {
+    try {
+        const safe = path.basename(String(id || ''));
+        if (!safe) return;
+        const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
+        const args = ['-3', path.join('tools', 'gen_skin_preview.py'), '--skin', safe];
+        if (force) args.push('--force');
+        const proc = spawn(pyCmd, args, {
+            cwd: context.extensionPath,
+            windowsHide: true,
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        let err = '';
+        if (proc.stderr) proc.stderr.on('data', d => { err += d.toString(); });
+        proc.on('error', e => traceErr('regenSkinPreview spawn', e));
+        proc.on('close', code => {
+            if (code !== 0) trace(`SKIN:PREVIEW regen ${safe} exit=${code} ${err.trim().slice(0, 300)}`);
+            else trace(`SKIN:PREVIEW regen ${safe} ok`);
+        });
+    } catch (e) {
+        traceErr('regenSkinPreview', e);
+    }
+}
+
+/* Compute the content-addressed preview path for a skin: first 6 hex of the
+   md5 of `skins/<id>.html`. Returns { previewFsPath, exists } or null. */
+function skinPreviewInfo(context, id) {
+    try {
+        const safe = path.basename(String(id || ''));
+        if (!safe) return null;
+        const htmlPath = path.join(context.extensionPath, SKINS_DIR_NAME, `${safe}.html`);
+        if (!fs.existsSync(htmlPath)) return null;
+        const md5 = require('crypto').createHash('md5')
+            .update(fs.readFileSync(htmlPath)).digest('hex').slice(0, 6);
+        const previewFsPath = path.join(context.extensionPath, SKINS_DIR_NAME, 'previews', `${safe}-${md5}.png`);
+        return { previewFsPath, exists: fs.existsSync(previewFsPath) };
+    } catch (e) {
+        traceErr('skinPreviewInfo', e);
+        return null;
     }
 }
 
@@ -8543,6 +8695,133 @@ function bindPanel(context, panel) {
                        [{ name, label, uri }] with webview-safe URIs. */
                     const skins = listSkins(context, panel.webview);
                     panel.webview.postMessage({ type: 'skinsList', skins });
+                    break;
+                }
+                /* ── Skin editor backend (Phase 4) ─────────────────────────
+                   Read/write the flat `skins/<id>.html` files for the in-app
+                   editor (Settings → Appearance). All writes are non-destructive
+                   (snapshot to .bak first). Contract messages match the panel.js
+                   editor side verbatim — do not rename. */
+                case 'getSkinSource': {
+                    /* {type:'getSkinSource', id} → {type:'skinSource', id, ok, html, error?} */
+                    const id = path.basename(String(msg.id || ''));
+                    try {
+                        if (!id) throw new Error('missing skin id');
+                        const htmlPath = path.join(context.extensionPath, SKINS_DIR_NAME, `${id}.html`);
+                        if (!fs.existsSync(htmlPath)) throw new Error(`no such skin: ${id}`);
+                        const html = fs.readFileSync(htmlPath, 'utf8');
+                        panel.webview.postMessage({ type: 'skinSource', id, ok: true, html });
+                    } catch (e) {
+                        traceErr('getSkinSource', e);
+                        panel.webview.postMessage({ type: 'skinSource', id, ok: false, error: String(e && e.message || e) });
+                    }
+                    break;
+                }
+                case 'saveSkin': {
+                    /* {type:'saveSkin', id, html} → {type:'skinSaved', id, ok, bak?, error?}
+                       Snapshot → overwrite → regen preview (non-blocking) → remount
+                       so the edit shows live (NO VSCode reload). */
+                    const id = path.basename(String(msg.id || ''));
+                    try {
+                        if (!id) throw new Error('missing skin id');
+                        if (typeof msg.html !== 'string') throw new Error('missing html');
+                        const htmlPath = path.join(context.extensionPath, SKINS_DIR_NAME, `${id}.html`);
+                        if (!fs.existsSync(htmlPath)) throw new Error(`no such skin: ${id}`);
+                        const bak = snapshotSkin(context, id);              /* non-destructive */
+                        fs.writeFileSync(htmlPath, msg.html, 'utf8');
+                        regenSkinPreview(context, id, true);               /* html changed → force */
+                        /* Remount the panel if THIS is the active skin, reusing the
+                           same getPanelHtml path the skin-change handler uses. */
+                        try {
+                            const active = context.workspaceState.get(STATE_SKIN, '') || '';
+                            if (path.basename(active) === id) {
+                                panel.webview.html = getPanelHtml(context, panel.webview);
+                                trace(`SKIN:SAVE remount active skin ${id}`);
+                            }
+                        } catch (e) { traceErr('saveSkin remount', e); }
+                        panel.webview.postMessage({ type: 'skinSaved', id, ok: true, bak });
+                    } catch (e) {
+                        traceErr('saveSkin', e);
+                        panel.webview.postMessage({ type: 'skinSaved', id, ok: false, error: String(e && e.message || e) });
+                    }
+                    break;
+                }
+                case 'saveSkinAsNew': {
+                    /* {type:'saveSkinAsNew', fromId, name, html}
+                         → {type:'skinSavedAsNew', ok, newId?, error?}
+                       Slugify name → collision-check → write skins/<slug>.html +
+                       skins-original-backup/<slug>.html (R1: new skin's pristine
+                       original = its creation state). Copy <fromId>-assets/ if any. */
+                    try {
+                        if (typeof msg.html !== 'string') throw new Error('missing html');
+                        const slug = slugifySkinName(msg.name);
+                        if (!slug) throw new Error('invalid skin name');
+                        const skinsDir  = path.join(context.extensionPath, SKINS_DIR_NAME);
+                        const backupDir = path.join(context.extensionPath, SKINS_BACKUP_DIR_NAME);
+                        const newHtmlPath = path.join(skinsDir, `${slug}.html`);
+                        if (fs.existsSync(newHtmlPath)) throw new Error(`a skin named "${slug}" already exists`);
+
+                        /* Stamp the entered display name into the new skin's :root
+                           so the picker labels it correctly. */
+                        const stamped = setSkinNameInHtml(msg.html, msg.name);
+                        fs.writeFileSync(newHtmlPath, stamped, 'utf8');
+
+                        /* R1: the new skin's pristine "Restore Original" point is
+                           its creation state — write the SAME html to the backup. */
+                        fs.mkdirSync(backupDir, { recursive: true });
+                        fs.writeFileSync(path.join(backupDir, `${slug}.html`), stamped, 'utf8');
+
+                        /* If the source skin had an assets dir, clone it to the new
+                           skin (and into the backup) so asset refs still resolve. */
+                        const fromId = path.basename(String(msg.fromId || ''));
+                        if (fromId) {
+                            const srcAssets = path.join(skinsDir, `${fromId}${SKIN_ASSETS_SUFFIX}`);
+                            if (fs.existsSync(srcAssets) && fs.statSync(srcAssets).isDirectory()) {
+                                _copyDirRecursiveSync(srcAssets, path.join(skinsDir, `${slug}${SKIN_ASSETS_SUFFIX}`));
+                                _copyDirRecursiveSync(srcAssets, path.join(backupDir, `${slug}${SKIN_ASSETS_SUFFIX}`));
+                            }
+                        }
+                        regenSkinPreview(context, slug, false);
+                        trace(`SKIN:SAVEASNEW ${fromId || '?'} -> ${slug}`);
+                        panel.webview.postMessage({ type: 'skinSavedAsNew', ok: true, newId: slug });
+                    } catch (e) {
+                        traceErr('saveSkinAsNew', e);
+                        panel.webview.postMessage({ type: 'skinSavedAsNew', ok: false, error: String(e && e.message || e) });
+                    }
+                    break;
+                }
+                case 'restoreSkinOriginal': {
+                    /* {type:'restoreSkinOriginal', id} → {type:'skinRestored', id, ok, error?}
+                       Snapshot current → copy skins-original-backup/<id>.html (+assets)
+                       over skins/<id>.html → regen preview → remount. Errors clearly
+                       if there's no factory original for this skin. */
+                    const id = path.basename(String(msg.id || ''));
+                    try {
+                        if (!id) throw new Error('missing skin id');
+                        const skinsDir  = path.join(context.extensionPath, SKINS_DIR_NAME);
+                        const backupDir = path.join(context.extensionPath, SKINS_BACKUP_DIR_NAME);
+                        const bakHtml = path.join(backupDir, `${id}.html`);
+                        if (!fs.existsSync(bakHtml)) throw new Error(`no factory original for "${id}"`);
+                        snapshotSkin(context, id);                          /* even Restore is non-destructive */
+                        fs.copyFileSync(bakHtml, path.join(skinsDir, `${id}.html`));
+                        /* Restore the backed-up assets dir too, if present. */
+                        const bakAssets = path.join(backupDir, `${id}${SKIN_ASSETS_SUFFIX}`);
+                        if (fs.existsSync(bakAssets) && fs.statSync(bakAssets).isDirectory()) {
+                            _copyDirRecursiveSync(bakAssets, path.join(skinsDir, `${id}${SKIN_ASSETS_SUFFIX}`));
+                        }
+                        regenSkinPreview(context, id, true);
+                        try {
+                            const active = context.workspaceState.get(STATE_SKIN, '') || '';
+                            if (path.basename(active) === id) {
+                                panel.webview.html = getPanelHtml(context, panel.webview);
+                                trace(`SKIN:RESTORE remount active skin ${id}`);
+                            }
+                        } catch (e) { traceErr('restoreSkinOriginal remount', e); }
+                        panel.webview.postMessage({ type: 'skinRestored', id, ok: true });
+                    } catch (e) {
+                        traceErr('restoreSkinOriginal', e);
+                        panel.webview.postMessage({ type: 'skinRestored', id, ok: false, error: String(e && e.message || e) });
+                    }
                     break;
                 }
                 case 'debugComputed': {
