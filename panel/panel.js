@@ -2369,25 +2369,34 @@ function _amStartDelete(account, row) {
 let __cbeActiveSkin = '';  /* bare filename, e.g. 'noir.css'. '' = no skin */
 let __cbeSkinsList  = null;/* null = not yet discovered for this session; [] = scanned, empty */
 
-function applySkinUri(uri) {
-  /* Swap the <link id="cbe-skin"> href. Empty/missing uri clears the
-     stylesheet. Browsers handle href="" as a no-op load, so we set the
-     href to empty string to unload the previous skin. Also stamp the
-     active skin id onto <body data-skin> so skin CSS can target
-     skin-specific UI hooks (e.g. tamagotchi docks the pet panel into
-     the prompt shell's left edge). */
-  const link = document.getElementById('cbe-skin');
-  if (!link) return;
-  link.setAttribute('href', uri || '');
-  /* __cbeActiveSkin is a bare filename like "tamagotchi.css" or empty
-     string. Strip extension for the data-attribute value. */
+/* Stamp the active skin id onto <body data-skin> so skin CSS can target
+   skin-specific UI hooks (e.g. tamagotchi's body[data-skin="tamagotchi"]
+   docks the pet panel into the prompt shell). Single-file skins (Phase 0/2)
+   are their own full HTML, so this is the ONLY thing that has to fire on
+   skin apply — there is no external <link> to swap anymore. */
+function stampSkinBody(skinId) {
   try {
-    const bare = String(__cbeActiveSkin || '').replace(/\.css$/i, '');
+    /* __cbeActiveSkin may be a logical id ('tamagotchi') or, for legacy
+       skins, a bare filename ('tamagotchi.css'). Strip any .css for the
+       attribute value. */
+    const bare = String(skinId || '').replace(/\.css$/i, '');
     if (bare) document.body.setAttribute('data-skin', bare);
     else      document.body.removeAttribute('data-skin');
   } catch (e) {
     console.warn('[CBE] data-skin stamp failed:', e && e.message);
   }
+}
+
+function applySkinUri(uri) {
+  /* LEGACY CSS-overlay path only. Single-file skins (Phase 0/2) have no
+     <link id="cbe-skin"> — it was removed from every .skin/index.html — so
+     this early-returns for them. Kept for the bare `skins/<id>/` legacy
+     dirs (D3 deferred) which still ship a styles.css the host links here.
+     Also re-stamps <body data-skin> for parity. */
+  stampSkinBody(__cbeActiveSkin);
+  const link = document.getElementById('cbe-skin');
+  if (!link) return;
+  link.setAttribute('href', uri || '');
 }
 
 function applySkinColors(colors) {
@@ -6141,12 +6150,16 @@ window.addEventListener('message', e => {
     if (typeof m.sttDictionary === 'string') window.__cbeSttDictionary = m.sttDictionary;
     if (typeof m.sttLanguage   === 'string') window.__cbeSttLanguage   = m.sttLanguage;
     if (typeof m.bigFont    === 'boolean' && window.__cbApplyBig) { window.__cbApplyBig(m.bigFont); }
-    /* Apply previously-saved skin on boot. m.skinUri is the asWebviewUri()
-       form ready for <link href>; m.skin is the bare filename used to mark
-       the dropdown selection when settings opens. */
+    /* Apply previously-saved skin on boot. Single-file skins (Phase 0/2) carry
+       their CSS + palette inside the already-mounted index.html :root, so the
+       host no longer sends skinUri/skinColors (D6). We still stamp the active
+       skin id onto <body data-skin> so skin-specific hooks (e.g. tamagotchi's
+       body[data-skin="tamagotchi"] pet-dock CSS) match. Legacy CSS-overlay
+       skins still arrive with m.skinUri/m.skinColors and use applySkin*. */
     if (typeof m.skin === 'string') __cbeActiveSkin = m.skin;
+    stampSkinBody(__cbeActiveSkin);
     if (m.skinUri) applySkinUri(m.skinUri);
-    applySkinColors(m.skinColors || null);
+    if (m.skinColors) applySkinColors(m.skinColors);
     /* Cache help.html body shipped from the host. openHelp() innerHTMLs this
        into a div instead of iframing the file — iframes via asWebviewUri were
        rendering empty on some VSCode builds. */
@@ -6244,9 +6257,12 @@ window.addEventListener('message', e => {
       api.postMessage({ type: 'fetchExtensionsCatalog' });
     }
   } else if (m.type === 'applySkin') {
-    /* Host-driven skin swap. m.skin = bare filename ('' to clear),
-       m.skinUri = full webview URI ('' to clear),
-       m.skinColors = modal palette from manifest (null to fall back to defaults). */
+    /* LEGACY CSS-overlay skin swap only. Single-file skins (Phase 0/2) are
+       remounted host-side via getPanelHtml (the new index.html's :root owns
+       the palette), so this message is no longer sent for them — the host
+       only posts applySkin when switching between two legacy CSS-overlay
+       skins. m.skinUri = styles.css webview URI; m.skinColors = manifest
+       palette. applySkinUri also re-stamps <body data-skin>. */
     __cbeActiveSkin = m.skin || '';
     applySkinUri(m.skinUri || '');
     applySkinColors(m.skinColors || null);

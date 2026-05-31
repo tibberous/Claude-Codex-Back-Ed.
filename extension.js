@@ -6168,11 +6168,102 @@ function deactivate() {
 
    Both forms are listed in the picker. When the same logical id has both
    forms on disk, the `.skin` (new) form wins. */
-function parseSkinManifest(manifestPath) {
-    /* Tiny ad-hoc parser — manifest.xml is shallow, no attrs. Reads
-       <tagName>value</tagName> pairs at any depth (so nested <colors><...>
-       still resolves). Anything not matched falls back to a sensible default
-       at the caller. */
+/* manifest <colors> tag <-> the CSS custom property it maps to. Used to
+   scrape each skin's palette out of its index.html :root block (Phase 2 —
+   replaces the old manifest.xml <colors> read). Mirrors applySkinColors()
+   @ panel.js 2400-2412. */
+const SKIN_COLOR_VARS = {
+    'modal-bg':         '--cbe-modal-bg',
+    'modal-fg':         '--cbe-modal-fg',
+    'modal-border':     '--cbe-modal-border',
+    'modal-title-bg-1': '--cbe-modal-title-bg-1',
+    'modal-title-bg-2': '--cbe-modal-title-bg-2',
+    'modal-title-fg':   '--cbe-modal-title-fg',
+    'modal-foot-bg':    '--cbe-modal-foot-bg',
+    'modal-accent':     '--cbe-modal-accent',
+    'highlight-color':  '--cbe-highlight-color',
+    'code-bar-bg':      '--cbe-code-bar-bg',
+    'code-bar-fg':      '--cbe-code-bar-fg',
+};
+
+/* Extract the inner text of the FIRST `:root { ... }` block in a CSS/HTML
+   string (the skin's head <style> defaults block, where Phase-0 wrote the
+   palette + metadata). Returns '' if none. Brace-matched so a value with no
+   nested braces resolves cleanly. */
+function _firstRootBody(text) {
+    const idx = text.indexOf(':root');
+    if (idx < 0) return '';
+    const open = text.indexOf('{', idx);
+    if (open < 0) return '';
+    let depth = 0;
+    for (let i = open; i < text.length; i++) {
+        const c = text[i];
+        if (c === '{') depth++;
+        else if (c === '}') { depth--; if (depth === 0) return text.slice(open + 1, i); }
+    }
+    return '';
+}
+
+/* Read a single CSS custom property value out of a :root body. Strips an
+   optional surrounding pair of double-quotes (used for --cbe-skin-name so
+   spaces/punctuation survive as a CSS token). */
+function _readRootVar(rootBody, cssVar) {
+    const re = new RegExp(`${cssVar.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*:\\s*([^;]*)`);
+    const m = re.exec(rootBody);
+    if (!m) return '';
+    let v = m[1].trim();
+    if (v.startsWith('"') && v.endsWith('"') && v.length >= 2) {
+        v = v.slice(1, -1).replace(/\\"/g, '"');
+    }
+    return v;
+}
+
+/* Phase-2 replacement for parseSkinManifest: read a skin's metadata + palette
+   from its OWN index.html :root (the Phase-0 single-file contract) instead of
+   manifest.xml. Returns the SAME shape callers relied on so the rest of the
+   loader is unchanged:
+     { id, name, accent, stylesheet, panelHtml, colors:{ 'modal-bg':..., ... } }
+   `id` is derived from the folder name by the caller (passed in). Colors that
+   the :root resolves to a var()-chain (e.g. an un-migrated code-bar default)
+   are returned as '' so they fall through to the baked default — never pushed
+   as a literal "var(--x)" string. */
+function parseSkinHtmlMeta(indexHtmlPath, logicalId) {
+    try {
+        const html = fs.readFileSync(indexHtmlPath, 'utf8');
+        const root = _firstRootBody(html);
+        const name   = _readRootVar(root, '--cbe-skin-name');
+        const accent = _readRootVar(root, '--cbe-skin-accent');
+        const colors = {};
+        for (const [tag, cssVar] of Object.entries(SKIN_COLOR_VARS)) {
+            let v = _readRootVar(root, cssVar);
+            /* Ignore var()-chained / empty values — let the baked default win. */
+            if (!v || /^var\(/i.test(v)) v = '';
+            colors[tag] = v;
+        }
+        return {
+            id:          logicalId || '',
+            name:        name || logicalId || '',
+            version:     '',
+            author:      '',
+            accent:      accent || '',
+            /* No separate stylesheet in the single-file format; index.html IS
+               the skin. Kept for shape-compat; never read by the loader now. */
+            stylesheet:  '',
+            /* index.html is always the panel HTML for a .skin/ dir. */
+            panelHtml:   'index.html',
+            description: '',
+            colors,
+        };
+    } catch (_) {
+        return null;
+    }
+}
+
+/* Legacy XML manifest parser — ONLY for the bare `skins/<id>/` CSS-overlay
+   dirs (deferred decision D3). New `.skin/` single-file skins use
+   parseSkinHtmlMeta and have no manifest.xml. Same shape as the HTML reader.
+   Reads <tagName>value</tagName> at any depth (so nested <colors> resolve). */
+function parseSkinManifestLegacy(manifestPath) {
     try {
         const xml = fs.readFileSync(manifestPath, 'utf8');
         const pick = (tag) => {
@@ -6186,14 +6277,8 @@ function parseSkinManifest(manifestPath) {
             author:      pick('author'),
             accent:      pick('accent'),
             stylesheet:  pick('stylesheet') || 'styles.css',
-            /* NEW format: when set, the skin owns the full chat-panel HTML
-               and the loader mounts <skinDir>/<panelHtml> instead of the
-               default panel/index.html. Empty/missing for legacy skins. */
             panelHtml:   pick('panelHtml') || pick('panel-html') || '',
             description: pick('description'),
-            /* Modal palette — pushed to :root as --cbe-modal-* vars on apply.
-               Tags inside <colors> live at the same regex grep level so the
-               flat pick() picks them up too. Empty string = "use default". */
             colors: {
                 'modal-bg':         pick('modal-bg'),
                 'modal-fg':         pick('modal-fg'),
@@ -6234,7 +6319,9 @@ function _scanSkinDirs(context) {
         traceErr('_scanSkinDirs', e);
         return map;
     }
-    /* Pass 1: legacy `<id>/` entries (only kept if no `.skin` peer wins). */
+    /* Pass 1: legacy `<id>/` entries (only kept if no `.skin` peer wins).
+       Legacy bare dirs still gate on manifest.xml (CSS-overlay format —
+       deferred decision D3, untouched by the single-file cutover). */
     for (const ent of entries) {
         if (!ent.isDirectory()) continue;
         if (ent.name.endsWith(SKIN_SUFFIX)) continue;
@@ -6243,14 +6330,18 @@ function _scanSkinDirs(context) {
         map[ent.name] = { root, format: 'legacy' };
     }
     /* Pass 2: new `<id>.skin/` entries — overwrite any legacy entry with
-       the same logical id. */
+       the same logical id. Single-file format (Phase 0/2): the validity gate
+       is `index.html` existence, NOT manifest.xml (which is being deleted).
+       Loose files in the dir (`*.bak` Save snapshots, styles.css/manifest.xml
+       relics) are never enumerated as skins — only `<id>.skin/` DIRS that
+       contain index.html become skins, so `.bak` siblings are inert. */
     for (const ent of entries) {
         if (!ent.isDirectory()) continue;
         if (!ent.name.endsWith(SKIN_SUFFIX)) continue;
         const logicalId = ent.name.slice(0, -SKIN_SUFFIX.length);
         if (!logicalId) continue;
         const root = path.join(dir, ent.name);
-        if (!fs.existsSync(path.join(root, 'manifest.xml'))) continue;
+        if (!fs.existsSync(path.join(root, 'index.html'))) continue;
         map[logicalId] = { root, format: 'new' };
     }
     return map;
@@ -6261,19 +6352,24 @@ function listSkins(context, webview) {
     const out = [];
     for (const id of Object.keys(scanned)) {
         const { root, format } = scanned[id];
-        const manifestPath = path.join(root, 'manifest.xml');
-        const meta = parseSkinManifest(manifestPath);
-        if (!meta) continue;
-        /* CSS file is OPTIONAL for the new full-HTML format (a skin can
-           inline everything into its own <head>). For the legacy format
-           the stylesheet is required — without it there's nothing to
-           apply over the default panel. */
-        const cssPath = path.join(root, meta.stylesheet || 'styles.css');
-        const cssExists = fs.existsSync(cssPath);
-        if (format === 'legacy' && !cssExists) continue;
-        const uri = (webview && cssExists)
-            ? webview.asWebviewUri(vscode.Uri.file(cssPath)).toString()
-            : '';
+        /* New single-file format: read label/accent/colors from the skin's
+           own index.html :root. Legacy format: still parse manifest.xml. */
+        let meta, uri;
+        if (format === 'new') {
+            meta = parseSkinHtmlMeta(path.join(root, 'index.html'), id);
+            if (!meta) continue;
+            /* No external stylesheet in single-file skins — index.html IS it. */
+            uri = '';
+        } else {
+            meta = parseSkinManifestLegacy(path.join(root, 'manifest.xml'));
+            if (!meta) continue;
+            /* Legacy CSS-overlay: stylesheet required (nothing to apply
+               otherwise). New-format never reaches here. */
+            const cssPath = path.join(root, meta.stylesheet || 'styles.css');
+            const cssExists = fs.existsSync(cssPath);
+            if (!cssExists) continue;
+            uri = webview ? webview.asWebviewUri(vscode.Uri.file(cssPath)).toString() : '';
+        }
         /* Optional preview thumbnail rendered by tools/render_skin.py. */
         const previewPath = path.join(root, 'preview.png');
         const previewUri = (webview && fs.existsSync(previewPath))
@@ -6325,35 +6421,45 @@ function resolveSkin(context, requestedName) {
     }
     if (!entry) return miss;
     try {
-        const manifestPath = path.join(entry.root, 'manifest.xml');
-        const meta = parseSkinManifest(manifestPath);
-        if (!meta) return miss;
-        const cssPath = path.join(entry.root, meta.stylesheet || 'styles.css');
-        const cssExists = fs.existsSync(cssPath);
-        /* For legacy skins, missing CSS = invalid (nothing to apply). For
-           new-format skins, CSS is optional (the skin's own index.html may
-           inline all styles into a <style> tag). */
-        if (entry.format === 'legacy' && !cssExists) return miss;
         const logicalId = entry.root.endsWith(SKIN_SUFFIX)
             ? path.basename(entry.root).slice(0, -SKIN_SUFFIX.length)
             : path.basename(entry.root);
-        let panelHtmlPath = '';
-        let panelHtml = '';
-        if (entry.format === 'new' && meta.panelHtml) {
-            const candidate = path.join(entry.root, path.basename(meta.panelHtml));
-            if (fs.existsSync(candidate)) {
-                panelHtmlPath = candidate;
-                panelHtml = path.basename(candidate);
-            }
+
+        if (entry.format === 'new') {
+            /* Single-file format (Phase 0/2): index.html is the whole skin.
+               No styles.css, no manifest.xml. Metadata + palette come from the
+               skin's own :root via parseSkinHtmlMeta. `uri` stays null — there
+               is no external stylesheet to link, and the runtime color push is
+               retired (D6) since the colors live in the remounted HTML's :root. */
+            const indexPath = path.join(entry.root, 'index.html');
+            if (!fs.existsSync(indexPath)) return miss;
+            const meta = parseSkinHtmlMeta(indexPath, logicalId);
+            if (!meta) return miss;
+            return {
+                name:          logicalId,
+                uri:           null,
+                colors:        meta.colors || null,
+                format:        'new',
+                root:          entry.root,
+                panelHtml:     'index.html',
+                panelHtmlPath: indexPath,
+            };
         }
+
+        /* Legacy CSS-overlay format (bare `skins/<id>/` — D3 deferred). */
+        const meta = parseSkinManifestLegacy(path.join(entry.root, 'manifest.xml'));
+        if (!meta) return miss;
+        const cssPath = path.join(entry.root, meta.stylesheet || 'styles.css');
+        const cssExists = fs.existsSync(cssPath);
+        if (!cssExists) return miss;   /* legacy with no CSS = nothing to apply */
         return {
             name:          logicalId,
-            uri:           cssExists ? vscode.Uri.file(cssPath) : null,
+            uri:           vscode.Uri.file(cssPath),
             colors:        meta.colors || null,
-            format:        entry.format,
+            format:        'legacy',
             root:          entry.root,
-            panelHtml,
-            panelHtmlPath,
+            panelHtml:     '',
+            panelHtmlPath: '',
         };
     } catch (_) {
         return miss;
@@ -7449,13 +7555,14 @@ function bindPanel(context, panel) {
                 case 'ready': {
                     const endReady = timeStep('webview ready -> server response');
                     const endInit = timeStep('  buildSettingsPayload + postMessage init');
-                    /* Resolve persisted skin to a webview URI (or empty if the
-                       file is gone) so the panel can apply it on first paint.
+                    /* Resolve the persisted skin only for its logical name —
+                       single-file skins (Phase 0/2) carry their CSS + palette
+                       inside the already-mounted index.html :root, so there is
+                       NO styles.css URI to push and NO runtime color push (D6).
                        Default to codex-black on fresh install (matches the
                        getPanelHtml fallback set 2026-05-26 for Jack Clark demo). */
                     const savedSkinName = context.workspaceState.get(STATE_SKIN, 'codex-black') || 'codex-black';
                     const resolved = resolveSkin(context, savedSkinName);
-                    const skinUri = resolved.uri ? panel.webview.asWebviewUri(resolved.uri).toString() : '';
                     /* Inline help.html — iframes loaded via asWebviewUri in
                        newer VSCode versions silently render empty/black on
                        some installs (the resource URL is reachable to img/css
@@ -7502,8 +7609,9 @@ function bindPanel(context, panel) {
                         type: 'init',
                         ...buildSettingsPayload(context),
                         skin: resolved.name,
-                        skinUri,
-                        skinColors: resolved.colors || null,
+                        /* skinUri / skinColors retired (Phase 2 / D6): the active
+                           skin's index.html (already mounted by getPanelHtml) owns
+                           its CSS + palette in :root. Nothing to push at runtime. */
                         helpHtml,
                         changelogHtml,
                         pinnedExtensions: _pinnedIds,

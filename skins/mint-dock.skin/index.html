@@ -41,23 +41,27 @@
      look. Skins push their own values onto :root via manifest.xml so the
      same modal markup re-paints in the theme's accent without rewriting
      any modal HTML or JS. */
-  --cbe-modal-bg:         #1a1a1a;
-  --cbe-modal-fg:         #e8e8e8;
-  --cbe-modal-border:     #e8621a;
-  --cbe-modal-title-bg-1: #b83c00;
-  --cbe-modal-title-bg-2: #e8621a;
+  --cbe-modal-bg:         #1a2a14;
+  --cbe-modal-fg:         #eef6e6;
+  --cbe-modal-border:     #86be43;
+  --cbe-modal-title-bg-1: #4a8b1f;
+  --cbe-modal-title-bg-2: #7dbb45;
   --cbe-modal-title-fg:   #ffffff;
-  --cbe-modal-foot-bg:    #111111;
-  --cbe-modal-accent:     #e8621a;
+  --cbe-modal-foot-bg:    #0e1a08;
+  --cbe-modal-accent:     #86be43;
   /* Universal high-contrast accent. Read from manifest.xml -> <highlight-color>
      so each skin gets a pop-color that reads cleanly on its modal-bg. */
-  --cbe-highlight-color:  #ffd166;
+  --cbe-highlight-color:  #c8e8a8;
 
   /* Code-block chrome (title bar above + footer below fenced code). Skins
      override via manifest.xml <code-bar-bg>/<code-bar-fg>. Defaults chain
      off the modal title palette so an un-themed skin still looks cohesive. */
-  --cbe-code-bar-bg:      var(--cbe-modal-title-bg-2);
-  --cbe-code-bar-fg:      var(--cbe-modal-title-fg);
+  --cbe-code-bar-bg:      #2c5a30;
+  --cbe-code-bar-fg:      #f2faf2;
+
+  /* ── Phase-0 single-file metadata (read by the skin loader; replaces manifest.xml) ── */
+  --cbe-skin-name:   "Mint Dock";
+  --cbe-skin-accent: #86be43;
 }
 
 * { box-sizing: border-box; }
@@ -1630,11 +1634,6 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   .msg.assistant.rendered { white-space: normal; }
   .msg.assistant.rendered .cv-prose { white-space: pre-wrap; }
 </style>
-<!-- Skin override stylesheet — href set at runtime when the user picks a skin
-     from Settings. Empty href = no skin. Loaded AFTER the inline <style>
-     above so skin rules win the cascade. -->
-<link id="cbe-skin" rel="stylesheet" href="" />
-
 <!-- CBE skin "mint-dock" (auto-migrated to full-HTML format 2026-05-25).
      This block was inlined from skins/mint-dock/styles.css; url(...)
      refs were rewritten to use {{SKIN_BASE}} so the skin's own assets

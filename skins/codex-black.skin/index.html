@@ -51,13 +51,17 @@
   --cbe-modal-accent:     #e8621a;
   /* Universal high-contrast accent. Read from manifest.xml -> <highlight-color>
      so each skin gets a pop-color that reads cleanly on its modal-bg. */
-  --cbe-highlight-color:  #ffd166;
+  --cbe-highlight-color:  #3ec6e0;
 
   /* Code-block chrome (title bar above + footer below fenced code). Skins
      override via manifest.xml <code-bar-bg>/<code-bar-fg>. Defaults chain
      off the modal title palette so an un-themed skin still looks cohesive. */
-  --cbe-code-bar-bg:      var(--cbe-modal-title-bg-2);
-  --cbe-code-bar-fg:      var(--cbe-modal-title-fg);
+  --cbe-code-bar-bg:      #7a2800;
+  --cbe-code-bar-fg:      #ffd9c2;
+
+  /* ── Phase-0 single-file metadata (read by the skin loader; replaces manifest.xml) ── */
+  --cbe-skin-name:   "Codex Black (Original)";
+  --cbe-skin-accent: #e8621a;
 }
 
 * { box-sizing: border-box; }
@@ -1630,11 +1634,6 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   .msg.assistant.rendered { white-space: normal; }
   .msg.assistant.rendered .cv-prose { white-space: pre-wrap; }
 </style>
-<!-- Skin override stylesheet — href set at runtime when the user picks a skin
-     from Settings. Empty href = no skin. Loaded AFTER the inline <style>
-     above so skin rules win the cascade. -->
-<link id="cbe-skin" rel="stylesheet" href="" />
-
 <!-- CBE skin "codex-black" (auto-migrated to full-HTML format 2026-05-25).
      This block was inlined from skins/codex-black/styles.css; url(...)
      refs were rewritten to use {{SKIN_BASE}} so the skin's own assets

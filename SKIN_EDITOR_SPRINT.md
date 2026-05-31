@@ -47,14 +47,14 @@ So the same CSS loads twice. The inline block already contains everything; the r
 ---
 
 ## Phase 0 — Single-file cutover (kill double-load, palette into HTML, drop XML)
-Status: ❌ not started. **6 ❌ tasks.**
+Status: ✅ DONE (FOUNDATION AGENT). **5 ✅ / 1 ⚠️ (D3 deferred, out of scope).**
 
-- ❌ **Move each skin's palette into its own `index.html` `:root`.** For every `skins/<id>.skin/index.html`: read `<colors>` from that skin's `manifest.xml`, and write those values as the `--cbe-modal-*` / `--cbe-highlight-color` / `--cbe-code-bar-*` declarations in the skin's `:root` (overriding the orange codex-black defaults currently baked in at e.g. aqua-dock lines 44-60). Do this with a one-shot migration script (extend or add to `tools/`, e.g. `tools/colors_xml_to_html.js`) so it's repeatable across all 15. ⚠️ The map is: `modal-bg→--cbe-modal-bg`, `modal-fg→--cbe-modal-fg`, `modal-border`, `modal-title-bg-1`, `modal-title-bg-2`, `modal-title-fg`, `modal-foot-bg`, `modal-accent`, `highlight-color→--cbe-highlight-color`, `code-bar-bg`, `code-bar-fg` (see `applySkinColors` map @ panel.js 2400-2412).
-- ❌ **Remove the `<link id="cbe-skin">` element** from all 15 `.skin/index.html` (aqua-dock line 1659). The inline `<style data-cbe-skin>` block already holds the full stylesheet, so removal is safe. Keep the inline block.
-- ❌ **Stop injecting `styles.css` at runtime.** In `getPanelHtml`/init the host still computes `skinUri` and pushes it; `applySkinUri` sets the now-removed link. Decide (see OPEN DECISION) whether to keep `applySkinUri` as a no-op shim or delete it. Minimum: it must not break when `#cbe-skin` is gone (it already early-returns `if (!link) return;` so it's safe, but the dead round-trip should go).
-- ❌ **Drop `styles.css` from the load path entirely** for new-format skins. The file can remain on disk as a human-editing SOURCE if Trent wants, but the loader must never read it. (OPEN DECISION: delete `styles.css` from `.skin/` dirs, or leave as inert source?)
-- ❌ **Embed name/accent metadata in the HTML** so the loader can read it without XML — e.g. a `<meta name="cbe-skin-name" content="Aqua Dock">` + `<meta name="cbe-skin-accent" content="#5fb8ff">` (or a `<script type="application/json" id="cbe-skin-meta">{...}</script>`) in each `index.html` `<head>`. This is the metadata contract the Phase 2 loader reads. (OPEN DECISION: meta tags vs JSON script block.)
-- ❌ **Retire the legacy bare `skins/<id>/` peers** from the cutover scope OR confirm they stay for back-compat. They will still load via the CSS-overlay path; if kept, document that they are NOT single-file and not editable via the new UI.
+- ✅ **Move each skin's palette into its own `index.html` `:root`.** Done via new `tools/colors_xml_to_html.js` (one-shot, idempotent). All 15 skins migrated — manifest `<colors>` written into the FIRST `:root` block's `--cbe-modal-*` / `--cbe-highlight-color` / `--cbe-code-bar-*` declarations, replacing the orange codex-black defaults. e.g. aqua-dock `:root` now carries `#10243a`/`#5fb8ff` instead of `#1a1a1a`/`#e8621a`.
+- ✅ **Remove the `<link id="cbe-skin">` element** from all 15 `.skin/index.html` (plus its orphaned `<!-- Skin override stylesheet -->` comment). Inline `<style data-cbe-skin>` block kept intact. 0 remain (grep-verified).
+- ✅ **Stop injecting `styles.css` at runtime.** `skinUri` removed from the `init` payload (extension.js ~7558-7613). `applySkinUri` retained as a LEGACY-only path (early-returns when `#cbe-skin` is absent, which it now always is for single-file skins) — the body `data-skin` stamp was factored out into a new `stampSkinBody()` so it still fires for full-HTML skins.
+- ✅ **Drop `styles.css` from the load path entirely.** Loader never reads it (Phase 2). Per D2, `styles.css` + `manifest.xml` DELETED from all 15 `.skin/` dirs. `tools/reinline_skins.py` now safely no-ops (no source files).
+- ✅ **Embed name/accent metadata in the HTML.** Per LOCKED D1 — `:root` ONLY, no JSON/meta block. Each `:root` now has `--cbe-skin-name: "<Display Name>";` (quoted) + `--cbe-skin-accent: <hex>;`. The Phase 2 loader scrapes these.
+- ⚠️ **Legacy bare `skins/<id>/` peers** — left intact (still have manifest.xml + styles.css), still load via the legacy CSS-overlay path. They are shadowed by their `.skin` peers (`.skin` wins in `_scanSkinDirs`). NOT single-file, NOT touched — this is deferred decision D3 (out of FOUNDATION scope).
 
 ---
 
@@ -69,13 +69,13 @@ Status: ❌ not started. **4 ❌ tasks.**
 ---
 
 ## Phase 2 — Loader changes (read metadata/colors from HTML, not XML)
-Status: ❌ not started. **5 ❌ tasks.**
+Status: ✅ DONE (FOUNDATION AGENT). **5 ✅ tasks.**
 
-- ❌ **`_scanSkinDirs` (~6226):** change the validity gate from `manifest.xml` existence to `index.html` existence for `.skin/` dirs. (Legacy bare dirs still gate on `manifest.xml` if kept.)
-- ❌ **`parseSkinManifest` (~6171):** replace with a `parseSkinHtmlMeta(indexHtmlPath)` that reads the `<meta name="cbe-skin-*">` (or JSON `<script id="cbe-skin-meta">`) chosen in Phase 0. Must return the same shape callers expect: `{ id, name, accent, colors:{...}, panelHtml }`. ⚠️ `colors` should be derived from the HTML `:root` (or duplicated in the meta block — see OPEN DECISION) so `applySkinColors` keeps working OR is made unnecessary (since colors now live in the skin's own `:root`, the runtime push may be redundant — decide whether to keep pushing `skinColors` at all).
-- ❌ **`resolveSkin` (~6299):** drop the `styles.css` resolution + `uri` field for new-format (or keep `uri:null`). Keep `panelHtmlPath`/`panelHtml`/`root`. Update the `format==='legacy' && !cssExists → miss` guard so new-format never depends on CSS.
-- ❌ **`listSkins` (~6259):** read label/accent/colors from HTML meta instead of XML; `uri` becomes `''` for new-format (already optional). Keep `previewUri` (preview.png) + `format`.
-- ❌ **Init + applySkin payloads (~7456-7506, ~7992-8012):** stop computing/sending `skinUri`. Decide whether `skinColors` is still sent (redundant if colors are in the skin `:root`). The new-format remount path (`getPanelHtml`) already does the right thing — just ensure it no longer relies on XML.
+- ✅ **`_scanSkinDirs`:** `.skin/` dirs now gate on `index.html` existence (was `manifest.xml`). Legacy bare dirs still gate on `manifest.xml`. `.bak` files are never enumerated (only `<id>.skin/` DIRS with index.html become skins) — comment documents the convention for Phase 1.
+- ✅ **`parseSkinManifest` → `parseSkinHtmlMeta(indexHtmlPath, logicalId)`:** new fn reads `--cbe-skin-name` / `--cbe-skin-accent` + all 11 `--cbe-modal-*`/`--cbe-highlight-color`/`--cbe-code-bar-*` colors from the FIRST `:root` block. Returns the same shape callers used: `{ id, name, accent, stylesheet:'', panelHtml:'index.html', colors:{...} }`. var()-chained or empty values are returned as `''` so they fall through to the baked default (never pushed as literal `"var(--x)"`). The old XML parser was kept as `parseSkinManifestLegacy()` for the bare D3 dirs ONLY.
+- ✅ **`resolveSkin`:** split into a `format==='new'` branch (reads index.html via `parseSkinHtmlMeta`, `uri:null`, `panelHtmlPath`=index.html) and a legacy branch (manifest+css). New-format never depends on CSS.
+- ✅ **`listSkins`:** new-format reads label/accent/colors from HTML `:root`, `uri:''`. Legacy reads manifest. `previewUri` + `format` + `colors` fields unchanged.
+- ✅ **Init payload:** `skinUri` + `skinColors` removed (D6). `skin: resolved.name` still sent. **Skin-change handler unchanged** — full-HTML skins already remount via `getPanelHtml` (the new `:root` paints the palette); the `applySkin` postMessage branch (with `skinUri`/`skinColors`) is correctly scoped to LEGACY skins only and left as-is.
 
 ---
 
@@ -142,7 +142,43 @@ Status: ❌ not started. **5 ❌ tasks.** All new `case` blocks go in the big sw
 - **D4 ("Save as New" id scheme):** name-entry → slug; numeric suffix on collision. (per R2)
 - **D6 (runtime skinColors push):** stop pushing colors at runtime once each skin's palette is self-contained in its own `:root` — it's redundant.
 
-### Still OPEN — need Trent before Phase 0/2 execution
-- **D1 — where colors live in the HTML:** `:root` custom properties only, or `:root` + a small machine-readable metadata block (name/accent/colors) so the loader + skin-picker can read them without parsing CSS? (recon rec: both — `:root` for rendering + a tiny `<script type="application/json" id="cbe-skin-meta">` block for the loader.)
-- **D3 — legacy bare `skins/<id>/` peers:** delete the 15 old non-`.skin/` folders, or leave them inert?
-- **D5 — editor surface:** plain `<textarea>` for v1 (ship fast), or Monaco/CodeMirror (syntax highlight, bigger lift)?
+### Decisions LOCKED 2026-05-31
+- **D1 — colors in HTML: `:root` ONLY.** Each skin's palette lives as CSS custom properties in its own `:root`. The loader scrapes name/accent/colors from the `:root` vars (no separate JSON meta block). Executor: add a small `--cbe-skin-name` / `--cbe-skin-accent` convention to `:root` so the picker has a label without CSS-body parsing.
+- **D5 — editor surface: plain `<textarea>` (v1).** Monospace raw-HTML textarea. No Monaco/CodeMirror dependency. Upgradeable later.
+
+### Still OPEN
+- **D3 — legacy bare `skins/<id>/` peers:** Trent chose "Other" — awaiting his specifics (e.g. fold into `skins-original-backup/`, archive to `_legacy/`, etc.). Does NOT block Phases 0/1/2/3/4 — handle last.
+
+---
+
+## FOUNDATION AGENT NOTES (Phase 0 + Phase 2 landed 2026-05-31, working tree only — NOT committed)
+
+**What changed, per file:**
+
+- **`tools/colors_xml_to_html.js` (NEW):** one-shot, idempotent migration. Reads each `<id>.skin/manifest.xml` `<colors>` + `<name>` + `<accent>`, rewrites the values of the existing `--cbe-modal-*` declarations in the skin's FIRST `:root` block, and appends `--cbe-skin-name`/`--cbe-skin-accent`. Run with `--dry` to preview. Already run against all 15.
+- **`skins/*.skin/index.html` (×15):** (a) FIRST `:root` palette replaced with the skin's own colors; (b) added `--cbe-skin-name: "<Display>";` + `--cbe-skin-accent: <hex>;` to that `:root`; (c) removed `<link id="cbe-skin">` + its comment. Inline `<style data-cbe-skin>` block UNTOUCHED (it is the source of truth — see warning below).
+- **`skins/*.skin/styles.css` + `manifest.xml` (×30): DELETED.** Per D2. Loader no longer reads them.
+- **`extension.js`:**
+  - Replaced `parseSkinManifest()` with **`parseSkinHtmlMeta(indexHtmlPath, logicalId)`** + helpers `_firstRootBody(text)`, `_readRootVar(rootBody, cssVar)`, and the map `SKIN_COLOR_VARS`. Returns `{ id, name, accent, version:'', author:'', stylesheet:'', panelHtml:'index.html', description:'', colors:{<11 keys>} }`.
+  - Added **`parseSkinManifestLegacy(manifestPath)`** (the old XML parser, verbatim) — used ONLY for legacy bare dirs.
+  - `_scanSkinDirs`: `.skin` dirs gate on `index.html` (was `manifest.xml`); `.bak` convention documented.
+  - `resolveSkin`: new-format branch returns `uri:null`, `panelHtmlPath=<root>/index.html`, colors from `:root`. Same return shape.
+  - `listSkins`: new-format reads from `:root` (`uri:''`); legacy via `parseSkinManifestLegacy`.
+  - `init` payload (~7558-7613): dropped `skinUri` + `skinColors` (D6). Still sends `skin: resolved.name`.
+  - Skin-change handler + `getPanelHtml`: UNCHANGED (already correct — full-HTML remount path).
+- **`panel/panel.js`:**
+  - Added **`stampSkinBody(skinId)`** — sets/removes `<body data-skin>`. CRITICAL: `body[data-skin="tamagotchi"]` (+ aqua-dock etc.) selectors are load-bearing in the skin CSS. Since `skinUri` is gone, `applySkinUri` is skipped for single-file skins, so the body stamp was moved here and is now called directly on `init`.
+  - `applySkinUri`: now LEGACY-only (early-returns when `#cbe-skin` absent); calls `stampSkinBody` first.
+  - `init` handler (~6147): `stampSkinBody(__cbeActiveSkin)` always; `applySkinUri`/`applySkinColors` only fire `if (m.skinUri)`/`if (m.skinColors)` (legacy path).
+  - `applySkin` receive handler: comment updated to LEGACY-only; logic unchanged.
+  - Live-preview `<select>` change handler (~3822): UNCHANGED — still previews via `applySkinColors(dataset.colors)`; `listSkins` still ships `colors` (now from `:root`) so preview works.
+
+**Contract for next agents (Phase 1/3/4):**
+- **`:root` var names the loader reads:** `--cbe-skin-name` (double-quoted string), `--cbe-skin-accent` (hex), plus the 11 palette vars `--cbe-modal-bg/-fg/-border/-title-bg-1/-title-bg-2/-title-fg/-foot-bg/-accent`, `--cbe-highlight-color`, `--cbe-code-bar-bg/-fg`. All in the FIRST `:root` block of `index.html`.
+- **Loader fn signatures:** `parseSkinHtmlMeta(indexHtmlPath, logicalId) -> {id,name,accent,stylesheet:'',panelHtml:'index.html',colors}`; `resolveSkin(context, requestedName) -> {name,uri,colors,format,root,panelHtml,panelHtmlPath}` (new-format: `uri:null`, `panelHtmlPath=<root>/index.html`); `_firstRootBody(text)` + `_readRootVar(rootBody, cssVar)` are reusable for any future `:root` reads.
+- **`.bak` files are already safe** — `_scanSkinDirs` only treats `<id>.skin/` DIRS containing `index.html` as skins, and `getPanelHtml` only reads `index.html`. Phase 1's `.bak` snapshots in the same dir are inert. (Phase 1 still owns adding the snapshot helper + comment.)
+- **Save/Save-as-New handlers (Phase 4)** must write the FULL `index.html` (it IS the skin). To change a skin's picker label/accent/palette programmatically, edit the `--cbe-skin-*` / `--cbe-modal-*` vars in its `:root` — `tools/colors_xml_to_html.js` shows the exact regex approach.
+
+**⚠️ WARNING — do NOT run `tools/reinline_skins.py` against these skins.** It reads `styles.css` as source; those are now DELETED so it no-ops safely. But more importantly: during this work the styles.css files were found to be STALE (older than the inline `<style data-cbe-skin>` blocks, which carried 2026-05-31 hand-edits e.g. aqua-dock's full-width prompt + white-on-white text fix). The **inline `<style data-cbe-skin>` block in each index.html is the source of truth.** Never regenerate it from a styles.css.
+
+**Known leftover (out of Phase 0/2 scope):** `tools/smoke_skin_loader.js` still references the removed `parseSkinManifest` and reads `skins/codex-black/manifest.xml` — it will fail until rewritten for the HTML-meta loader. It is a standalone dev test, NOT loaded by the extension at runtime, so it does not affect CBE. Flag for whoever owns test maintenance.
