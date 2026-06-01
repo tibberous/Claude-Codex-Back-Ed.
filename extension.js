@@ -7653,7 +7653,7 @@ function buildSettingsPayload(context) {
     try {
         bridgeOperator = loadBridgeOperatorConfig(context);
     } catch (_) {
-        bridgeOperator = { provider: 'azure', azureDeployment: '', openaiModel: '', anthropicModel: '', geminiModel: '' };
+        bridgeOperator = { provider: 'azure', azureDeployment: '', openaiModel: '', anthropicModel: '', geminiModel: '', vertexModel: '' };
     }
     /* Voice (TTS / STT) provider selection. TTS defaults to 'webspeech' —
        the only keyless TTS option (whisper.cpp doesn't synthesize). STT
@@ -8420,6 +8420,16 @@ function bindPanel(context, panel) {
                             reply(true, models);
                             break;
                         }
+                        if (provider === 'vertex') {
+                            // Vertex models on Google Cloud (ADC). gemini-2.5-flash
+                            // is verified on project triodesktop; offer the 2.5 family.
+                            reply(true, [
+                                { id: 'gemini-2.5-flash', detail: 'fast · vision · verified' },
+                                { id: 'gemini-2.5-pro', detail: 'higher quality' },
+                                { id: 'gemini-2.5-flash-lite', detail: 'cheapest' },
+                            ]);
+                            break;
+                        }
                         reply(false, [], `unknown provider '${provider}'`);
                     } catch (e) {
                         traceErr('listOperatorModels', e);
@@ -8646,6 +8656,7 @@ function bindPanel(context, panel) {
                             if (typeof bo.openaiModel === 'string' && bo.openaiModel.trim()) patch['bridge_operator.openai_model'] = sanitizeModel(bo.openaiModel);
                             if (typeof bo.anthropicModel === 'string' && bo.anthropicModel.trim()) patch['bridge_operator.anthropic_model'] = sanitizeModel(bo.anthropicModel);
                             if (typeof bo.geminiModel === 'string' && bo.geminiModel.trim()) patch['bridge_operator.gemini_model'] = sanitizeModel(bo.geminiModel);
+                            if (typeof bo.vertexModel === 'string' && bo.vertexModel.trim()) patch['bridge_operator.vertex_model'] = sanitizeModel(bo.vertexModel);
                             if (Object.keys(patch).length) {
                                 writeConfigPatch(path.join(context.extensionPath, 'config.ini'), patch);
                                 try { Config.invalidate(); } catch (_) {}
@@ -13074,7 +13085,7 @@ function loadToolCallConfig(context) {
    screenshots and emitting JSON actions. provider is selectable; default is
    azure (Trent's only funded GPT-class option). Mirrors loadToolCallConfig:
    reads config.ini [bridge_operator], returns a small hydrated object. */
-const BRIDGE_OPERATOR_PROVIDERS = ['azure', 'openai', 'anthropic', 'gemini'];
+const BRIDGE_OPERATOR_PROVIDERS = ['azure', 'openai', 'anthropic', 'gemini', 'vertex'];
 function loadBridgeOperatorConfig(context) {
     const cfg = readConfigIni(context.extensionPath) || {};
     const bo = cfg.bridge_operator || {};
@@ -13088,6 +13099,7 @@ function loadBridgeOperatorConfig(context) {
         openaiModel: String(bo.openai_model || keys.gpt_model_choice || '').trim(),
         anthropicModel: String(bo.anthropic_model || keys.claude_model_choice || '').trim(),
         geminiModel: String(bo.gemini_model || keys.gem_model_choice || '').trim(),
+        vertexModel: String(bo.vertex_model || 'gemini-2.5-flash').trim(),
     };
 }
 

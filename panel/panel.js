@@ -3383,7 +3383,8 @@ function openSettings(payload) {
     +         '<option value="azure">Azure OpenAI (default)</option>'
     +         '<option value="openai">OpenAI</option>'
     +         '<option value="anthropic">Anthropic</option>'
-    +         '<option value="gemini">Google (Gemini)</option>'
+    +         '<option value="gemini">Google (Gemini API key)</option>'
+    +         '<option value="vertex">Google Vertex (Cloud / ADC)</option>'
     +       '</select>'
     +     '</div>'
     +     '<div><label for="cbe-op-model"><span id="cbe-op-model-label">Deployment</span></label>'
@@ -3992,6 +3993,7 @@ function openSettings(payload) {
     openai:    __opCfg.openaiModel || '',
     anthropic: __opCfg.anthropicModel || '',
     gemini:    __opCfg.geminiModel || '',
+    vertex:    __opCfg.vertexModel || '',
   };
   function opModelLabelFor(p) { return p === 'azure' ? 'Deployment' : 'Model'; }
   function opShowSavedModel(p) {
@@ -4006,7 +4008,7 @@ function openSettings(payload) {
     opModelSel.value = saved;
   }
   if (opProvSel) {
-    opProvSel.value = ['azure','openai','anthropic','gemini'].includes(__opCfg.provider) ? __opCfg.provider : 'azure';
+    opProvSel.value = ['azure','openai','anthropic','gemini','vertex'].includes(__opCfg.provider) ? __opCfg.provider : 'azure';
     if (opModelLbl) opModelLbl.textContent = opModelLabelFor(opProvSel.value);
     opShowSavedModel(opProvSel.value);
     opProvSel.addEventListener('change', () => {
@@ -4502,6 +4504,7 @@ function openSettings(payload) {
       if (opProv === 'openai')    bridgeOperator.openaiModel = opModel;
       if (opProv === 'anthropic') bridgeOperator.anthropicModel = opModel;
       if (opProv === 'gemini')    bridgeOperator.geminiModel = opModel;
+      if (opProv === 'vertex')    bridgeOperator.vertexModel = opModel;
       console.log('[CBE]   bridgeOperator', bridgeOperator);
     } catch (err) {
       console.error('[CBE] _cbeDoApply bridgeOperator collect threw', err);
