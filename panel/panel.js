@@ -5081,6 +5081,129 @@ function skinNameValidationError(raw) {
   return '';
 }
 
+/* Inject the scoped LIGHT Prism theme for the skin editor exactly once.
+   This is a light scheme (Prism "Coy"-flavoured token colors on a near-white
+   parchment bg) scoped to `.cbe-skin-hl-light` so it does NOT touch the chat
+   code blocks (which load the dark theme via {{PRISM_CSS_URI}}). It also
+   force-matches the <pre>/<code> typography to the transparent <textarea> so
+   the highlighted glyphs land under the caret 1:1. Inlined (not CDN) per CSP. */
+function ensureSkinEditorThemeCss() {
+  if (document.getElementById('cbe-skin-hl-theme')) return;
+  const st = document.createElement('style');
+  st.id = 'cbe-skin-hl-theme';
+  st.textContent = [
+    /* shared typography — MUST match between textarea + pre/code */
+    '.cbe-skin-hl-light pre, .cbe-skin-hl-light textarea {',
+    '  font:13px/1.45 Consolas,"Courier New",monospace !important;',
+    '  letter-spacing:0 !important; tab-size:2; -moz-tab-size:2;',
+    '  padding:10px !important;',
+    '}',
+    '.cbe-skin-hl-light code { font:inherit !important; }',
+    /* base text + parchment-light background */
+    '.cbe-skin-hl-light { color:#2b2b2b; }',
+    '.cbe-skin-hl-light pre[id], .cbe-skin-hl-light code { color:#2b2b2b; background:transparent; text-shadow:none; }',
+    /* light token palette (Coy / Solarized-Light flavour) */
+    '.cbe-skin-hl-light .token.comment,',
+    '.cbe-skin-hl-light .token.prolog,',
+    '.cbe-skin-hl-light .token.doctype,',
+    '.cbe-skin-hl-light .token.cdata { color:#93a1a1; font-style:italic; }',
+    '.cbe-skin-hl-light .token.punctuation { color:#5c6e74; }',
+    '.cbe-skin-hl-light .token.tag,',
+    '.cbe-skin-hl-light .token.namespace,',
+    '.cbe-skin-hl-light .token.deleted { color:#2f6f9f; }',
+    '.cbe-skin-hl-light .token.tag .token.punctuation { color:#2f6f9f; }',
+    '.cbe-skin-hl-light .token.attr-name,',
+    '.cbe-skin-hl-light .token.property,',
+    '.cbe-skin-hl-light .token.class-name,',
+    '.cbe-skin-hl-light .token.constant,',
+    '.cbe-skin-hl-light .token.symbol { color:#a0522d; }',
+    '.cbe-skin-hl-light .token.boolean,',
+    '.cbe-skin-hl-light .token.number { color:#c2185b; }',
+    '.cbe-skin-hl-light .token.selector,',
+    '.cbe-skin-hl-light .token.attr-value,',
+    '.cbe-skin-hl-light .token.string,',
+    '.cbe-skin-hl-light .token.char,',
+    '.cbe-skin-hl-light .token.builtin,',
+    '.cbe-skin-hl-light .token.inserted { color:#448c27; }',
+    '.cbe-skin-hl-light .token.operator,',
+    '.cbe-skin-hl-light .token.entity,',
+    '.cbe-skin-hl-light .token.url,',
+    '.cbe-skin-hl-light .language-css .token.string,',
+    '.cbe-skin-hl-light .style .token.string { color:#5c6e74; }',
+    '.cbe-skin-hl-light .token.atrule,',
+    '.cbe-skin-hl-light .token.keyword { color:#7b2fbe; }',
+    '.cbe-skin-hl-light .token.function { color:#d2413a; }',
+    '.cbe-skin-hl-light .token.regex,',
+    '.cbe-skin-hl-light .token.important,',
+    '.cbe-skin-hl-light .token.variable { color:#e36209; }',
+    '.cbe-skin-hl-light .token.important,',
+    '.cbe-skin-hl-light .token.bold { font-weight:bold; }',
+    '.cbe-skin-hl-light .token.italic { font-style:italic; }',
+    /* textarea selection visible against transparent text */
+    '.cbe-skin-hl-light textarea::selection { background:rgba(47,111,159,.30); }',
+  ].join('\n');
+  document.head.appendChild(st);
+}
+
+/* Re-tokenise the <pre><code> highlight layer from the current textarea
+   value. Prism may not have finished loading the first time the editor opens;
+   ensurePrismLoaded() resolves a promise we re-run against so highlighting
+   appears as soon as the grammar is available. Until then the <code> still
+   shows the (escaped) raw text, so nothing looks broken — it's just uncolored. */
+function renderSkinEditorHighlight() {
+  const ta   = document.getElementById('cbe-skin-editor-ta');
+  const code = document.getElementById('cbe-skin-editor-code');
+  if (!ta || !code) return;
+  const src = ta.value;
+  if (window.Prism && Prism.languages && Prism.languages.markup) {
+    try {
+      code.innerHTML = Prism.highlight(src, Prism.languages.markup, 'markup');
+      return;
+    } catch (e) { /* fall through to plain */ }
+  }
+  /* Prism not ready (or threw) → show escaped plain text so glyphs still align. */
+  code.textContent = src;
+}
+
+/* Keep the highlight <pre> scrolled in lock-step with the textarea. */
+function syncSkinEditorScroll() {
+  const ta  = document.getElementById('cbe-skin-editor-ta');
+  const pre = document.getElementById('cbe-skin-editor-pre');
+  if (!ta || !pre) return;
+  pre.scrollTop  = ta.scrollTop;
+  pre.scrollLeft = ta.scrollLeft;
+}
+
+/* Wire input/scroll/Tab on the overlay textarea and run the first highlight.
+   Re-runs the highlight once Prism's promise resolves (lazy load). */
+function setupSkinEditorHighlight(overlay) {
+  const ta = overlay.querySelector('#cbe-skin-editor-ta');
+  if (!ta) return;
+  ta.addEventListener('input', () => { renderSkinEditorHighlight(); syncSkinEditorScroll(); });
+  ta.addEventListener('scroll', syncSkinEditorScroll);
+  /* Tab inserts a literal tab (instead of moving focus) and preserves caret. */
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const s = ta.selectionStart, en = ta.selectionEnd;
+      ta.value = ta.value.slice(0, s) + '\t' + ta.value.slice(en);
+      ta.selectionStart = ta.selectionEnd = s + 1;
+      renderSkinEditorHighlight();
+      syncSkinEditorScroll();
+    }
+  });
+  /* First paint (textarea may still be empty until skinSource arrives). */
+  renderSkinEditorHighlight();
+  /* Ensure Prism is loaded, then re-highlight when its grammar is ready. */
+  try {
+    if (typeof ensurePrismLoaded === 'function') {
+      ensurePrismLoaded().then(() => {
+        if (document.getElementById('cbe-skin-editor-ta')) renderSkinEditorHighlight();
+      });
+    }
+  } catch (e) { /* fail open — editor stays plain but editable */ }
+}
+
 function openSkinEditor(id) {
   /* Build (or rebuild) the dedicated editor modal and request the source.
      If another instance is open, tear it down first (no dirty-check — this
@@ -5110,7 +5233,15 @@ function openSkinEditor(id) {
     +     '<button type="button" id="cbe-skin-editor-x" class="cbe-btn cbe-cancel cbe-x-svg" aria-label="Close"></button>'
     +   '</div>'
     +   '<div class="cbe-body" style="display:flex;flex-direction:column;gap:8px;flex:1 1 auto;min-height:0;overflow:hidden;box-sizing:border-box;">'
-    +     '<textarea id="cbe-skin-editor-ta" spellcheck="false" wrap="off" aria-label="Skin HTML source" style="flex:1 1 auto;width:100%;min-height:0;font:13px Consolas,monospace;background:#000;color:#dcdcdc;border:1px solid var(--cbe-modal-border,#444);border-radius:4px;padding:10px;box-sizing:border-box;resize:none;white-space:pre;overflow:auto;"></textarea>'
+    /* Syntax-highlight overlay: a transparent <textarea> (real caret + input)
+       layered exactly over a Prism-highlighted <pre><code>. The two share
+       identical font/padding/line-height/white-space so glyphs align. The
+       textarea KEEPS id="cbe-skin-editor-ta" so all existing readers/writers
+       (skinSource handler, save, dirty-check) are unchanged. */
+    +     '<div id="cbe-skin-editor-hlwrap" class="cbe-skin-hl-light" style="position:relative;flex:1 1 auto;min-height:0;border:1px solid var(--cbe-modal-border,#444);border-radius:4px;overflow:hidden;background:#fdfdfd;">'
+    +       '<pre id="cbe-skin-editor-pre" aria-hidden="true" style="margin:0;position:absolute;inset:0;overflow:auto;pointer-events:none;box-sizing:border-box;background:transparent;"><code id="cbe-skin-editor-code" class="language-markup" style="display:block;white-space:pre;"></code></pre>'
+    +       '<textarea id="cbe-skin-editor-ta" spellcheck="false" wrap="off" aria-label="Skin HTML source" style="position:absolute;inset:0;width:100%;height:100%;margin:0;background:transparent;color:transparent;caret-color:#222;border:0;box-sizing:border-box;resize:none;white-space:pre;overflow:auto;outline:none;"></textarea>'
+    +     '</div>'
     +     '<div id="cbe-skin-editor-status" role="status" aria-live="polite" style="min-height:16px;font-size:12px;opacity:.85;"></div>'
     +   '</div>'
     +   '<div class="cbe-foot" style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;flex:0 0 auto;box-sizing:border-box;">'
@@ -5121,6 +5252,13 @@ function openSkinEditor(id) {
     +   '</div>'
     + '</div>';
   document.body.appendChild(overlay);
+
+  /* Light Prism theme + glyph-alignment CSS for the editor (injected from
+     panel.js, scoped to .cbe-skin-hl-light so it never recolors the chat
+     code blocks which use the dark {{PRISM_CSS_URI}} theme). */
+  ensureSkinEditorThemeCss();
+  /* Wire the highlight overlay (Prism + caret/scroll sync + Tab). */
+  setupSkinEditorHighlight(overlay);
 
   /* Esc / backdrop close routes through the dirty-guard. */
   function onKey(e) {
@@ -6688,6 +6826,10 @@ window.addEventListener('message', e => {
         const loaded = (typeof m.html === 'string') ? m.html : '';
         if (ta) ta.value = loaded;
         __cbeSkinEditor.original = loaded;   // baseline → editor now clean
+        /* Re-tokenise the highlight overlay now that the source has arrived
+           (setup ran while the textarea was still empty) and reset scroll. */
+        if (typeof renderSkinEditorHighlight === 'function') renderSkinEditorHighlight();
+        if (typeof syncSkinEditorScroll === 'function') syncSkinEditorScroll();
         setSkinEditorStatus('Loaded ' + (__cbeSkinEditor.label || m.id) + '.');
       } else {
         setSkinEditorStatus(m.error || 'Failed to load skin source.', true);
