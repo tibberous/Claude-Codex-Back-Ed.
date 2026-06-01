@@ -480,8 +480,14 @@ def bridgePortForTarget(target: object) -> int:
 # offscreen Chromium by reading screenshots and emitting JSON actions. Which
 # provider answers those vision calls is selectable via [bridge_operator]
 # provider; default is Azure (Trent's only funded GPT-class option).
-BRIDGE_OPERATOR_PROVIDERS = ("azure", "openai", "anthropic", "gemini")
+BRIDGE_OPERATOR_PROVIDERS = ("azure", "openai", "anthropic", "gemini", "vertex")
 BRIDGE_OPERATOR_DEFAULT_PROVIDER = "azure"
+# Vertex AI (Google Cloud) — ADC-authed via `gcloud auth application-default
+# login` (NOT an API key). project/location/model overridable in
+# [bridge_operator] vertex_project / vertex_location / vertex_model.
+VERTEX_DEFAULT_PROJECT = "triodesktop"
+VERTEX_DEFAULT_LOCATION = "us-central1"
+VERTEX_DEFAULT_MODEL = "gemini-2.5-flash"
 # Azure ARM data-plane / control-plane api-versions.
 AZURE_OPENAI_API_VERSION = "2024-10-21"
 AZURE_ARM_API_VERSION = "2024-10-01"
@@ -556,7 +562,50 @@ class _InlineChatGPTHook:
             return (_cfgGet(cfg, "bridge_operator", "gemini_model")
                     or _cfgGet(cfg, "api_keys", "gem_model_choice")
                     or "gemini-2.5-pro")
+        if provider == "vertex":
+            return (_cfgGet(cfg, "bridge_operator", "vertex_model")
+                    or VERTEX_DEFAULT_MODEL)
         return fallback
+
+    # ---- Vertex AI (ADC) helpers ------------------------------------------
+    _VERTEX_TOKEN_CACHE = {"token": "", "exp": 0.0}
+
+    @staticmethod
+    def _vertexCfg() -> dict:
+        cfg = _readConfig()
+        return {
+            "project":  _cfgGet(cfg, "bridge_operator", "vertex_project") or VERTEX_DEFAULT_PROJECT,
+            "location": _cfgGet(cfg, "bridge_operator", "vertex_location") or VERTEX_DEFAULT_LOCATION,
+        }
+
+    @staticmethod
+    def _vertexToken() -> str:
+        """ADC access token via gcloud (cached ~50 min). Vertex authes as the
+        user's Application Default Credentials, not an API key."""
+        import time as _t
+        c = _InlineChatGPTHook._VERTEX_TOKEN_CACHE
+        if c["token"] and _t.time() < c["exp"]:
+            return c["token"]
+        try:
+            proc = subprocess.run(
+                "gcloud auth application-default print-access-token",
+                shell=True, capture_output=True, text=True, timeout=30)
+            tok = (proc.stdout or "").strip()
+            if tok:
+                c["token"] = tok; c["exp"] = _t.time() + 3000
+            else:
+                print(f"[operator.vertex] empty token; stderr={(proc.stderr or '').strip()[:200]}", file=sys.stderr, flush=True)
+            return tok
+        except Exception as e:
+            print(f"[operator.vertex] gcloud token failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            return ""
+
+    @staticmethod
+    def _vertexUrl(model: str) -> str:
+        vc = _InlineChatGPTHook._vertexCfg()
+        return (f"https://{vc['location']}-aiplatform.googleapis.com/v1/projects/"
+                f"{vc['project']}/locations/{vc['location']}/publishers/google/"
+                f"models/{model}:generateContent")
 
     # ---- key/endpoint readers ---------------------------------------------
     @staticmethod
@@ -745,6 +794,28 @@ class _InlineChatGPTHook:
                 except Exception:
                     pass
             return ""
+
+        if provider == "vertex":
+            tok = _InlineChatGPTHook._vertexToken()
+            if not tok:
+                print("[operator.chat.vertex] no ADC token — run: gcloud auth application-default login", file=sys.stderr, flush=True)
+                return ""
+            mdl = _InlineChatGPTHook._selectedModel("vertex", model)
+            body = {"contents": [{"role": "user", "parts": [{"text": userText}]}],
+                    "generationConfig": {"maxOutputTokens": int(max_tokens), "temperature": 0.2}}
+            if sysText:
+                body["systemInstruction"] = {"parts": [{"text": sysText}]}
+            payload = _InlineChatGPTHook._post(
+                _InlineChatGPTHook._vertexUrl(mdl), body,
+                {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
+                180, "operator.chat.vertex")
+            if payload:
+                try:
+                    cand = payload["candidates"][0]["content"]["parts"]
+                    return "".join(p.get("text", "") for p in cand)
+                except Exception:
+                    pass
+            return ""
         return ""
 
     # ---- per-provider vision (the critical operator path) ------------------
@@ -837,6 +908,32 @@ class _InlineChatGPTHook:
                 body["systemInstruction"] = {"parts": [{"text": sysText}]}
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={key}"
             payload = _InlineChatGPTHook._post(url, body, {"Content-Type": "application/json"}, 240, "operator.vision.gemini")
+            if payload:
+                try:
+                    cand = payload["candidates"][0]["content"]["parts"]
+                    return "".join(p.get("text", "") for p in cand)
+                except Exception:
+                    pass
+            return ""
+
+        if provider == "vertex":
+            tok = _InlineChatGPTHook._vertexToken()
+            if not tok:
+                print("[operator.vision.vertex] no ADC token — run: gcloud auth application-default login", file=sys.stderr, flush=True)
+                return ""
+            mdl = _InlineChatGPTHook._selectedModel("vertex", model)
+            parts = [
+                {"text": promptText},
+                {"inline_data": {"mime_type": "image/png", "data": b64}},
+            ]
+            body = {"contents": [{"role": "user", "parts": parts}],
+                    "generationConfig": {"maxOutputTokens": int(max_tokens), "temperature": 0.2}}
+            if sysText:
+                body["systemInstruction"] = {"parts": [{"text": sysText}]}
+            payload = _InlineChatGPTHook._post(
+                _InlineChatGPTHook._vertexUrl(mdl), body,
+                {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
+                240, "operator.vision.vertex")
             if payload:
                 try:
                     cand = payload["candidates"][0]["content"]["parts"]
