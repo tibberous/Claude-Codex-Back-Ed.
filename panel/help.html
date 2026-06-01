@@ -97,6 +97,7 @@
   <ul>
     <li><a href="#quick">Quick start</a></li>
     <li><a href="#providers">Providers &amp; models</a></li>
+    <li><a href="#operator">Bridge Operator</a></li>
     <li><a href="#sending">Sending messages</a></li>
     <li><a href="#toolbar">Toolbar buttons</a></li>
     <li><a href="#rightclick">Right-click menu</a></li>
@@ -198,6 +199,27 @@
   &lt;model&gt;deepseek-reasoner&lt;/model&gt;
 &lt;/bridge&gt;</code></pre>
 <p>Drop a new <code>.bridge</code> file in <code>extensions/</code> and reload — it shows up in Providers, the Accounts modal, and the Extensions marketplace card grid.</p>
+</section>
+
+<section id="operator">
+<h2>Bridge Operator <a class="top-link" href="#">↑ top</a></h2>
+<p>The <b>Bridge Operator</b> is the vision-pilot LLM that drives the browser bridges. When you chat through a bridge (ChatGPT / Grok / Gemini / Claude / Copilot / DeepSeek), the operator reads screenshots of the offscreen Chromium, figures out where to click and type, and emits the actions that deliver your prompt and read back the reply. It's separate from the provider you're chatting <em>with</em>: the operator is the brain that <em>operates</em> the browser.</p>
+
+<h4>Pick the operator provider</h4>
+<p>Open <b>Settings → Bridge Operator</b> and choose which LLM drives the bridges:</p>
+<table>
+  <tr><th>Provider</th><th>Auth</th><th>Notes</th></tr>
+  <tr><td>Azure OpenAI <span class="pill">default</span></td><td><code>[azure] api_key</code> + endpoint</td><td>Default operator. The model picker lists your Azure <b>deployments</b>.</td></tr>
+  <tr><td>OpenAI</td><td><code>[api_keys] openai_api_key</code></td><td>Standard OpenAI vision-capable models.</td></tr>
+  <tr><td>Anthropic</td><td><code>[api_keys] anthropic_api_key</code></td><td>Claude vision models.</td></tr>
+  <tr><td>Google (Gemini API key)</td><td><code>[api_keys] gemini_api_key</code></td><td>Gemini via API key.</td></tr>
+  <tr><td>Google Vertex (Cloud / ADC)</td><td>Application Default Credentials</td><td>No key in <code>config.ini</code> — uses your local <code>gcloud</code> ADC login.</td></tr>
+</table>
+
+<h4>Load models / deployments</h4>
+<p>Below the provider dropdown is a model selector with a <b>Load</b> button. Click <b>Load</b> to fetch the selected provider's live list (Azure surfaces <i>deployments</i>; the others surface <i>models</i>) into the dropdown — a status line shows progress / errors. Your choice is remembered <b>per provider</b>, so switching operator providers back and forth keeps each one's selected model.</p>
+
+<div class="note">The operator only matters for the <b>browser bridges</b>. Direct-API providers talk to their endpoint directly and don't use the vision pilot.</div>
 </section>
 
 <section id="sending">
