@@ -3194,6 +3194,7 @@ function openSettings(payload) {
     +   '<button type="button" class="cbe-catnav-item" data-cat="stt" role="tab">Speech to Text</button>'
     +   '<button type="button" class="cbe-catnav-item" data-cat="appearance" role="tab">Appearance</button>'
     +   '<button type="button" class="cbe-catnav-item" data-cat="toolcalls" role="tab">Tool Calls</button>'
+    +   '<button type="button" class="cbe-catnav-item" data-cat="operator" role="tab">Bridge Operator</button>'
     + '</div>'
     /* ── RIGHT: panes ─────────────────────────────────────────────────── */
     + '<div class="cbe-catpane-wrap">'
@@ -3372,6 +3373,26 @@ function openSettings(payload) {
     +         '<textarea id="cbe-tc-allowlist" rows="6" spellcheck="false" style="width:100%;font:12px Consolas,monospace;background:#000;color:#dcdcdc;border:1px solid var(--cbe-modal-border,#444);border-radius:4px;padding:6px;box-sizing:border-box;"></textarea>'
     +       '</div>'
     +     '</div>'
+    +   '</div>'
+    /* — Bridge Operator — */
+    +   '<div class="cbe-cat-pane" data-cat="operator" hidden>'
+    +     '<div class="cbe-cat-title">Bridge Operator (vision pilot)</div>'
+    +     '<div style="opacity:.65;font-size:12px;margin:0 0 6px;">The LLM that drives the browser bridges (chatgpt / grok / gemini / claude / copilot / deepseek) by reading screenshots of the offscreen Chromium and emitting click/type actions. Default is Azure.</div>'
+    +     '<div><label for="cbe-op-provider">Provider</label>'
+    +       '<select id="cbe-op-provider">'
+    +         '<option value="azure">Azure OpenAI (default)</option>'
+    +         '<option value="openai">OpenAI</option>'
+    +         '<option value="anthropic">Anthropic</option>'
+    +         '<option value="gemini">Google (Gemini)</option>'
+    +       '</select>'
+    +     '</div>'
+    +     '<div><label for="cbe-op-model"><span id="cbe-op-model-label">Deployment</span></label>'
+    +       '<div style="display:flex;gap:6px;align-items:center;">'
+    +         '<select id="cbe-op-model" style="flex:1;"><option value="">(click Load)</option></select>'
+    +         '<button type="button" id="cbe-op-load" class="cbe-btn" style="padding:6px 12px;font-size:12px;white-space:nowrap;">Load</button>'
+    +       '</div>'
+    +     '</div>'
+    +     '<div id="cbe-op-status" style="opacity:.7;font-size:12px;margin-top:4px;"></div>'
     +   '</div>'
     + '</div>';
   const foot      = document.createElement('div'); foot.className = 'cbe-foot';
@@ -3956,6 +3977,81 @@ function openSettings(payload) {
     if (alEl)   alEl.value   = (Array.isArray(tc.allowlist) ? tc.allowlist : []).join('\n');
   } catch (e) { /* swallow */ }
 
+  /* Bridge-operator settings — hydrate from payload.bridgeOperator. The model
+     dropdown is populated on demand via the host's listOperatorModels message
+     (the panel can't call provider APIs directly under CSP). The currently
+     saved model is shown as a placeholder option until the user clicks Load. */
+  const opProvSel  = overlay.querySelector('#cbe-op-provider');
+  const opModelSel = overlay.querySelector('#cbe-op-model');
+  const opModelLbl = overlay.querySelector('#cbe-op-model-label');
+  const opLoadBtn  = overlay.querySelector('#cbe-op-load');
+  const opStatus   = overlay.querySelector('#cbe-op-status');
+  const __opCfg = (payload && payload.bridgeOperator) || { provider: 'azure' };
+  const opSavedModel = {
+    azure:     __opCfg.azureDeployment || '',
+    openai:    __opCfg.openaiModel || '',
+    anthropic: __opCfg.anthropicModel || '',
+    gemini:    __opCfg.geminiModel || '',
+  };
+  function opModelLabelFor(p) { return p === 'azure' ? 'Deployment' : 'Model'; }
+  function opShowSavedModel(p) {
+    /* Reset the dropdown to just the saved value until the user loads the
+       live list. Keeps the persisted choice visible without a network call. */
+    if (!opModelSel) return;
+    const saved = opSavedModel[p] || '';
+    opModelSel.innerHTML = '';
+    const o = document.createElement('option');
+    o.value = saved; o.textContent = saved || '(click Load to fetch models)';
+    opModelSel.appendChild(o);
+    opModelSel.value = saved;
+  }
+  if (opProvSel) {
+    opProvSel.value = ['azure','openai','anthropic','gemini'].includes(__opCfg.provider) ? __opCfg.provider : 'azure';
+    if (opModelLbl) opModelLbl.textContent = opModelLabelFor(opProvSel.value);
+    opShowSavedModel(opProvSel.value);
+    opProvSel.addEventListener('change', () => {
+      if (opModelLbl) opModelLbl.textContent = opModelLabelFor(opProvSel.value);
+      opShowSavedModel(opProvSel.value);
+      if (opStatus) opStatus.textContent = '';
+      playSfx('click');
+    });
+  }
+  /* Load button — ask the host to list models/deployments for the selected
+     provider. Result arrives via the global 'operatorModelsResult' message
+     handler (registered at module scope) which calls window.__cbeOpFillModels. */
+  window.__cbeOpFillModels = function (res) {
+    if (!opModelSel || !opStatus) return;
+    if (!res || !res.ok) {
+      opStatus.textContent = 'Load failed: ' + ((res && res.error) || 'unknown error');
+      return;
+    }
+    const saved = opSavedModel[res.provider] || '';
+    const models = Array.isArray(res.models) ? res.models : [];
+    opModelSel.innerHTML = '';
+    if (!models.length) {
+      const o = document.createElement('option'); o.value = saved; o.textContent = saved || '(none)';
+      opModelSel.appendChild(o);
+    } else {
+      models.forEach((m) => {
+        const o = document.createElement('option');
+        o.value = m.id;
+        o.textContent = m.detail ? (m.id + '  —  ' + m.detail) : m.id;
+        opModelSel.appendChild(o);
+      });
+      /* keep the saved value selected if it's still in the list */
+      if (saved && models.some(m => m.id === saved)) opModelSel.value = saved;
+    }
+    opStatus.textContent = `Loaded ${models.length} ${res.provider === 'azure' ? 'deployment' : 'model'}${models.length === 1 ? '' : 's'}.`;
+  };
+  if (opLoadBtn) {
+    opLoadBtn.addEventListener('click', () => {
+      const p = (opProvSel && opProvSel.value) || 'azure';
+      if (opStatus) opStatus.textContent = 'Loading…';
+      if (api) { try { api.postMessage({ type: 'listOperatorModels', provider: p }); } catch (_) {} }
+      playSfx('click');
+    });
+  }
+
   /* SFX controls. Hydrate from current window state, wire live preview so
      user hears the volume change while dragging the slider; persistence
      fires on Save. */
@@ -4282,6 +4378,14 @@ function openSettings(payload) {
     }
     elVoiceSelect.innerHTML = opts.join('');
   });
+  /* Listen for the host's bridge-operator model-list response and hand it to
+     window.__cbeOpFillModels (defined where the operator pane is wired). Same
+     per-open listener pattern as the ElevenLabs voice list above. */
+  window.addEventListener('message', (ev) => {
+    const m = (ev && ev.data) || {};
+    if (m.type !== 'operatorModelsResult') return;
+    try { if (typeof window.__cbeOpFillModels === 'function') window.__cbeOpFillModels(m); } catch (_) {}
+  });
   /* Trigger voice list fetch when ElevenLabs becomes the selected TTS provider. */
   if (ttsProvSel) {
     ttsProvSel.addEventListener('change', () => {
@@ -4387,6 +4491,22 @@ function openSettings(payload) {
       console.error('[CBE] _cbeDoApply toolCall collect threw', err);
     }
 
+    /* Bridge-operator collect — provider + the model for the SELECTED provider
+       only (the others keep their saved values). */
+    let bridgeOperator = null;
+    try {
+      const opProv = (opProvSel && opProvSel.value) || 'azure';
+      const opModel = (opModelSel && opModelSel.value) || '';
+      bridgeOperator = { provider: opProv };
+      if (opProv === 'azure')     bridgeOperator.azureDeployment = opModel;
+      if (opProv === 'openai')    bridgeOperator.openaiModel = opModel;
+      if (opProv === 'anthropic') bridgeOperator.anthropicModel = opModel;
+      if (opProv === 'gemini')    bridgeOperator.geminiModel = opModel;
+      console.log('[CBE]   bridgeOperator', bridgeOperator);
+    } catch (err) {
+      console.error('[CBE] _cbeDoApply bridgeOperator collect threw', err);
+    }
+
     /* ── Voice (TTS / STT) collect + apply ──────────────────────────────────
        Read every voice control, write the active values onto the window so
        the panel-side speak/dictate paths use them immediately, and ship the
@@ -4436,7 +4556,7 @@ function openSettings(payload) {
         api.postMessage({
           type: 'setProvider', provider, model,
           sfxEnabled: sfxEnabledVal, sfxVolume: sfxVolumeVal,
-          skin, language, toolCall,
+          skin, language, toolCall, bridgeOperator,
           /* voice */
           ttsProvider, sttProvider,
           ttsVoice, ttsRate, ttsVolume,

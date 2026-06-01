@@ -7647,6 +7647,14 @@ function buildSettingsPayload(context) {
     } catch (_) {
         toolCall = { mode: 'allowlist', maxSteps: 10, allowlist: TOOL_CALL_DEFAULT_ALLOWLIST.slice(), timeoutS: 60 };
     }
+    /* Bridge-operator config — hydrate Settings → Bridge Operator (the
+       vision-pilot provider/model selector). */
+    let bridgeOperator;
+    try {
+        bridgeOperator = loadBridgeOperatorConfig(context);
+    } catch (_) {
+        bridgeOperator = { provider: 'azure', azureDeployment: '', openaiModel: '', anthropicModel: '', geminiModel: '' };
+    }
     /* Voice (TTS / STT) provider selection. TTS defaults to 'webspeech' —
        the only keyless TTS option (whisper.cpp doesn't synthesize). STT
        defaults to 'elevenlabs' (per elevenlabs_default.md); keyless realtime
@@ -7686,6 +7694,7 @@ function buildSettingsPayload(context) {
         languages: (i18n && i18n.meta) || [],
         strings: _languageStringsFor(context, currentLang),
         toolCall,
+        bridgeOperator,
         ttsProvider,
         sttProvider,
         ttsVoice,
@@ -8325,6 +8334,99 @@ function bindPanel(context, panel) {
                     }
                     break;
                 }
+                case 'listOperatorModels': {
+                    /* Settings → Bridge Operator → model/deployment dropdown.
+                       Lists models/deployments for the requested operator
+                       provider so the panel (CSP-blocked from calling these
+                       endpoints directly) can populate the selector.
+                         azure     — ARM deployments list (service principal)
+                         openai    — GET /v1/models
+                         anthropic — GET /v1/models
+                         gemini    — GET /v1beta/models
+                       Returns {type:'operatorModelsResult', ok, provider, models:[{id,detail}]}. */
+                    const provider = String(msg.provider || '').toLowerCase().trim();
+                    const reply = (ok, models, error) => panel.webview.postMessage({
+                        type: 'operatorModelsResult', ok, provider, models: models || [], error: error || '',
+                    });
+                    try {
+                        const cfg = readConfigIni(context.extensionPath) || {};
+                        if (provider === 'azure') {
+                            const az = cfg.azure || {};
+                            const tenant = String(az.tenant_id || '').trim();
+                            const cid = String(az.client_id || '').trim();
+                            const csec = String(az.client_secret || '').trim();
+                            const sub = String(az.subscription_id || '').trim();
+                            const rg = String(az.resource_group || '').trim();
+                            const acct = String(az.account_name || '').trim();
+                            if (!(tenant && cid && csec && sub && rg && acct)) {
+                                reply(false, [], 'missing Azure service-principal creds in config.ini [azure]');
+                                break;
+                            }
+                            const tokRes = await fetch(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                body: new URLSearchParams({
+                                    grant_type: 'client_credentials', client_id: cid, client_secret: csec,
+                                    scope: 'https://management.azure.com/.default',
+                                }).toString(),
+                            });
+                            if (!tokRes.ok) { reply(false, [], `AAD token HTTP ${tokRes.status}`); break; }
+                            const tok = (await tokRes.json()).access_token;
+                            const url = `https://management.azure.com/subscriptions/${sub}/resourceGroups/${rg}`
+                                + `/providers/Microsoft.CognitiveServices/accounts/${acct}/deployments?api-version=2024-10-01`;
+                            const dRes = await fetch(url, { headers: { Authorization: `Bearer ${tok}` } });
+                            if (!dRes.ok) { reply(false, [], `ARM HTTP ${dRes.status}`); break; }
+                            const body = await dRes.json();
+                            const models = (body.value || []).map(d => ({
+                                id: d.name,
+                                detail: ((d.properties && d.properties.model && d.properties.model.name) || ''),
+                            }));
+                            trace(`operator models (azure): ${models.length} deployments`);
+                            reply(true, models);
+                            break;
+                        }
+                        if (provider === 'openai') {
+                            const key = String((cfg.api_keys || {}).openai_api_key || '').trim();
+                            if (!key) { reply(false, [], 'no openai_api_key in config.ini'); break; }
+                            const r = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: `Bearer ${key}` } });
+                            if (!r.ok) { reply(false, [], `OpenAI HTTP ${r.status}`); break; }
+                            const body = await r.json();
+                            const models = (body.data || []).map(m => ({ id: m.id, detail: '' }))
+                                .filter(m => /gpt|o1|o3|o4/i.test(m.id));
+                            reply(true, models);
+                            break;
+                        }
+                        if (provider === 'anthropic') {
+                            const key = String((cfg.api_keys || {}).anthropic_api_key || '').trim();
+                            if (!key) { reply(false, [], 'no anthropic_api_key in config.ini'); break; }
+                            const r = await fetch('https://api.anthropic.com/v1/models', {
+                                headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+                            });
+                            if (!r.ok) { reply(false, [], `Anthropic HTTP ${r.status}`); break; }
+                            const body = await r.json();
+                            const models = (body.data || []).map(m => ({ id: m.id, detail: m.display_name || '' }));
+                            reply(true, models);
+                            break;
+                        }
+                        if (provider === 'gemini') {
+                            const key = String((cfg.api_keys || {}).gemini_api_key || '').trim();
+                            if (!key) { reply(false, [], 'no gemini_api_key in config.ini'); break; }
+                            const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+                            if (!r.ok) { reply(false, [], `Gemini HTTP ${r.status}`); break; }
+                            const body = await r.json();
+                            const models = (body.models || [])
+                                .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+                                .map(m => ({ id: String(m.name || '').replace(/^models\//, ''), detail: m.displayName || '' }));
+                            reply(true, models);
+                            break;
+                        }
+                        reply(false, [], `unknown provider '${provider}'`);
+                    } catch (e) {
+                        traceErr('listOperatorModels', e);
+                        reply(false, [], (e && e.message) || String(e));
+                    }
+                    break;
+                }
                 case 'setProvider':
                     await context.workspaceState.update(STATE_PROVIDER, msg.provider);
                     if (msg.model) await context.workspaceState.update(STATE_MODEL + ':' + msg.provider, msg.model);
@@ -8526,6 +8628,31 @@ function bindPanel(context, panel) {
                             }
                         } catch (e) {
                             traceErr('save tool-call config', e);
+                        }
+                    }
+                    /* Bridge-operator settings (Settings → Bridge Operator).
+                       Persisted in config.ini [bridge_operator] so start.py's
+                       provider-aware _InlineChatGPTHook reads the same source. */
+                    if (msg.bridgeOperator && typeof msg.bridgeOperator === 'object') {
+                        try {
+                            const patch = {};
+                            const bo = msg.bridgeOperator;
+                            if (typeof bo.provider === 'string') {
+                                const p = bo.provider.toLowerCase().trim();
+                                if (BRIDGE_OPERATOR_PROVIDERS.includes(p)) patch['bridge_operator.provider'] = p;
+                            }
+                            const sanitizeModel = (v) => String(v || '').trim().slice(0, 120);
+                            if (typeof bo.azureDeployment === 'string' && bo.azureDeployment.trim()) patch['bridge_operator.azure_deployment'] = sanitizeModel(bo.azureDeployment);
+                            if (typeof bo.openaiModel === 'string' && bo.openaiModel.trim()) patch['bridge_operator.openai_model'] = sanitizeModel(bo.openaiModel);
+                            if (typeof bo.anthropicModel === 'string' && bo.anthropicModel.trim()) patch['bridge_operator.anthropic_model'] = sanitizeModel(bo.anthropicModel);
+                            if (typeof bo.geminiModel === 'string' && bo.geminiModel.trim()) patch['bridge_operator.gemini_model'] = sanitizeModel(bo.geminiModel);
+                            if (Object.keys(patch).length) {
+                                writeConfigPatch(path.join(context.extensionPath, 'config.ini'), patch);
+                                try { Config.invalidate(); } catch (_) {}
+                                trace(`bridge-operator config patched: ${Object.keys(patch).join(', ')}`);
+                            }
+                        } catch (e) {
+                            traceErr('save bridge-operator config', e);
                         }
                     }
                     break;
@@ -12940,6 +13067,28 @@ function loadToolCallConfig(context) {
         .map(s => s.trim())
         .filter(Boolean);
     return { enabled: mode !== 'off', mode, maxSteps, allowlist, timeoutMs };
+}
+
+/* Bridge-operator config (Settings → Bridge Operator). The operator is the
+   vision-pilot LLM that drives the offscreen Chromium bridges by reading
+   screenshots and emitting JSON actions. provider is selectable; default is
+   azure (Trent's only funded GPT-class option). Mirrors loadToolCallConfig:
+   reads config.ini [bridge_operator], returns a small hydrated object. */
+const BRIDGE_OPERATOR_PROVIDERS = ['azure', 'openai', 'anthropic', 'gemini'];
+function loadBridgeOperatorConfig(context) {
+    const cfg = readConfigIni(context.extensionPath) || {};
+    const bo = cfg.bridge_operator || {};
+    let provider = String(bo.provider || 'azure').toLowerCase().trim();
+    if (!BRIDGE_OPERATOR_PROVIDERS.includes(provider)) provider = 'azure';
+    const azure = cfg.azure || {};
+    const keys = cfg.api_keys || {};
+    return {
+        provider,
+        azureDeployment: String(bo.azure_deployment || azure.deployment_name || '').trim(),
+        openaiModel: String(bo.openai_model || keys.gpt_model_choice || '').trim(),
+        anthropicModel: String(bo.anthropic_model || keys.claude_model_choice || '').trim(),
+        geminiModel: String(bo.gemini_model || keys.gem_model_choice || '').trim(),
+    };
 }
 
 const TOOL_CALL_DEFAULT_ALLOWLIST = [
