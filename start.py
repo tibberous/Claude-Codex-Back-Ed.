@@ -476,29 +476,100 @@ def bridgePortForTarget(target: object) -> int:
 # point the bridge command handlers (or anyone) can call when they want a
 # vision-piloted round-trip instead of a Qt-bound one.
 # ===========================================================================
+# Bridge-operator providers. The operator LLM (vision pilot) drives the
+# offscreen Chromium by reading screenshots and emitting JSON actions. Which
+# provider answers those vision calls is selectable via [bridge_operator]
+# provider; default is Azure (Trent's only funded GPT-class option).
+BRIDGE_OPERATOR_PROVIDERS = ("azure", "openai", "anthropic", "gemini")
+BRIDGE_OPERATOR_DEFAULT_PROVIDER = "azure"
+# Azure ARM data-plane / control-plane api-versions.
+AZURE_OPENAI_API_VERSION = "2024-10-21"
+AZURE_ARM_API_VERSION = "2024-10-01"
+ANTHROPIC_API_VERSION = "2023-06-01"
+
+
+def _readConfig() -> "Any":
+    """Parse this repo's config.ini. Returns a RawConfigParser (never raises)."""
+    import configparser as _cp
+    cfg = _cp.RawConfigParser()
+    try:
+        cfg.read(str(ROOT / "config.ini"), encoding="utf-8")
+    except Exception:
+        pass
+    return cfg
+
+
+def _cfgGet(cfg: "Any", section: str, option: str, default: str = "") -> str:
+    try:
+        if cfg.has_option(section, option):
+            return (cfg.get(section, option) or "").strip()
+    except Exception:
+        pass
+    return default
+
+
 class _InlineChatGPTHook:
-    """Self-contained OpenAI chat + vision client. Reads key from config.ini."""
+    """Self-contained, PROVIDER-AWARE chat + vision client for the bridge
+    operator (vision pilot). Reads everything from this repo's config.ini.
+
+    Supported providers (selected via [bridge_operator] provider):
+        azure     - Azure OpenAI (default; OpenAI-compatible, api-key header)
+        openai    - OpenAI direct (Bearer sk- key)
+        anthropic - Anthropic Messages API (x-api-key)
+        gemini    - Google Gemini AI Studio (?key=)
+
+    The two public entrypoints (chat / vision) keep their original signatures
+    so existing callers don't change; the `model` arg is treated as a HINT and
+    overridden by the per-provider configured model when one is set.
+    """
 
     API_BASE = "https://api.openai.com/v1"
 
+    # ---- provider selection ------------------------------------------------
+    @staticmethod
+    def _provider() -> str:
+        cfg = _readConfig()
+        p = _cfgGet(cfg, "bridge_operator", "provider", "").lower()
+        if p in BRIDGE_OPERATOR_PROVIDERS:
+            return p
+        return BRIDGE_OPERATOR_DEFAULT_PROVIDER
+
+    @staticmethod
+    def _selectedModel(provider: str, fallback: str) -> str:
+        """The model/deployment the operator should use for `provider`.
+        Read from [bridge_operator] <provider>_model (or azure_deployment),
+        falling back to existing [api_keys]/[azure] hints, then `fallback`."""
+        cfg = _readConfig()
+        if provider == "azure":
+            return (_cfgGet(cfg, "bridge_operator", "azure_deployment")
+                    or _cfgGet(cfg, "azure", "deployment_name")
+                    or fallback)
+        if provider == "openai":
+            return (_cfgGet(cfg, "bridge_operator", "openai_model")
+                    or _cfgGet(cfg, "api_keys", "gpt_model_choice")
+                    or fallback)
+        if provider == "anthropic":
+            return (_cfgGet(cfg, "bridge_operator", "anthropic_model")
+                    or _cfgGet(cfg, "api_keys", "claude_model_choice")
+                    or "claude-sonnet-4-6")
+        if provider == "gemini":
+            return (_cfgGet(cfg, "bridge_operator", "gemini_model")
+                    or _cfgGet(cfg, "api_keys", "gem_model_choice")
+                    or "gemini-2.5-pro")
+        return fallback
+
+    # ---- key/endpoint readers ---------------------------------------------
     @staticmethod
     def _readApiKey() -> str:
-        try:
-            import configparser as _cp
-            cfg = _cp.RawConfigParser()
-            cfg.read(str(ROOT / "config.ini"), encoding="utf-8")
-            for section in cfg.sections():
-                for key in ("openai_api_key", "api_key"):
-                    if cfg.has_option(section, key):
-                        v = (cfg.get(section, key) or "").strip()
-                        # only accept api_key from an [openai] section to
-                        # avoid grabbing azure/anthropic/xai keys by accident
-                        if key == "api_key" and section.lower() != "openai":
-                            continue
-                        if v.startswith("sk-"):
-                            return v
-        except Exception:
-            pass
+        """OpenAI-direct key (Bearer). Kept for the openai provider path."""
+        cfg = _readConfig()
+        v = _cfgGet(cfg, "api_keys", "openai_api_key")
+        if v.startswith("sk-"):
+            return v
+        if cfg.has_section("openai"):
+            v = _cfgGet(cfg, "openai", "api_key")
+            if v.startswith("sk-"):
+                return v
         for env in ("OPENAI_API_KEY", "OPENAI_KEY"):
             v = (os.environ.get(env) or "").strip()
             if v:
@@ -506,107 +577,274 @@ class _InlineChatGPTHook:
         return ""
 
     @staticmethod
+    def _azureCreds() -> dict[str, str]:
+        cfg = _readConfig()
+        endpoint = _cfgGet(cfg, "azure", "endpoint")
+        if endpoint and not endpoint.endswith("/"):
+            endpoint += "/"
+        return {
+            "endpoint": endpoint,
+            "api_key": _cfgGet(cfg, "azure", "api_key") or _cfgGet(cfg, "azure", "api_key1"),
+            "deployment": _cfgGet(cfg, "bridge_operator", "azure_deployment") or _cfgGet(cfg, "azure", "deployment_name"),
+        }
+
+    @staticmethod
+    def _anthropicKey() -> str:
+        return _cfgGet(_readConfig(), "api_keys", "anthropic_api_key")
+
+    @staticmethod
+    def _geminiKey() -> str:
+        return _cfgGet(_readConfig(), "api_keys", "gemini_api_key")
+
+    @staticmethod
     def _headers() -> dict[str, str]:
+        """Legacy OpenAI-direct headers (used by the openai provider path)."""
         key = _InlineChatGPTHook._readApiKey()
         if not key:
             raise RuntimeError("OpenAI API key not found in config.ini [api_keys] openai_api_key")
         return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
 
+    # ---- low-level HTTP ----------------------------------------------------
+    @staticmethod
+    def _post(url: str, body: dict, headers: dict, timeout: int, tag: str) -> dict | None:
+        import urllib.request as _ur
+        import urllib.error as _ue
+        try:
+            req = _ur.Request(url, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
+            with _ur.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read().decode("utf-8", "replace"))
+        except _ue.HTTPError as e:
+            try:
+                err_body = e.read().decode("utf-8", "replace")
+            except Exception:
+                err_body = ""
+            print(f"[{tag}] HTTP {e.code}: {err_body[:600]}", file=sys.stderr, flush=True)
+            return None
+        except Exception as e:
+            print(f"[{tag}] {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            return None
+
+    @staticmethod
+    def _toB64(image: "bytes | str") -> str:
+        if isinstance(image, (bytes, bytearray)):
+            return base64.b64encode(bytes(image)).decode("ascii")
+        if isinstance(image, str):
+            if os.path.isfile(image):
+                with open(image, "rb") as f:
+                    return base64.b64encode(f.read()).decode("ascii")
+            return image  # assume already base64
+        raise TypeError(f"image must be bytes/str path/b64 string, not {type(image).__name__}")
+
+    # ---- per-provider chat -------------------------------------------------
     @staticmethod
     def chat(messages: list[dict[str, Any]] | None = None,
              prompt: str = "",
              model: str = "gpt-4o-mini",
              max_tokens: int = 2048,
              system: str = "") -> str:
-        """Wrap https://api.openai.com/v1/chat/completions.
+        """Provider-aware text chat. Returns the assistant text, or "" on error.
 
-        Accepts EITHER:
-            - messages=[{"role":"...","content":"..."}, ...]
-            - prompt="..."  (+ optional system="...")
-        Returns the assistant message text, or "" on error.
+        Accepts EITHER messages=[...] OR prompt=... (+ optional system=...).
         """
-        import urllib.request as _ur
-        import urllib.error as _ue
-        msgs = list(messages or [])
-        if not msgs:
-            if system:
-                msgs.append({"role": "system", "content": str(system)})
-            msgs.append({"role": "user", "content": str(prompt or "")})
-        body = {"model": model, "messages": msgs, "max_tokens": int(max_tokens), "temperature": 0.2}
-        try:
-            req = _ur.Request(
-                f"{_InlineChatGPTHook.API_BASE}/chat/completions",
-                data=json.dumps(body).encode("utf-8"),
-                headers=_InlineChatGPTHook._headers(),
-                method="POST",
-            )
-            with _ur.urlopen(req, timeout=180) as r:
-                payload = json.loads(r.read().decode("utf-8", "replace"))
-            return str(payload["choices"][0]["message"]["content"] or "")
-        except _ue.HTTPError as e:
-            try:
-                err_body = e.read().decode("utf-8", "replace")
-            except Exception:
-                err_body = ""
-            print(f"[InlineChatGPTHook.chat] HTTP {e.code}: {err_body[:600]}", file=sys.stderr, flush=True)
-            return ""
-        except Exception as e:
-            print(f"[InlineChatGPTHook.chat] {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        provider = _InlineChatGPTHook._provider()
+        sysText = str(system or "")
+        # Normalize to a simple (system, user_text) since chat is text-only.
+        userText = str(prompt or "")
+        if messages:
+            parts = []
+            for m in messages:
+                role = m.get("role", "user")
+                c = m.get("content", "")
+                if isinstance(c, list):
+                    c = " ".join(str(x.get("text", "")) for x in c if isinstance(x, dict))
+                if role == "system" and not sysText:
+                    sysText = str(c)
+                else:
+                    parts.append(str(c))
+            if parts:
+                userText = "\n".join(parts)
+
+        if provider == "openai":
+            mdl = _InlineChatGPTHook._selectedModel("openai", model)
+            msgs: list[dict[str, Any]] = []
+            if sysText:
+                msgs.append({"role": "system", "content": sysText})
+            msgs.append({"role": "user", "content": userText})
+            body = {"model": mdl, "messages": msgs, "max_tokens": int(max_tokens), "temperature": 0.2}
+            payload = _InlineChatGPTHook._post(
+                f"{_InlineChatGPTHook.API_BASE}/chat/completions", body,
+                _InlineChatGPTHook._headers(), 180, "operator.chat.openai")
+            if payload:
+                try:
+                    return str(payload["choices"][0]["message"]["content"] or "")
+                except Exception:
+                    pass
             return ""
 
+        if provider == "azure":
+            az = _InlineChatGPTHook._azureCreds()
+            if not (az["endpoint"] and az["api_key"] and az["deployment"]):
+                print("[operator.chat.azure] missing endpoint/api_key/deployment in config.ini [azure]", file=sys.stderr, flush=True)
+                return ""
+            msgs = []
+            if sysText:
+                msgs.append({"role": "system", "content": sysText})
+            msgs.append({"role": "user", "content": userText})
+            # NOTE: no 'model' field — deployment is in the URL path.
+            body = {"messages": msgs, "max_completion_tokens": int(max_tokens)}
+            url = (f"{az['endpoint']}openai/deployments/{az['deployment']}"
+                   f"/chat/completions?api-version={AZURE_OPENAI_API_VERSION}")
+            payload = _InlineChatGPTHook._post(
+                url, body, {"api-key": az["api_key"], "Content-Type": "application/json"},
+                180, "operator.chat.azure")
+            if payload:
+                try:
+                    return str(payload["choices"][0]["message"]["content"] or "")
+                except Exception:
+                    pass
+            return ""
+
+        if provider == "anthropic":
+            key = _InlineChatGPTHook._anthropicKey()
+            if not key:
+                print("[operator.chat.anthropic] missing anthropic_api_key", file=sys.stderr, flush=True)
+                return ""
+            mdl = _InlineChatGPTHook._selectedModel("anthropic", model)
+            body = {"model": mdl, "max_tokens": int(max_tokens), "temperature": 0.2,
+                    "messages": [{"role": "user", "content": userText}]}
+            if sysText:
+                body["system"] = sysText
+            payload = _InlineChatGPTHook._post(
+                "https://api.anthropic.com/v1/messages", body,
+                {"x-api-key": key, "anthropic-version": ANTHROPIC_API_VERSION, "Content-Type": "application/json"},
+                180, "operator.chat.anthropic")
+            if payload:
+                try:
+                    return "".join(b.get("text", "") for b in payload.get("content", []) if b.get("type") == "text")
+                except Exception:
+                    pass
+            return ""
+
+        if provider == "gemini":
+            key = _InlineChatGPTHook._geminiKey()
+            if not key:
+                print("[operator.chat.gemini] missing gemini_api_key", file=sys.stderr, flush=True)
+                return ""
+            mdl = _InlineChatGPTHook._selectedModel("gemini", model)
+            parts = [{"text": userText}]
+            body = {"contents": [{"role": "user", "parts": parts}],
+                    "generationConfig": {"maxOutputTokens": int(max_tokens), "temperature": 0.2}}
+            if sysText:
+                body["systemInstruction"] = {"parts": [{"text": sysText}]}
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={key}"
+            payload = _InlineChatGPTHook._post(url, body, {"Content-Type": "application/json"}, 180, "operator.chat.gemini")
+            if payload:
+                try:
+                    cand = payload["candidates"][0]["content"]["parts"]
+                    return "".join(p.get("text", "") for p in cand)
+                except Exception:
+                    pass
+            return ""
+        return ""
+
+    # ---- per-provider vision (the critical operator path) ------------------
     @staticmethod
     def vision(image: bytes | str,
                prompt: str = "Describe what's on the screen.",
                model: str = "gpt-4o",
                max_tokens: int = 1024,
                system: str = "") -> str:
-        """Call gpt-4o vision with one image (raw bytes OR base64 string OR
-        a filesystem path) + text prompt. Returns the assistant's text reply.
-        """
-        import urllib.request as _ur
-        import urllib.error as _ue
-        # Resolve image -> base64 string
-        if isinstance(image, (bytes, bytearray)):
-            b64 = base64.b64encode(bytes(image)).decode("ascii")
-        elif isinstance(image, str):
-            if os.path.isfile(image):
-                with open(image, "rb") as f:
-                    b64 = base64.b64encode(f.read()).decode("ascii")
-            else:
-                b64 = image  # assume already base64
-        else:
-            raise TypeError(f"image must be bytes/str path/b64 string, not {type(image).__name__}")
-        msgs: list[dict[str, Any]] = []
-        if system:
-            msgs.append({"role": "system", "content": str(system)})
-        msgs.append({
-            "role": "user",
-            "content": [
-                {"type": "text", "text": str(prompt or "")},
+        """Provider-aware single-image vision call. `image` may be raw bytes,
+        a filesystem path, or a base64 string. Returns the assistant text reply
+        (or "" on error). This is the path the vision pilot uses to read
+        screenshots and emit JSON actions."""
+        provider = _InlineChatGPTHook._provider()
+        b64 = _InlineChatGPTHook._toB64(image)
+        promptText = str(prompt or "")
+        sysText = str(system or "")
+
+        if provider in ("openai", "azure"):
+            content = [
+                {"type": "text", "text": promptText},
                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
-            ],
-        })
-        body = {"model": model, "messages": msgs, "max_tokens": int(max_tokens), "temperature": 0.2}
-        try:
-            req = _ur.Request(
-                f"{_InlineChatGPTHook.API_BASE}/chat/completions",
-                data=json.dumps(body).encode("utf-8"),
-                headers=_InlineChatGPTHook._headers(),
-                method="POST",
-            )
-            with _ur.urlopen(req, timeout=240) as r:
-                payload = json.loads(r.read().decode("utf-8", "replace"))
-            return str(payload["choices"][0]["message"]["content"] or "")
-        except _ue.HTTPError as e:
-            try:
-                err_body = e.read().decode("utf-8", "replace")
-            except Exception:
-                err_body = ""
-            print(f"[InlineChatGPTHook.vision] HTTP {e.code}: {err_body[:600]}", file=sys.stderr, flush=True)
+            ]
+            msgs: list[dict[str, Any]] = []
+            if sysText:
+                msgs.append({"role": "system", "content": sysText})
+            msgs.append({"role": "user", "content": content})
+            if provider == "openai":
+                mdl = _InlineChatGPTHook._selectedModel("openai", model)
+                body = {"model": mdl, "messages": msgs, "max_tokens": int(max_tokens), "temperature": 0.2}
+                payload = _InlineChatGPTHook._post(
+                    f"{_InlineChatGPTHook.API_BASE}/chat/completions", body,
+                    _InlineChatGPTHook._headers(), 240, "operator.vision.openai")
+            else:
+                az = _InlineChatGPTHook._azureCreds()
+                if not (az["endpoint"] and az["api_key"] and az["deployment"]):
+                    print("[operator.vision.azure] missing endpoint/api_key/deployment in config.ini [azure]", file=sys.stderr, flush=True)
+                    return ""
+                body = {"messages": msgs, "max_completion_tokens": int(max_tokens)}
+                url = (f"{az['endpoint']}openai/deployments/{az['deployment']}"
+                       f"/chat/completions?api-version={AZURE_OPENAI_API_VERSION}")
+                payload = _InlineChatGPTHook._post(
+                    url, body, {"api-key": az["api_key"], "Content-Type": "application/json"},
+                    240, "operator.vision.azure")
+            if payload:
+                try:
+                    return str(payload["choices"][0]["message"]["content"] or "")
+                except Exception:
+                    pass
             return ""
-        except Exception as e:
-            print(f"[InlineChatGPTHook.vision] {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+
+        if provider == "anthropic":
+            key = _InlineChatGPTHook._anthropicKey()
+            if not key:
+                print("[operator.vision.anthropic] missing anthropic_api_key", file=sys.stderr, flush=True)
+                return ""
+            mdl = _InlineChatGPTHook._selectedModel("anthropic", model)
+            content = [
+                {"type": "text", "text": promptText},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b64}},
+            ]
+            body = {"model": mdl, "max_tokens": int(max_tokens), "temperature": 0.2,
+                    "messages": [{"role": "user", "content": content}]}
+            if sysText:
+                body["system"] = sysText
+            payload = _InlineChatGPTHook._post(
+                "https://api.anthropic.com/v1/messages", body,
+                {"x-api-key": key, "anthropic-version": ANTHROPIC_API_VERSION, "Content-Type": "application/json"},
+                240, "operator.vision.anthropic")
+            if payload:
+                try:
+                    return "".join(b.get("text", "") for b in payload.get("content", []) if b.get("type") == "text")
+                except Exception:
+                    pass
             return ""
+
+        if provider == "gemini":
+            key = _InlineChatGPTHook._geminiKey()
+            if not key:
+                print("[operator.vision.gemini] missing gemini_api_key", file=sys.stderr, flush=True)
+                return ""
+            mdl = _InlineChatGPTHook._selectedModel("gemini", model)
+            parts = [
+                {"text": promptText},
+                {"inline_data": {"mime_type": "image/png", "data": b64}},
+            ]
+            body = {"contents": [{"role": "user", "parts": parts}],
+                    "generationConfig": {"maxOutputTokens": int(max_tokens), "temperature": 0.2}}
+            if sysText:
+                body["systemInstruction"] = {"parts": [{"text": sysText}]}
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={key}"
+            payload = _InlineChatGPTHook._post(url, body, {"Content-Type": "application/json"}, 240, "operator.vision.gemini")
+            if payload:
+                try:
+                    cand = payload["candidates"][0]["content"]["parts"]
+                    return "".join(p.get("text", "") for p in cand)
+                except Exception:
+                    pass
+            return ""
+        return ""
 
 
 # Per-target start URLs used by the MiniComputer pilot path.
@@ -3139,24 +3377,28 @@ def _gptVisionPilotBuildPrompt(target: str, credentials: dict[str, str], viewpor
 
 
 def _gptVisionPilotCallModel(screenshotPath: Path, systemPrompt: str, userPrompt: str, timeoutSec: int = 60) -> dict[str, Any]:
-    """Shell out to chatgtp_hook.py vision. The CLI doesn't expose a system arg
-    so we fold the system prompt into the user prompt; the model still treats
-    it as authoritative because the schema is so explicit."""
-    if not GPT_VISION_PILOT_HOOK_PATH.exists():
-        return {"ok": False, "error": f"chatgtp_hook missing at {GPT_VISION_PILOT_HOOK_PATH}"}
-    combinedPrompt = f"{systemPrompt}\n\n=== USER ===\n{userPrompt or 'Inspect the screenshot and emit one JSON action per the schema above.'}"
+    """Call the PROVIDER-AWARE operator vision client. The operator provider
+    (azure/openai/anthropic/gemini) is selected via [bridge_operator] provider
+    (default azure). The system prompt is passed natively as `system=`. Returns
+    the same parsed-JSON-action dict shape the caller expects.
+
+    Previously this shelled out to an external chatgtp_hook.py (OpenAI-only,
+    and pointing at a now-recycled path) — replaced with the in-process
+    _InlineChatGPTHook.vision so provider selection is honored.
+    """
+    userText = userPrompt or "Inspect the screenshot and emit one JSON action per the schema above."
+    provider = _InlineChatGPTHook._provider()
     try:
-        proc = subprocess.run(
-            [sys.executable, str(GPT_VISION_PILOT_HOOK_PATH), "vision", str(screenshotPath), combinedPrompt],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeoutSec,
-        )
-    except subprocess.TimeoutExpired as error:
-        return {"ok": False, "error": f"vision call timed out after {timeoutSec}s: {error}"}
+        raw = (_InlineChatGPTHook.vision(
+            str(screenshotPath),
+            prompt=userText,
+            system=systemPrompt,
+            max_tokens=1024,
+        ) or "").strip()
     except Exception as error:
-        return {"ok": False, "error": f"vision call crashed: {type(error).__name__}: {error}"}
-    raw = (proc.stdout or "").strip()
+        return {"ok": False, "error": f"operator vision crashed ({provider}): {type(error).__name__}: {error}"}
     if not raw:
-        return {"ok": False, "error": f"vision returned empty stdout; stderr={(proc.stderr or '').strip()[:500]}"}
+        return {"ok": False, "error": f"operator vision ({provider}) returned empty reply (see stderr for HTTP detail)"}
     # Tolerate code-fence wrappers GPT occasionally leaks despite the prompt.
     rawStrip = raw
     if rawStrip.startswith("```"):
