@@ -49,6 +49,8 @@
   --cbe-modal-title-fg:   #315912;
   --cbe-modal-foot-bg:    #acd85b;
   --cbe-modal-accent:     #4d8b18;
+  --cbe-modal-on-accent:  #111111;   /* contrast fix: text on selected nav + Apply btn */
+  --cbe-modal-label-fg:   #2c4a10;   /* contrast fix: field labels on light modal-bg */
   /* Universal high-contrast accent. Read from manifest.xml -> <highlight-color>
      so each skin gets a pop-color that reads cleanly on its modal-bg. */
   --cbe-highlight-color:  #8e0e4e;
@@ -1210,15 +1212,20 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   #cbe-settings { position: fixed; inset: 0; z-index: 2147483645;
     background: rgba(0,0,0,.65); display: flex;
     align-items: center; justify-content: center; }
-  #cbe-settings .cbe-box { background: var(--cbe-modal-bg); border: 2px solid var(--cbe-modal-border);
+  #cbe-settings .cbe-box { background: var(--cbe-modal-bg); color: var(--cbe-modal-fg, #e8e8e8);
+    border: 2px solid var(--cbe-modal-border);
     border-radius: 8px; width: 420px; max-width: 90vw;
     box-shadow: 0 8px 40px rgba(0,0,0,.6); overflow: hidden; }
+  /* Base body text inherits the skin's modal-fg so cat-titles, plain text,
+     range-value spans and hints read on EITHER a dark or a light modal-bg. */
+  #cbe-settings .cbe-body { color: var(--cbe-modal-fg, #e8e8e8); }
+  #cbe-settings .cbe-cat-title { color: var(--cbe-modal-fg, #e8e8e8); }
   #cbe-settings .cbe-hdr {
     padding: 10px 14px; background: linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2)); color: var(--cbe-modal-title-fg);
     color: #fff; font-family: system-ui, sans-serif; font-weight: 700;
     font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
   #cbe-settings .cbe-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
-  #cbe-settings label { font-size: 11px; color: #aaa;
+  #cbe-settings label { font-size: 11px; color: var(--cbe-modal-label-fg, #aaa);
     font-family: system-ui, sans-serif; text-transform: uppercase;
     letter-spacing: .08em; margin-bottom: 5px; display: block; }
   #cbe-settings select { width: 100%; background: #0f0f0f; color: #e8e8e8;
@@ -1236,8 +1243,19 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     font-weight: 700; font-size: 12px; cursor: pointer; padding: 7px 14px;
     border-radius: 5px; border: none; }
   #cbe-settings button.cbe-cancel { background: #2a2a2a; color: #ddd; }
-  #cbe-settings button.cbe-save   { background: var(--cbe-modal-accent); color: var(--cbe-modal-title-fg); }
-  #cbe-settings button.cbe-save:hover { background: #ff7a1a; }
+  /* Apply/save sits on the accent — use the contrast-checked on-accent text
+     color (not title-fg, which is tuned for the title GRADIENT). Overrides
+     the panel.js inline default via !important. */
+  #cbe-settings button.cbe-save   { background: var(--cbe-modal-accent); color: var(--cbe-modal-on-accent, var(--cbe-modal-title-fg)) !important; }
+  #cbe-settings button.cbe-save:hover { background: var(--cbe-modal-accent); filter: brightness(1.1); }
+  /* Selected left-nav item: panel.js injects color:#fff on the accent bg,
+     invisible on light accents. Re-point at the contrast-checked color. */
+  #cbe-settings .cbe-catnav .cbe-catnav-item.is-active {
+    color: var(--cbe-modal-on-accent, #fff) !important; }
+  /* TTS/STT API-key Save buttons sit on the accent with an inline color:#fff
+     (built in panel.js) — re-point them too. */
+  #cbe-settings .cbe-key-save-btn {
+    color: var(--cbe-modal-on-accent, #fff) !important; }
 
   /* ── Accounts modal (standalone — toolbar #accountsBtn) ──────
      Mirrors the Settings-modal chrome (.cbe-box / .cbe-hdr / .cbe-body /
@@ -1914,8 +1932,30 @@ body[data-skin="tamagotchi"] #cbe-tama-shell {
   right: auto !important;
   width: 168px !important;
   max-height: 260px !important;
-  overflow: auto !important;
+  /* overflow-y scrolls if the pet is taller than the cap; overflow-x is
+     HIDDEN so the device can never produce a horizontal scrollbar (the base
+     LCD is a fixed 240px wide — we shrink it below to fit 168px, and clip any
+     residual sub-pixel spill here as a belt-and-suspenders guard). */
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
   z-index: 50 !important;
+}
+/* Shrink the fixed-width LCD module + pixel canvas so they FIT the 168px
+   docked shell. The base panel CSS hard-codes .cbe-tama-lcd width:240px and
+   #cbe-tama-screen width:226px/height:200px — both overflow the narrow skin
+   shell and were the source of the horizontal scrollbar + the canvas poking
+   out past the device. Scale them to the shell's usable interior (~150px). */
+body[data-skin="tamagotchi"] #cbe-tama-shell .cbe-tama-lcd {
+  width: 150px !important;
+  max-width: 100% !important;
+  padding: 4px !important;
+  margin: 0 auto 6px auto !important;
+  box-sizing: border-box !important;
+}
+body[data-skin="tamagotchi"] #cbe-tama-shell #cbe-tama-screen {
+  width: 138px !important;
+  height: 122px !important;
+  max-width: 100% !important;
 }
 /* Compact the whole device so it FITS inside the panel corner instead of
    overflowing (user 2026-05-22: "needs to fit in the panel, it's too big").
@@ -1987,12 +2027,16 @@ body[data-skin="tamagotchi"] #cbe-tama-shell .tama-btn:hover {
 body[data-skin="tamagotchi"] #cbe-tama-shell .tama-btn:active {
   background: rgba(40,58,30,0.34) !important;
 }
-/* No content reservation needed — the pet is absolutely positioned at the
-   bottom-left and floats over the composer corner. Trim padding-bottom so
-   there's no dead green space under the label/Stop row (user 2026-05-22:
-   "get rid of the empty space at the bottom under the label"). */
+/* RESERVE left space for the docked pet so the composer (textarea + inline
+   meta cluster with Stop/Send + the dock toolbar) shifts to the RIGHT of the
+   pet instead of being covered by it. The pet is left:16 .. right:184; a
+   ~196px left pad clears it with a small gap. Without this the pet floated
+   ON TOP of the prompt row and hid the Stop/Send + dock icons (the original
+   bug). padding-bottom trim is preserved (user 2026-05-22: kill dead green
+   space under the label). */
 body[data-skin="tamagotchi"] .prompt-shell {
   position: relative !important;
+  padding-left: 196px !important;
   padding-bottom: 8px !important;
   min-height: 0 !important;
 }

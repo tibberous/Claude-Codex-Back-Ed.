@@ -49,6 +49,7 @@
   --cbe-modal-title-fg:   #ffffff;
   --cbe-modal-foot-bg:    #1d171c;
   --cbe-modal-accent:     #e95420;
+  --cbe-modal-on-accent:  #111111;   /* contrast fix: text on selected nav + Apply btn */
   /* Universal high-contrast accent. Read from manifest.xml -> <highlight-color>
      so each skin gets a pop-color that reads cleanly on its modal-bg. */
   --cbe-highlight-color:  #aef359;
@@ -1210,15 +1211,20 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   #cbe-settings { position: fixed; inset: 0; z-index: 2147483645;
     background: rgba(0,0,0,.65); display: flex;
     align-items: center; justify-content: center; }
-  #cbe-settings .cbe-box { background: var(--cbe-modal-bg); border: 2px solid var(--cbe-modal-border);
+  #cbe-settings .cbe-box { background: var(--cbe-modal-bg); color: var(--cbe-modal-fg, #e8e8e8);
+    border: 2px solid var(--cbe-modal-border);
     border-radius: 8px; width: 420px; max-width: 90vw;
     box-shadow: 0 8px 40px rgba(0,0,0,.6); overflow: hidden; }
+  /* Base body text inherits the skin's modal-fg so cat-titles, plain text,
+     range-value spans and hints read on EITHER a dark or a light modal-bg. */
+  #cbe-settings .cbe-body { color: var(--cbe-modal-fg, #e8e8e8); }
+  #cbe-settings .cbe-cat-title { color: var(--cbe-modal-fg, #e8e8e8); }
   #cbe-settings .cbe-hdr {
     padding: 10px 14px; background: linear-gradient(90deg,var(--cbe-modal-title-bg-1),var(--cbe-modal-title-bg-2)); color: var(--cbe-modal-title-fg);
     color: #fff; font-family: system-ui, sans-serif; font-weight: 700;
     font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
   #cbe-settings .cbe-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
-  #cbe-settings label { font-size: 11px; color: #aaa;
+  #cbe-settings label { font-size: 11px; color: var(--cbe-modal-label-fg, #aaa);
     font-family: system-ui, sans-serif; text-transform: uppercase;
     letter-spacing: .08em; margin-bottom: 5px; display: block; }
   #cbe-settings select { width: 100%; background: #0f0f0f; color: #e8e8e8;
@@ -1236,8 +1242,19 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
     font-weight: 700; font-size: 12px; cursor: pointer; padding: 7px 14px;
     border-radius: 5px; border: none; }
   #cbe-settings button.cbe-cancel { background: #2a2a2a; color: #ddd; }
-  #cbe-settings button.cbe-save   { background: var(--cbe-modal-accent); color: var(--cbe-modal-title-fg); }
-  #cbe-settings button.cbe-save:hover { background: #ff7a1a; }
+  /* Apply/save sits on the accent — use the contrast-checked on-accent text
+     color (not title-fg, which is tuned for the title GRADIENT). Overrides
+     the panel.js inline default via !important. */
+  #cbe-settings button.cbe-save   { background: var(--cbe-modal-accent); color: var(--cbe-modal-on-accent, var(--cbe-modal-title-fg)) !important; }
+  #cbe-settings button.cbe-save:hover { background: var(--cbe-modal-accent); filter: brightness(1.1); }
+  /* Selected left-nav item: panel.js injects color:#fff on the accent bg,
+     invisible on light accents. Re-point at the contrast-checked color. */
+  #cbe-settings .cbe-catnav .cbe-catnav-item.is-active {
+    color: var(--cbe-modal-on-accent, #fff) !important; }
+  /* TTS/STT API-key Save buttons sit on the accent with an inline color:#fff
+     (built in panel.js) — re-point them too. */
+  #cbe-settings .cbe-key-save-btn {
+    color: var(--cbe-modal-on-accent, #fff) !important; }
 
   /* ── Accounts modal (standalone — toolbar #accountsBtn) ──────
      Mirrors the Settings-modal chrome (.cbe-box / .cbe-hdr / .cbe-body /
