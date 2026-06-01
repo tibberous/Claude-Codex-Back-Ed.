@@ -122,9 +122,9 @@ body {
   max-width: 1935px;
   margin: 0 auto;
   position: relative;
-  /* Vertical padding tightened from 14/22 → 8/10 → 3/4 (user 2026-05-23:
-     target ~80-100px total panel height; was ~220px). */
-  padding: 3px 14px 4px;
+  /* 2026-05-31: top/bottom bumped to match the 14px sides (user: "more
+     vertical padding so it matches the sides"). Was 3/4 (too cramped). */
+  padding: 14px;
   border-radius: var(--shell-radius);
   border: 2px solid rgba(255, 192, 40, 0.95);
   background:
@@ -349,12 +349,13 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 }
 #sendBtn:hover,
 #sendBtn.is-hover {
-  color: #ffffff !important;
+  color: #c084fc !important;            /* purple rollover — was #fff (white-on-white) */
+  text-shadow: 0 0 8px rgba(192, 132, 252, 0.5) !important;
   background-image: none !important;
 }
 #sendBtn:active,
 #sendBtn.is-active {
-  color: #ffffff !important;
+  color: #d8b4fe !important;            /* lighter purple on press */
   background-image: none !important;
 }
 
