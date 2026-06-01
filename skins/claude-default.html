@@ -2065,17 +2065,22 @@ body {
                absolute-positioned to the right edge of the textarea — the
                meta cluster sits to the LEFT of sendBtn via right-padding
                on the wrap that reserves room for both. -->
+          <!-- 2026-06-01 layout v2 (Trent): prompt row reads [textarea] … [Stop]
+               [Send] with Send rightmost; brand label + project folder sit in a
+               CENTERED row (.prompt-meta-row) directly UNDER the prompt box. -->
           <div class="toolbar-meta toolbar-meta--inline">
-            <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" data-i18n-tip="tooltip.settings" aria-label="Current assistant profile">
-              <img id="brandLabelImg" src="{{ASSETS_BASE}}/labels/en.svg" data-cbe-brand alt="Claude Codex — Black Edition" />
-            </button>
-            <div id="project-path" class="project-path" data-tooltip="No project folder — click the folder button to pick one" data-i18n-tip="label.no_project" aria-label="Active project folder" title=""></div>
             <button id="stopBtn" class="stop-button" type="button" data-tooltip="Stop generation" data-i18n-tip="tooltip.stop" aria-label="Stop generation">
               <span class="stop-button__icon" aria-hidden="true"></span>
               <span class="stop-button__label">Stop</span>
             </button>
+            <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" data-i18n-tip="tooltip.send" aria-label="Send message"></button>
+            <div class="prompt-meta-row">
+              <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" data-i18n-tip="tooltip.settings" aria-label="Current assistant profile">
+                <img id="brandLabelImg" src="{{ASSETS_BASE}}/labels/en.svg" data-cbe-brand alt="Claude Codex — Black Edition" />
+              </button>
+              <div id="project-path" class="project-path" data-tooltip="No project folder — click the folder button to pick one" data-i18n-tip="label.no_project" aria-label="Active project folder" title=""></div>
+            </div>
           </div>
-          <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" data-i18n-tip="tooltip.send" aria-label="Send message"></button>
         </div>
 
         <div id="attachments" class="attachments" aria-label="Queued file attachments"></div>
@@ -2749,85 +2754,105 @@ body {
     row-gap: 4px !important;
   }
   
-/* ════════════════════════════════════════════════════
-   2026-05-31 — UNIVERSAL prompt-row normalize (Trent). SEND bottom-LEFT,
-   Stop pinned bottom-RIGHT, brand label bottom-LEFT, project folder
-   bottom-RIGHT (left of Stop). SEND + project are chrome-free by default.
-   --cbe-label-w = reserved width for the brand pill so SEND clears it.
-   ════════════════════════════════════════════════════ */
-:root { --cbe-label-w: 44px; }
-
+/* ════════════════════════════════
+   2026-06-01 — UNIVERSAL prompt-row LAYOUT v2 (Trent). New shape:
+     • input row:  [textarea] … [Stop] [Send]  — Send pinned FAR RIGHT,
+       right of Stop (both anchored bottom-right of the wrap).
+     • under-box row: a centered [label] [project-folder] cluster sitting
+       directly UNDER the prompt box (.prompt-meta-row, full width, centered).
+     • label image renders at its NATURAL size (no width/height clamps,
+       no breakpoint shrink) so the brand logo never looks too small.
+   .toolbar-meta--inline is display:contents so its children flow inside the
+   wrap; Stop+Send are absolutely positioned, .prompt-meta-row is normal flow.
+   ════════════════════════════════ */
 .prompt-input-wrap,
 #input-box.prompt-input-wrap {
-  display: block !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: flex-start !important;
   position: relative !important;
+  /* bottom padding reserves room for the absolutely-pinned Stop/Send row */
   padding: 12px 14px 52px 14px !important;
   margin-bottom: 14px !important;
 }
 .prompt-input-wrap > textarea.prompt-input,
 .prompt-input-wrap #promptBox {
   display: block !important;
+  flex: 1 1 100% !important;
   width: 100% !important;
 }
 .toolbar-meta--inline {
   position: static !important;
   display: contents !important;
 }
-/* claude-default's brand avatar is a tiny 14px icon — collapse the 180px
-   pill so SEND can sit right beside it, no overlap. */
+/* Show the brand pill (Trent v2 wants the label visible + centered under box). */
+#label-pill,
+.label-button,
 .toolbar-meta--inline #label-pill {
-  position: absolute !important;
-  left: 14px; bottom: 11px;
-  width: 30px !important;
-  min-width: 30px !important;
-  padding: 0 !important;
-  margin: 0 !important;
+  display: inline-flex !important;
 }
-/* claude-default KEEPS its coral icon SEND (brand identity) — we only
-   re-anchor it bottom-LEFT. Match the skin's own high specificity
-   (button#sendBtn.send-button) so position wins; chrome is intentionally
-   preserved here (see report: claude-default keeps its send chrome). */
-#sendBtn,
-button#sendBtn.send-button {
+/* SEND — far right, right of Stop. */
+#sendBtn {
   position: absolute !important;
-  left: calc(14px + var(--cbe-label-w)) !important;
-  right: auto !important;
+  left: auto !important;
+  right: 14px !important;
   top: auto !important;
   bottom: 12px !important;
   transform: none !important;
 }
-button#sendBtn.send-button:hover,
-button#sendBtn.send-button.is-hover {
-  transform: scale(1.04) !important;
-}
-button#sendBtn.send-button:active {
-  transform: scale(0.96) !important;
-}
+/* STOP — immediately to the LEFT of Send. */
 .toolbar-meta--inline #stopBtn {
   position: absolute !important;
-  right: 14px; bottom: 11px;
+  right: 56px; bottom: 11px;
   top: auto !important;
   left: auto !important;
   margin: 0 !important;
   transform: none !important;
 }
-.toolbar-meta--inline #project-path {
-  position: absolute !important;
-  right: 96px; bottom: 13px;
-  top: auto !important;
-  left: auto !important;
+/* Under-box centered row: [label] [project-folder] */
+.prompt-meta-row {
+  flex: 1 1 100% !important;
+  width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  margin-top: 10px !important;
+}
+/* Label image at NATURAL size — stop downscaling it. The brand SVG has a
+   932×148 viewBox but no intrinsic width/height; pin the HEIGHT and let width
+   scale by the SVG's own ratio so the logo is full-size + crisp on every skin. */
+.prompt-meta-row #label-pill,
+.toolbar-meta--inline #label-pill,
+.prompt-meta-row .label-button {
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  margin: 0 !important;
+  flex: 0 0 auto !important;
+}
+.prompt-meta-row #label-pill img,
+.prompt-meta-row .label-button img {
+  width: auto !important;
+  height: 40px !important;
+  max-width: none !important;
+  object-fit: contain !important;
+}
+.toolbar-meta--inline #project-path,
+.prompt-meta-row #project-path {
+  position: static !important;
   margin: 0 !important;
   max-width: 240px !important;
-}
-.toolbar-meta--inline #project-path {
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
   padding: 0 4px !important;
   height: auto !important;
   color: inherit !important;   /* readable on light + dark skins alike */
+  flex: 0 1 auto !important;
 }
-.toolbar-meta--inline #project-path:empty::before {
+.toolbar-meta--inline #project-path:empty::before,
+.prompt-meta-row #project-path:empty::before {
   color: currentColor !important;
   font-style: italic;
   opacity: 0.55;
