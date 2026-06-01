@@ -2369,6 +2369,73 @@ function _amStartDelete(account, row) {
 let __cbeActiveSkin = '';  /* bare filename, e.g. 'noir.css'. '' = no skin */
 let __cbeSkinsList  = null;/* null = not yet discovered for this session; [] = scanned, empty */
 
+/* ── Shared prompt-row label layout — SINGLE SOURCE for all 15 skins ───────
+   Each skin is its own standalone HTML, so the label/folder prompt-row layout
+   used to be duplicated 15× and fixed one-at-a-time. Instead, panel.js (which
+   is injected into EVERY skin) owns ONE shared stylesheet + a per-skin position
+   map. The layout (label + project-folder pill always sharing the one
+   .prompt-meta-row under the prompt box, with proper pairing) lives in one
+   place; each skin only gets a POSITION (center / left / right) so they're not
+   all identical. Change the layout here → all skins (current + future) update.
+   Stop/Send spacing is left to the skins (already non-overlapping). */
+const CBE_LABEL_POS = {
+  // centered — clean / modern shells
+  'codex-black': 'center', 'glassy': 'center', 'gnome': 'center',
+  'kde': 'center', 'claude-default': 'center',
+  // bottom-left — techy / classic shells
+  'terminal': 'left', 'arch': 'left', 'ubuntu': 'left',
+  'redhat': 'left', 'office': 'left',
+  // bottom-right — dock / playful shells
+  'tamagotchi': 'right', 'xfce': 'right', 'mint-dock': 'right',
+  'macos-color-dock': 'right', 'aqua-dock': 'right',
+};
+const CBE_LABEL_POS_DEFAULT = 'center';
+
+function ensurePromptRowSharedCss() {
+  if (document.getElementById('cbe-promptrow-shared')) return;
+  const st = document.createElement('style');
+  st.id = 'cbe-promptrow-shared';
+  st.textContent = [
+    /* label + folder pill, one row under the prompt box. Higher specificity
+       than the skins' own `.prompt-meta-row` rules + appended last, so this
+       wins the cascade across every skin. */
+    '.prompt-meta-row{display:flex !important;align-items:center !important;',
+    '  flex-wrap:nowrap !important;gap:10px !important;width:100% !important;',
+    '  box-sizing:border-box !important;padding:6px 14px 2px !important;}',
+    '.prompt-meta-row #label-pill{flex:0 0 auto !important;}',
+    '.prompt-meta-row #project-path{flex:0 1 auto !important;margin:0 !important;}',
+    '/* position variants — driven by body[data-cbe-label-pos] (CBE_LABEL_POS) */',
+    'body[data-cbe-label-pos="left"]   .prompt-meta-row{justify-content:flex-start !important;}',
+    'body[data-cbe-label-pos="center"] .prompt-meta-row{justify-content:center !important;}',
+    'body[data-cbe-label-pos="right"]  .prompt-meta-row{justify-content:flex-end !important;}',
+    '/* folder pairs with the label: right of it normally, LEFT of it when the',
+    '   label is right-anchored so the label still sits last on the right edge */',
+    'body[data-cbe-label-pos="right"] .prompt-meta-row #project-path{order:-1 !important;}',
+  ].join('\n');
+  (document.head || document.documentElement).appendChild(st);
+}
+
+function applyLabelPos(skinBare) {
+  try {
+    ensurePromptRowSharedCss();
+    if (!document.body) return;
+    const id = String(skinBare || document.body.getAttribute('data-skin') || '').trim();
+    document.body.setAttribute('data-cbe-label-pos',
+                               CBE_LABEL_POS[id] || CBE_LABEL_POS_DEFAULT);
+  } catch (e) {
+    console.warn('[CBE] label-pos apply failed:', e && e.message);
+  }
+}
+
+/* Initial application — stampSkinBody fires on skin APPLY, but on first panel
+   load the active skin's HTML is already mounted, so run once when the DOM is
+   ready (data-skin is baked onto <body> by the skin / stamped by the host). */
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => applyLabelPos());
+} else {
+  applyLabelPos();
+}
+
 /* Stamp the active skin id onto <body data-skin> so skin CSS can target
    skin-specific UI hooks (e.g. tamagotchi's body[data-skin="tamagotchi"]
    docks the pet panel into the prompt shell). Single-file skins (Phase 0/2)
@@ -2382,6 +2449,7 @@ function stampSkinBody(skinId) {
     const bare = String(skinId || '').replace(/\.css$/i, '');
     if (bare) document.body.setAttribute('data-skin', bare);
     else      document.body.removeAttribute('data-skin');
+    applyLabelPos(bare);   // re-apply the shared label position for this skin
   } catch (e) {
     console.warn('[CBE] data-skin stamp failed:', e && e.message);
   }
