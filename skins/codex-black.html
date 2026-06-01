@@ -2774,6 +2774,7 @@ html body textarea#promptBox.prompt-input {
    own aspect ratio so the logo renders full-size + crisp on every skin. */
 .prompt-meta-row #label-pill img,
 .prompt-meta-row .label-button img {
+  display: block !important;   /* override skins that hid the wordmark img (xfce/tamagotchi) */
   width: auto !important;
   height: 40px !important;
   max-width: none !important;

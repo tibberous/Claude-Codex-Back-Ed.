@@ -23,6 +23,8 @@ bridges/
 emails/
 logs/
 skins/previews/
+.skin_stubs/
+skins/*.stub.html
 *.db
 *.sqlite
 *.sqlite3
