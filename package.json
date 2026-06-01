@@ -56,7 +56,7 @@
         "command": "codexBlackEd.openPanel",
         "title": "Claude Codex Black: Open Panel",
         "icon": {
-          "light": "assets/icon-light.png",
+          "light": "resources/icon-light.png",
           "dark": "resources/icon-dark.png"
         }
       },
