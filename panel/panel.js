@@ -5738,8 +5738,23 @@ function renderExtensionsCatalog(items, error) {
   body.querySelectorAll('.cbe-ext-pin').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = btn.getAttribute('data-ext-id');
-      const isPinned = (window.__cbePinnedExtensions || []).includes(id);
-      if (api) api.postMessage({ type: isPinned ? 'unpinExtension' : 'pinExtension', id });
+      window.__cbePinnedExtensions = window.__cbePinnedExtensions || [];
+      const isPinned = window.__cbePinnedExtensions.includes(id);
+      const nowPinned = !isPinned;
+      /* Optimistic toggle: the host persists to config.ini [extensions] pinned
+         (the 1/0 setting) + re-sends, but that only refreshes the toolbar — so
+         flip THIS card's button right here or it looks dead ("always pinned"). */
+      window.__cbePinnedExtensions = nowPinned
+        ? window.__cbePinnedExtensions.concat([id])
+        : window.__cbePinnedExtensions.filter((x) => x !== id);
+      btn.innerHTML = nowPinned ? CBE_EXT_ICONS.pinned : CBE_EXT_ICONS.pin;
+      const t = nowPinned ? cbeT('label.unpin_toolbar', 'Unpin from Toolbar')
+                          : cbeT('label.pin_toolbar', 'Pin to Toolbar');
+      btn.title = t;
+      btn.setAttribute('aria-label', t);
+      btn.style.color = nowPinned ? '#ffd84d' : 'var(--cbe-modal-title-fg,#4ea8ff)';
+      try { renderPinnedExtensionButtons(); } catch (e) {}
+      if (api) api.postMessage({ type: nowPinned ? 'pinExtension' : 'unpinExtension', id });
     });
   });
   body.querySelectorAll('.cbe-ext-uninstall').forEach((btn) => {
