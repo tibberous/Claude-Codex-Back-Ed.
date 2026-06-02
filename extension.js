@@ -12113,6 +12113,69 @@ function parseResetHint(msg) {
     return NaN;
 }
 
+/* ── CCLS: session-limit → auto account-switch (output-stream detector) ───
+   CBE hosts the wrapped Claude output and sees the raw streamed text directly,
+   so it can catch the weekly-cap sentence even when it arrives as plain
+   assistant TEXT (not a thrown error / 429). The canonical message:
+       You've hit your session limit · resets 1:50am (America/New_York)
+   On match we fire a GET to the local claude_switcher service to rotate to the
+   next/best account — the CBE-side counterpart to the Claude-Code-side hook
+   (C:\hooks\ccls_limit_switch.py wired into ~/.claude/settings.json). The two
+   are independent on purpose: whichever sees the cap first fires the switch,
+   and the switcher self-dedupes by account.
+
+   Patterns mirror ccls_limit_switch.py's LIMIT_RE (tolerant, case-insensitive).
+   SAFETY: wrapped so a detector fault can NEVER break the chat stream, and
+   self-throttled (won't re-fire within CCLS_COOLDOWN_MS) since a single cap
+   can produce repeated output lines. */
+const CCLS_SWITCH_URL = process.env.CCLS_SWITCH_URL || 'http://127.0.0.1:3333/switch';
+const CCLS_COOLDOWN_MS = 60 * 1000;
+let _cclsLastFire = 0;
+const CCLS_LIMIT_RE = new RegExp(
+    'hit your session limit'                          + '|' +
+    'session limit\\s*[·:]\\s*resets'            + '|' +   /* "session limit · resets" / "session limit: resets" */
+    "you'?ve hit your (usage|session) limit"          + '|' +
+    'weekly (usage|session) limit'                    + '|' +
+    'rate_?limit_?exceeded'                           + '|' +
+    'usage limit reached',
+    'i'
+);
+
+/* True if `text` carries the limit message. Pure predicate — no side effects,
+   so it's trivially unit-testable. */
+function cclsTextHasLimit(text) {
+    return !!(text && CCLS_LIMIT_RE.test(String(text)));
+}
+
+/* Scan output-stream text for the limit message; on match (and outside the
+   cooldown) fire the switch GET. Returns true if a switch was fired. Never
+   throws — all faults are swallowed + traced. */
+function cclsCheckLimitText(text) {
+    try {
+        if (!cclsTextHasLimit(text)) return false;
+        const now = Date.now();
+        if (now - _cclsLastFire < CCLS_COOLDOWN_MS) {
+            trace('CCLS: limit detected in output but within cooldown — not re-firing');
+            return false;
+        }
+        _cclsLastFire = now;
+        trace('CCLS: session-limit message detected in output stream — firing switch');
+        /* Fire-and-forget; failures are logged, never surfaced to the user. */
+        Promise.resolve()
+            .then(() => fetch(CCLS_SWITCH_URL, { method: 'GET' }))
+            .then(async (res) => {
+                let body = '';
+                try { body = (await res.text()).slice(0, 200); } catch (_) {}
+                trace(`CCLS: switch GET ${CCLS_SWITCH_URL} -> ${res.status} ${body}`);
+            })
+            .catch((e) => trace(`CCLS: switch GET failed (${CCLS_SWITCH_URL}): ${(e && e.message) || e}`));
+        return true;
+    } catch (e) {
+        try { trace(`CCLS: detector fault swallowed: ${(e && e.message) || e}`); } catch (_) {}
+        return false;
+    }
+}
+
 /* Classify a thrown stream error as a rate-limit / weekly-cap hit. The
    fetch-based streamers throw `HTTP 429 ...`; the Anthropic SDK throws an
    error carrying .status === 429. We also pattern-match the error vocabulary
@@ -12556,6 +12619,9 @@ function streamClaudeAgent(context, panel, text, images) {
                 if (se.type === 'content_block_delta' && se.delta && se.delta.type === 'text_delta' && se.delta.text) {
                     assembled += se.delta.text;
                     panel.webview.postMessage({ type: 'chunk', text: se.delta.text });
+                    /* CCLS: scan the wrapped `claude` subprocess output for the
+                       weekly-cap sentence (tail window — message lands at end). */
+                    cclsCheckLimitText(assembled.length > 600 ? assembled.slice(-600) : assembled);
                 }
                 return;
             }
@@ -12589,6 +12655,9 @@ function streamClaudeAgent(context, panel, text, images) {
                 if (ev.is_error) {
                     panel.webview.postMessage({ type: 'info', text: `claude: ${ev.subtype || 'error'}` });
                 }
+                /* CCLS: the terminal result string carries the cap sentence on
+                   pure-error turns where no text_delta streamed. */
+                cclsCheckLimitText(String(ev.result || '') + ' ' + String(ev.subtype || ''));
                 return;
             }
         };
@@ -12604,7 +12673,12 @@ function streamClaudeAgent(context, panel, text, images) {
                 try { onEvent(ev); } catch (e) { traceErr('claudeCode onEvent', e); }
             }
         });
-        child.stderr.on('data', (d) => { stderrBuf += d.toString('utf8'); });
+        child.stderr.on('data', (d) => {
+            stderrBuf += d.toString('utf8');
+            /* CCLS: the wrapped `claude` CLI prints the cap sentence to stderr
+               on some paths (no JSON frame) — scan the raw stderr too. */
+            cclsCheckLimitText(stderrBuf.length > 800 ? stderrBuf.slice(-800) : stderrBuf);
+        });
         child.on('error', (e) => {
             panel.webview.postMessage({ type: 'error', message: `claude process error: ${(e && e.message) || e}` });
             finish();
@@ -12738,7 +12812,17 @@ async function handleSendText(context, panel, text, images) {
                 }
                 assembled += delta;
                 panel.webview.postMessage({ type: 'chunk', text: delta });
+                /* CCLS: the wrapped Claude output flows through this single
+                   chokepoint, so scan it for the weekly-cap sentence even when
+                   it arrives as plain text (not a thrown 429). Scan a tail
+                   window so we don't re-scan the whole buffer per token; the
+                   message is short and lands at the end of the stream. Wrapped
+                   internally — can never break the stream loop. */
+                cclsCheckLimitText(assembled.length > 600 ? assembled.slice(-600) : assembled);
             }
+            /* Final whole-buffer pass in case the message straddled the tail
+               window boundary or the stream emitted it in one shot. */
+            cclsCheckLimitText(assembled);
             trace(`stream done provider=${providerId} chars=${assembled.length} ms=${Date.now() - t0} toolIter=${toolIterations} nativeToolCalls=${nativeToolCalls ? nativeToolCalls.length : 0}`);
 
             /* Native OpenAI/Grok/DeepSeek tool-calls daisy-chain. When the

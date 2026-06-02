@@ -3,6 +3,24 @@
 All notable changes to **Claude Codex — Black Edition** are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### CCLS — session-limit → auto account-switch (output-stream detector)
+
+- **CBE now catches the weekly-cap sentence directly in the wrapped Claude
+  output stream** and fires the local account switcher (`GET
+  http://127.0.0.1:3333/switch`, override via `CCLS_SWITCH_URL`). This is the
+  CBE-side counterpart to the Claude-Code-side hook
+  (`C:\hooks\ccls_limit_switch.py`); the two are independent so whichever sees
+  the cap first rotates the account. CBE's tap catches the message even when it
+  arrives as plain assistant **text** (not a thrown 429), which the existing
+  `classifyRateLimit` error-path would miss.
+- Tapped the streaming chokepoints in `handleSendText` / `chatStream` (the
+  `assembled += delta` loop) **and** the wrapped `claude` CLI subprocess path
+  (`text_delta`, terminal `result`, and `stderr`). Tolerant case-insensitive
+  matcher mirrors `ccls_limit_switch.py`'s `LIMIT_RE`. Self-throttled (60s) and
+  fully fault-isolated — a detector fault can never break the chat stream.
+
 ## [1.0.2] — 2026-06-01
 
 The current Marketplace release. It bundles the Bridge Operator, the full
