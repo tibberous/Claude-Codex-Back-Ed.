@@ -2163,6 +2163,9 @@ body {
       box-shadow: 0 12px 32px rgba(0,0,0,0.55);
       border-radius: 14px;
       user-select: none;
+      /* NO SCROLLBARS (Trent 2026-06-02): the shell sizes to its content,
+         so clip any sub-pixel spill rather than ever raising a scrollbar. */
+      overflow: hidden;
     }
     #cbe-tama-shell[hidden] { display: none !important; }
     #cbe-tama-shell .cbe-tama-frame {
@@ -2608,12 +2611,18 @@ body {
 }
 /* Under-box centered row: [label] [project-folder] */
 .prompt-meta-row {
+  /* STACKED column (Trent 2026-06-02): brand label on top, project-folder
+     directly UNDER it — never side-by-side. panel.js's #cbe-promptrow-shared
+     sheet re-anchors this whole column to one of the 3 allowed spots
+     (left / center / right) via body[data-cbe-label-pos]; centered is the
+     base default below. */
   flex: 1 1 100% !important;
   width: 100% !important;
   display: flex !important;
+  flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 10px !important;
+  gap: 3px !important;
   margin-top: 10px !important;
 }
 /* Label image at NATURAL size — stop downscaling it. The brand SVG has a
@@ -2656,7 +2665,11 @@ body {
   opacity: 0.55;
 }
 @media (max-width: 620px) {
-  .toolbar-meta--inline #project-path { display: none !important; }
+  /* Folder stays UNDER the label even on narrow panels (Trent 2026-06-02 —
+     it must ALWAYS sit directly under the label). Keep it visible; the
+     stacked column already keeps the row height tiny. */
+  .toolbar-meta--inline #project-path,
+  .prompt-meta-row #project-path { display: flex !important; }
 }
 
 </style>

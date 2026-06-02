@@ -2377,7 +2377,13 @@ let __cbeSkinsList  = null;/* null = not yet discovered for this session; [] = s
    .prompt-meta-row under the prompt box, with proper pairing) lives in one
    place; each skin only gets a POSITION (center / left / right) so they're not
    all identical. Change the layout here → all skins (current + future) update.
-   Stop/Send spacing is left to the skins (already non-overlapping). */
+   Stop/Send spacing is left to the skins (already non-overlapping).
+   The label + project-folder are STACKED (folder directly under the label) and
+   the column is anchored to exactly ONE of three allowed spots (Trent 2026-06-02):
+     'center' → centered, directly under the prompt bar  (DEFAULT)
+     'left'   → bottom-left
+     'right'  → bottom-right
+   No other positions are permitted. */
 const CBE_LABEL_POS = {
   // centered — clean / modern shells
   'codex-black': 'center', 'glassy': 'center', 'gnome': 'center',
@@ -2396,21 +2402,29 @@ function ensurePromptRowSharedCss() {
   const st = document.createElement('style');
   st.id = 'cbe-promptrow-shared';
   st.textContent = [
-    /* label + folder pill, one row under the prompt box. Higher specificity
-       than the skins' own `.prompt-meta-row` rules + appended last, so this
-       wins the cascade across every skin. */
-    '.prompt-meta-row{display:flex !important;align-items:center !important;',
-    '  flex-wrap:nowrap !important;gap:10px !important;width:100% !important;',
+    /* Brand label + project-folder pill, STACKED in one column under the
+       prompt box (Trent 2026-06-02: the folder indicator must ALWAYS sit
+       directly UNDER the label, never beside it). The column is anchored to
+       ONE of the 3 allowed spots via body[data-cbe-label-pos] (CBE_LABEL_POS):
+         left   → bottom-left
+         center → center, directly under the prompt bar  (default)
+         right  → bottom-right
+       Higher specificity than the skins' own `.prompt-meta-row` rules +
+       appended last, so this wins the cascade across every skin. */
+    '.prompt-meta-row{display:flex !important;flex-direction:column !important;',
+    '  flex-wrap:nowrap !important;gap:3px !important;width:100% !important;',
     '  box-sizing:border-box !important;padding:6px 14px 2px !important;}',
-    '.prompt-meta-row #label-pill{flex:0 0 auto !important;}',
-    '.prompt-meta-row #project-path{flex:0 1 auto !important;margin:0 !important;}',
-    '/* position variants — driven by body[data-cbe-label-pos] (CBE_LABEL_POS) */',
-    'body[data-cbe-label-pos="left"]   .prompt-meta-row{justify-content:flex-start !important;}',
-    'body[data-cbe-label-pos="center"] .prompt-meta-row{justify-content:center !important;}',
-    'body[data-cbe-label-pos="right"]  .prompt-meta-row{justify-content:flex-end !important;}',
-    '/* folder pairs with the label: right of it normally, LEFT of it when the',
-    '   label is right-anchored so the label still sits last on the right edge */',
-    'body[data-cbe-label-pos="right"] .prompt-meta-row #project-path{order:-1 !important;}',
+    '.prompt-meta-row #label-pill{flex:0 0 auto !important;order:0 !important;}',
+    /* folder ALWAYS renders below the label (order keeps it second even if a
+       skin reordered the markup) and never grows the column wider than the
+       label cluster. */
+    '.prompt-meta-row #project-path{flex:0 0 auto !important;order:1 !important;',
+    '  margin:0 !important;max-width:100% !important;}',
+    '/* position variants — driven by body[data-cbe-label-pos] (CBE_LABEL_POS).',
+    '   align-items moves the whole stacked column to the chosen edge. */',
+    'body[data-cbe-label-pos="left"]   .prompt-meta-row{align-items:flex-start !important;}',
+    'body[data-cbe-label-pos="center"] .prompt-meta-row{align-items:center !important;}',
+    'body[data-cbe-label-pos="right"]  .prompt-meta-row{align-items:flex-end !important;}',
   ].join('\n');
   (document.head || document.documentElement).appendChild(st);
 }

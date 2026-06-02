@@ -1923,21 +1923,22 @@ body[data-skin="tamagotchi"] #cbe-tama-shell {
      green prompt-shell composer area (user 2026-05-22: "needs to be to the
      left in the panel, and fit in the panel"). The composer fills the
      bottom of the panel, so bottom-left of the panel viewport == bottom-
-     left of the green composer. Max-height caps the widget so it can't
-     poke up past the composer into the chat thread. */
+     left of the green composer. */
   position: absolute !important;
   bottom: 16px !important;
   left: 16px !important;
   top: auto !important;
   right: auto !important;
   width: 168px !important;
-  max-height: 260px !important;
-  /* overflow-y scrolls if the pet is taller than the cap; overflow-x is
-     HIDDEN so the device can never produce a horizontal scrollbar (the base
-     LCD is a fixed 240px wide — we shrink it below to fit 168px, and clip any
-     residual sub-pixel spill here as a belt-and-suspenders guard). */
-  overflow-x: hidden !important;
-  overflow-y: auto !important;
+  /* NO SCROLLBARS (Trent 2026-06-02: "the pet has scrollbars"). The widget
+     sizes to its content — every inner piece (frame / status / LCD / canvas /
+     buttons) is shrunk below to fit the 168px shell, so the box is naturally
+     short enough to sit inside the composer. We let it size to content
+     (height:auto, no max-height) and HIDE overflow on both axes so a stray
+     sub-pixel spill can never raise a scrollbar. */
+  height: auto !important;
+  max-height: none !important;
+  overflow: hidden !important;
   z-index: 50 !important;
 }
 /* Shrink the fixed-width LCD module + pixel canvas so they FIT the 168px
@@ -2389,6 +2390,9 @@ body[data-skin="tamagotchi"] .prompt-shell {
       box-shadow: 0 12px 32px rgba(0,0,0,0.55);
       border-radius: 14px;
       user-select: none;
+      /* NO SCROLLBARS (Trent 2026-06-02): the shell sizes to its content,
+         so clip any sub-pixel spill rather than ever raising a scrollbar. */
+      overflow: hidden;
     }
     #cbe-tama-shell[hidden] { display: none !important; }
     #cbe-tama-shell .cbe-tama-frame {
@@ -2834,12 +2838,18 @@ body[data-skin="tamagotchi"] .prompt-shell {
 }
 /* Under-box centered row: [label] [project-folder] */
 .prompt-meta-row {
+  /* STACKED column (Trent 2026-06-02): brand label on top, project-folder
+     directly UNDER it — never side-by-side. panel.js's #cbe-promptrow-shared
+     sheet re-anchors this whole column to one of the 3 allowed spots
+     (left / center / right) via body[data-cbe-label-pos]; centered is the
+     base default below. */
   flex: 1 1 100% !important;
   width: 100% !important;
   display: flex !important;
+  flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 10px !important;
+  gap: 3px !important;
   margin-top: 10px !important;
 }
 /* Label image at NATURAL size — stop downscaling it. The brand SVG has a
@@ -2882,7 +2892,11 @@ body[data-skin="tamagotchi"] .prompt-shell {
   opacity: 0.55;
 }
 @media (max-width: 620px) {
-  .toolbar-meta--inline #project-path { display: none !important; }
+  /* Folder stays UNDER the label even on narrow panels (Trent 2026-06-02 —
+     it must ALWAYS sit directly under the label). Keep it visible; the
+     stacked column already keeps the row height tiny. */
+  .toolbar-meta--inline #project-path,
+  .prompt-meta-row #project-path { display: flex !important; }
 }
 
 </style>

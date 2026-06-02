@@ -35,6 +35,8 @@ try:
                "});})()")
     print("setup:", setup.get("result"))
 
+    # Layout is now a STACKED column (label on top, project-folder directly
+    # under it) anchored to one of the 3 allowed spots via align-items.
     for skin, expect in [("terminal", "flex-start"), ("codex-black", "center"), ("tamagotchi", "flex-end")]:
         r = ev("(function(){"
                "document.body.setAttribute('data-skin','%s');"
@@ -44,11 +46,14 @@ try:
                "var cs=row?getComputedStyle(row):{};"
                "var ppcs=pp?getComputedStyle(pp):{};"
                "return JSON.stringify({pos:document.body.getAttribute('data-cbe-label-pos'),"
-               "justify:cs.justifyContent,folderOrder:ppcs.order});"
+               "dir:cs.flexDirection,align:cs.alignItems,folderOrder:ppcs.order});"
                "})()" % (skin, skin))
         got = r.get("result")
-        ok = (json.loads(got).get("justify") == expect) if got else False
-        print(f"  {skin:14s} -> {got}   {'OK' if ok else 'MISMATCH (expect %s)' % expect}")
+        ok = False
+        if got:
+            d = json.loads(got)
+            ok = (d.get("align") == expect and d.get("dir") == "column" and d.get("folderOrder") == "1")
+        print(f"  {skin:14s} -> {got}   {'OK' if ok else 'MISMATCH (expect align=%s dir=column folderOrder=1)' % expect}")
 
     # one screenshot of the right-anchored (tamagotchi) state
     shot = call({"action": "screenshot"})

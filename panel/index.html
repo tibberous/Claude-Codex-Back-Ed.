@@ -1714,17 +1714,24 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
                absolute-positioned to the right edge of the textarea — the
                meta cluster sits to the LEFT of sendBtn via right-padding
                on the wrap that reserves room for both. -->
+          <!-- 2026-06-02 layout v2 (Trent): prompt row reads [textarea] … [Stop]
+               [Send] with Send rightmost; brand label + project folder STACK in
+               a column (.prompt-meta-row — folder directly UNDER the label),
+               anchored to one of 3 spots (left / center / right) by panel.js's
+               #cbe-promptrow-shared sheet. -->
           <div class="toolbar-meta toolbar-meta--inline">
-            <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" data-i18n-tip="tooltip.settings" aria-label="Current assistant profile">
-              <img id="brandLabelImg" src="{{ASSETS_BASE}}/labels/en.svg" data-cbe-brand alt="Claude Codex — Black Edition" />
-            </button>
-            <div id="project-path" class="project-path" data-tooltip="No project folder — click the folder button to pick one" data-i18n-tip="label.no_project" aria-label="Active project folder" title=""></div>
             <button id="stopBtn" class="stop-button" type="button" data-tooltip="Stop generation" data-i18n-tip="tooltip.stop" aria-label="Stop generation">
               <span class="stop-button__icon" aria-hidden="true"></span>
               <span class="stop-button__label">Stop</span>
             </button>
+            <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" data-i18n-tip="tooltip.send" aria-label="Send message"></button>
+            <div class="prompt-meta-row">
+              <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" data-i18n-tip="tooltip.settings" aria-label="Current assistant profile">
+                <img id="brandLabelImg" src="{{ASSETS_BASE}}/labels/en.svg" data-cbe-brand alt="Claude Codex — Black Edition" />
+              </button>
+              <div id="project-path" class="project-path" data-tooltip="No project folder — click the folder button to pick one" data-i18n-tip="label.no_project" aria-label="Active project folder" title=""></div>
+            </div>
           </div>
-          <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" data-i18n-tip="tooltip.send" aria-label="Send message"></button>
         </div>
 
         <div id="attachments" class="attachments" aria-label="Queued file attachments"></div>
@@ -1966,6 +1973,9 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
       box-shadow: 0 12px 32px rgba(0,0,0,0.55);
       border-radius: 14px;
       user-select: none;
+      /* NO SCROLLBARS (Trent 2026-06-02): the shell sizes to its content,
+         so clip any sub-pixel spill rather than ever raising a scrollbar. */
+      overflow: hidden;
     }
     #cbe-tama-shell[hidden] { display: none !important; }
     #cbe-tama-shell .cbe-tama-frame {
