@@ -1,0 +1,34 @@
+MONKEY PATCH DETECTOR REPORT
+============================
+
+Generated at: 2026-05-19T02:04:43
+Project root: C:\Users\moren\Desktop\Claude Codex Black
+Files scanned: 20
+Findings: 9
+Severity counts: ERROR=0, HIGH=5, MEDIUM=4, LOW=0
+Rule counts: MP001=5, MP003=4
+
+Rules:
+  MP001 assignment to suspicious module/class attribute
+  MP002 dynamic globals/locals/vars namespace write
+  MP003 setattr call on a nonlocal/unknown target
+  MP004 pytest monkeypatch setattr call
+  MP005 mock patch helper call
+  MP006 sys.modules mutation candidate
+
+Intentional app wiring ignored:
+  os.environ configuration writes
+  lifecycle metadata setattr on self/process/thread/daemon/record/app/page/view/dialog/widget
+  known runtime global settings updated through direct globals or setRuntimeGlobal()
+  known bottom-of-file TrioDesktop compatibility bindings
+
+Findings:
+app.py:482:5: MEDIUM MP003 setattr call on nonlocal or unknown target; review for monkeypatch behavior :: setattr(builtins, "_supergrok_print_tee_installed", True)  # nopatch
+app.py:483:5: HIGH MP001 possible runtime attribute monkeypatch of `builtins.print` :: builtins.print = teePrint  # nopatch
+app.py:4126:13: HIGH MP001 possible runtime attribute monkeypatch of `socket` :: socket = self.server.nextPendingConnection()
+start.py:162:9: HIGH MP001 possible runtime attribute monkeypatch of `sys.stdout` :: sys.stdout = _ConsoleTee(sys.stdout, _console_log_fp)
+start.py:163:9: HIGH MP001 possible runtime attribute monkeypatch of `sys.stderr` :: sys.stderr = _ConsoleTee(sys.stderr, _console_log_fp)
+start.py:722:5: MEDIUM MP003 setattr call on nonlocal or unknown target; review for monkeypatch behavior :: setattr(builtins, "_supergrok_print_tee_installed", True)  # nopatch
+start.py:723:5: HIGH MP001 possible runtime attribute monkeypatch of `builtins.print` :: builtins.print = teePrint  # nopatch
+start.py:1443:5: MEDIUM MP003 setattr call on nonlocal or unknown target; review for monkeypatch behavior :: setattr(args, attr, current)
+start.py:1647:5: MEDIUM MP003 setattr call on nonlocal or unknown target; review for monkeypatch behavior :: setattr(args, "chat_target", target)

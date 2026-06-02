@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CBE — toolbar circles preview</title>
+<style>
+  body { background:#1c1c20; color:#ddd; font:14px/1.45 -apple-system,Segoe UI,sans-serif; padding:24px; }
+  h1 { color:#fff; font-size:18px; margin:0 0 6px; }
+  h2 { color:#9fb; font-size:13px; margin:18px 0 6px; letter-spacing:.04em; text-transform:uppercase; }
+  .row { display:flex; align-items:center; gap:24px; flex-wrap:wrap; padding:14px 18px; background:#26262b; border-radius:8px; border:1px solid #333; }
+  .row + .row { margin-top:10px; }
+  .swatch {
+    width: 43px; height: 43px;
+    background: #2a2a30; border-radius: 8px;
+    display: inline-flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .swatch img.spinner {
+    /* Same FIXED 32×32 spec used in panel/index.html for #monitorBtn .cbe-spinner
+       and #sttBtn .cbe-spinner — all toolbar circles standardize on this size
+       (Trent 2026-05-27). */
+    position: absolute; top: 50%; left: 50%;
+    width: 32px; height: 32px;
+    transform: translate(-50%, -50%);
+  }
+  .swatch.btn-shadow {
+    /* mimic the .tool-button dock-icon background */
+    background: linear-gradient(180deg,#2f2f36,#1d1d22);
+    box-shadow: inset 0 1px 0 #44444a, 0 2px 6px rgba(0,0,0,.45);
+  }
+  .lbl { font-size:12px; color:#aaa; }
+  .ok { color:#3ec46d; }
+  .bad { color:#ff7a7a; }
+  code { background:#11111a; padding:2px 6px; border-radius:4px; color:#ffcc88; font-family:Consolas,monospace; }
+</style>
+</head>
+<body>
+
+<h1>CBE toolbar circles — after fix (2026-05-27)</h1>
+<p class="lbl">All three rings: <strong>32×32 px</strong>, <strong>stroke-width 4</strong>, same arc geometry. Only the color differs.</p>
+
+<h2>Color convention</h2>
+<div class="row">
+  <div class="swatch btn-shadow"><img class="spinner" src="assets/loading_green.svg"></div>
+  <div>
+    <div><span class="ok">GREEN</span> — <code>loading_green.svg</code></div>
+    <div class="lbl">Used by <code>#monitorBtn</code> only (VSCode-monitor / ctrl-server status).</div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="swatch btn-shadow"><img class="spinner" src="assets/loading_blue.svg"></div>
+  <div>
+    <div><span class="ok">BLUE</span> — <code>loading_blue.svg</code></div>
+    <div class="lbl">Used by <code>#sttBtn</code> (and every other busy indicator). DEFAULT for everything-except-monitor.</div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="swatch btn-shadow"><img class="spinner" src="assets/loading_orange.svg"></div>
+  <div>
+    <div>ORANGE — <code>loading_orange.svg</code></div>
+    <div class="lbl">Kept on disk for legacy skins; geometry now matches blue/green exactly (was stroke-width 7.5, the "large yellow ring" Trent flagged). No buttons reference it in the main panel.</div>
+  </div>
+</div>
+
+<h2>Side-by-side at button size (all 32×32)</h2>
+<div class="row">
+  <div class="swatch btn-shadow"><img class="spinner" src="assets/loading_green.svg"></div>
+  <div class="swatch btn-shadow"><img class="spinner" src="assets/loading_blue.svg"></div>
+  <div class="swatch btn-shadow"><img class="spinner" src="assets/loading_orange.svg"></div>
+  <div class="lbl">Three swatches above should be visually identical except for color.</div>
+</div>
+
+<h2>Same-size verification at 2× zoom</h2>
+<div class="row" style="gap:36px;">
+  <div class="swatch btn-shadow" style="width:64px;height:64px;"><img class="spinner" src="assets/loading_green.svg" style="width:64px;height:64px;"></div>
+  <div class="swatch btn-shadow" style="width:64px;height:64px;"><img class="spinner" src="assets/loading_blue.svg" style="width:64px;height:64px;"></div>
+  <div class="swatch btn-shadow" style="width:64px;height:64px;"><img class="spinner" src="assets/loading_orange.svg" style="width:64px;height:64px;"></div>
+</div>
+
+<h2>What changed</h2>
+<ul class="lbl">
+  <li><code>panel/index.html</code>: <code>#monitorBtn</code> spinner src → <code>loading_green.svg</code> (was orange).</li>
+  <li><code>panel/index.html</code>: <code>#sttBtn</code> spinner src → <code>loading_blue.svg</code> (was orange).</li>
+  <li><code>panel/index.html</code>: <code>#monitorBtn .cbe-spinner</code> width/height → 32px (was 43px — the "large ring" Trent flagged).</li>
+  <li><code>panel/index.html</code>: <code>#sttBtn .cbe-spinner</code> width/height → 32px (was 70%/70%).</li>
+  <li><code>assets/loading_orange.svg</code>: stroke-width 7.5 → 4 (now matches blue/green exactly).</li>
+  <li><code>#monitorBtn.is-monitoring &gt; img</code> drop-shadow recolored orange → green to match the new spinner.</li>
+</ul>
+
+</body>
+</html>

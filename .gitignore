@@ -31,3 +31,22 @@ skins/*.stub.html
 *.lastgood.db
 *.real-backup
 *.bak
+
+# Lint / build / runtime droppings (never source)
+*.pylintjson
+*.log
+port.txt
+session.log
+bin/*.exe
+bin/*.manifest
+bridges_cpp/obj/
+bridges_cpp/*.res
+bridges_cpp/*.rsp
+tools/sign_metadata.json
+
+# Scratch screenshots + skin-audit contact sheets + pre-edit asset backups
+panel/_*.png
+tools/_shot_*.png
+tools/skin_snapshots/
+_skin_audit_*/
+assets/_pre_lineart_backup_*/
