@@ -7,7 +7,12 @@
      1. the canonical cap sentence MATCHES,
      2. all tolerant variants MATCH,
      3. normal assistant output does NOT match,
-     4. the switch GET path actually reaches the live :3333 service.
+     4. realistic CONTAMINATION strings (assistant prose / sub-agent death
+        messages) DO match the regex — which is exactly why extension.js gates
+        firing to error channels only (cclsCheckLimitText is called with
+        fromErrorChannel=true ONLY from stderr + is_error results, NEVER from
+        assistant text_delta / success-result text). The regex alone is not safe.
+     5. the switch GET path actually reaches the live :3333 service.
 
    Run: node tools/ccls_detector_test.js
 */
@@ -56,6 +61,18 @@ console.log('— MUST NOT MATCH (normal output) —');
     null,
     undefined,
 ].forEach((s) => ok(JSON.stringify(String(s).slice(0, 48)), !cclsTextHasLimit(s)));
+
+console.log('— REGEX ALSO MATCHES non-cap text → WHY channel-gating exists —');
+/* These all MATCH the regex but are NOT real caps: assistant prose discussing
+   CCLS, or a sub-agent death message echoed into a tool_result. extension.js
+   only fires from stderr + is_error results (fromErrorChannel=true), so on the
+   assistant-text path these can never trigger a rotation. This section proves
+   the regex is insufficient on its own — the channel gate is load-bearing. */
+[
+    "Agent died: You've hit your session limit · resets 12:30pm",
+    'As I explained, when "you\'ve hit your usage limit" appears we rotate',
+    'I tightened RATE_LIMIT_PHRASES so "usage limit reached" no longer false-fires',
+].forEach((s) => ok('matches regex but gated OFF on assistant channel: ' + JSON.stringify(s.slice(0, 40)), cclsTextHasLimit(s)));
 
 (async () => {
     console.log('— LIVE rotate POST (proves watchdog backup-trigger path) —');

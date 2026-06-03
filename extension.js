@@ -12174,8 +12174,17 @@ function cclsTextHasLimit(text) {
    scope) we still fire the rotate — the poller / next user turn picks it up.
 
    Returns true if a rotation was fired. Never throws — all faults swallowed. */
-function cclsCheckLimitText(text, injectCtx) {
+function cclsCheckLimitText(text, injectCtx, fromErrorChannel) {
     try {
+        /* HARDENED (2026-06-03): only EVER fire from a genuine error channel —
+           the wrapped `claude` subprocess's stderr or an is_error result event.
+           Assistant output (text_delta / a SUCCESS result's text) is NEVER a
+           trustworthy cap signal: a session merely *discussing* rate limits, or
+           a sub-agent death message ("you've hit your session limit · resets …")
+           echoed into the stream, contains the exact phrases and would
+           false-rotate a healthy account. A real cap is emitted by the CLI as an
+           error, not as assistant content. */
+        if (fromErrorChannel !== true) return false;
         if (!cclsTextHasLimit(text)) return false;
         const now = Date.now();
         if (now - _cclsLastFire < CCLS_COOLDOWN_MS) {
@@ -12700,11 +12709,11 @@ function streamClaudeAgent(context, panel, text, images) {
                 if (se.type === 'content_block_delta' && se.delta && se.delta.type === 'text_delta' && se.delta.text) {
                     assembled += se.delta.text;
                     panel.webview.postMessage({ type: 'chunk', text: se.delta.text });
-                    /* CCLS: scan the wrapped `claude` subprocess output for the
-                       weekly-cap sentence (tail window — message lands at end).
-                       Pass {context, panel} so a detected cap can rotate the
-                       account AND inject "..." to keep THIS session alive. */
-                    cclsCheckLimitText(assembled.length > 600 ? assembled.slice(-600) : assembled, { context, panel });
+                    /* CCLS: do NOT scan assistant text_delta — it's the model's
+                       own output, never a real cap (a cap means the model can't
+                       respond). Cap detection lives on stderr + is_error results
+                       only, to avoid false-rotating when the assistant merely
+                       discusses rate limits. */
                 }
                 return;
             }
@@ -12737,10 +12746,12 @@ function streamClaudeAgent(context, panel, text, images) {
                 }
                 if (ev.is_error) {
                     panel.webview.postMessage({ type: 'info', text: `claude: ${ev.subtype || 'error'}` });
+                    /* CCLS: ONLY an is_error result is a real cap signal. A
+                       success result's `ev.result` is the assistant's final text
+                       (would false-rotate if it mentioned a limit), so we never
+                       scan it. fromErrorChannel=true. */
+                    cclsCheckLimitText(String(ev.result || '') + ' ' + String(ev.subtype || ''), { context, panel }, true);
                 }
-                /* CCLS: the terminal result string carries the cap sentence on
-                   pure-error turns where no text_delta streamed. */
-                cclsCheckLimitText(String(ev.result || '') + ' ' + String(ev.subtype || ''), { context, panel });
                 return;
             }
         };
@@ -12758,9 +12769,9 @@ function streamClaudeAgent(context, panel, text, images) {
         });
         child.stderr.on('data', (d) => {
             stderrBuf += d.toString('utf8');
-            /* CCLS: the wrapped `claude` CLI prints the cap sentence to stderr
-               on some paths (no JSON frame) — scan the raw stderr too. */
-            cclsCheckLimitText(stderrBuf.length > 800 ? stderrBuf.slice(-800) : stderrBuf, { context, panel });
+            /* CCLS: stderr is a genuine error channel — the wrapped `claude` CLI
+               prints the cap sentence here on some paths. Eligible to fire. */
+            cclsCheckLimitText(stderrBuf.length > 800 ? stderrBuf.slice(-800) : stderrBuf, { context, panel }, true);
         });
         child.on('error', (e) => {
             panel.webview.postMessage({ type: 'error', message: `claude process error: ${(e && e.message) || e}` });
@@ -12895,19 +12906,13 @@ async function handleSendText(context, panel, text, images) {
                 }
                 assembled += delta;
                 panel.webview.postMessage({ type: 'chunk', text: delta });
-                /* CCLS: the wrapped Claude output flows through this single
-                   chokepoint, so scan it for the weekly-cap sentence even when
-                   it arrives as plain text (not a thrown 429). Scan a tail
-                   window so we don't re-scan the whole buffer per token; the
-                   message is short and lands at the end of the stream. Wrapped
-                   internally — can never break the stream loop. Pass {context,
-                   panel} so a cap rotates the account AND injects "..." to keep
-                   the session alive. */
-                cclsCheckLimitText(assembled.length > 600 ? assembled.slice(-600) : assembled, { context, panel });
+                /* CCLS: do NOT scan this assistant text. It's the model's own
+                   streamed output (and this HTTP-provider path isn't even the
+                   wrapped-Anthropic-CLI path that CCLS rotates), so matching cap
+                   phrases here would false-rotate when the assistant merely
+                   discusses limits. Cap detection = stderr + is_error results
+                   on the claude-subprocess path only. */
             }
-            /* Final whole-buffer pass in case the message straddled the tail
-               window boundary or the stream emitted it in one shot. */
-            cclsCheckLimitText(assembled, { context, panel });
             trace(`stream done provider=${providerId} chars=${assembled.length} ms=${Date.now() - t0} toolIter=${toolIterations} nativeToolCalls=${nativeToolCalls ? nativeToolCalls.length : 0}`);
 
             /* Native OpenAI/Grok/DeepSeek tool-calls daisy-chain. When the
