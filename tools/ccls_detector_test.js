@@ -58,17 +58,32 @@ console.log('— MUST NOT MATCH (normal output) —');
 ].forEach((s) => ok(JSON.stringify(String(s).slice(0, 48)), !cclsTextHasLimit(s)));
 
 (async () => {
-    console.log('— LIVE switch GET (proves call path) —');
+    console.log('— LIVE rotate POST (proves watchdog backup-trigger path) —');
+    const rotateUrl = process.env.CCLS_ROTATE_URL || 'http://127.0.0.1:57840/rotate';
+    try {
+        const res = await fetch(rotateUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const body = (await res.text()).slice(0, 300);
+        console.log(`  rotate POST ${rotateUrl} -> HTTP ${res.status}`);
+        console.log('  body: ' + body);
+        ok('watchdog /rotate reachable (any HTTP status proves the path)', true);
+    } catch (e) {
+        /* The watchdog may not be serving during this CI run — that's fine.
+           The CBE code falls back to the legacy :3333 GET below. */
+        console.log('  rotate POST failed (watchdog serve not up?): ' + ((e && e.message) || e));
+        ok('watchdog /rotate reachable', false);
+    }
+
+    console.log('— LIVE legacy switch GET (fallback path) —');
     const url = process.env.CCLS_SWITCH_URL || 'http://127.0.0.1:3333/switch';
     try {
         const res = await fetch(url, { method: 'GET' });
         const body = (await res.text()).slice(0, 200);
         console.log(`  switch GET ${url} -> HTTP ${res.status}`);
         console.log('  body: ' + body);
-        ok('switch endpoint reachable (any HTTP status proves the path)', true);
+        ok('legacy switch endpoint reachable (any HTTP status proves the path)', true);
     } catch (e) {
         console.log('  switch GET failed: ' + ((e && e.message) || e));
-        ok('switch endpoint reachable', false);
+        ok('legacy switch endpoint reachable', false);
     }
 
     console.log(`\n${pass} passed, ${fail} failed`);

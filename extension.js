@@ -12129,6 +12129,12 @@ function parseResetHint(msg) {
    self-throttled (won't re-fire within CCLS_COOLDOWN_MS) since a single cap
    can produce repeated output lines. */
 const CCLS_SWITCH_URL = process.env.CCLS_SWITCH_URL || 'http://127.0.0.1:3333/switch';
+/* The CCLS watchdog HTTP backup-trigger interface (ccls_watchdog.py serve).
+   POST /rotate routes through the watchdog's shared CclsState suppression guard
+   so the CBE-detected cap and the scheduled-task poller can't double-rotate.
+   This is the PRIMARY target now; :3333/switch is kept as a legacy fallback for
+   setups still running the old claude_switcher service. */
+const CCLS_ROTATE_URL = process.env.CCLS_ROTATE_URL || 'http://127.0.0.1:57840/rotate';
 const CCLS_COOLDOWN_MS = 60 * 1000;
 let _cclsLastFire = 0;
 const CCLS_LIMIT_RE = new RegExp(
@@ -12148,9 +12154,27 @@ function cclsTextHasLimit(text) {
 }
 
 /* Scan output-stream text for the limit message; on match (and outside the
-   cooldown) fire the switch GET. Returns true if a switch was fired. Never
-   throws — all faults are swallowed + traced. */
-function cclsCheckLimitText(text) {
+   cooldown) fire the rotation, then keep the session alive by injecting "...".
+
+   Flow on a detected cap:
+     1. POST CCLS_ROTATE_URL (127.0.0.1:57840/rotate) — the watchdog swaps the
+        active Anthropic account UNDER the running session (creds hot-swap). The
+        watchdog routes this through its shared CclsState suppression guard, so
+        if the scheduled-task poller already rotated for this same cap, the
+        watchdog answers "suppressed" and nothing double-rotates.
+     2. Fall back to the legacy :3333/switch GET if the watchdog isn't up.
+     3. Inject "..." into the wrapped session (via injectCtx) so the conversation
+        continues on the freshly-swapped creds. Per CLAUDE.md, a bare "..." means
+        "I crashed — pick up where I left off", which is exactly the resume cue
+        the assistant needs; the full context is still in the window.
+
+   `injectCtx` (optional) = { context, panel } from the streaming chokepoint.
+   When present we re-drive the wrapped session after a short delay (give the
+   cred swap a beat to land). When absent (error-path callers without panel
+   scope) we still fire the rotate — the poller / next user turn picks it up.
+
+   Returns true if a rotation was fired. Never throws — all faults swallowed. */
+function cclsCheckLimitText(text, injectCtx) {
     try {
         if (!cclsTextHasLimit(text)) return false;
         const now = Date.now();
@@ -12158,21 +12182,78 @@ function cclsCheckLimitText(text) {
             trace('CCLS: limit detected in output but within cooldown — not re-firing');
             return false;
         }
-        _cclsLastFire = now;
-        trace('CCLS: session-limit message detected in output stream — firing switch');
-        /* Fire-and-forget; failures are logged, never surfaced to the user. */
+        _cclsLastFire = now;   /* debounce: one rotate per cap, not per output line */
+        trace('CCLS: session-limit message detected in output stream — firing rotate');
+
+        /* (1) POST the watchdog /rotate; (2) legacy GET fallback; (3) inject "...".
+           Fully fire-and-forget — a detector fault can NEVER break the chat. */
         Promise.resolve()
-            .then(() => fetch(CCLS_SWITCH_URL, { method: 'GET' }))
+            .then(() => fetch(CCLS_ROTATE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }))
             .then(async (res) => {
                 let body = '';
-                try { body = (await res.text()).slice(0, 200); } catch (_) {}
-                trace(`CCLS: switch GET ${CCLS_SWITCH_URL} -> ${res.status} ${body}`);
+                try { body = (await res.text()).slice(0, 300); } catch (_) {}
+                trace(`CCLS: rotate POST ${CCLS_ROTATE_URL} -> ${res.status} ${body}`);
+                return true;
             })
-            .catch((e) => trace(`CCLS: switch GET failed (${CCLS_SWITCH_URL}): ${(e && e.message) || e}`));
+            .catch((e) => {
+                trace(`CCLS: rotate POST failed (${CCLS_ROTATE_URL}): ${(e && e.message) || e} — trying legacy :3333`);
+                /* Legacy fallback for hosts still on the old claude_switcher. */
+                return fetch(CCLS_SWITCH_URL, { method: 'GET' })
+                    .then(async (res) => {
+                        let body = '';
+                        try { body = (await res.text()).slice(0, 200); } catch (_) {}
+                        trace(`CCLS: legacy switch GET ${CCLS_SWITCH_URL} -> ${res.status} ${body}`);
+                        return true;
+                    })
+                    .catch((e2) => { trace(`CCLS: legacy switch GET also failed: ${(e2 && e2.message) || e2}`); return false; });
+            })
+            .then((rotated) => {
+                /* (3) Keep the session alive: re-drive the wrapped session with
+                   "..." once creds have swapped. Only when we have panel scope. */
+                cclsInjectResumeNudge(injectCtx);
+            })
+            .catch((e) => { try { trace(`CCLS: post-rotate chain fault: ${(e && e.message) || e}`); } catch (_) {} });
         return true;
     } catch (e) {
         try { trace(`CCLS: detector fault swallowed: ${(e && e.message) || e}`); } catch (_) {}
         return false;
+    }
+}
+
+/* Inject the "..." resume nudge into the wrapped Claude session after a cap
+   rotation, so the conversation continues on the freshly-swapped credentials.
+   Guarded + debounced separately from the rotate so a fault here can't break
+   the stream, and a flurry of cap lines can't fire a flurry of nudges. */
+let _cclsLastNudge = 0;
+function cclsInjectResumeNudge(injectCtx) {
+    try {
+        if (!injectCtx || !injectCtx.panel || !injectCtx.context) {
+            trace('CCLS: no panel scope for resume nudge — relying on poller / next user turn');
+            return;
+        }
+        const now = Date.now();
+        if (now - _cclsLastNudge < CCLS_COOLDOWN_MS) {
+            trace('CCLS: resume nudge within cooldown — not re-injecting');
+            return;
+        }
+        _cclsLastNudge = now;
+        const { context, panel } = injectCtx;
+        /* Delay so the watchdog's switch_to() + token reload lands before we
+           start the new turn on the swapped account. 2.5s is comfortably more
+           than a local cred-file swap takes. */
+        setTimeout(() => {
+            try {
+                trace("CCLS: injecting '...' resume nudge into wrapped session");
+                /* Mirror the user typing "..." — drives streamClaudeAgent on the
+                   now-swapped creds. handleSendText pushes it as a user turn. */
+                Promise.resolve(handleSendText(context, panel, '...'))
+                    .catch((e) => trace(`CCLS: resume nudge send failed: ${(e && e.message) || e}`));
+            } catch (e) {
+                trace(`CCLS: resume nudge fault: ${(e && e.message) || e}`);
+            }
+        }, 2500);
+    } catch (e) {
+        try { trace(`CCLS: resume-nudge outer fault: ${(e && e.message) || e}`); } catch (_) {}
     }
 }
 
@@ -12620,8 +12701,10 @@ function streamClaudeAgent(context, panel, text, images) {
                     assembled += se.delta.text;
                     panel.webview.postMessage({ type: 'chunk', text: se.delta.text });
                     /* CCLS: scan the wrapped `claude` subprocess output for the
-                       weekly-cap sentence (tail window — message lands at end). */
-                    cclsCheckLimitText(assembled.length > 600 ? assembled.slice(-600) : assembled);
+                       weekly-cap sentence (tail window — message lands at end).
+                       Pass {context, panel} so a detected cap can rotate the
+                       account AND inject "..." to keep THIS session alive. */
+                    cclsCheckLimitText(assembled.length > 600 ? assembled.slice(-600) : assembled, { context, panel });
                 }
                 return;
             }
@@ -12657,7 +12740,7 @@ function streamClaudeAgent(context, panel, text, images) {
                 }
                 /* CCLS: the terminal result string carries the cap sentence on
                    pure-error turns where no text_delta streamed. */
-                cclsCheckLimitText(String(ev.result || '') + ' ' + String(ev.subtype || ''));
+                cclsCheckLimitText(String(ev.result || '') + ' ' + String(ev.subtype || ''), { context, panel });
                 return;
             }
         };
@@ -12677,7 +12760,7 @@ function streamClaudeAgent(context, panel, text, images) {
             stderrBuf += d.toString('utf8');
             /* CCLS: the wrapped `claude` CLI prints the cap sentence to stderr
                on some paths (no JSON frame) — scan the raw stderr too. */
-            cclsCheckLimitText(stderrBuf.length > 800 ? stderrBuf.slice(-800) : stderrBuf);
+            cclsCheckLimitText(stderrBuf.length > 800 ? stderrBuf.slice(-800) : stderrBuf, { context, panel });
         });
         child.on('error', (e) => {
             panel.webview.postMessage({ type: 'error', message: `claude process error: ${(e && e.message) || e}` });
@@ -12817,12 +12900,14 @@ async function handleSendText(context, panel, text, images) {
                    it arrives as plain text (not a thrown 429). Scan a tail
                    window so we don't re-scan the whole buffer per token; the
                    message is short and lands at the end of the stream. Wrapped
-                   internally — can never break the stream loop. */
-                cclsCheckLimitText(assembled.length > 600 ? assembled.slice(-600) : assembled);
+                   internally — can never break the stream loop. Pass {context,
+                   panel} so a cap rotates the account AND injects "..." to keep
+                   the session alive. */
+                cclsCheckLimitText(assembled.length > 600 ? assembled.slice(-600) : assembled, { context, panel });
             }
             /* Final whole-buffer pass in case the message straddled the tail
                window boundary or the stream emitted it in one shot. */
-            cclsCheckLimitText(assembled);
+            cclsCheckLimitText(assembled, { context, panel });
             trace(`stream done provider=${providerId} chars=${assembled.length} ms=${Date.now() - t0} toolIter=${toolIterations} nativeToolCalls=${nativeToolCalls ? nativeToolCalls.length : 0}`);
 
             /* Native OpenAI/Grok/DeepSeek tool-calls daisy-chain. When the
