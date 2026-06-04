@@ -2603,7 +2603,12 @@ body {
 /* STOP — immediately to the LEFT of Send. */
 .toolbar-meta--inline #stopBtn {
   position: absolute !important;
-  right: 56px; bottom: 11px;
+  /* Overlap fix (Trent 2026-06-03): SEND renders as the literal word
+     "SEND" (#sendBtn::after, width:auto+min-width:56px → ~70px wide at
+     right:14px, spanning out to ~right:84px). The old right:56px parked
+     Stop INSIDE the SEND glyph and the two collided. Anchor Stop at
+     right:96px so its right edge clears the SEND text with an 8px gap. */
+  right: 96px !important; bottom: 11px !important;
   top: auto !important;
   left: auto !important;
   margin: 0 !important;
@@ -2611,18 +2616,21 @@ body {
 }
 /* Under-box centered row: [label] [project-folder] */
 .prompt-meta-row {
-  /* STACKED column (Trent 2026-06-02): brand label on top, project-folder
-     directly UNDER it — never side-by-side. panel.js's #cbe-promptrow-shared
-     sheet re-anchors this whole column to one of the 3 allowed spots
-     (left / center / right) via body[data-cbe-label-pos]; centered is the
-     base default below. */
+  /* SAME-ROW layout (Trent 2026-06-03): brand label + project-folder share
+     ONE horizontal row, side-by-side — supersedes the 2026-06-02 stacked
+     column. panel.js's #cbe-promptrow-shared sheet re-anchors this whole
+     row to one of the 3 allowed spots (left / center / right) via
+     body[data-cbe-label-pos]; centered is the base default below.
+     flex-wrap lets the folder drop under the label only when the panel is
+     too narrow to fit both on one line (graceful degradation). */
   flex: 1 1 100% !important;
   width: 100% !important;
   display: flex !important;
-  flex-direction: column !important;
+  flex-direction: row !important;
+  flex-wrap: wrap !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 3px !important;
+  gap: 4px 10px !important;
   margin-top: 10px !important;
 }
 /* Label image at NATURAL size — stop downscaling it. The brand SVG has a

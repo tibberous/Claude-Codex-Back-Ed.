@@ -2411,20 +2411,23 @@ function ensurePromptRowSharedCss() {
          right  → bottom-right
        Higher specificity than the skins' own `.prompt-meta-row` rules +
        appended last, so this wins the cascade across every skin. */
-    '.prompt-meta-row{display:flex !important;flex-direction:column !important;',
-    '  flex-wrap:nowrap !important;gap:3px !important;width:100% !important;',
+    '.prompt-meta-row{display:flex !important;flex-direction:row !important;',
+    '  flex-wrap:wrap !important;gap:4px 10px !important;width:100% !important;',
+    '  align-items:center !important;',
     '  box-sizing:border-box !important;padding:6px 14px 2px !important;}',
     '.prompt-meta-row #label-pill{flex:0 0 auto !important;order:0 !important;}',
-    /* folder ALWAYS renders below the label (order keeps it second even if a
-       skin reordered the markup) and never grows the column wider than the
-       label cluster. */
-    '.prompt-meta-row #project-path{flex:0 0 auto !important;order:1 !important;',
+    /* folder renders in the SAME horizontal row, to the RIGHT of the label
+       (Trent 2026-06-03: label + project-folder share one row, side-by-side —
+       supersedes the 2026-06-02 stacked-column layout). order keeps it second
+       even if a skin reordered the markup; it never grows the row past the
+       available width. */
+    '.prompt-meta-row #project-path{flex:0 1 auto !important;order:1 !important;',
     '  margin:0 !important;max-width:100% !important;}',
     '/* position variants — driven by body[data-cbe-label-pos] (CBE_LABEL_POS).',
-    '   align-items moves the whole stacked column to the chosen edge. */',
-    'body[data-cbe-label-pos="left"]   .prompt-meta-row{align-items:flex-start !important;}',
-    'body[data-cbe-label-pos="center"] .prompt-meta-row{align-items:center !important;}',
-    'body[data-cbe-label-pos="right"]  .prompt-meta-row{align-items:flex-end !important;}',
+    '   justify-content slides the whole [label][folder] row to the chosen edge. */',
+    'body[data-cbe-label-pos="left"]   .prompt-meta-row{justify-content:flex-start !important;}',
+    'body[data-cbe-label-pos="center"] .prompt-meta-row{justify-content:center !important;}',
+    'body[data-cbe-label-pos="right"]  .prompt-meta-row{justify-content:flex-end !important;}',
   ].join('\n');
   (document.head || document.documentElement).appendChild(st);
 }
