@@ -181,7 +181,9 @@ body {
      height vs. previous ~220px). Right padding kept high (90px) to reserve
      room for the absolute-positioned #sendBtn (38px wide + 16px right
      offset). */
-  padding: 1px 90px 1px 14px;
+  /* Right padding reserves room for the absolute Stop+Send group (was 90px
+     for a lone send button; widened for the grouped pair — Trent 2026-06-04). */
+  padding: 1px 140px 1px 14px;
   /* Force the input-wrap into its own block, never sized larger than the
      shell interior. min-width:0 lets long unbreakable strings inside the
      textarea (URLs etc.) stay inside the wrap instead of pushing the wrap
@@ -947,6 +949,33 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   filter: brightness(.92) drop-shadow(0 3px 5px rgba(0, 0, 0, 0.40));
 }
 
+/* ── Bug 1d (Trent 2026-06-04): Stop + Send grouped together at the right
+   edge INSIDE the prompt box; brand label + folder moved to the bottom row
+   under the tool dock. ─────────────────────────────────────────────────── */
+.prompt-send-group {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 3;
+}
+/* Send now lives in-flow inside the group (was absolute vs the wrap). Keep it
+   a positioning context so its ::before chevron (inset:0) stays anchored to
+   the button. !important beats skins that pin .send-button absolute. */
+.prompt-send-group .send-button {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  transform: none !important;
+}
+.prompt-send-group .send-button:active { transform: translateY(1px) !important; }
+/* Relocated bottom label row — size the label like the old inline pill so it
+   doesn't blow out to the 320px default now that it's out of toolbar-meta. */
+.prompt-shell > .prompt-meta-row .label-button { width: 200px; height: 34px; }
+
 /* Active project folder pill — sits between the Codex label-pill and the
    Stop button. Monospace + min-width:0 + overflow:hidden so it never
    pushes the toolbar wider than the prompt-shell; the JS does middle-
@@ -1087,7 +1116,7 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
      (2026-05-23: ~80-100px total panel height target). */
   .prompt-area { padding: 2px 8px 3px; }
   .prompt-shell { padding: 3px 8px 4px; }
-  .prompt-input-wrap { padding: 3px 70px 3px 12px; }
+  .prompt-input-wrap { padding: 3px 120px 3px 12px; }
   .prompt-toolbar { margin: 0 4px 0 4px; gap: 2px; }
 }
 
@@ -1153,6 +1182,37 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
   }
   .msg:first-child { padding-top: 0; }
   .msg.info { opacity: 0.62; font-style: italic; font-size: 12px; }
+  /* Native tool-call chip — verbatim port of Anthropic's .toolItem look:
+     a bullet + bold monospace tool name + grey secondary status, solid (NOT
+     the faded italic of .msg.info). The dot greens out once the call resolves. */
+  .msg.toolcall {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 13px;
+    opacity: 1;
+    font-style: normal;
+    color: var(--app-secondary-foreground) !important;
+  }
+  .msg.toolcall::before {
+    content: "•";
+    color: var(--app-secondary-foreground);
+    font-weight: 700;
+    line-height: 1;
+  }
+  .msg.toolcall.done::before { color: #74c991; }
+  .msg.toolcall .tc-name {
+    font-family: var(--app-monospace-font-family);
+    font-weight: 600;
+    color: var(--app-primary-foreground);
+  }
+  .msg.toolcall .tc-sub {
+    color: var(--app-secondary-foreground);
+    opacity: .6;
+    font-size: .85em;
+    font-family: var(--app-monospace-font-family);
+  }
   .msg.error { color: var(--app-error-foreground, #b00) !important; }
   .msg.assistant.streaming::after { content: '▍'; opacity: .6; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 0%,50% { opacity: .6 } 51%,100% { opacity: 0 } }
@@ -1719,18 +1779,15 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
                a column (.prompt-meta-row — folder directly UNDER the label),
                anchored to one of 3 spots (left / center / right) by panel.js's
                #cbe-promptrow-shared sheet. -->
-          <div class="toolbar-meta toolbar-meta--inline">
+          <!-- Stop + Send grouped together INSIDE the prompt box (Trent
+               2026-06-04). The brand label + project-folder row moved out to
+               the bottom, under the tool dock (see after .prompt-toolbar). -->
+          <div class="prompt-send-group">
             <button id="stopBtn" class="stop-button" type="button" data-tooltip="Stop generation" data-i18n-tip="tooltip.stop" aria-label="Stop generation">
               <span class="stop-button__icon" aria-hidden="true"></span>
               <span class="stop-button__label">Stop</span>
             </button>
             <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" data-i18n-tip="tooltip.send" aria-label="Send message"></button>
-            <div class="prompt-meta-row">
-              <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" data-i18n-tip="tooltip.settings" aria-label="Current assistant profile">
-                <img id="brandLabelImg" src="{{ASSETS_BASE}}/labels/en.svg" data-cbe-brand alt="Claude Codex — Black Edition" />
-              </button>
-              <div id="project-path" class="project-path" data-tooltip="No project folder — click the folder button to pick one" data-i18n-tip="label.no_project" aria-label="Active project folder" title=""></div>
-            </div>
           </div>
         </div>
 
@@ -1856,6 +1913,17 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
           <span id="cbe-pinned-ext-row" class="cbe-pinned-ext-row" style="display:inline-flex;align-items:center;gap:4px;"></span>
         </div>
 
+        </div>
+
+        <!-- Brand label + project folder, relocated to the BOTTOM under the
+             tool dock (Trent 2026-06-04: label below the buttons, folder to its
+             right in the same row). Horizontal position (center/left/right) is
+             driven per-skin by panel.js's #cbe-promptrow-shared sheet. -->
+        <div class="prompt-meta-row">
+          <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" data-i18n-tip="tooltip.settings" aria-label="Current assistant profile">
+            <img id="brandLabelImg" src="{{ASSETS_BASE}}/labels/en.svg" data-cbe-brand alt="Claude Codex — Black Edition" />
+          </button>
+          <div id="project-path" class="project-path" data-tooltip="No project folder — click the folder button to pick one" data-i18n-tip="label.no_project" aria-label="Active project folder" title=""></div>
         </div>
       </section>
     </div>

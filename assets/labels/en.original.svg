@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimalist brand label for the ORIGINAL (codex-black) skin.
+     No pill / gradient / stroke chrome — just the splat + clean wordmark on a
+     transparent ground so it sits flush on the black-edition prompt row.
+     White text is intentional: this variant only ships on the dark skin. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 120" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Claude Codex — Black Edition">
+  <defs>
+    <linearGradient id="spark-grad-orig" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#ff9a3d"/>
+      <stop offset="100%" stop-color="#e3631a"/>
+    </linearGradient>
+  </defs>
+  <!-- subtle rounded border so the minimalist label still reads as a button.
+       non-scaling-stroke keeps it a true 1px when the SVG is scaled into the
+       button, matching the panel's other 1px CSS borders. -->
+  <rect x="3" y="3" width="514" height="114" rx="22" ry="22"
+        fill="none" stroke="#cccccc" stroke-width="1" vector-effect="non-scaling-stroke"/>
+  <polygon points="56.00,24.00 49.88,45.22 30.54,34.54 41.22,53.88 20.00,60.00 41.22,66.12 30.54,85.46 49.88,74.78 56.00,96.00 62.12,74.78 81.46,85.46 70.78,66.12 92.00,60.00 70.78,53.88 81.46,34.54 62.12,45.22"
+           fill="url(#spark-grad-orig)"/>
+  <text x="112" y="60" dominant-baseline="central"
+        fill="#ffffff"
+        font-family='"Segoe UI", "Helvetica Neue", Arial, sans-serif'
+        font-size="46" font-weight="600" letter-spacing="-0.3">Claude Codex</text>
+  <path d="M474,52 L486,66 L498,52" fill="none" stroke="#ffffff" stroke-width="4"
+        stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/>
+</svg>

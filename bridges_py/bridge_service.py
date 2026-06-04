@@ -63,7 +63,8 @@ DEFAULT_BRIDGE_PORTS = {
     "grok":     8789,
     "copilot":  8790,
     "gemini":   8791,
-    "claude":   8792,
+    # claude web bridge removed — Claude uses the Anthropic API + logged-in
+    # Claude Code, not a browser bridge. Port 8792 freed.
     "ollama":   8793,
     "deepseek": 8794,
 }

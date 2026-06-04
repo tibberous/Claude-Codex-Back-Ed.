@@ -1,14 +1,25 @@
 #!/usr/bin/env python3
-"""bridge_chat.py — single-shot LOCAL chat caller for the Ollama bridge.
+"""bridge_chat.py — single-shot LOCAL chat caller for the Ollama daemon.
 
-Cloud providers (ChatGPT / Grok / Gemini / Claude / Copilot) are intentionally
+DEPRECATED for the Ollama path (2026-06-04): the CBE extension now talks to
+the local Ollama daemon DIRECTLY from Node (extension.js → streamOllama),
+streaming /api/chat NDJSON straight into the chat panel. It no longer spawns
+the C++ tray exe / this python script for Ollama. The old route
+(streamBridge → CBE-Bridge.exe → python bridge_chat.py) returned
+"[bridge_chat.py: no output — check python availability]" whenever python
+wasn't on PATH or this script couldn't be located. Calling Ollama's local
+HTTP API directly removes that python dependency entirely.
+
+This file is kept only as a reference / manual fallback. Ollama is NOT a
+bridge — it's a local HTTP daemon on 127.0.0.1:11434 with no auth.
+
+Cloud providers (ChatGPT / Grok / Gemini / Copilot / DeepSeek) are intentionally
 NOT handled here. They run through the QtWebEngine bridge (`app.py
 --serve-bridge --target <X>`) which drives the actual logged-in web pages.
 That gets us real browser-bridge chat: no API keys to leak, no rate limits,
-and the user's existing Google/Anthropic/OpenAI/xAI sessions are reused.
+and the user's existing Google/OpenAI/xAI sessions are reused.
+(Claude has no web bridge — it uses the Anthropic API + logged-in Claude Code.)
 
-Ollama is a special case — it's a local HTTP daemon on 127.0.0.1:11434 with
-no auth at all, so spinning up a QtWebEngine window for it would be silly.
 This script POSTs to /api/chat directly.
 
 Invocation by CBE-Bridge-Ollama.exe:

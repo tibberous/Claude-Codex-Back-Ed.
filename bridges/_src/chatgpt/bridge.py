@@ -93,8 +93,12 @@ def custom_sendChat(mini, message: str, timeout_s: int = 90) -> dict:
         f"if(!el)return false;var r=el.getBoundingClientRect();return r.width>2&&r.height>2;}})()"
     )
     if not visible:
-        return {"ok": False, "error": "chatgpt composer not found — profile logged out? run "
-                "tools/sign_in_helper.py chatgpt", "final_url": mini.final_url()}
+        # Logged-out signal. The "composer not found" + "logged out" markers are
+        # recognized by start._looksLoggedOut(), which drives the upstream
+        # auto-login + ONE retry in driveBridgeChat. Do NOT emit the manual
+        # sign_in_helper hint here as the primary advice — auto-login owns it.
+        return {"ok": False, "error": "chatgpt composer not found — logged out",
+                "final_url": mini.final_url()}
 
     before = int(mini.eval_js(f"document.querySelectorAll('{ASSISTANT}').length") or 0)
     mini.eval_js(f"document.querySelector('{COMPOSER}').focus();")

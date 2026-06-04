@@ -5,8 +5,9 @@ Sibling to bridge_chat.py. While that one talks to Ollama's local daemon,
 this one drives the per-target offscreen Chromium (already launched by
 CBE-Bridge-<Target>.exe on g_childPort = g_port + 1000) through
 start.driveBridgeChatViaVisionPilot — i.e. GPT-4o screenshots + tool-calls
-the live chatgpt.com / grok.com / gemini.google.com / claude.ai /
+the live chatgpt.com / grok.com / gemini.google.com /
 copilot.microsoft.com / chat.deepseek.com surface and scrapes the reply.
+(Claude has no web bridge — served by the Anthropic API + logged-in Claude Code.)
 
 Invocation by CBE-Bridge-<Target>.exe (any browser target):
     python bridge_pilot.py --target chatgpt --message "..." [--max-steps 30]

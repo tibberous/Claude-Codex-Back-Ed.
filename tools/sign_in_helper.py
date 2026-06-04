@@ -41,6 +41,14 @@ from start import (  # type: ignore  # noqa: E402
     normalizeChatTarget,
 )
 
+# Targets whose login is a native email+password form we CAN drive headlessly
+# via the bridge_runner.login() CDP path (no fragile JS injection — it uses
+# Input.insertText into focused fields). Anything NOT in here (gemini=Google
+# SSO, copilot=Microsoft account, claude=magic-link) requires a human in the
+# loop and is DEGRADED to a clear "sign in manually" message by autoSignIn —
+# we never spawn a second visible chrome that would fight the profile lock.
+NATIVE_FORM_TARGETS = {"chatgpt", "deepseek", "grok"}
+
 # Per-target login URL. Where to send the visible chrome FIRST so the user
 # lands on the correct sign-in surface — the START URL may bounce around
 # (e.g. claude.ai/new → /logout → /login during a logged-out state).
@@ -63,6 +71,105 @@ def findChromeExe() -> str:
         if Path(c).exists():
             return c
     raise RuntimeError("chrome.exe not found in Program Files — install Chrome first")
+
+
+def _needsVisibleLogin(target: str) -> bool:
+    """True for SSO / magic-link targets that cannot complete unattended."""
+    return target not in NATIVE_FORM_TARGETS
+
+
+def autoSignIn(target: str, visible: bool = True, timeout_s: int = 180) -> dict:
+    """Programmatic, NON-INTERACTIVE sign-in for a bridge target.
+
+    Reuses the SAME persistent profile dir + CDP port the vision-pilot
+    attaches to (`_miniComputerProfileDir` / `MINICOMPUTER_CDP_PORTS`). For
+    native-form targets (chatgpt / deepseek / grok) it drives the login via
+    the bridge_runner.Bridge.login() CDP path — no fragile JS injection, no
+    second chrome (it ATTACHES to the already-running tray chrome via
+    MiniComputer.launch()'s idempotent _cdpAlive() check, then navigates that
+    SAME tab to the login URL).
+
+    For SSO / magic-link targets (gemini=Google, copilot=Microsoft,
+    claude=magic-link) an unattended login almost always trips a CAPTCHA /
+    account-picker / inbox-code wall. Rather than spawn a second VISIBLE chrome
+    that would fight the single-writer profile lock, this DEGRADES to a clear
+    manual-signin message — the caller surfaces it, no loop.
+
+    Returns {ok, target, method, error?}. Does NOT call input().
+
+    NOTE: untested at runtime here (requires a live Chrome + real login walls).
+    """
+    target = normalizeChatTarget(target)
+    if target not in MINICOMPUTER_START_URLS:
+        return {"ok": False, "target": target, "method": "none",
+                "error": f"unknown target {target!r}"}
+
+    # claude is being removed as a browser bridge — never attempt auto-login.
+    if target == "claude":
+        return {"ok": False, "target": target, "method": "skip-claude",
+                "error": "claude browser bridge is being removed — no auto-login. "
+                         "If needed, sign in manually: python tools/sign_in_helper.py claude"}
+
+    # SSO / magic-link → cannot complete unattended. Degrade to manual, no loop.
+    if _needsVisibleLogin(target):
+        return {"ok": False, "target": target, "method": "degrade-manual",
+                "error": f"{target} uses SSO / magic-link login that can't complete "
+                         f"unattended — sign in manually: python tools/sign_in_helper.py {target}"}
+
+    # Native email+password targets: drive the login headlessly via the runner.
+    try:
+        import start as _start  # type: ignore
+        creds = _start._gptVisionPilotReadCredentials(target)
+    except Exception as e:
+        return {"ok": False, "target": target, "method": "native-form",
+                "error": f"credential read failed: {type(e).__name__}: {e}"}
+    email = (creds.get("email") or "").strip()
+    password = (creds.get("password") or "").strip()
+    if not (email and password):
+        return {"ok": False, "target": target, "method": "native-form",
+                "error": f"no creds in config.ini for {target} — add an [{target}] "
+                         f"email/password section (or a usable [chatgpt] fallback)"}
+
+    # Attach to the EXISTING per-target chrome (idempotent launch → _cdpAlive
+    # attaches instead of spawning a second writer on the locked profile).
+    mini = _start.getMiniComputer(target, offscreen=True, autostart=True)
+    if mini is None:
+        return {"ok": False, "target": target, "method": "native-form",
+                "error": f"MiniComputer unavailable for {target!r} (Chrome / deps?)"}
+
+    # Resolve the plugin so we reuse its declared selectors + login_url.
+    try:
+        plugins = _start._loadBridgePlugins()
+        plugin = plugins.get(target)
+        if plugin is None:
+            for _name, b in plugins.items():
+                if target in (b.manifest.aliases or []):
+                    plugin = b
+                    break
+    except Exception as e:
+        return {"ok": False, "target": target, "method": "native-form",
+                "error": f"plugin load failed: {type(e).__name__}: {e}"}
+    if plugin is None:
+        return {"ok": False, "target": target, "method": "native-form",
+                "error": f"no bridge plugin registered for {target!r}"}
+
+    # Make sure we're parked on the login surface before driving the form.
+    login_url = LOGIN_URLS.get(target, MINICOMPUTER_START_URLS[target])
+    try:
+        if not plugin.is_logged_in(mini):
+            mini.navigate(login_url)
+    except Exception:  # navigate best-effort; login() re-navigates anyway
+        pass
+
+    try:
+        r = plugin.login(mini, email, password, timeout_s=min(timeout_s, 60)) or {}
+    except Exception as e:
+        return {"ok": False, "target": target, "method": "native-form",
+                "error": f"login() crashed: {type(e).__name__}: {e}"}
+    if r.get("ok"):
+        return {"ok": True, "target": target, "method": "native-form"}
+    return {"ok": False, "target": target, "method": "native-form",
+            "error": r.get("error") or "login did not complete"}
 
 
 def main() -> int:

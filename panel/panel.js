@@ -199,6 +199,45 @@ function addMsg(text, cls) {
   return d;
 }
 
+/* ── Native tool-call chips ───────────────────────────────────────────────
+   Render host-side native tool calls (bash, etc.) the way Claude Code does:
+   ONE line per call — a bullet + bold monospace tool name + a grey secondary
+   status that resolves in place from "running…" to "done · NNB". Replaces the
+   old faded-italic "▶ native-tool bash" / "◀ native-tool bash done (NB)" info
+   lines (Trent 2026-06-04: arrows→bullet, white→grey, not janky). Native tool
+   calls run sequentially (awaited one-at-a-time in extension.js), so a LIFO
+   stack reliably pairs each `done` with its matching `start` chip. */
+let __cbeToolChips = [];
+function prettyToolName(n) {
+  const s = String(n || 'tool').trim() || 'tool';
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function renderToolCall(m) {
+  const phase = (m && m.phase) || 'start';
+  if (phase === 'done' && __cbeToolChips.length) {
+    const d = __cbeToolChips.pop();
+    d.classList.add('done');
+    const sub = d.querySelector('.tc-sub');
+    if (sub) sub.textContent = `done · ${(m.bytes || 0)}B`;
+    thread.scrollTop = thread.scrollHeight;
+    return d;
+  }
+  const d = document.createElement('div');
+  d.className = 'msg toolcall';
+  const name = document.createElement('span');
+  name.className = 'tc-name';
+  name.textContent = prettyToolName(m && m.name);
+  const sub = document.createElement('span');
+  sub.className = 'tc-sub';
+  if (phase === 'done') { d.classList.add('done'); sub.textContent = `done · ${(m.bytes || 0)}B`; }
+  else { sub.textContent = 'running…'; __cbeToolChips.push(d); }
+  d.appendChild(name);
+  d.appendChild(sub);
+  thread.appendChild(d);
+  thread.scrollTop = thread.scrollHeight;
+  return d;
+}
+
 /* Mic-denied banner: textContent message + a clickable "Open Windows
    Privacy → Microphone" link that posts {type:'openWindowsMicSettings'}
    to the host (handled in extension.js, which calls vscode.env.openExternal
@@ -481,6 +520,10 @@ function teardownChatLifecycle(opts) {
 
 function send() {
   if (busy) return;
+  /* Commit + clear any still-active live dictation before reading the input,
+     so a stale Deepgram/Whisper transcript can never be re-injected after a
+     send (belt-and-suspenders for the accumulation bug). */
+  try { if (window.__cbeCancelDictation) window.__cbeCancelDictation(); } catch (_) {}
   const txt = (ti.value || '').trim();
   const attachBlock = buildAttachmentBlocks();
   const images = buildAttachmentImages();
@@ -522,6 +565,7 @@ sendBtn.onclick = send;
 addBtn.onclick = () => {
   if (api) api.postMessage({ type: 'reset' });
   thread.innerHTML = '';
+  __cbeToolChips = [];                 /* drop any unresolved tool chips */
   addMsg('Conversation reset.', 'info');
   try { tts.stop(); } catch (e) { console.debug('[cbe.tts] addBtn reset stop', e && e.message); }
 };
@@ -1327,6 +1371,10 @@ if (window.__cbeSttLanguage   === undefined) window.__cbeSttLanguage   = '';
        user stopped on purpose; the partial is usually what they wanted. */
     commitLiveDictation();
   }
+  /* Expose to send() (module scope) so a send always commits + clears any
+     still-active dictation — hardens every STT provider against leaking an
+     uncommitted transcript across a send (Trent 2026-06-04 accumulation bug). */
+  window.__cbeCancelDictation = cancelLiveDictation;
 
   function startHostSttHint() {
     /* Legacy WebSpeech-denied fallback. Whisper-local needs MediaRecorder
@@ -2439,8 +2487,35 @@ function applyLabelPos(skinBare) {
     const id = String(skinBare || document.body.getAttribute('data-skin') || '').trim();
     document.body.setAttribute('data-cbe-label-pos',
                                CBE_LABEL_POS[id] || CBE_LABEL_POS_DEFAULT);
+    syncThreadBottomPad();
   } catch (e) {
     console.warn('[CBE] label-pos apply failed:', e && e.message);
+  }
+}
+
+/* Bug 1b (Trent 2026-06-04): every skin hard-codes `#thread { padding-bottom:
+   420px }`, which leaves a big dead gap under the last message on any skin
+   whose composer is shorter than 420px. Size the bottom padding to the ACTUAL
+   composer height instead, and keep it in sync via a ResizeObserver (the
+   textarea grows, attachments mount, the skin swaps). Inline padding-bottom
+   (a longhand) beats each skin's `padding` shorthand in the cascade. */
+let __cbeComposerRO = null;
+function syncThreadBottomPad() {
+  const t = document.getElementById('thread');
+  const composer = document.querySelector('.prompt-area') || document.querySelector('.prompt-shell');
+  if (!t || !composer) return;
+  const h = composer.getBoundingClientRect().height;
+  if (h > 0) t.style.paddingBottom = Math.round(h + 20) + 'px';
+  if ('ResizeObserver' in window) {
+    if (__cbeComposerRO) { try { __cbeComposerRO.disconnect(); } catch (_) {} }
+    __cbeComposerRO = new ResizeObserver(() => {
+      const tt = document.getElementById('thread');
+      if (tt && composer.isConnected) {
+        const hh = composer.getBoundingClientRect().height;
+        if (hh > 0) tt.style.paddingBottom = Math.round(hh + 20) + 'px';
+      }
+    });
+    try { __cbeComposerRO.observe(composer); } catch (_) {}
   }
 }
 
@@ -3308,8 +3383,7 @@ function openSettings(payload) {
        whisper-local (batch HTTP server) removed 2026-05-30 — replaced by
        the two realtime local providers below. */
     +         '<option value="elevenlabs" title="Cloud, lowest latency. Needs [elevenlabs] api_key in config.ini.">ElevenLabs Scribe v2 (cloud, streaming)</option>'
-    +         '<option value="whisper-cpp-stream" title="Local realtime via whisper.cpp stream binary. Keyless. ~75MB one-time download. Windows-first.">Whisper.cpp (local, realtime)</option>'
-    +         '<option value="faster-whisper-stream" title="Local realtime via faster-whisper (CTranslate2) + webrtcvad sliding window. Keyless. ~150MB one-time venv bootstrap. Windows-first.">Faster-Whisper (local, realtime, CTranslate2)</option>'
+    +         '<option value="faster-whisper-stream" title="Local realtime speech-to-text (faster-whisper / CTranslate2 + webrtcvad sliding window). Keyless. ~150MB one-time venv bootstrap. Windows-first.">Whisper (local, realtime)</option>'
     +         '<option value="openai" title="Cloud streaming via OpenAI Realtime API. Needs openai_api_key.">OpenAI Whisper (cloud, batch/streaming)</option>'
     +         '<option value="anthropic" title="Cloud streaming via Anthropic’s Deepgram Nova-3 proxy. Auth via your Claude Code login — no separate key.">Anthropic Claude (cloud, streaming)</option>'
     +         '<option value="deepgram" title="Cloud streaming via Deepgram Nova-3. Needs [deepgram] api_key in config.ini.">Deepgram (cloud, streaming)</option>'
@@ -3719,6 +3793,7 @@ function openSettings(payload) {
     o.value = p.id;
     let suffix = '';
     if (p.cliAgent) suffix = '  (logged in)';
+    else if (p.local) suffix = '  (local)';
     else if (p.bridge) suffix = '  (bridge)';
     else if (!p.haveKey) suffix = '  (no key)';
     o.textContent = p.label + suffix;
@@ -3743,13 +3818,13 @@ function openSettings(payload) {
       ms.insertBefore(o, ms.firstChild);
     }
     ms.value = prov.current || (prov.models && prov.models[0]) || '';
-    /* Bridge providers (chatgptBridge/grokBridge/.../ollamaBridge) have
-       no API key — auth lives in the tray exe's QtWebEngine profile (or
-       in the local ollama daemon). Suppress the no-key warning. */
+    /* Bridge providers (chatgptBridge/grokBridge/...) have no API key — auth
+       lives in the tray exe's QtWebEngine profile. Ollama (prov.local) is a
+       local daemon with no auth at all. Suppress the no-key warning for both. */
     const warn = overlay.querySelector('#cbe-set-warn');
     /* cliAgent (logged-in Claude Code) authenticates via the Claude Code
        OAuth login — like bridges, it has no API key to warn about. */
-    if (prov.bridge || prov.cliAgent) {
+    if (prov.bridge || prov.cliAgent || prov.local) {
       warn.classList.remove('show');
       ms.disabled = false;
     } else {
@@ -3757,11 +3832,12 @@ function openSettings(payload) {
       warn.classList.toggle('show', !prov.haveKey);
     }
     /* Refresh the multi-account section for the newly-selected provider.
-       Hidden entirely for bridge + cliAgent providers (no API keys to manage). */
+       Hidden entirely for bridge + cliAgent + local (Ollama) providers — none
+       of them have API keys / accounts to manage. */
     const acctWrap = overlay.querySelector('#cbe-accounts-wrap');
     if (acctWrap) {
-      acctWrap.style.display = (prov.bridge || prov.cliAgent) ? 'none' : '';
-      if (!prov.bridge && !prov.cliAgent) {
+      acctWrap.style.display = (prov.bridge || prov.cliAgent || prov.local) ? 'none' : '';
+      if (!prov.bridge && !prov.cliAgent && !prov.local) {
         __cbeAccountsProvider = prov.id;
         _hideAccountForm();
         if (api) api.postMessage({ type: 'getAccounts', provider: prov.id });
@@ -4169,11 +4245,12 @@ function openSettings(payload) {
   if (sttProvSel) {
     const stored = String(payload.sttProvider || '');
     const coerced = (stored === 'webspeech') ? 'elevenlabs' : stored;
-    /* whisper-local removed 2026-05-30 — replaced by whisper-cpp-stream + faster-whisper-stream.
-       Auto-migrate any stale stored 'whisper-local' to 'whisper-cpp-stream' so users with old
-       settings don't get silently re-pinned to elevenlabs. */
-    const migrated = (coerced === 'whisper-local') ? 'whisper-cpp-stream' : coerced;
-    sttProvSel.value = ['whisper-cpp-stream','faster-whisper-stream','elevenlabs','openai','anthropic','deepgram'].includes(migrated) ? migrated : 'elevenlabs';
+    /* whisper-local removed 2026-05-30; whisper-cpp-stream retired 2026-06-04
+       (its prebuilt zip ships no `stream` binary → dead on most Windows
+       installs). Both auto-migrate to the working faster-whisper-stream engine
+       so users with old settings aren't silently re-pinned to elevenlabs. */
+    const migrated = (coerced === 'whisper-local' || coerced === 'whisper-cpp-stream') ? 'faster-whisper-stream' : coerced;
+    sttProvSel.value = ['faster-whisper-stream','elevenlabs','openai','anthropic','deepgram'].includes(migrated) ? migrated : 'elevenlabs';
   }
 
   /* Snapshot the live TTS window values so Cancel can restore them after any
@@ -5764,7 +5841,7 @@ function openNag(run) {
    Claude.ai Subscription / Anthropic Console / Bedrock, Foundry, or Vertex.
    Stays inside CBE per [[feedback-never-touch-anthropic-dir]] — we don't
    modify the stock Claude Code webview, we render our own. Each button maps
-   to a CBE account flow (browser bridge / API key / external docs). */
+   to a CBE account flow (logged-in Claude Code / API key / external docs). */
 function openAuthPicker() {
   const old = document.getElementById('cbe-authpicker-modal');
   if (old) old.remove();
@@ -5793,8 +5870,6 @@ function openAuthPicker() {
         '<div style="' + subStyle + '">How do you want to log in?</div>' +
         '<button class="cbe-ap-claude"    type="button" style="' + btnStyle + '">Claude Subscription (logged in)</button>' +
         '<div style="' + subStyle + '">Run the real Claude Code agent on your Claude Pro/Max/Team subscription — same login &amp; billing as Claude Code, no API key.</div>' +
-        '<button class="cbe-ap-autologin" type="button" style="' + btnStyle + 'background:var(--cbe-modal-bg,#22262d);border-color:var(--cbe-modal-border,#3a414c);">Auto-login all accounts (Vision Pilot)</button>' +
-        '<div style="' + subStyle + '">Cycle every seeded Claude.ai email, screenshot the login page, ask ChatGPT what to click, poll IMAP for magic links, persist cookies per account.</div>' +
         '<button class="cbe-ap-anthropic" type="button" style="' + btnStyle + '">Anthropic Console</button>' +
         '<div style="' + subStyle + '">Pay for API usage through your Console account (API key).</div>' +
         '<button class="cbe-ap-bedrock"   type="button" style="' + btnStyle + '">Bedrock, Foundry, or Vertex</button>' +
@@ -5814,15 +5889,10 @@ function openAuthPicker() {
       api.postMessage({ type: 'info', text: 'Claude (logged in) active — uses your Claude Code subscription. Run `claude login` in a terminal if prompted to authenticate.' });
     }
   });
-  overlay.querySelector('.cbe-ap-autologin').addEventListener('click', () => {
-    close();
-    /* Hand off to the host — see codexBlackEd.claude.autoLoginAllAccounts.
-       The host spawns tools/claude_login_orchestrator.py which screenshots
-       claude.ai/login, asks GPT-4o for the next click, polls IMAP for the
-       magic-link, and persists cookies per account profile dir. Progress
-       lines come back as `info`/`error` messages and surface in the chat. */
-    if (api) api.postMessage({ type: 'claudeAutoLoginAll' });
-  });
+  /* The "Auto-login all accounts (Vision Pilot)" button was removed along
+     with the Claude browser bridge — Claude now uses the Anthropic API or
+     the logged-in Claude Code subscription, neither of which needs a
+     claude.ai web-login cookie harvest. */
   overlay.querySelector('.cbe-ap-anthropic').addEventListener('click', () => {
     close();
     __cbeAmProvider = 'anthropic';
@@ -6558,7 +6628,22 @@ function applyStrings(strings, language) {
   if (brand) {
     const lang = (window.__cbeActiveLang || 'en').toLowerCase();
     const assetsBase = String(window.__cbeAssetsBase || '').replace(/\/$/, '');
-    if (assetsBase) brand.src = `${assetsBase}/labels/${encodeURIComponent(lang)}.svg`;
+    if (assetsBase) {
+      const base = `${assetsBase}/labels/${encodeURIComponent(lang)}`;
+      /* The ORIGINAL (codex-black / no-skin default) shell gets the minimalist
+         no-pill label so it sits flush on the black prompt row; every other
+         skin keeps the dark-pill label. If a localized `.original` variant is
+         missing (only `en` ships one for now) we fall back to the pill label. */
+      const skin = String((document.body && document.body.getAttribute('data-skin')) || __cbeActiveSkin || '').trim();
+      const isOriginal = (skin === '' || skin === 'codex-black');
+      if (isOriginal) {
+        brand.onerror = () => { brand.onerror = null; brand.src = `${base}.svg`; };
+        brand.src = `${base}.original.svg`;
+      } else {
+        brand.onerror = null;
+        brand.src = `${base}.svg`;
+      }
+    }
   }
 }
 
@@ -6702,6 +6787,8 @@ window.addEventListener('message', e => {
     thread.scrollTop = thread.scrollHeight;
     try { playSfx('error'); } catch (_) {}
     teardownChatLifecycle();
+  } else if (m.type === 'toolCall') {
+    renderToolCall(m);
   } else if (m.type === 'info') {
     addMsg(m.text || '', 'info');
   } else if (m.type === 'toolExec') {

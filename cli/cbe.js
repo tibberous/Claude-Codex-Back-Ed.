@@ -40,7 +40,7 @@ const BRIDGE_PORTS = {
     grok:     8789,
     copilot:  8790,
     gemini:   8791,
-    claude:   8792,
+    /* claude web bridge removed — Anthropic API + logged-in Claude Code only. */
     ollama:   8793,
     deepseek: 8794,
 };
@@ -49,7 +49,6 @@ const BRIDGE_DEFAULT_MODEL = {
     grok:     'grok-4',
     copilot:  'gpt-4',
     gemini:   'gemini-2.5-pro',
-    claude:   'claude-sonnet-4-6',
     ollama:   'llama3.2:3b',
     deepseek: 'deepseek-chat',
 };
@@ -580,7 +579,7 @@ COMMANDS
 
   bridges
       TCP-probe each bridge port (chatgpt 8788, grok 8789, copilot 8790,
-      gemini 8791, claude 8792, ollama 8793, deepseek 8794) and report
+      gemini 8791, ollama 8793, deepseek 8794) and report
       up/down. The C++ tray exes in bin/ own these ports.
 
   bridge <target> "<message>"

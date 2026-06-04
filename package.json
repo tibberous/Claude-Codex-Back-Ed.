@@ -212,10 +212,6 @@
       {
         "command": "codexBlackEd.email.consumeMagicLink",
         "title": "Claude Codex Email: Consume Anthropic magic-link (auto-login)"
-      },
-      {
-        "command": "codexBlackEd.claude.autoLoginAllAccounts",
-        "title": "Claude Codex: Auto-login all Claude.ai accounts (Vision Pilot)"
       }
     ],
     "menus": {

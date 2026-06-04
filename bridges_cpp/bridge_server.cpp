@@ -69,7 +69,8 @@ static const TargetSpec g_targetTable[] = {
     { "Grok",     8789, 102 },
     { "Copilot",  8790, 103 },
     { "Gemini",   8791, 104 },
-    { "Claude",   8792, 105 },
+    /* Claude web bridge removed — Claude uses the Anthropic API + logged-in
+       Claude Code, not a browser bridge. Port 8792 / icon 105 freed. */
     { "Ollama",   8793, 106 },
     { "DeepSeek", 8794, 107 },
 };
@@ -301,7 +302,6 @@ static std::vector<std::string> staticModelsFor(const std::string& target) {
     if (t == "chatgpt") return { "gpt-4o", "gpt-4o-mini", "gpt-4.1", "o1-preview", "o1-mini", "gpt-5.4", "gpt-5.5" };
     if (t == "grok")    return { "grok-2", "grok-2-mini", "grok-beta" };
     if (t == "gemini")  return { "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-pro" };
-    if (t == "claude")  return { "claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5" };
     if (t == "copilot") return { "gpt-4o", "gpt-4.1", "o1-preview" };
     if (t == "deepseek") return { "deepseek-chat", "deepseek-reasoner", "deepseek-v3" };
     return { "(no models)" };
@@ -1754,7 +1754,7 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmdLine, int) {
     /* Parse `--target <name> [--port <n>]` from the command line.
        Backwards-compat: a bare numeric arg (e.g. `8792`) is still accepted
        as a port override so older scripts that called per-target exes with
-       just a port keep working. Target defaults to "Claude" when omitted so
+       just a port keep working. Target defaults to "ChatGPT" when omitted so
        a double-click launch picks something reasonable. */
     std::string argTarget;
     int         argPort = -1;
@@ -1780,12 +1780,12 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR cmdLine, int) {
         }
         if (wargv) LocalFree(wargv);
     }
-    if (argTarget.empty()) argTarget = "Claude";
+    if (argTarget.empty()) argTarget = "ChatGPT";
 
     const TargetSpec* spec = findTarget(argTarget);
     if (!spec) {
         wchar_t err[256];
-        swprintf_s(err, L"Unknown --target '%hs'. Valid: ChatGPT, Grok, Copilot, Gemini, Claude, Ollama, DeepSeek.", argTarget.c_str());
+        swprintf_s(err, L"Unknown --target '%hs'. Valid: ChatGPT, Grok, Copilot, Gemini, Ollama, DeepSeek.", argTarget.c_str());
         MessageBoxW(NULL, err, L"Bridge start failed", MB_OK | MB_ICONERROR);
         return 2;
     }

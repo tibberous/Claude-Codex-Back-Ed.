@@ -4,7 +4,7 @@
 # (bridge_server.cpp), one resource file (bridge_unified.rc with all 7
 # icons at distinct ids 101..107 + id 1 as the default File-Explorer icon),
 # one output: <repo>\bin\CBE-Bridge.exe. The target is now selected at
-# runtime via `--target Claude|ChatGPT|Grok|Copilot|Gemini|Ollama|DeepSeek`
+# runtime via `--target ChatGPT|Grok|Copilot|Gemini|Ollama|DeepSeek`
 # rather than baked in via #define.
 #
 # Why: Azure Trusted Signing charges per signing operation under the Basic

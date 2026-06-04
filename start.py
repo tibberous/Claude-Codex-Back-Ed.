@@ -2,8 +2,9 @@
 # ============================================================================
 #  SuperGrok Bridge
 #  ---------------------------------------------------------------------------
-#  A QtWebEngine bridge that hosts Grok, ChatGPT, Gemini, and Claude web
-#  sessions in a single persistent-profile Qt window, with a CLI for headless
+#  A QtWebEngine bridge that hosts Grok, ChatGPT, Gemini, Copilot, and
+#  DeepSeek web sessions in a single persistent-profile Qt window, with a CLI
+#  for headless
 #  prompts, attachments, and a resident bridge service.
 #
 #  Author : Trenton Tompkins  <trentontompkins@gmail.com>
@@ -295,7 +296,7 @@ APP_VERSION = "1.0.1"
 DEFAULT_GROK_URL = "https://grok.com/"
 DEFAULT_CHATGPT_URL = "https://chatgpt.com/"
 DEFAULT_GEMINI_URL = "https://gemini.google.com/app"
-DEFAULT_CLAUDE_URL = "https://claude.ai/new"
+# DEFAULT_CLAUDE_URL removed — claude web bridge deleted.
 DEFAULT_COPILOT_URL = "https://copilot.microsoft.com/"
 DEFAULT_DEEPSEEK_URL = "https://chat.deepseek.com/"
 DEFAULT_URL = DEFAULT_GROK_URL
@@ -381,11 +382,13 @@ BRIDGE_PORTS = {
     'grok':     8789,
     'copilot':  8790,
     'gemini':   8791,
-    'claude':   8792,
+    # claude web bridge removed — claude.ai web + Claude Code share one
+    # subscription pool, so it served by the API path + the logged-in
+    # `claude` CLI agent (claudeCode), not a browser bridge. Port 8792 freed.
     'ollama':   8793,
     'deepseek': 8794,
 }
-BRIDGE_TARGETS = ('chatgpt', 'grok', 'copilot', 'gemini', 'claude', 'ollama', 'deepseek')
+BRIDGE_TARGETS = ('chatgpt', 'grok', 'copilot', 'gemini', 'ollama', 'deepseek')
 
 
 def _ensureConfigIni() -> None:
@@ -949,7 +952,6 @@ MINICOMPUTER_START_URLS = {
     "chatgpt":  "https://chatgpt.com/",
     "grok":     "https://grok.com/",
     "gemini":   "https://gemini.google.com/app",
-    "claude":   "https://claude.ai/new",
     "copilot":  "https://copilot.microsoft.com/",
     "deepseek": "https://chat.deepseek.com/",
 }
@@ -957,16 +959,15 @@ MINICOMPUTER_START_URLS = {
 # Per-target CDP ports. MUST match the C++ tray's convention:
 # bridge_server.cpp:spawnMinicomputerChrome uses g_childPort = g_port + 1000,
 # where g_port is the tray's bridge port (chatgpt=8788, grok=8789, copilot=8790,
-# gemini=8791, claude=8792, deepseek=8794). Anything else here causes Python
+# gemini=8791, deepseek=8794). Anything else here causes Python
 # to attach to a nonexistent port and spawn a second chrome that fights the
 # tray's chrome for the same per-target --user-data-dir profile lock. Keep
-# these aligned.
+# these aligned. (claude web bridge removed — see BRIDGE_PORTS.)
 MINICOMPUTER_CDP_PORTS = {
     "chatgpt":  9788,
     "grok":     9789,
     "copilot":  9790,
     "gemini":   9791,
-    "claude":   9792,
     "deepseek": 9794,
 }
 
@@ -1090,7 +1091,85 @@ def _loadBridgePlugins() -> dict[str, Any]:
         return {}
 
 
-def driveBridgeChat(target: str, prompt: str, max_steps: int = 20) -> dict[str, Any]:
+# Substrings that mean "the profile is logged out" across ALL four detection
+# points (A: chatgpt fast-path, B: chatgpt plugin custom_sendChat, C: generic
+# runner send_chat, D: runner drive_chat login gate). Registered tuple, not an
+# if/elif chain (house style). _looksLoggedOut() matches any of these.
+_LOGGED_OUT_MARKERS = (
+    "composer not found",
+    "logged out",
+    "post-login composer never appeared",
+    "login wall",
+    "login required",
+    "no assistant reply",  # streamed reply never started — often a login redirect
+)
+
+# Targets that CANNOT auto-login unattended (SSO / magic-link). auto-login is
+# SKIPPED for these → degrade to a clear manual-signin message, never loop.
+# claude is excluded entirely (browser bridge being removed separately).
+_AUTOLOGIN_NATIVE_TARGETS = {"chatgpt", "deepseek", "grok"}
+
+
+def _looksLoggedOut(result: dict[str, Any]) -> bool:
+    """True iff a bridge result is a logged-out style failure (any marker)."""
+    if not result or result.get("ok"):
+        return False
+    err = str(result.get("error") or "").lower()
+    return any(marker in err for marker in _LOGGED_OUT_MARKERS)
+
+
+def _teardownMini(canon: str) -> None:
+    """Drop the cached MiniComputer for one target so the profile lock is
+    released. Only needed if we must SPAWN a fresh chrome — the native-form
+    auto-login path does NOT call this (it reuses the live attached session)."""
+    mini = _MINICOMPUTER_CACHE.pop(canon, None)
+    if mini is not None:
+        try:
+            mini.terminate()
+        except Exception as e:  # swallow-ok: best-effort lock release
+            print(f"[autologin] {canon}: teardown failed: {type(e).__name__}: {e}",
+                  file=sys.stderr, flush=True)
+
+
+def ensureBridgeLoggedIn(canon: str) -> bool:
+    """Attempt a programmatic sign-in for `canon`, reusing the persistent
+    profile + existing login flow. Returns True iff login completed.
+
+    CRITICAL profile-lock rule: the per-target chrome holds a single-writer
+    lock on data/minicomputer/<canon>-profile. We do NOT spawn a second
+    chrome — autoSignIn() ATTACHES to the already-running tray chrome on the
+    same CDP port (MiniComputer.launch() is idempotent via _cdpAlive()) and
+    drives the login in that SAME tab. So there is no teardown here.
+
+    SSO/magic-link targets (gemini/copilot) and claude degrade to a manual
+    message inside autoSignIn() and return ok=False (no loop)."""
+    # Loop-breaker: if there are no usable creds, don't even attempt.
+    creds = _gptVisionPilotReadCredentials(canon)
+    if not ((creds.get("email") or "").strip() and (creds.get("password") or "").strip()):
+        print(f"[autologin] {canon}: no creds in config.ini — skipping auto-login",
+              file=sys.stderr, flush=True)
+        return False
+    try:
+        sys.path.insert(0, str(ROOT / "tools"))
+        from sign_in_helper import autoSignIn as _autoSignIn  # type: ignore
+    except Exception as e:
+        print(f"[autologin] {canon}: sign_in_helper import failed: {type(e).__name__}: {e}",
+              file=sys.stderr, flush=True)
+        return False
+    try:
+        r = _autoSignIn(canon, visible=(canon not in _AUTOLOGIN_NATIVE_TARGETS)) or {}
+    except Exception as e:
+        print(f"[autologin] {canon}: autoSignIn crashed: {type(e).__name__}: {e}",
+              file=sys.stderr, flush=True)
+        return False
+    if not r.get("ok"):
+        print(f"[autologin] {canon}: sign-in not completed ({r.get('method')}): "
+              f"{r.get('error')}", file=sys.stderr, flush=True)
+    return bool(r.get("ok"))
+
+
+def driveBridgeChat(target: str, prompt: str, max_steps: int = 20,
+                    _autologin_tried: bool = False) -> dict[str, Any]:
     """Top-level entry point for any bridge chat round-trip.
 
     Resolves `target` to a plugin via the bridges/ registry and calls
@@ -1126,9 +1205,33 @@ def driveBridgeChat(target: str, prompt: str, max_steps: int = 20) -> dict[str, 
                     "response": "", "steps": 0}
 
     creds = _gptVisionPilotReadCredentials(canon)
-    result = plugin.drive_chat(mini, prompt,
-                                email=creds.get("email", ""),
-                                password=creds.get("password", "")) or {}
+    # attempt 0 = first try; attempt 1 = post-auto-login retry. ONE retry max,
+    # never a while loop. If we were already invoked as an auto-login retry
+    # (_autologin_tried) we do NOT auto-login again (re-entrancy guard).
+    result: dict[str, Any] = {}
+    for attempt in (0, 1):
+        result = plugin.drive_chat(mini, prompt,
+                                    email=creds.get("email", ""),
+                                    password=creds.get("password", "")) or {}
+        if result.get("ok") or not _looksLoggedOut(result):
+            break
+        if attempt == 1 or _autologin_tried:
+            # Already retried once (or this whole call IS the retry) — give up
+            # with a clear message instead of re-escalating endlessly.
+            result["error"] = (f"couldn't auto-login to {canon}: "
+                               f"{result.get('error','')}").strip()
+            break
+        print(f"BRIDGE:LOGGED-OUT target={canon} err={result.get('error')!r} "
+              f"-> attempting auto-login", file=sys.stderr, flush=True)
+        if not ensureBridgeLoggedIn(canon):
+            result["error"] = (f"couldn't auto-login to {canon} (sign-in failed): "
+                               f"{result.get('error','')}").strip()
+            break
+        # Re-grab the MiniComputer post-login (attaches to the same chrome).
+        mini = getMiniComputer(canon, offscreen=True, autostart=True)
+        if mini is None:
+            result["error"] = f"MiniComputer unavailable for {canon!r} after auto-login"
+            break
 
     # If the fast selector-based plugin path failed — e.g. the site showed a
     # login wall / CAPTCHA / changed its DOM so the composer selector never
@@ -1142,7 +1245,10 @@ def driveBridgeChat(target: str, prompt: str, max_steps: int = 20) -> dict[str, 
     if not result.get("ok") and plugin.manifest.kind != "api":
         print(f"BRIDGE:PLUGIN-FAILED target={canon} err={result.get('error')!r} "
               f"-> escalating to GPT-4o vision pilot", file=sys.stderr, flush=True)
-        visionResult = driveBridgeChatViaVisionPilot(target, prompt, max_steps=max_steps)
+        # Pass the auto-login-already-attempted flag so the vision pilot's
+        # chatgpt fast-path (block A) does NOT re-trigger a login loop.
+        visionResult = driveBridgeChatViaVisionPilot(
+            target, prompt, max_steps=max_steps, _autologin_tried=True)
         # Prefer the vision result whenever it did better than the plugin.
         if visionResult.get("ok") or not result.get("response"):
             visionResult["summary"] = (visionResult.get("summary") or "vision-pilot") + \
@@ -1161,7 +1267,8 @@ def driveBridgeChat(target: str, prompt: str, max_steps: int = 20) -> dict[str, 
     }
 
 
-def driveBridgeChatViaVisionPilot(target: str, prompt: str, max_steps: int = 20) -> dict[str, Any]:
+def driveBridgeChatViaVisionPilot(target: str, prompt: str, max_steps: int = 20,
+                                  _autologin_tried: bool = False) -> dict[str, Any]:
     """Wire-in for bridge handlers: drive one chat round-trip via GPT-4o vision.
 
     Spawns/reuses the per-target MiniComputer, then calls pilot() with a goal
@@ -1198,8 +1305,18 @@ def driveBridgeChatViaVisionPilot(target: str, prompt: str, max_steps: int = 20)
             from web_vision_driver import _waitForSelector, _eval, CHATGPT_COMPOSER, CHATGPT_SEND_BUTTON  # type: ignore
             import time as _t
             if not _waitForSelector(mini, CHATGPT_COMPOSER, timeout_s=15.0):
-                return {"ok": False, "error": "chatgpt composer not found — profile logged out? run tools/sign_in_helper.py chatgpt",
-                        "response": "", "steps": 0, "final_url": mini.final_url()}
+                # Profile logged out. Attempt ONE auto-login (unless an
+                # upstream caller already tried — re-entrancy guard) then
+                # re-grab the mini and recheck. If still logged out, surface a
+                # clear error instead of the stale "run sign_in_helper" hint.
+                if not _autologin_tried and ensureBridgeLoggedIn("chatgpt"):
+                    mini = getMiniComputer("chatgpt", offscreen=True, autostart=True)
+                    if mini is None or not _waitForSelector(mini, CHATGPT_COMPOSER, timeout_s=15.0):
+                        return {"ok": False, "error": "couldn't auto-login to chatgpt: composer still not found after sign-in",
+                                "response": "", "steps": 0, "final_url": (mini.final_url() if mini else "")}
+                else:
+                    return {"ok": False, "error": "couldn't auto-login to chatgpt — profile logged out (sign in manually: python tools/sign_in_helper.py chatgpt)",
+                            "response": "", "steps": 0, "final_url": mini.final_url()}
             before = int(_eval(mini, "document.querySelectorAll('[data-message-author-role=\"assistant\"]').length") or 0)
             _eval(mini, f"document.querySelector('{CHATGPT_COMPOSER}').focus();")
             _t.sleep(0.2)
@@ -1246,12 +1363,6 @@ def driveBridgeChatViaVisionPilot(target: str, prompt: str, max_steps: int = 20)
     # this profile (residential IP + headless-looking fingerprint = "unusual
     # activity"). Only fall back to SSO when there's no native form.
     LOGIN_STRATEGY = {
-        "claude":   "Claude is magic-link OR Google-SSO login (no native password). "
-                    "Click 'Continue with email', type the email, click Continue. If a "
-                    "password field appears, type the password. If only the magic-link "
-                    "path is offered and you can't reach the inbox, emit "
-                    "fail('claude login requires email link we can't reach') — the "
-                    "operator will sign in manually once via tools/sign_in_helper.py.",
         "deepseek": "DeepSeek has native email+password login. The login form shows email "
                     "and password fields directly on chat.deepseek.com/sign_in. Type the "
                     "email, type the password, click the Sign in / Log in button. Do NOT "
@@ -1405,11 +1516,12 @@ SOURCE_SIGNATURE_GLOBS = (
 CHATGPT_TARGET_ALIASES = {"chatgpt", "chatgtp", "gtp", "gpt", "openai"}
 GROK_TARGET_ALIASES = {"grok", "supergrok", "xai"}
 GEMINI_TARGET_ALIASES = {"gemini", "gem", "gem-bridge", "gembridge", "google", "googleai", "bard"}
-CLAUDE_TARGET_ALIASES = {"claude", "anthropic", "claudeai", "claude-bridge", "claudebridge", "cl"}
+# CLAUDE_TARGET_ALIASES removed — claude web bridge deleted; the `claude`
+# (logged-in CLI) + `anthropic` (API) providers handle Claude with no bridge.
 COPILOT_TARGET_ALIASES = {"copilot", "ms-copilot", "mscopilot", "microsoft-copilot", "msftcopilot", "msft-copilot", "bing", "cp"}
 OLLAMA_TARGET_ALIASES = {"ollama", "ol", "local", "llama", "llama3", "llama32", "local-llm"}
 DEEPSEEK_TARGET_ALIASES = {"deepseek", "deep-seek", "deep", "ds", "deepseekchat", "deepseek-chat", "deepseekai", "deepseek-ai"}
-ALL_CHAT_TARGET_ALIASES = CHATGPT_TARGET_ALIASES | GROK_TARGET_ALIASES | GEMINI_TARGET_ALIASES | CLAUDE_TARGET_ALIASES | COPILOT_TARGET_ALIASES | OLLAMA_TARGET_ALIASES | DEEPSEEK_TARGET_ALIASES
+ALL_CHAT_TARGET_ALIASES = CHATGPT_TARGET_ALIASES | GROK_TARGET_ALIASES | GEMINI_TARGET_ALIASES | COPILOT_TARGET_ALIASES | OLLAMA_TARGET_ALIASES | DEEPSEEK_TARGET_ALIASES
 CHATGPT_CLI_FLAG_ALIASES = {
     "--chatgpt", "--chatgtp", "--gpt", "--gtp",
     "-chatgpt", "-chatgtp", "-gpt", "-gtp",
@@ -1419,11 +1531,6 @@ GEMINI_CLI_FLAG_ALIASES = {
     "--gemini", "--gem", "--bard",
     "-gemini", "-gem", "-bard",
     "/gemini", "/gem", "/bard",
-}
-CLAUDE_CLI_FLAG_ALIASES = {
-    "--claude", "--anthropic",
-    "-claude", "-anthropic",
-    "/claude", "/anthropic",
 }
 COPILOT_CLI_FLAG_ALIASES = {
     "--copilot", "--ms-copilot", "--mscopilot",
@@ -1435,7 +1542,7 @@ DEEPSEEK_CLI_FLAG_ALIASES = {
     "-deepseek", "-deep-seek", "-ds",
     "/deepseek", "/deep-seek", "/ds",
 }
-CHAT_CLI_FLAG_ALIASES = {"--chat", "-chat", "/chat"} | CHATGPT_CLI_FLAG_ALIASES | GEMINI_CLI_FLAG_ALIASES | CLAUDE_CLI_FLAG_ALIASES | COPILOT_CLI_FLAG_ALIASES | DEEPSEEK_CLI_FLAG_ALIASES
+CHAT_CLI_FLAG_ALIASES = {"--chat", "-chat", "/chat"} | CHATGPT_CLI_FLAG_ALIASES | GEMINI_CLI_FLAG_ALIASES | COPILOT_CLI_FLAG_ALIASES | DEEPSEEK_CLI_FLAG_ALIASES
 
 # --promt / --prompt: the user's habitual typo. These behave exactly like
 # --chat (same nargs="*", same dispatch). Wired in buildParser() as dest="chat"
@@ -1460,13 +1567,12 @@ bridge_services = {
     'grok': 'grok', 'grok4': 'grok', 'grok-4': 'grok', 'xai': 'grok',
     'chatgpt': 'chatgpt', 'chatgtp': 'chatgpt', 'gtp': 'chatgpt', 'gpt': 'chatgpt',
     'copilot': 'copilot', 'ms-copilot': 'copilot',
-    'claude': 'claude', 'anthropic': 'claude',
+    # claude web bridge removed (no 'claude'/'anthropic' bridge target)
     'gemini': 'gemini', 'bard': 'gemini',
     # --- CBE extensions (kept consistent with *_TARGET_ALIASES) ---
     'supergrok': 'grok', 'grok-beta': 'grok',
     'openai': 'chatgpt', 'gpt4o': 'chatgpt', 'gpt-4o': 'chatgpt', 'gpt5': 'chatgpt', 'gpt-5': 'chatgpt',
     'mscopilot': 'copilot', 'microsoft-copilot': 'copilot', 'bing': 'copilot', 'cp': 'copilot',
-    'claudeai': 'claude', 'cl': 'claude',
     'gem': 'gemini', 'google': 'gemini', 'googleai': 'gemini',
     'deepseek': 'deepseek', 'deep-seek': 'deepseek', 'deep': 'deepseek', 'ds': 'deepseek',
     'deepseekchat': 'deepseek', 'deepseek-chat': 'deepseek',
@@ -1482,8 +1588,6 @@ def normalizeChatTarget(value: object = "") -> str:
         return "grok"
     if target in GEMINI_TARGET_ALIASES:
         return "gemini"
-    if target in CLAUDE_TARGET_ALIASES:
-        return "claude"
     if target in COPILOT_TARGET_ALIASES:
         return "copilot"
     if target in OLLAMA_TARGET_ALIASES:
@@ -1503,8 +1607,6 @@ def defaultUrlForChatTarget(target: object = "") -> str:
         return DEFAULT_CHATGPT_URL
     if t == "gemini":
         return DEFAULT_GEMINI_URL
-    if t == "claude":
-        return DEFAULT_CLAUDE_URL
     if t == "copilot":
         return DEFAULT_COPILOT_URL
     if t == "deepseek":
@@ -1519,8 +1621,6 @@ def urlLooksLikeTarget(url: object, target: object = "") -> bool:
         return "chatgpt.com" in text or "chat.openai.com" in text
     if wanted == "gemini":
         return "gemini.google.com" in text or "bard.google.com" in text
-    if wanted == "claude":
-        return "claude.ai" in text
     if wanted == "copilot":
         return "copilot.microsoft.com" in text or "bing.com/chat" in text or "copilot.cloud.microsoft" in text
     if wanted == "deepseek":
@@ -2260,11 +2360,10 @@ def buildParser() -> argparse.ArgumentParser:
     parser.add_argument("--swallowed", "--swallowed-exceptions", action="store_true", help="Run only the swallowed exceptions detector and exit.")
     parser.add_argument("--manual", "--man", action="store_true", help="Print usage/manual with detector commands and exit.")
     parser.add_argument("--url", default=DEFAULT_URL, help="URL to load in the browser pane. Defaults to Grok, or ChatGPT when --chatgpt/--chatgtp is used.")
-    parser.add_argument("--target", choices=["grok", "chatgpt", "gemini", "claude", "copilot", "ollama", "deepseek"], default="", help="Browser/local target for --serve-bridge. Usually inferred from --chat/--chatgpt/--gemini/--claude/--copilot/--ollama/--deepseek or --url. Ollama is a local-API target (no browser bridge); the others drive a logged-in web page.")
+    parser.add_argument("--target", choices=["grok", "chatgpt", "gemini", "copilot", "ollama", "deepseek"], default="", help="Browser/local target for --serve-bridge. Usually inferred from --chat/--chatgpt/--gemini/--copilot/--ollama/--deepseek or --url. Ollama is a local-API target (no browser bridge); the others drive a logged-in web page. (Claude has no web bridge — use the Anthropic API or logged-in Claude Code.)")
     parser.add_argument("--chat", nargs="*", default=None, help="Send a command-line chat request. Examples: --chat \"hello\", --chat --debug \"hello\", --chat grok \"hello\", --chat chatgpt \"hello\", or --chat grok deployment \"hello\".")
     parser.add_argument("--chatgpt", "--chatgtp", "--gpt", "--gtp", dest="chatgpt", nargs="*", default=None, help="Send a command-line chat request through ChatGPT at chatgpt.com. With no message, opens the visible ChatGPT bridge so you can log in and persist cookies. Aliases keep --chatgtp, --gpt, and --gtp working.")
     parser.add_argument("--gemini", "--gem", "--bard", dest="gemini", nargs="*", default=None, help="Send a command-line chat request through Gemini (gemini.google.com). With no message, opens the visible Gemini bridge so you can log in.")
-    parser.add_argument("--claude", "--anthropic", dest="claude", nargs="*", default=None, help="Send a command-line chat request through Claude (claude.ai). With no message, opens the visible Claude bridge so you can log in.")
     parser.add_argument("--copilot", "--ms-copilot", dest="copilot", nargs="*", default=None, help="Send a command-line chat request through Microsoft Copilot (copilot.microsoft.com). With no message, opens the visible Copilot bridge so you can log in.")
     parser.add_argument("--attach", action="append", default=[], help="Attach an input file to a --chat request. May be repeated. Text files inlined; binary/image/PDF sent as base64. Replaces the old --file-as-attachment usage.")
     parser.add_argument("--file", nargs="?", const="<dialog>", default=None, help="Save the chat response to a file. With a path (--file out.txt), writes directly. Bare --file pops a Qt Save-As dialog. Use --attach for input files.")
@@ -2293,7 +2392,7 @@ def buildParser() -> argparse.ArgumentParser:
     parser.add_argument("--debugger-menu", action="store_true", help="Print start.py debugger menu/status and exit.")
     parser.add_argument("--debug", action="store_true", help="Print launcher/app debug traces.")
     parser.add_argument("--ver", "--version", action="store_true", help=f"Print version ({APP_NAME} {APP_VERSION}) and exit.")
-    parser.add_argument("--login", action="store_true", help="Open a stripped-down login-only window for the chosen --target (or --grok/--chatgpt/--gemini/--claude).")
+    parser.add_argument("--login", action="store_true", help="Open a stripped-down login-only window for the chosen --target (or --grok/--chatgpt/--gemini).")
     parser.add_argument("--probe-auth", action="store_true", help="Headless: load the chosen --target home URL, report logged-in/out state and minimum no-scroll login window size as JSON, then exit.")
     parser.add_argument("--no-auto-login", action="store_true", help="For --chat: do not auto-pop the stripped login window when the bridge reports a logged-out state. Useful for CI / non-interactive contexts.")
     parser.add_argument("--library", nargs="?", const="list", default=None, help="Manage ChatGPT library. Actions: list, delete-remote, wipe.")
@@ -2301,7 +2400,7 @@ def buildParser() -> argparse.ArgumentParser:
     # predictable port (BRIDGE_PORTS / config.ini). NSSM preferred, sc.exe
     # fallback. Tray companion (--bridge-tray) is a user-session app spawned
     # via a Startup-folder shortcut, NOT pinned to the SYSTEM-session service.
-    parser.add_argument("--install-bridge-service", metavar="TARGET", default="", help="Install a Windows service for one chat target (chatgpt|grok|copilot|gemini|claude). Service name: CBE-Bridge-<Target>. Also drops a Startup shortcut for the tray companion.")
+    parser.add_argument("--install-bridge-service", metavar="TARGET", default="", help="Install a Windows service for one chat target (chatgpt|grok|copilot|gemini). Service name: CBE-Bridge-<Target>. Also drops a Startup shortcut for the tray companion.")
     parser.add_argument("--uninstall-bridge-service", metavar="TARGET", default="", help="Stop and remove the CBE-Bridge-<Target> Windows service plus its Startup shortcut.")
     parser.add_argument("--start-bridge-service", metavar="TARGET", default="", help="Start the CBE-Bridge-<Target> Windows service.")
     parser.add_argument("--stop-bridge-service", metavar="TARGET", default="", help="Stop the CBE-Bridge-<Target> Windows service.")
@@ -2330,10 +2429,6 @@ def geminiFlagPresent(argv: list[str] | None) -> bool:
     return any(str(token or "").strip().lower() in GEMINI_CLI_FLAG_ALIASES for token in list(argv or []))
 
 
-def claudeFlagPresent(argv: list[str] | None) -> bool:
-    return any(str(token or "").strip().lower() in CLAUDE_CLI_FLAG_ALIASES for token in list(argv or []))
-
-
 def copilotFlagPresent(argv: list[str] | None) -> bool:
     return any(str(token or "").strip().lower() in COPILOT_CLI_FLAG_ALIASES for token in list(argv or []))
 
@@ -2348,8 +2443,6 @@ def activeChatArgName(args: argparse.Namespace, argv: list[str] | None = None) -
         return "chatgpt"
     if getattr(args, "gemini", None) is not None:
         return "gemini"
-    if getattr(args, "claude", None) is not None:
-        return "claude"
     if getattr(args, "copilot", None) is not None:
         return "copilot"
     return "chat"
@@ -2447,37 +2540,6 @@ def forceGeminiChatParts(parts: list[str] | None) -> list[str]:
     return ["gemini", *values]
 
 
-def claudeBridgeLoginRequested(args: argparse.Namespace) -> bool:
-    """Like chatGptBridgeLoginRequested but for --claude with no message."""
-    if getattr(args, "chat", None) is not None:
-        return False
-    values = getattr(args, "claude", None)
-    if values is None:
-        return False
-    return not any(str(item or "").strip() for item in list(values or []))
-
-
-def configureClaudeLoginBridgeArgs(args: argparse.Namespace) -> None:
-    args.chat = None
-    args.claude = []
-    args.chat_target = "claude"
-    args.target = "claude"
-    args.url = DEFAULT_CLAUDE_URL
-    args.serve_bridge = True
-    args.show_bridge = True
-    args.offscreen = False
-
-
-def forceClaudeChatParts(parts: list[str] | None) -> list[str]:
-    values = [str(item) for item in list(parts or []) if str(item or "").strip()]
-    if not values:
-        return ["claude"]
-    first = values[0].strip().lower().replace("_", "-")
-    if first in ALL_CHAT_TARGET_ALIASES:
-        return ["claude", *values[1:]]
-    return ["claude", *values]
-
-
 def copilotBridgeLoginRequested(args: argparse.Namespace) -> bool:
     """Like chatGptBridgeLoginRequested but for --copilot with no message."""
     if getattr(args, "chat", None) is not None:
@@ -2521,8 +2583,6 @@ def _inferTargetFromUrl(args: argparse.Namespace) -> str:
         return "chatgpt"
     if urlLooksLikeTarget(url, "gemini"):
         return "gemini"
-    if urlLooksLikeTarget(url, "claude"):
-        return "claude"
     if urlLooksLikeTarget(url, "copilot"):
         return "copilot"
     return "grok"
@@ -2540,8 +2600,6 @@ def normalizeTargetUrlArgs(args: argparse.Namespace) -> None:
         args.url = DEFAULT_CHATGPT_URL
     elif target == "gemini" and _urlEffectivelyDefault(args):
         args.url = DEFAULT_GEMINI_URL
-    elif target == "claude" and _urlEffectivelyDefault(args):
-        args.url = DEFAULT_CLAUDE_URL
     elif target == "copilot" and _urlEffectivelyDefault(args):
         args.url = DEFAULT_COPILOT_URL
     elif target == "grok" and not str(getattr(args, "url", "") or "").strip():
@@ -2551,22 +2609,17 @@ def normalizeTargetUrlArgs(args: argparse.Namespace) -> None:
 def normalizeChatModeArgs(args: argparse.Namespace) -> None:
     chatgpt_alias_requested = bool(getattr(args, "chatgpt_alias_requested", False) or getattr(args, "chatgpt", None) is not None)
     gemini_alias_requested = bool(getattr(args, "gemini_alias_requested", False) or getattr(args, "gemini", None) is not None)
-    claude_alias_requested = bool(getattr(args, "claude_alias_requested", False) or getattr(args, "claude", None) is not None)
     copilot_alias_requested = bool(getattr(args, "copilot_alias_requested", False) or getattr(args, "copilot", None) is not None)
     if getattr(args, "chat", None) is not None and chatgpt_alias_requested:
         args.chat = forceChatGptChatParts(getattr(args, "chat", []) or [])
     elif getattr(args, "chat", None) is not None and gemini_alias_requested:
         args.chat = forceGeminiChatParts(getattr(args, "chat", []) or [])
-    elif getattr(args, "chat", None) is not None and claude_alias_requested:
-        args.chat = forceClaudeChatParts(getattr(args, "chat", []) or [])
     elif getattr(args, "chat", None) is not None and copilot_alias_requested:
         args.chat = forceCopilotChatParts(getattr(args, "chat", []) or [])
     elif getattr(args, "chatgpt", None) is not None:
         args.chat = forceChatGptChatParts(getattr(args, "chatgpt", []) or [])
     elif getattr(args, "gemini", None) is not None:
         args.chat = forceGeminiChatParts(getattr(args, "gemini", []) or [])
-    elif getattr(args, "claude", None) is not None:
-        args.chat = forceClaudeChatParts(getattr(args, "claude", []) or [])
     elif getattr(args, "copilot", None) is not None:
         args.chat = forceCopilotChatParts(getattr(args, "copilot", []) or [])
     if getattr(args, "chat", None) is None:
@@ -2578,8 +2631,6 @@ def normalizeChatModeArgs(args: argparse.Namespace) -> None:
         args.url = DEFAULT_CHATGPT_URL
     elif target == "gemini" and _urlEffectivelyDefault(args):
         args.url = DEFAULT_GEMINI_URL
-    elif target == "claude" and _urlEffectivelyDefault(args):
-        args.url = DEFAULT_CLAUDE_URL
     elif target == "copilot" and _urlEffectivelyDefault(args):
         args.url = DEFAULT_COPILOT_URL
     elif target == "grok" and not str(getattr(args, "url", "") or "").strip():
@@ -3420,7 +3471,6 @@ def _gptVisionPilotBuildPrompt(target: str, credentials: dict[str, str], viewpor
         "chatgpt":  "https://chatgpt.com/",
         "grok":     "https://grok.com/",
         "gemini":   "https://gemini.google.com/app",
-        "claude":   "https://claude.ai/new",
         "copilot":  "https://copilot.microsoft.com/",
     }
     home = homeUrlMap.get(target, "")
@@ -3428,7 +3478,6 @@ def _gptVisionPilotBuildPrompt(target: str, credentials: dict[str, str], viewpor
         "chatgpt": "Login flow: click 'Log in' (top-right) -> 'Continue with Google' button (use Gmail SSO -- Google session usually auto-completes) OR type email -> Continue -> password -> Continue.",
         "grok":    "Login flow: click 'Sign in' -> 'Continue with X' OR 'Continue with Google'. Prefer Google SSO with the [chatgpt] credentials (same Gmail).",
         "gemini":  "Login flow: requires Google sign-in. If the page shows an account picker, click the trenttompkins@gmail.com tile. If not, click 'Sign in' -> enter email -> Next -> password -> Next.",
-        "claude":  "Login flow: 'Continue with Google' is preferred. Otherwise email -> Continue -> 6-digit code (you may need to WAIT and RELOAD for an email-link path; if so emit FAIL with reason 'email code required').",
         "copilot": "Login flow: click 'Sign in' -> Microsoft account picker. If our Gmail is offered, click it. Otherwise type the [chatgpt] email -> Next -> password -> Sign in.",
     }
     loginHint = loginHints.get(target, "Login flow: locate the primary 'Sign in'/'Log in' button, prefer 'Continue with Google' SSO buttons, type credentials only as a last resort.")
@@ -5794,19 +5843,15 @@ def main(argv: list[str] | None = None) -> int:
     args, unknown = parser.parse_known_args(argv)
     args.chatgpt_alias_requested = chatGptFlagPresent(argv)
     args.gemini_alias_requested = geminiFlagPresent(argv)
-    args.claude_alias_requested = claudeFlagPresent(argv)
     args.copilot_alias_requested = copilotFlagPresent(argv)
     applyChatUnknownTail(args, unknown, argv)  # phase-hooks-ok
     chatgpt_login_bridge = chatGptBridgeLoginRequested(args)
     gemini_login_bridge = geminiBridgeLoginRequested(args)
-    claude_login_bridge = claudeBridgeLoginRequested(args)
     copilot_login_bridge = copilotBridgeLoginRequested(args)
     if chatgpt_login_bridge:
         configureChatGptLoginBridgeArgs(args)
     elif gemini_login_bridge:
         configureGeminiLoginBridgeArgs(args)
-    elif claude_login_bridge:
-        configureClaudeLoginBridgeArgs(args)
     elif copilot_login_bridge:
         configureCopilotLoginBridgeArgs(args)
     else:
@@ -5844,7 +5889,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         from gh_pipeline import dispatch as _ghDispatch
-        ghCode = _ghDispatch(args, ROOT, projectName="SuperGrok", description="One desktop window for every chat AI — Grok, ChatGPT, Gemini, Claude — in a single Qt WebEngine bridge with a CLI for headless prompts.")
+        ghCode = _ghDispatch(args, ROOT, projectName="SuperGrok", description="One desktop window for every chat AI — Grok, ChatGPT, Gemini, Copilot, DeepSeek — in a single Qt WebEngine bridge with a CLI for headless prompts.")
         if ghCode is not None:
             return int(ghCode)
     except Exception as ghError:  # swallow-ok: gh_pipeline is optional and must not break the normal CLI.
@@ -5852,7 +5897,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[gh_pipeline] dispatch error: {type(ghError).__name__}: {ghError}", file=sys.stderr, flush=True)
 
     # --login / --probe-auth — stripped login-only window or headless auth probe.
-    # Provider resolves from --target, or from --chatgpt/--gemini/--claude alias.
+    # Provider resolves from --target, or from --chatgpt/--gemini alias.
     if getattr(args, "login", False) or getattr(args, "probe_auth", False):
         # CRITICAL: must run before login_bridge's QApplication starts so the
         # WebAuthentication / WebHID / WebUsb / U2F / DigitalCredentials feature
@@ -5875,8 +5920,6 @@ def main(argv: list[str] | None = None) -> int:
                 targetHint = "chatgpt"
             elif getattr(args, "gemini_alias_requested", False) or getattr(args, "gemini", None) is not None:
                 targetHint = "gemini"
-            elif getattr(args, "claude_alias_requested", False) or getattr(args, "claude", None) is not None:
-                targetHint = "claude"
             elif getattr(args, "copilot_alias_requested", False) or getattr(args, "copilot", None) is not None:
                 targetHint = "copilot"
             else:

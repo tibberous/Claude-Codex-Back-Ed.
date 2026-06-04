@@ -158,7 +158,13 @@ const PROVIDERS = {
        served by the `claudeCode` logged-in agent (above) + the `anthropic`
        API-key provider. Bridges remain for ChatGPT/Grok/Copilot/Gemini where
        web vs API billing actually differ. */
-    ollamaBridge:  { label: 'Ollama (local)',           bridge: true, bridgeTarget: 'ollama',  defaultModel: 'llama3.2:3b',    models: ['llama3.2:3b', 'llama3.2', 'qwen2.5', 'mistral'] },
+    /* Ollama is NOT a browser bridge — it's a LOCAL HTTP runtime (the ollama
+       daemon on 127.0.0.1:11434). It talks DIRECTLY to /api/chat from Node
+       (streamOllama), bypassing the C++ tray exe + bridge_chat.py entirely.
+       `local:true` routes chatStream to streamOllama; `localTarget` is the
+       config.ini [ollama] section key. The registry id stays `ollamaBridge`
+       only so previously-persisted provider selections keep resolving. */
+    ollamaBridge:  { label: 'Ollama (local)',           local: true, localTarget: 'ollama',   defaultModel: 'llama3.2:3b',    models: ['llama3.2:3b', 'llama3.2', 'qwen2.5', 'mistral'] },
     /* deepseekBridge is registered dynamically from extensions/deepseek.bridge
        via loadBridgeExtensions() at activation. Add other browser-bridge
        providers the same way — drop a *.bridge XML in extensions/. */
@@ -1515,9 +1521,9 @@ function maskPassword(pw) {
 /* Default account `type` for a provider. Direct-API providers use API keys;
    browser-bridge providers (claudeBridge/chatgptBridge/grokBridge/geminiBridge/
    copilotBridge/deepseekBridge) drive a real logged-in browser session via the
-   C++ tray exe in bin/, so their accounts are email+password. Ollama (bridge or
-   direct) is local-only and needs no account — callers should still skip the
-   Add UI for it. */
+   C++ tray exe in bin/, so their accounts are email+password. Ollama is a
+   LOCAL runtime (the ollama daemon, direct HTTP — not a bridge) and needs no
+   account — callers should still skip the Add UI for it. */
 function defaultAccountType(providerId) {
     const p = PROVIDERS[providerId] || {};
     /* cliAgent (logged-in Claude Code) + local Ollama have no key/account —
@@ -1757,8 +1763,8 @@ const EMAIL_SEED_FLAG = 'emailAccountsSeeded_v1';
 
 /* Bulk-seed every email the user owns into the email_accounts list so the
    Email panel's account dropdown lists all 11 from the moment the panel
-   opens. Source of truth = ALL_GMAILS + EXTRA_CLAUDE_EMAILS (the same
-   arrays seedDefaultAccounts() uses for the Claude browser bridge).
+   opens. Source of truth = ALL_GMAILS + EXTRA_CLAUDE_EMAILS (the user's
+   full address roster, used for IMAP magic-link reading / email features).
    addEmailAccount dedupes by (provider,email) so this is safe to re-run.
    Provider is inferred from the address: *@gmail.com → gmail (workspace
    Gmail addresses like admin@acquisitioninvest.com also map to gmail
@@ -2202,14 +2208,15 @@ const ALL_GMAILS = [
     'acquisitioninvest@gmail.com',
     'corey.pletcher@gmail.com',
 ];
-/* Non-gmail addresses the user also uses for the Claude browser bridge. */
+/* Non-gmail addresses in the user's roster (used for IMAP magic-link
+   reading / the Email panel). Name kept for historical continuity; the
+   Claude browser bridge that originally consumed these is removed. */
 const EXTRA_CLAUDE_EMAILS = [
     'fullpriceexit@yahoo.com',
     'tibberous@yahoo.com',
     'tibberous@hotmail.com',
     'acquisitioninvest@yahoo.com',
 ];
-const CLAUDE_BRIDGE_EMAILS = [...ALL_GMAILS, ...EXTRA_CLAUDE_EMAILS];
 
 function seedDefaultAccounts(context) {
     try {
@@ -4236,7 +4243,17 @@ function createDeepgramSttSession({ key, dictionary, language, onPartial, onFina
         close() {
             if (settled || closeRequested) return;
             closeRequested = true;
+            /* Stop the keepalive FIRST — the KeepAlive frames keep the socket
+               from closing, which can otherwise prevent ws.on('close') from
+               ever firing after CloseStream. */
+            if (keepalive) { clearInterval(keepalive); keepalive = null; }
             if (ws.readyState === WebSocket.OPEN) { try { ws.send(JSON.stringify({ type: 'CloseStream' })); } catch (_) {} }
+            /* Guarantee a final/commit even if the server never cleanly closes
+               (late finals / lingering socket). Without this the transcript is
+               never committed, liveActive stays true, and the NEXT recording
+               prepends the old text (Trent 2026-06-04: "saves what was said and
+               puts it all back in"). succeed() is idempotent via `settled`. */
+            setTimeout(() => { try { succeed(); } catch (_) {} try { ws.close(); } catch (_) {} }, 1500);
         },
     };
 }
@@ -4623,7 +4640,20 @@ async function handleSttHostStartRealtimeLocal(panel, context, msg, provider /* 
     /* 1. Resolve the subprocess (download + venv bootstrap if needed). */
     try {
         if (provider === 'whisper-cpp-stream') {
-            const { streamPath, modelPath } = await _ensureWhisperStreamFiles(context);
+            let streamPath, modelPath;
+            try {
+                ({ streamPath, modelPath } = await _ensureWhisperStreamFiles(context));
+            } catch (wErr) {
+                /* whisper.cpp's prebuilt Windows zip ships NO `stream` example
+                   binary (needs SDL2), so this provider dead-ends on most
+                   installs. Transparently fall back to the working faster-whisper
+                   engine instead of failing the mic click — same reqId so the
+                   panel's pending request still resolves (Trent 2026-06-04:
+                   "whisper isnt working at all"). */
+                trace('whisper-cpp-stream unavailable (' + ((wErr && wErr.message) || wErr) + ') — falling back to faster-whisper-stream');
+                _activeRealtimeLocalStreams.delete(reqId);
+                return handleSttHostStartRealtimeLocal(panel, context, msg, 'faster-whisper-stream');
+            }
             session = createWhisperCppStreamSession({
                 streamPath, modelPath,
                 onPartial: (text) => {
@@ -5485,6 +5515,25 @@ function startCliControlServer(context) {
                 sendJson(res, 500, { ok: false, error: String((e && e.message) || e) });
             }
         },
+        '/resume': async (req, res, body) => {
+            /* CCLS resume nudge: inject text (default "...") into the LIVE panel
+               session via the SAME handleSendText() path the auto-prompt uses
+               (panel.js send() -> 'sendText' -> handleSendText). Focus/window-
+               independent — unlike OS SendKeys or the disabled /input endpoint.
+               Used by C:\hooks\claude_code_send_dot_do_dot.py after a cap rotate. */
+            const text = (body && typeof body.text === 'string' && body.text.trim())
+                ? body.text : '...';
+            if (!activePanel) { sendJson(res, 409, { ok: false, error: 'no active panel' }); return; }
+            try {
+                Promise.resolve(handleSendText(context, activePanel, text, null))
+                    .catch((e) => trace(`CLI:/resume handleSendText: ${(e && e.message) || e}`));
+                trace(`CLI:/resume injected ${JSON.stringify(text)} via handleSendText`);
+                sendJson(res, 200, { ok: true, sent: text });
+            } catch (e) {
+                traceErr('CLI:/resume', e);
+                sendJson(res, 500, { ok: false, error: String((e && e.message) || e) });
+            }
+        },
         '/chat': async (req, res, body) => {
             const message = String(body.message || '').trim();
             if (!message) { sendJson(res, 400, { ok: false, error: 'empty message' }); return; }
@@ -6011,105 +6060,10 @@ async function activate(context) {
                 vscode.window.showErrorMessage('Remove account failed: ' + (e.message || String(e)));
             }
         }),
-        /* Vision-pilot login for every Claude.ai account. Spawns
-           tools/claude_login_orchestrator.py which cycles ALL_GMAILS +
-           EXTRA_CLAUDE_EMAILS, drives nn4_agent_browser per-account into
-           bridge_profiles/claude/<slug>/, uses ChatGPT (vision) to click
-           through the login form, polls IMAP for the magic-link, persists
-           cookies in the profile dir. v1 target: at least one account end
-           to end (trent + admin@acquisitioninvest both have real app
-           passwords today). The orchestrator streams JSON-line progress
-           on stdout — we forward each event to the panel as info/error. */
-        vscode.commands.registerCommand('codexBlackEd.claude.autoLoginAllAccounts', async (opts) => {
-            try {
-                const out = vscode.window.createOutputChannel('CBE Claude Auto-Login');
-                out.show(true);
-                out.appendLine(`[${new Date().toISOString()}] autoLoginAllAccounts: collecting roster…`);
-
-                /* Build a per-account JSON row carrying email + provider +
-                   IMAP env-var name. We materialise the password into a
-                   uniquely-named env var for the child process (NEVER
-                   --password on argv — that's visible in tasklist). */
-                const accounts = getEmailAccounts(context);
-                if (!accounts.length) {
-                    vscode.window.showWarningMessage('No email accounts seeded yet — open the Email panel first.');
-                    return;
-                }
-                const onlyEmail = (opts && typeof opts.email === 'string') ? opts.email.trim() : '';
-                const filtered  = onlyEmail
-                    ? accounts.filter(a => (a.email || '').toLowerCase() === onlyEmail.toLowerCase())
-                    : accounts;
-                if (!filtered.length) {
-                    vscode.window.showWarningMessage(`No account row found for ${onlyEmail}.`);
-                    return;
-                }
-
-                const childEnv = Object.assign({}, process.env);
-                const argsAccounts = [];
-                for (let i = 0; i < filtered.length; i++) {
-                    const a   = filtered[i];
-                    const pw  = await getEmailPassword(context, a.id);
-                    const env = `CBE_IMAP_PWD_${i}`;
-                    if (pw) childEnv[env] = pw;
-                    argsAccounts.push(JSON.stringify({
-                        email:    a.email,
-                        provider: a.provider,
-                        imap_password_env: pw ? env : '',
-                    }));
-                }
-
-                const py = (function findPython() {
-                    /* Prefer the bundled CPython if present, else fall back to py launcher. */
-                    const bundled = path.join(context.extensionPath, 'resources', 'python', 'python.exe');
-                    try { if (fs.existsSync(bundled)) return bundled; } catch (_) {}
-                    return process.platform === 'win32' ? 'py' : 'python3';
-                })();
-                const script = path.join(context.extensionPath, 'tools', 'claude_login_orchestrator.py');
-                const cwd    = context.extensionPath;
-                const argv   = (py === 'py' ? ['-3', script] : [script]);
-                for (const a of argsAccounts) argv.push('--account', a);
-                if (opts && opts.dryRun) argv.push('--dry-run');
-
-                out.appendLine(`[${new Date().toISOString()}] spawning: ${py} ${script} (${argsAccounts.length} accounts${opts && opts.dryRun ? ', dry-run' : ''})`);
-
-                const { spawn } = require('child_process');
-                const child = spawn(py, argv, { cwd, env: childEnv });
-                let stdoutBuf = '';
-                child.stdout.on('data', (chunk) => {
-                    stdoutBuf += chunk.toString('utf8');
-                    let idx;
-                    while ((idx = stdoutBuf.indexOf('\n')) >= 0) {
-                        const line = stdoutBuf.slice(0, idx).trim();
-                        stdoutBuf = stdoutBuf.slice(idx + 1);
-                        if (!line) continue;
-                        out.appendLine(line);
-                        try {
-                            const evt = JSON.parse(line);
-                            const panel = (typeof activePanel !== 'undefined') ? activePanel : null;
-                            if (panel && panel.webview) {
-                                const isErr = evt && evt.event === 'account_done' && evt.ok === false;
-                                panel.webview.postMessage({
-                                    type: isErr ? 'error' : 'info',
-                                    text: 'Claude auto-login: ' + line,
-                                });
-                            }
-                        } catch (_) { /* not JSON; already printed */ }
-                    }
-                });
-                child.stderr.on('data', (chunk) => out.append('[err] ' + chunk.toString('utf8')));
-                child.on('close', (code) => {
-                    out.appendLine(`[${new Date().toISOString()}] orchestrator exit code=${code}`);
-                    if (code === 0) {
-                        vscode.window.showInformationMessage('Claude auto-login: orchestrator finished — see CBE Claude Auto-Login output for per-account results.');
-                    } else {
-                        vscode.window.showWarningMessage(`Claude auto-login: orchestrator exited ${code}. Check the output channel.`);
-                    }
-                });
-            } catch (e) {
-                traceErr('claude.autoLoginAllAccounts', e);
-                vscode.window.showErrorMessage('Auto-login failed: ' + (e.message || String(e)));
-            }
-        }),
+        /* The codexBlackEd.claude.autoLoginAllAccounts command (Vision-Pilot
+           claude.ai cookie-harvest orchestrator) was removed with the Claude
+           browser bridge. Claude now uses the Anthropic API or the logged-in
+           Claude Code subscription — neither needs a claude.ai web login. */
         /* If the user closes our terminal, drop the reference so the next
            click on the Terminal button creates a fresh one in the right cwd. */
         vscode.window.onDidCloseTerminal((t) => { if (t === cbeTerm) cbeTerm = null; }),
@@ -6213,8 +6167,8 @@ async function activate(context) {
        spawn its tray exe NOW so the first chat doesn't pay a cold-start.
        Mirrors the same ensureBridge() call that streamBridge() makes, but
        runs in the background so activation isn't blocked by an 8s probe.
-       Same for Ollama: if the active provider is "ollamaBridge" or the
-       new "ollama" registry entry, discover + daemon-start in the bg. */
+       Ollama is NOT a bridge — it's a local daemon. If the active provider is
+       the local Ollama provider, discover + daemon-start it in the bg. */
     setTimeout(() => {
         try {
             const activeId = getActiveProvider(context);
@@ -7619,7 +7573,7 @@ function buildSettingsPayload(context) {
                 models.unshift(currentModel);
             }
         }
-        return { id, label: p.label, models, current: currentModel, haveKey, bridge: !!p.bridge, bridgeTarget: p.bridgeTarget || null, cliAgent: !!p.cliAgent };
+        return { id, label: p.label, models, current: currentModel, haveKey, bridge: !!p.bridge, bridgeTarget: p.bridgeTarget || null, cliAgent: !!p.cliAgent, local: !!p.local, localTarget: p.localTarget || null };
     });
     /* SFX prefs are persisted in workspaceState. Booleans + a 0..1 number;
        defaults match the panel's window.SFX_* defaults so a fresh install
@@ -9804,14 +9758,11 @@ function bindPanel(context, panel) {
                     panel.webview.postMessage({ type: 'showAuthPicker' });
                     break;
                 }
-                case 'claudeAutoLoginAll': {
-                    /* Auth-picker → "Auto-login all accounts (Vision Pilot)".
-                       Defers to the registered command so the same code path
-                       fires from Command Palette, slash, or panel button. */
-                    try { await vscode.commands.executeCommand('codexBlackEd.claude.autoLoginAllAccounts', msg && msg.opts); }
-                    catch (e) { traceErr('claudeAutoLoginAll', e); }
-                    break;
-                }
+                /* 'claudeAutoLoginAll' message + the
+                   codexBlackEd.claude.autoLoginAllAccounts command were
+                   removed with the Claude browser bridge. Claude now uses the
+                   Anthropic API or logged-in Claude Code — no claude.ai web
+                   cookie harvest, so no Vision-Pilot auto-login. */
                 case 'showLicense': {
                     /* /license slash command — read LICENSE.TXT and stream
                        it into the chat as an info message. Full MIT terms
@@ -11972,12 +11923,113 @@ async function* streamAnthropic(apiKey, model, messages, maxTokens, tools) {
     }
 }
 
+/* ── Ollama LOCAL runtime (direct HTTP, no bridge) ───────────────────────
+   Ollama runs locally on 127.0.0.1:11434 with no auth. We POST straight to
+   /api/chat with stream:true and parse the NDJSON line stream, yielding each
+   message.content delta as it arrives — mirroring how streamOpenAIFormat
+   streams SSE into the panel. This replaces the old (broken) path that went
+   streamBridge → CBE-Bridge.exe → bridge_chat.py, which returned no output
+   whenever python wasn't on PATH / the script couldn't be located.
+
+   `model` is the model id chosen in the picker; falls back to the configured
+   [ollama] model in config.ini, then the provider default. ensureOllamaReady
+   has already (best-effort) started the daemon on provider-switch / activate. */
+async function* streamOllama(context, model, messages) {
+    const cfg = readConfigIni(context.extensionPath) || {};
+    const cfgModel = (cfg.ollama && (cfg.ollama.model || cfg.ollama.default_model)) || '';
+    const chosen = (model && String(model).trim())
+        || (cfgModel && String(cfgModel).trim())
+        || (PROVIDERS.ollamaBridge && PROVIDERS.ollamaBridge.defaultModel)
+        || 'llama3.2:3b';
+
+    /* Ollama /api/chat takes the same role/content message shape we store
+       canonically (OpenAI-shape). It ignores unknown roles; map any tool
+       messages down to plain user/assistant text so the local model still
+       sees the context. */
+    const oMessages = messages.map((m) => {
+        if (m.role === 'tool') {
+            return { role: 'user', content: '[tool result] ' + String(m.content || '') };
+        }
+        let content = m.content;
+        if (Array.isArray(content)) {
+            /* Flatten multimodal parts to text — local models here are text-only. */
+            content = content.map(p => (p && p.type === 'text') ? (p.text || '') : '').join('');
+        }
+        return { role: m.role, content: String(content == null ? '' : content) };
+    });
+
+    const body = JSON.stringify({ model: chosen, messages: oMessages, stream: true });
+    let res;
+    try {
+        res = await fetch(`http://${OLLAMA_HOST}:${OLLAMA_PORT}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+        });
+    } catch (e) {
+        throw new Error(
+            `Can't reach the local Ollama daemon at ${OLLAMA_HOST}:${OLLAMA_PORT} — `
+            + `is Ollama running? (${e.message || e}). Pick Ollama again to auto-start it, `
+            + `or install it from Settings → Models.`);
+    }
+    if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        /* 404 from /api/chat usually means the model isn't pulled yet. */
+        const hint = res.status === 404
+            ? ` — model "${chosen}" may not be installed. Pull it from Settings → Models.`
+            : '';
+        throw new Error(`Ollama HTTP ${res.status} ${res.statusText}${errText ? ': ' + errText.slice(0, 300) : ''}${hint}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        /* Ollama streams newline-delimited JSON objects (NDJSON), one per
+           line: {"message":{"role":"assistant","content":"…"},"done":false}
+           … terminated by {"done":true}. Parse complete lines as they land. */
+        for (;;) {
+            const idx = buf.indexOf('\n');
+            if (idx === -1) break;
+            const line = buf.slice(0, idx).trim();
+            buf = buf.slice(idx + 1);
+            if (!line) continue;
+            let j;
+            try { j = JSON.parse(line); } catch (_) { continue; }
+            if (j.error) throw new Error(`Ollama error: ${j.error}`);
+            const chunk = j.message && typeof j.message.content === 'string' ? j.message.content : '';
+            if (chunk) yield chunk;
+            if (j.done) return;
+        }
+    }
+    /* Flush a trailing object with no newline (rare). */
+    const tail = buf.trim();
+    if (tail) {
+        try {
+            const j = JSON.parse(tail);
+            const chunk = j.message && typeof j.message.content === 'string' ? j.message.content : '';
+            if (chunk) yield chunk;
+        } catch (_) { /* ignore */ }
+    }
+}
+
 /* Dispatch by provider id. Returns async iterator yielding text chunks.
    `onProgress(step)` (optional) receives human-readable status strings for
    slow providers so the panel can show progress. */
 async function* chatStream(context, providerId, model, messages, maxTokens, onProgress) {
     const cfg = readConfigIni(context.extensionPath) || {};
     const provider = PROVIDERS[providerId];
+
+    /* Ollama LOCAL runtime — direct HTTP to the daemon, no C++ bridge / python. */
+    if (provider && provider.local && provider.localTarget === 'ollama') {
+        if (onProgress) onProgress('ollama (local) → ' + (model || provider.defaultModel));
+        try { await ensureOllamaReady({ timeoutMs: 8000 }); } catch (_) { /* streamOllama surfaces a clean error if still down */ }
+        yield* streamOllama(context, model, messages);
+        return;
+    }
 
     if (provider && provider.bridge) {
         yield* streamBridge(context, providerId, messages, onProgress);
@@ -12931,14 +12983,14 @@ async function handleSendText(context, panel, text, images) {
                 const projectFolder = context.workspaceState.get('codexBlackEd.projectFolder', '') || os.homedir();
                 for (const tc of nativeToolCalls) {
                     const fname = (tc.function && tc.function.name) || '(unknown)';
-                    panel.webview.postMessage({ type: 'info', text: `▶ native-tool ${fname}` });
+                    panel.webview.postMessage({ type: 'toolCall', phase: 'start', name: fname });
                     let resultStr;
                     try {
                         resultStr = await executeNativeToolCall(tc, { cwd: projectFolder, panel, context });
                     } catch (e) {
                         resultStr = `[executeNativeToolCall error: ${(e && e.message) || e}]`;
                     }
-                    panel.webview.postMessage({ type: 'info', text: `◀ native-tool ${fname} done (${(resultStr || '').length}B)` });
+                    panel.webview.postMessage({ type: 'toolCall', phase: 'done', name: fname, bytes: (resultStr || '').length });
                     conversation.push({
                         role: 'tool',
                         tool_call_id: tc.id,
