@@ -196,6 +196,7 @@ def main():
     finally:
         # Final transcribe on whatever audio is left in the buffer (the host
         # called close() → stdin EOF → we land here).
+        emitted_final = False
         if len(buf) > FRAME_BYTES * 4:
             try:
                 audio = np.frombuffer(bytes(buf), dtype=np.int16).astype(np.float32) / 32768.0
@@ -209,12 +210,12 @@ def main():
                 txt = "".join(s.text for s in segments).strip()
                 if txt:
                     _emit("final", txt)
-                    return
+                    emitted_final = True
             except Exception as e:
                 _eprint("final transcribe failed: " + str(e))
         # Even if the buffer was empty, emit whatever interim we last saw so
         # the host doesn't get a blank result on a real utterance.
-        if last_emitted_text:
+        if not emitted_final and last_emitted_text:
             _emit("final", last_emitted_text)
 
 

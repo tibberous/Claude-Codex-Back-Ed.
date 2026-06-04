@@ -8,6 +8,13 @@ assets/assets.zip
 __pycache__/
 *.pyc
 .claude/
+
+# faster-whisper STT runtime — venv (~150MB) + downloaded CT2 models + test PCM.
+# Bootstrapped on first use by extension.js _ensureFasterWhisperVenv(); never track.
+venv-whisper/
+faster-whisper-models/
+_fw_test.*
+fw_install.log
 panel/.index_tmp.pdf
 panel/index.png
 prompt_history.txt

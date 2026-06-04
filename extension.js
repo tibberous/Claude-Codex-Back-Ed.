@@ -3255,10 +3255,25 @@ async function _ensureFasterWhisperVenv() {
         progress.report({ message: 'upgrading pip…' });
         await _runCapture(py, ['-m', 'pip', 'install', '--upgrade', '--quiet', 'pip']);
         progress.report({ message: 'installing faster-whisper + webrtcvad + numpy…' });
-        trace('faster-whisper: pip install faster-whisper webrtcvad numpy');
-        const pip = await _runCapture(py, ['-m', 'pip', 'install', '--quiet', 'faster-whisper', 'webrtcvad', 'numpy']);
+        /* setuptools<81 is REQUIRED: webrtcvad 2.0.10 does `import pkg_resources`
+           at module load, but setuptools 81+ removed pkg_resources. With a modern
+           setuptools (the default in fresh Python 3.12+ venvs) the driver crashes
+           at startup with "No module named 'pkg_resources'" — which previously
+           surfaced as a silent stuck "Setting up…" / no transcription. Pinning
+           setuptools<81 keeps pkg_resources available for webrtcvad. */
+        trace('faster-whisper: pip install setuptools<81 faster-whisper webrtcvad numpy');
+        const pip = await _runCapture(py, ['-m', 'pip', 'install', '--quiet', 'setuptools<81', 'faster-whisper', 'webrtcvad', 'numpy']);
         if (pip.code !== 0) {
             throw new Error('pip install failed (exit ' + pip.code + '): ' + (pip.stderr || pip.stdout).slice(0, 800).trim());
+        }
+        /* Sanity-check the imports the driver needs BEFORE writing the .ready
+           marker — otherwise a broken venv (e.g. a stray modern setuptools that
+           shadows the pin, a missing CT2 wheel) is cached as "ready" and every
+           later mic click silent-fails. Surface the real ImportError instead. */
+        progress.report({ message: 'verifying imports…' });
+        const verify = await _runCapture(py, ['-c', 'import pkg_resources, webrtcvad, numpy; from faster_whisper import WhisperModel']);
+        if (verify.code !== 0) {
+            throw new Error('faster-whisper venv import check failed (exit ' + verify.code + '): ' + (verify.stderr || verify.stdout).slice(0, 800).trim());
         }
         try { fs.writeFileSync(marker, new Date().toISOString()); } catch (_) {}
         trace('faster-whisper: venv ready at ' + venv);
