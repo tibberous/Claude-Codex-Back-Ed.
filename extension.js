@@ -83,6 +83,7 @@ const secretsCache = {};   /* providerId -> apiKey | null. Populated at activate
    read from config.ini's [api_keys] section, the model-choice field name,
    and a hint list of candidate models for the dropdown. The Grok entry
    targets the direct xAI API (api.x.ai) — not the grok.com browser bridge. */
+let _lastProviderInfoLine = '';   // dedupe the "Provider → …" info line (only re-announce on an actual change)
 const PROVIDERS = {
     anthropic: {
         label: 'Claude (API key)',
@@ -8535,7 +8536,11 @@ function bindPanel(context, panel) {
                     conversation = [];
                     trace(`active provider set: ${msg.provider} / ${msg.model || '(default)'} sfx=${msg.sfxEnabled}/${msg.sfxVolume} skin=${msg.skin || '(none)'} lang=${msg.language || '(unchanged)'}`);
                     setStatus('idle', false, msg.provider);
-                    panel.webview.postMessage({ type: 'info', text: `Provider → ${PROVIDERS[msg.provider].label} · ${msg.model || getActiveModel(context, msg.provider)}` });
+                    const _provInfoLine = `Provider → ${PROVIDERS[msg.provider].label} · ${msg.model || getActiveModel(context, msg.provider)}`;
+                    if (_provInfoLine !== _lastProviderInfoLine) {
+                        _lastProviderInfoLine = _provInfoLine;
+                        panel.webview.postMessage({ type: 'info', text: _provInfoLine });
+                    }
                     /* Auto-start the matching tray bridge on provider switch.
                        Idempotent — already-running bridges are a no-op. Runs
                        in the background so the panel doesn't freeze if the
@@ -12241,6 +12246,56 @@ function cclsTextHasLimit(text) {
    scope) we still fire the rotate — the poller / next user turn picks it up.
 
    Returns true if a rotation was fired. Never throws — all faults swallowed. */
+
+/* Interpret a switcher response into { switched, reason, from, to, active }.
+   The two switch backends share a vocabulary but differ in shape:
+     - ccls_watchdog :57840 /rotate  ->
+         real swap:   { ok:true, action:"swap", swap:{ ok:true, from, to } }
+         suppressed:  { ok:true, action:"suppressed_awaiting_log_advance", … }
+                        (ok:true but NOTHING swapped — must NOT resume)
+     - claude_switcher :3333 /switch ->
+         real swap:   { ok:true, from, account|to, … }
+         debounced:   { ok:false, skipped:true, active, error:"debounced …" }
+   A switch "happened" ONLY when a credential write actually occurred; a
+   suppressed/skipped/debounced/error result is an honest no-op. We never trust
+   the HTTP status alone (a refusal is a 200 JSON body). */
+function cclsRotateResult(httpStatus, bodyText, source) {
+    const fail = (reason, extra) => Object.assign({ switched: false, reason: reason || 'switch failed' }, extra || {});
+    let j = null;
+    try { j = JSON.parse(bodyText || ''); } catch (_) { /* non-JSON below */ }
+    if (!j || typeof j !== 'object') {
+        if (httpStatus >= 200 && httpStatus < 300) return fail('switcher gave no parseable result');
+        return fail(`switcher HTTP ${httpStatus}`);
+    }
+    /* Watchdog suppression: ok:true but it deliberately did not swap. */
+    const action = String(j.action || '');
+    if (/suppress/i.test(action)) return fail('rotation suppressed (already rotated for this cap)');
+    /* Unwrap the watchdog's nested swap result if present. */
+    const swap = (j.swap && typeof j.swap === 'object') ? j.swap : j;
+    const ok = !!(swap.ok && !swap.skipped);
+    if (ok) {
+        return { switched: true, reason: 'switched',
+                 from: swap.from || swap.from_account || null,
+                 to: swap.to || swap.account || swap.to_account || null };
+    }
+    /* Honest no-op: surface the switcher's own reason (debounce / no headroom /
+       all-capped / creds write failed) verbatim so the user knows why. */
+    return fail(swap.error || j.error || (swap.skipped ? 'switch skipped' : 'switch failed'),
+                { active: swap.active || j.active || null });
+}
+
+/* Post a short info line into the panel IF we have panel scope — used for the
+   honest "switched / skipped" status after a CCLS rotate. Safe + best-effort. */
+function cclsPostInfo(injectCtx, text) {
+    try {
+        if (injectCtx && injectCtx.panel && injectCtx.panel.webview) {
+            injectCtx.panel.webview.postMessage({ type: 'info', text });
+        } else if (activePanel && activePanel.webview) {
+            activePanel.webview.postMessage({ type: 'info', text });
+        }
+    } catch (_) { /* never break the stream over a status line */ }
+}
+
 function cclsCheckLimitText(text, injectCtx, fromErrorChannel) {
     try {
         /* HARDENED (2026-06-03): only EVER fire from a genuine error channel —
@@ -12261,15 +12316,26 @@ function cclsCheckLimitText(text, injectCtx, fromErrorChannel) {
         _cclsLastFire = now;   /* debounce: one rotate per cap, not per output line */
         trace('CCLS: session-limit message detected in output stream — firing rotate');
 
-        /* (1) POST the watchdog /rotate; (2) legacy GET fallback; (3) inject "...".
-           Fully fire-and-forget — a detector fault can NEVER break the chat. */
+        /* (1) POST the watchdog /rotate; (2) legacy GET fallback; (3) inject "..."
+           ONLY IF the swap actually happened. Fully fire-and-forget — a detector
+           fault can NEVER break the chat.
+
+           HONESTY FIX (2026-06-04): we must act on the switcher's RESULT, not on
+           "did the fetch succeed". The :3333 switcher answers
+           {ok:false, skipped:true, error:"debounced …"} when it refuses to
+           rotate; previously we ignored the body and always injected "..." +
+           continued as if switched, so CBE *said* it switched while it was still
+           on the capped account. Now cclsRotateResult parses ok/skipped and we
+           only resume on a real swap; a skipped/failed switch posts an honest
+           "Switch skipped — <reason>" line so the user knows they're still on the
+           capping account. */
         Promise.resolve()
             .then(() => fetch(CCLS_ROTATE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }))
             .then(async (res) => {
                 let body = '';
                 try { body = (await res.text()).slice(0, 300); } catch (_) {}
                 trace(`CCLS: rotate POST ${CCLS_ROTATE_URL} -> ${res.status} ${body}`);
-                return true;
+                return cclsRotateResult(res.status, body, 'watchdog');
             })
             .catch((e) => {
                 trace(`CCLS: rotate POST failed (${CCLS_ROTATE_URL}): ${(e && e.message) || e} — trying legacy :3333`);
@@ -12279,14 +12345,27 @@ function cclsCheckLimitText(text, injectCtx, fromErrorChannel) {
                         let body = '';
                         try { body = (await res.text()).slice(0, 200); } catch (_) {}
                         trace(`CCLS: legacy switch GET ${CCLS_SWITCH_URL} -> ${res.status} ${body}`);
-                        return true;
+                        return cclsRotateResult(res.status, body, 'legacy');
                     })
-                    .catch((e2) => { trace(`CCLS: legacy switch GET also failed: ${(e2 && e2.message) || e2}`); return false; });
+                    .catch((e2) => {
+                        trace(`CCLS: legacy switch GET also failed: ${(e2 && e2.message) || e2}`);
+                        return { switched: false, reason: 'switcher unreachable' };
+                    });
             })
-            .then((rotated) => {
-                /* (3) Keep the session alive: re-drive the wrapped session with
-                   "..." once creds have swapped. Only when we have panel scope. */
-                cclsInjectResumeNudge(injectCtx);
+            .then((r) => {
+                r = r || { switched: false, reason: 'no result' };
+                if (r.switched) {
+                    /* (3) Real swap — keep the session alive: re-drive the wrapped
+                       session with "..." once creds have swapped. Panel scope only. */
+                    if (r.to) cclsPostInfo(injectCtx, `↻ Account hit its limit — switched to ${r.to}`);
+                    cclsInjectResumeNudge(injectCtx);
+                } else {
+                    /* Honest no-op: DO NOT inject "..." (that would resume on the
+                       still-capped account). Tell the user we did NOT switch. */
+                    const stillOn = r.active ? ` (still on ${r.active})` : '';
+                    trace(`CCLS: rotate did NOT switch — ${r.reason}${stillOn}; not resuming`);
+                    cclsPostInfo(injectCtx, `Switch skipped — ${r.reason}${stillOn}`);
+                }
             })
             .catch((e) => { try { trace(`CCLS: post-rotate chain fault: ${(e && e.message) || e}`); } catch (_) {} });
         return true;
