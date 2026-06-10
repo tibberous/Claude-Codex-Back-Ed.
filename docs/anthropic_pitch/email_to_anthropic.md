@@ -2,7 +2,7 @@
 
 Hi Claude Code team,
 
-I've been using Claude Code daily and built a VSCode wrapper called Codex Black Ed.. Inside it is a skin pack — 15 swappable themes for the Claude Code panel — and I wanted to put it in front of you in case any of it is useful upstream.
+I've been using Claude Code daily and built a VSCode wrapper called Codex Black Ed. Inside it is a skin pack — 15 swappable themes for the Claude Code panel — and I wanted to put it in front of you in case any of it is useful upstream.
 
 A few details that might matter:
 

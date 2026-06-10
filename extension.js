@@ -6230,7 +6230,7 @@ function maybeShowFirstRun(context) {
         if (context.globalState.get(FIRST_RUN_KEY) === true) return;
     } catch (_) { return; }
     const msg =
-        'Welcome to Codex Black Ed..\n\n' +
+        'Welcome to Codex Black Ed.\n\n' +
         'Works out of the box: voice is keyless (WebSpeech for TTS, whisper.cpp realtime for STT — ~75MB first-run download).\n\n' +
         'For higher-quality chat/voice, add keys in config.ini:\n' +
         '  • ElevenLabs / OpenAI / Anthropic for premium voice + chat\n' +
