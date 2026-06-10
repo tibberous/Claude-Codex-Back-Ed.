@@ -1671,8 +1671,13 @@ code, kbd, pre, samp, tt, .cbe-mono, [data-cbe-mono],
 
 :root {
   --cc-input-border: var(--vscode-inlineChatInput-border, rgba(255,255,255,0.08));
-  --cc-input-bg: var(--vscode-menu-background, #1f1f1f);
-  --cc-input-fg: var(--vscode-input-foreground, #cccccc);
+  /* Prompt styling (Trent 2026-06-10, authoritative -- supersedes the old
+     ghostwhite-paper note): the prompt FIELD is black, the composer card
+     "behind" it is #2a2a2e, font is monospace. Pinned to fixed colors so it
+     stays consistent regardless of the active VSCode theme. */
+  --cc-input-bg: #2a2a2e;          /* composer card "behind" the field */
+  --cc-input-field-bg: #000000;    /* the prompt textarea field itself */
+  --cc-input-fg: var(--vscode-input-foreground, #e6e6e6);
   --cc-divider: var(--vscode-widget-border, rgba(255,255,255,0.07));
   --cc-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.10);
   --cc-shadow-icon: 0 1px 1px rgba(0, 0, 0, 0.30);
@@ -1940,28 +1945,27 @@ main.demo-stage {
   opacity: 0.85;
 }
 
-/* Kill the prompt-input wrap's white gradient + chunky pill chrome.
-   It's INSIDE .prompt-shell so the outer border is already drawn
-   there; this just needs to be a flat transparent area. */
+/* Prompt FIELD = BLACK on the #2a2a2e card (Trent 2026-06-10). The wrap is
+   the black field itself; the .prompt-shell card behind it is #2a2a2e. */
 .prompt-input-wrap,
 #input-box.prompt-input-wrap {
-  background: transparent !important;
-  border: none !important;
+  background: var(--cc-input-field-bg, #000) !important;
+  border: 1px solid var(--cc-input-border) !important;
   box-shadow: none !important;
-  border-radius: 0 !important;
+  border-radius: 6px !important;
   padding: 6px 44px 6px 12px !important;
   margin: 0 !important;
 }
 
-/* Textarea itself */
+/* Textarea itself -- BLACK bg + MONOSPACE ink (pinned, not theme-dependent). */
 html body .prompt-input-wrap textarea.prompt-input#promptBox,
 html body textarea#promptBox.prompt-input {
-  background: transparent !important;
+  background: transparent !important;   /* shows the black wrap behind */
   color: var(--cc-input-fg) !important;
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
-  font-family: var(--vscode-chat-font-family, var(--vscode-font-family)) !important;
+  font-family: var(--vscode-editor-font-family, Consolas, 'Cascadia Mono', 'Courier New', monospace) !important;
   font-size: var(--vscode-chat-font-size, 13px) !important;
   padding: 0 !important;
   min-height: 32px !important;
@@ -2306,15 +2310,26 @@ html body textarea#promptBox.prompt-input {
        override / reposition any of this; these styles are just the
        baseline so the game is visible + clickable in ANY skin. -->
   <style id="cbe-tama-baseline-css">
+    /* DOCKED, not floating (Trent 2026-06-10): the shell used to be
+       position:fixed bottom-right, which overlapped the conversation + the
+       composer as a detached window. Dock it INSIDE the panel as an
+       absolutely-positioned card anchored to the bottom-right corner of the
+       chat thread, sitting just ABOVE the composer (#app has the panel's
+       positioning context). Shrunk to 220px so it tucks into the corner
+       without covering the prompt row. Closes via #tamaBtn / #cbe-tama-close. */
     #cbe-tama-shell {
-      position: fixed;
-      right: 18px;
-      bottom: 18px;
-      width: 280px;
-      z-index: 9000;
+      position: absolute;
+      right: 12px;
+      /* anchor above the composer: the prompt-area is ~120px tall, leave a
+         small gap so the pet sits in the thread's lower-right, never on top
+         of the input row. */
+      bottom: 132px;
+      width: 220px;
+      max-width: calc(100% - 24px);
+      z-index: 40;
       font-family: var(--cbe-monospace, Consolas, monospace);
       color: #d8d8d8;
-      box-shadow: 0 12px 32px rgba(0,0,0,0.55);
+      box-shadow: 0 8px 22px rgba(0,0,0,0.5);
       border-radius: 14px;
       user-select: none;
       /* NO SCROLLBARS (Trent 2026-06-02): the shell sizes to its content,
@@ -2708,29 +2723,30 @@ html body textarea#promptBox.prompt-input {
   .skin-mint-dock .tool-button::after { display: none; }
   /* === END DOCK ICON SWAP === */
   
-/* ════════════════════════════════════════════════════
-   2026-05-31 — UNIVERSAL prompt-row LAYOUT v2 (Trent). New shape:
-     • input row:  [textarea] … [Stop] [Send]   — Send pinned FAR RIGHT,
-       right of Stop (both anchored bottom-right of the wrap).
-     • under-box row: a centered [label] [project-folder] cluster sitting
-       directly UNDER the prompt box (.prompt-meta-row, full width, centered).
-     • label image renders at its NATURAL size (no width/height clamps,
-       no breakpoint shrink) so the logo never looks too small.
-   .toolbar-meta--inline is display:contents so its children flow inside the
-   wrap; Stop+Send are absolutely positioned, .prompt-meta-row is normal flow.
-   ════════════════════════════════════════════════════ */
-/* codex-black is the "Claude Code clone" look: SEND keeps its coral chevron
-   chip (brand identity). The brand pill is re-shown here (Trent's v2 wants the
-   label visible + centered under the box on every skin). */
+/* ====================================================================
+   2026-06-10 -- UNIVERSAL prompt-row LAYOUT v3 (Trent). Collapses the old
+   4-band footer (textarea / centered-label-row / absolute Stop+Send band /
+   toolbar strip) into TWO tidy rows:
+     - input row:   [textarea] full width
+     - control row: [label] [project-folder] ........ [Stop] [Send]
+                    ONE aligned flex row, vertically centered, Send/Stop
+                    right-aligned. No reserved absolute band, no orphaned
+                    single-control rows, no wasted vertical gaps.
+     - toolbar strip (.prompt-toolbar) sits directly under, compact.
+   The control row IS .toolbar-meta--inline turned back into a real flex row
+   (was display:contents). Source order is stop,send,meta-row -- flex `order`
+   re-sequences to meta(left,grow) -> stop -> send without touching markup. */
 .prompt-input-wrap,
 #input-box.prompt-input-wrap {
   display: flex !important;
   flex-wrap: wrap !important;
-  align-items: flex-start !important;
+  align-items: center !important;
   position: relative !important;
-  /* bottom padding reserves room for the absolutely-pinned Stop/Send row */
-  padding: 12px 14px 52px 14px !important;
-  margin-bottom: 14px !important;
+  /* No bottom reserve band -- Stop/Send now live in normal flow on the
+     control row, so the wrap hugs its content. */
+  padding: 8px 12px 8px 14px !important;
+  margin-bottom: 10px !important;
+  row-gap: 6px !important;
 }
 .prompt-input-wrap > textarea.prompt-input,
 .prompt-input-wrap #promptBox {
@@ -2738,9 +2754,22 @@ html body textarea#promptBox.prompt-input {
   flex: 1 1 100% !important;
   width: 100% !important;
 }
+/* The inline meta cluster becomes the single CONTROL ROW: a full-width flex
+   row holding [meta-row] (grows, left) + [Stop] + [Send] (right-aligned). */
 .toolbar-meta--inline {
   position: static !important;
-  display: contents !important;
+  display: flex !important;
+  flex: 1 1 100% !important;
+  width: 100% !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  margin: 0 !important;
+  min-height: 0 !important;
+  border: 0 !important;
+  padding: 0 !important;
 }
 /* Un-hide the brand pill that the clone-look overlay hid earlier. */
 #label-pill,
@@ -2748,51 +2777,44 @@ html body textarea#promptBox.prompt-input {
 .toolbar-meta--inline #label-pill {
   display: inline-flex !important;
 }
-/* SEND — far right, right of Stop. Keeps its coral chip chrome. */
-#sendBtn {
-  position: absolute !important;
-  left: auto !important;
-  right: 14px !important;
-  top: auto !important;
-  bottom: 12px !important;
+/* Meta-row = left cluster [label][project], grows to push Stop/Send right. */
+.prompt-meta-row {
+  order: 0 !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 4px 8px !important;
+  margin: 0 !important;
+}
+/* STOP then SEND, right-aligned, in normal flow (no more absolute band). */
+.toolbar-meta--inline #stopBtn {
+  order: 1 !important;
+  position: static !important;
+  flex: 0 0 auto !important;
+  right: auto !important; bottom: auto !important; top: auto !important; left: auto !important;
+  margin: 0 !important;
+  transform: none !important;
+}
+#sendBtn,
+.toolbar-meta--inline #sendBtn {
+  order: 2 !important;
+  /* relative (NOT static) so the up-arrow chevron drawn by #sendBtn::before
+     (position:absolute; inset:0) stays anchored ON the orange chip instead of
+     escaping to the .prompt-input-wrap positioning context. In normal flow. */
+  position: relative !important;
+  flex: 0 0 auto !important;
+  right: auto !important; bottom: auto !important; top: auto !important; left: auto !important;
+  margin: 0 !important;
   transform: none !important;
 }
 #sendBtn:hover  { transform: scale(1.05) !important; }
 #sendBtn:active { transform: scale(0.96) !important; }
-/* STOP — immediately to the LEFT of Send. */
-.toolbar-meta--inline #stopBtn {
-  position: absolute !important;
-  /* Overlap fix (Trent 2026-06-03): SEND renders as the literal word
-     "SEND" (#sendBtn::after, width:auto+min-width:56px → ~70px wide at
-     right:14px, spanning out to ~right:84px). The old right:56px parked
-     Stop INSIDE the SEND glyph and the two collided. Anchor Stop at
-     right:96px so its right edge clears the SEND text with an 8px gap. */
-  right: 96px !important; bottom: 11px !important;
-  top: auto !important;
-  left: auto !important;
-  margin: 0 !important;
-  transform: none !important;
-}
-/* Under-box centered row: [label] [project-folder] */
-.prompt-meta-row {
-  /* SAME-ROW layout (Trent 2026-06-03): brand label + project-folder share
-     ONE horizontal row, side-by-side — supersedes the 2026-06-02 stacked
-     column. panel.js's #cbe-promptrow-shared sheet re-anchors this whole
-     row to one of the 3 allowed spots (left / center / right) via
-     body[data-cbe-label-pos]; centered is the base default below.
-     flex-wrap lets the folder drop under the label only when the panel is
-     too narrow to fit both on one line (graceful degradation). */
-  flex: 1 1 100% !important;
-  width: 100% !important;
-  display: flex !important;
-  flex-direction: row !important;
-  flex-wrap: wrap !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 4px 10px !important;
-  margin-top: 10px !important;
-}
-/* Label image at NATURAL size — stop downscaling it. */
+/* Label image -- natural aspect, height pinned smaller so it fits the single
+   control row without eating vertical space (was 40px on its own row). */
 .prompt-meta-row #label-pill,
 .toolbar-meta--inline #label-pill,
 .prompt-meta-row .label-button {
@@ -2802,15 +2824,11 @@ html body textarea#promptBox.prompt-input {
   margin: 0 !important;
   flex: 0 0 auto !important;
 }
-/* Natural-size label: the brand SVG has a 932×148 viewBox but NO intrinsic
-   width/height, so `width:auto;height:auto` would fall back to the 300×150
-   replaced-element default. Pin the HEIGHT and let width scale by the SVG's
-   own aspect ratio so the logo renders full-size + crisp on every skin. */
 .prompt-meta-row #label-pill img,
 .prompt-meta-row .label-button img {
   display: block !important;   /* override skins that hid the wordmark img (xfce/tamagotchi) */
   width: auto !important;
-  height: 40px !important;
+  height: 26px !important;
   max-width: none !important;
   object-fit: contain !important;
 }
@@ -2819,6 +2837,10 @@ html body textarea#promptBox.prompt-input {
   position: static !important;
   margin: 0 !important;
   max-width: 240px !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
@@ -2833,12 +2855,13 @@ html body textarea#promptBox.prompt-input {
   font-style: italic;
   opacity: 0.55;
 }
-@media (max-width: 620px) {
-  /* Folder stays UNDER the label even on narrow panels (Trent 2026-06-02 —
-     it must ALWAYS sit directly under the label). Keep it visible; the
-     stacked column already keeps the row height tiny. */
+@media (max-width: 380px) {
+  /* Only on a VERY narrow panel: drop the project-folder label (least
+     important) so [label] ... [Stop][Send] still fit on ONE row. The control
+     row never wraps into the ragged multi-band layout this fix removed. */
   .toolbar-meta--inline #project-path,
-  .prompt-meta-row #project-path { display: flex !important; }
+  .prompt-meta-row #project-path { display: none !important; }
+  .prompt-meta-row { justify-content: flex-start !important; }
 }
 
 </style>

@@ -2459,10 +2459,14 @@ function ensurePromptRowSharedCss() {
          right  → bottom-right
        Higher specificity than the skins' own `.prompt-meta-row` rules +
        appended last, so this wins the cascade across every skin. */
+    /* v3 (Trent 2026-06-10): meta-row is the LEFT cluster of the single
+       control row [label][folder] ... [Stop][Send]. It must GROW (flex:1 1
+       auto) and share the row with Stop/Send rather than take width:100%
+       (the old full-width forced Stop/Send to wrap onto their own band). */
     '.prompt-meta-row{display:flex !important;flex-direction:row !important;',
-    '  flex-wrap:wrap !important;gap:4px 10px !important;width:100% !important;',
-    '  align-items:center !important;',
-    '  box-sizing:border-box !important;padding:6px 14px 2px !important;}',
+    '  flex-wrap:nowrap !important;gap:4px 10px !important;flex:1 1 auto !important;',
+    '  min-width:0 !important;align-items:center !important;',
+    '  box-sizing:border-box !important;padding:0 !important;}',
     '.prompt-meta-row #label-pill{flex:0 0 auto !important;order:0 !important;}',
     /* folder renders in the SAME horizontal row, to the RIGHT of the label
        (Trent 2026-06-03: label + project-folder share one row, side-by-side —
