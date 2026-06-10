@@ -79,7 +79,7 @@ section if present, else fall back to `[chatgpt]`.
 
 | Target | config.ini section | Login type | Auto-login viability |
 |--------|--------------------|-----------|----------------------|
-| **chatgpt** | `[chatgpt]` `trenttompkins@gmail.com` / `***REMOVED***` | **Native OpenAI email+password** (LOGIN_STRATEGY explicitly says do NOT route through Google) | Good — native form, vision pilot already drives it. |
+| **chatgpt** | `[chatgpt]` email / password (from config.ini, gitignored) | **Native OpenAI email+password** (LOGIN_STRATEGY explicitly says do NOT route through Google) | Good — native form, vision pilot already drives it. |
 | **deepseek** | falls back to `[chatgpt]` | **Native email+password** (chat.deepseek.com/sign_in has both fields) | Good — runner `login()` can fill it; vision fallback solid. |
 | **grok** | falls back to `[chatgpt]` | Native xAI/X email+password (LOGIN_STRATEGY: do NOT use Google SSO) | Good — native form. `[x]` section also exists for X creds. |
 | **copilot** | falls back to `[chatgpt]` | **Microsoft account** (login.live.com). Note `[bing]`/`[bing-video]` use `tibberous@hotmail.com` — copilot may need the Hotmail MS account, NOT the Gmail. | Medium — MS SSO; native-form on login.live.com works but watch account picker. |

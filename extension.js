@@ -2198,7 +2198,13 @@ async function sendEmail(context, accountId, opts) {
    password but NEVER overwrite a non-blank one — if the user (or a previous
    seed) already set a password, it is left alone. apiKeys are never touched. */
 const ACCOUNTS_SEED_FLAG = 'accountsSeeded_v2';
-const DEFAULT_BRIDGE_PASSWORD = '***REMOVED***';
+/* Per-machine bridge password — read from config.ini [bridge] password
+   (gitignored). NEVER hardcode a credential in shipped source. Empty when unset:
+   seeding leaves the row blank and the user sets the password in the panel. */
+const DEFAULT_BRIDGE_PASSWORD = (function () {
+    try { return ((readConfigIni(__dirname) || {}).bridge || {}).password || ''; }
+    catch (_) { return ''; }
+})();
 const PRIMARY_GMAIL = 'trenttompkins@gmail.com';
 const ALL_GMAILS = [
     'trenttompkins@gmail.com',
