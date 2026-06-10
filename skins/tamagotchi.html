@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  Claude Codex Black Edition
+  Codex Black Ed.
   Trenton Tompkins <trenttompkins@gmail.com>
   (c) 2006 — Released under the MIT license. See license.txt.
   https://trentontompkins.com    https://github.com/tibberous
@@ -13,7 +13,7 @@
      inline <script> block. {{CSP_SOURCE}} is replaced by extension.js with
      webview.cspSource. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{CSP_SOURCE}} https://*.vscode-cdn.net data:; script-src {{CSP_SOURCE}} https://*.vscode-cdn.net 'unsafe-inline'; style-src {{CSP_SOURCE}} https://*.vscode-cdn.net 'unsafe-inline'; font-src {{CSP_SOURCE}} https://*.vscode-cdn.net data:; media-src {{CSP_SOURCE}} https://*.vscode-cdn.net blob: data:; frame-src {{CSP_SOURCE}} https: data:;" />
-<title>Claude Codex Black</title>
+<title>Codex Black</title>
 <!-- Prism CSS deferred: load with media="print" (non-blocking), then JS swaps
      to media="all" once loaded. The chat thread is rendered without code-block
      styling for the first ~100ms — acceptable because there are no code
@@ -163,11 +163,13 @@ body {
   margin-bottom: 0;
   border-radius: var(--input-radius);
   border: 2px solid rgba(52, 52, 52, 0.95);
-  background: linear-gradient(180deg, #f7f7f7 0%, #f1f1f1 100%);
+  /* Tamagotchi LCD look (Trent 2026-06-04): darker green panel with a recessed
+     INNER BEVEL so the prompt reads like the pet's little screen. */
+  background: linear-gradient(180deg, #9aac4f 0%, #84963f 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 1px 0 rgba(0, 0, 0, 0.25),
-    0 3px 10px rgba(0, 0, 0, 0.12);
+    inset 2px 2px 4px rgba(28, 46, 8, 0.55),
+    inset -2px -2px 3px rgba(214, 232, 150, 0.40),
+    inset 0 0 0 1px rgba(40, 60, 12, 0.45);
   /* Vertical padding crushed 14 → 3 → 1 (target ~80-100px total panel
      height vs. previous ~220px). Right padding kept high (90px) to reserve
      room for the absolute-positioned #sendBtn (38px wide + 16px right
@@ -2099,7 +2101,7 @@ body[data-skin="tamagotchi"] .prompt-shell {
 <body>
   <main class="demo-stage" id="app">
     <div id="thread">
-      <div class="msg info">Claude Codex Black — standalone. Type to send. First send will prompt for your API key.</div>
+      <div class="msg info">Codex Black — standalone. Type to send. First send will prompt for your API key.</div>
     </div>
 
 
@@ -2137,7 +2139,7 @@ body[data-skin="tamagotchi"] .prompt-shell {
             <button id="sendBtn" class="send-button" type="button" data-tooltip="Send message" data-i18n-tip="tooltip.send" aria-label="Send message"></button>
             <div class="prompt-meta-row">
               <button id="label-pill" class="label-button" type="button" data-tooltip="Open settings" data-i18n-tip="tooltip.settings" aria-label="Current assistant profile">
-                <img id="brandLabelImg" src="{{ASSETS_BASE}}/labels/en.svg" data-cbe-brand alt="Claude Codex — Black Edition" />
+                <img id="brandLabelImg" src="{{ASSETS_BASE}}/labels/en.svg" data-cbe-brand alt="Codex Black Ed." />
               </button>
               <div id="project-path" class="project-path" data-tooltip="No project folder — click the folder button to pick one" data-i18n-tip="label.no_project" aria-label="Active project folder" title=""></div>
             </div>

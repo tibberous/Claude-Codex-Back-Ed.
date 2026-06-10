@@ -1,6 +1,6 @@
 # Writing CBE Bridges — Developer Whitepaper
 
-**Audience:** anyone who wants to add a new AI chat target to Claude Codex Black (CBE) without modifying the core extension.
+**Audience:** anyone who wants to add a new AI chat target to Codex Black (CBE) without modifying the core extension.
 
 **Status:** v1.0 — 2026-05-19. Reflects the post-pivot architecture where the pilot's brain is the user's logged-in chatgpt.com Plus session (NOT api.openai.com).
 

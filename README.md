@@ -1,4 +1,4 @@
-# Claude Codex Black
+# Codex Black
 
 Standalone VS Code extension that opens its own webview panel and displays the Codex Black label.
 
@@ -14,9 +14,9 @@ code --install-extension codex-black-ed-1.0.0.vsix
 
 ## Use
 
-Run the command **Claude Codex Black: Open Panel** from the command palette, or press `Ctrl+Shift+B` (`Cmd+Shift+B` on macOS).
+Run the command **Codex Black: Open Panel** from the command palette, or press `Ctrl+Shift+B` (`Cmd+Shift+B` on macOS).
 
-A panel titled **Claude Codex Black** opens in a side column and renders `assets/label-alpha.png`.
+A panel titled **Codex Black** opens in a side column and renders `assets/label-alpha.png`.
 
 ## Build
 

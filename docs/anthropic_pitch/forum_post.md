@@ -1,6 +1,6 @@
 # 15 swappable skins for Claude Code (MIT)
 
-Built a skin pack for Claude Code as part of a side extension I've been working on (Claude Codex Black Edition). Shipping the skin layer on its own here because it's the bit most people will care about.
+Built a skin pack for Claude Code as part of a side extension I've been working on (Codex Black Ed.). Shipping the skin layer on its own here because it's the bit most people will care about.
 
 ## The skins
 

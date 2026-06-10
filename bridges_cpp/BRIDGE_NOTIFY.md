@@ -26,7 +26,7 @@ Until the endpoint lands, the helper falls back to a native Windows MessageBox v
 ## Pattern A: call our helper from any bridge
 
 ```bash
-python "C:\Users\moren\Desktop\Claude Codex Black\bin\bridge_notify.py" \
+python "C:\Users\moren\Desktop\Codex Black\bin\bridge_notify.py" \
     --bridge chatgpt --level error \
     --title "Login failed" \
     --message "chatgpt.com rejected the password — re-enter via Accounts modal."

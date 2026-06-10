@@ -1,7 +1,7 @@
 {
   "name": "claude-codex-black-edition",
-  "displayName": "Claude Codex — Black Edition",
-  "description": "Claude Codex Black extension with support for Claude / GPT / Grok / Gemini / CoPilot / DeepSeek / Azure. Need help on your next project? Call (724) 431-5207 today! Websites, extensions, mobile development, application development - whatever you need! Production-level code at fair prices with lightning-fast turn-around! Portfolio: https://trentontompkins.com.",
+  "displayName": "Codex Black Ed.",
+  "description": "Codex Black extension with support for Claude / GPT / Grok / Gemini / CoPilot / DeepSeek / Azure. Need help on your next project? Call (724) 431-5207 today! Websites, extensions, mobile development, application development - whatever you need! Production-level code at fair prices with lightning-fast turn-around! Portfolio: https://trentontompkins.com.",
   "version": "1.0.2",
   "publisher": "Trent-Tompkins",
   "author": {
@@ -54,7 +54,7 @@
     "commands": [
       {
         "command": "codexBlackEd.openPanel",
-        "title": "Claude Codex Black: Open Panel",
+        "title": "Codex Black: Open Panel",
         "icon": {
           "light": "resources/icon-light.png",
           "dark": "resources/icon-dark.png"
@@ -62,43 +62,43 @@
       },
       {
         "command": "codexBlackEd.show",
-        "title": "Claude Codex Black: Show"
+        "title": "Codex Black: Show"
       },
       {
         "command": "codexBlackEd.setApiKey",
-        "title": "Claude Codex Black: Set API Key"
+        "title": "Codex Black: Set API Key"
       },
       {
         "command": "codexBlackEd.clearApiKey",
-        "title": "Claude Codex Black: Clear API Key"
+        "title": "Codex Black: Clear API Key"
       },
       {
         "command": "codexBlackEd.resetConversation",
-        "title": "Claude Codex Black: Reset Conversation"
+        "title": "Codex Black: Reset Conversation"
       },
       {
         "command": "codexBlackEd.showTrace",
-        "title": "Claude Codex Black: Show Trace"
+        "title": "Codex Black: Show Trace"
       },
       {
         "command": "codexBlackEd.openWebLogin",
-        "title": "Claude Codex Black: Open Web Login (Grok / ChatGPT)"
+        "title": "Codex Black: Open Web Login (Grok / ChatGPT)"
       },
       {
         "command": "codexBlackEd.disposeWebBridge",
-        "title": "Claude Codex Black: Close Web Bridge Browsers"
+        "title": "Codex Black: Close Web Bridge Browsers"
       },
       {
         "command": "codexBlackEd.installBridgeService",
-        "title": "Claude Codex Black: Install Bridge Chrome as Windows Service"
+        "title": "Codex Black: Install Bridge Chrome as Windows Service"
       },
       {
         "command": "codexBlackEd.uninstallBridgeService",
-        "title": "Claude Codex Black: Uninstall Bridge Chrome Windows Service"
+        "title": "Codex Black: Uninstall Bridge Chrome Windows Service"
       },
       {
         "command": "codexBlackEd.openBrowser",
-        "title": "Claude Codex Black: Open Web Browser (NN4)",
+        "title": "Codex Black: Open Web Browser (NN4)",
         "icon": {
           "light": "resources/browser.png",
           "dark": "resources/browser.png"
@@ -106,7 +106,7 @@
       },
       {
         "command": "codexBlackEd.openVideoPlayer",
-        "title": "Claude Codex Black: Open Video Library",
+        "title": "Codex Black: Open Video Library",
         "icon": {
           "light": "resources/browser.png",
           "dark": "resources/browser.png"
@@ -114,71 +114,71 @@
       },
       {
         "command": "codexBlackEd.pushUpdate",
-        "title": "Claude Codex Black: Push update to server"
+        "title": "Codex Black: Push update to server"
       },
       {
         "command": "codexBlackEd.slash.help",
-        "title": "Claude Codex: Help"
+        "title": "Codex Black: Help"
       },
       {
         "command": "codexBlackEd.slash.handbook",
-        "title": "Claude Codex: Open handbook"
+        "title": "Codex Black: Open handbook"
       },
       {
         "command": "codexBlackEd.slash.clear",
-        "title": "Claude Codex: New conversation"
+        "title": "Codex Black: New conversation"
       },
       {
         "command": "codexBlackEd.slash.settings",
-        "title": "Claude Codex: Open settings"
+        "title": "Codex Black: Open settings"
       },
       {
         "command": "codexBlackEd.slash.prompts",
-        "title": "Claude Codex: Edit saved prompts"
+        "title": "Codex Black: Edit saved prompts"
       },
       {
         "command": "codexBlackEd.slash.history",
-        "title": "Claude Codex: Browse chat history"
+        "title": "Codex Black: Browse chat history"
       },
       {
         "command": "codexBlackEd.slash.font",
-        "title": "Claude Codex: Toggle big font"
+        "title": "Codex Black: Toggle big font"
       },
       {
         "command": "codexBlackEd.slash.attach",
-        "title": "Claude Codex: Attach a file"
+        "title": "Codex Black: Attach a file"
       },
       {
         "command": "codexBlackEd.slash.folder",
-        "title": "Claude Codex: Pick project folder"
+        "title": "Codex Black: Pick project folder"
       },
       {
         "command": "codexBlackEd.slash.compact",
-        "title": "Claude Codex: Compact conversation"
+        "title": "Codex Black: Compact conversation"
       },
       {
         "command": "codexBlackEd.slash.compress",
-        "title": "Claude Codex: Compress conversation (alias of /compact)"
+        "title": "Codex Black: Compress conversation (alias of /compact)"
       },
       {
         "command": "codexBlackEd.slash.git",
-        "title": "Claude Codex: Source control"
+        "title": "Codex Black: Source control"
       },
       {
         "command": "codexBlackEd.slash.github",
-        "title": "Claude Codex: List GitHub repos"
+        "title": "Codex Black: List GitHub repos"
       },
       {
         "command": "codexBlackEd.slash.license",
-        "title": "Claude Codex: Show the MIT license"
+        "title": "Codex Black: Show the MIT license"
       },
       {
         "command": "codexBlackEd.slash.push",
-        "title": "Claude Codex: Push files to server (auto-update)"
+        "title": "Codex Black: Push files to server (auto-update)"
       },
       {
         "command": "codexBlackEd.slash.switchAccounts",
-        "title": "Claude Codex: Switch accounts"
+        "title": "Codex Black: Switch accounts"
       },
       {
         "command": "codexBlackEd.openEmail",
@@ -187,31 +187,31 @@
       },
       {
         "command": "codexBlackEd.oauth.storeToken",
-        "title": "Claude Codex OAuth: Store token for account"
+        "title": "Codex Black OAuth: Store token for account"
       },
       {
         "command": "codexBlackEd.oauth.clearToken",
-        "title": "Claude Codex OAuth: Clear token for account"
+        "title": "Codex Black OAuth: Clear token for account"
       },
       {
         "command": "codexBlackEd.slash.email",
-        "title": "Claude Codex: /email — open inbox panel"
+        "title": "Codex Black: /email — open inbox panel"
       },
       {
         "command": "codexBlackEd.email.addAccount",
-        "title": "Claude Codex Email: Add account"
+        "title": "Codex Black Email: Add account"
       },
       {
         "command": "codexBlackEd.email.readInbox",
-        "title": "Claude Codex Email: Read inbox (last 30)"
+        "title": "Codex Black Email: Read inbox (last 30)"
       },
       {
         "command": "codexBlackEd.email.removeAccount",
-        "title": "Claude Codex Email: Remove account"
+        "title": "Codex Black Email: Remove account"
       },
       {
         "command": "codexBlackEd.email.consumeMagicLink",
-        "title": "Claude Codex Email: Consume Anthropic magic-link (auto-login)"
+        "title": "Codex Black Email: Consume Anthropic magic-link (auto-login)"
       }
     ],
     "menus": {
@@ -243,7 +243,7 @@
       }
     ],
     "configuration": {
-      "title": "Claude Codex Black",
+      "title": "Codex Black",
       "properties": {
         "codexBlackEd.activeProvider": {
           "type": "string",

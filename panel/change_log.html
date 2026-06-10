@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Claude Codex Black — Change Log</title>
+<title>Codex Black — Change Log</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root {
@@ -1257,7 +1257,7 @@
       <time datetime="2026-05-11T20:30:55-04:00" title="2026-05-11T20:30:55-04:00">12d ago</time>
     </div>
   </header>
-  <ul><li>extension.js (282 lines, up from 68):</li><li>- onDidReceiveMessage handler dispatches sendText/reset/labelClick</li><li>- getApiKey: ANTHROPIC_API_KEY env -&gt; SecretStorage -&gt; first-run prompt</li><li>- @anthropic-ai/sdk client with lazy init, streams via messages.stream({...})</li><li>- Per-session conversation history (in-memory, cleared on reset)</li><li>- Output channel &quot;Claude Codex Black&quot; traces every step (recv, stream start,</li><li>  chunk count, tokens used, errors with stack)</li><li>- Status bar item: &quot;CBE: idle | streaming | error&quot; with spinner</li><li>- Commands: setApiKey, clearApiKey, resetConversation, showTrace</li><li>panel/index.html:</li><li>- assistantStart/chunk/assistantDone message handlers</li><li>- Streaming cursor (blinking pill) while assistant is mid-response</li><li>- setBusy disables input + send button during stream</li><li>- Error display, info display, &quot;+&quot; resets conversation</li><li>- Monitor button opens trace channel</li><li>package.json:</li><li>- @anthropic-ai/sdk dep added (bundled into VSIX via node_modules/** in files)</li><li>- Config: model (sonnet-4-6 default), maxTokens (4096)</li><li>- 4 new commands contributed</li><li>SUPER STOP upgrade (injects/red-stop-btn.js was written this session) is paused</li><li>pending chat-backend validation. Restore from this commit if needed.</li></ul>
+  <ul><li>extension.js (282 lines, up from 68):</li><li>- onDidReceiveMessage handler dispatches sendText/reset/labelClick</li><li>- getApiKey: ANTHROPIC_API_KEY env -&gt; SecretStorage -&gt; first-run prompt</li><li>- @anthropic-ai/sdk client with lazy init, streams via messages.stream({...})</li><li>- Per-session conversation history (in-memory, cleared on reset)</li><li>- Output channel &quot;Codex Black&quot; traces every step (recv, stream start,</li><li>  chunk count, tokens used, errors with stack)</li><li>- Status bar item: &quot;CBE: idle | streaming | error&quot; with spinner</li><li>- Commands: setApiKey, clearApiKey, resetConversation, showTrace</li><li>panel/index.html:</li><li>- assistantStart/chunk/assistantDone message handlers</li><li>- Streaming cursor (blinking pill) while assistant is mid-response</li><li>- setBusy disables input + send button during stream</li><li>- Error display, info display, &quot;+&quot; resets conversation</li><li>- Monitor button opens trace channel</li><li>package.json:</li><li>- @anthropic-ai/sdk dep added (bundled into VSIX via node_modules/** in files)</li><li>- Config: model (sonnet-4-6 default), maxTokens (4096)</li><li>- 4 new commands contributed</li><li>SUPER STOP upgrade (injects/red-stop-btn.js was written this session) is paused</li><li>pending chat-backend validation. Restore from this commit if needed.</li></ul>
 </section>
 
 <section class="commit" id="c-311eb0b">
@@ -1329,7 +1329,7 @@
       <time datetime="2026-05-11T08:42:05-04:00" title="2026-05-11T08:42:05-04:00">13d ago</time>
     </div>
   </header>
-  <ul><li>- push.py: token-from-config GitHub push helper (token read from gitignored config.ini)</li><li>- patch-webview.js: re-enable panel title rename &quot;Claude Code&quot; -&gt; &quot;Claude Codex Black Ed.&quot;</li><li>- injects: aa-label-data, aa-send-data, aa-probe-placeholder, chat-logger,</li><li>  dom-probe-font, help-btn, zz-placeholder-probe; updates to black-edition,</li><li>  context-menu, monitor-btn</li><li>- assets: baked label + send button images</li><li>- tools/: mouse + screenshot helpers</li><li>- bake_label.py / bake_send.py / gpt_edit.py / slicer.py: build/dev scripts</li><li>- config.ini.sample: github_token placeholder</li><li>- .gitignore: __pycache__/ and *.pyc</li></ul>
+  <ul><li>- push.py: token-from-config GitHub push helper (token read from gitignored config.ini)</li><li>- patch-webview.js: re-enable panel title rename &quot;Claude Code&quot; -&gt; &quot;Codex Black Ed.&quot;</li><li>- injects: aa-label-data, aa-send-data, aa-probe-placeholder, chat-logger,</li><li>  dom-probe-font, help-btn, zz-placeholder-probe; updates to black-edition,</li><li>  context-menu, monitor-btn</li><li>- assets: baked label + send button images</li><li>- tools/: mouse + screenshot helpers</li><li>- bake_label.py / bake_send.py / gpt_edit.py / slicer.py: build/dev scripts</li><li>- config.ini.sample: github_token placeholder</li><li>- .gitignore: __pycache__/ and *.pyc</li></ul>
 </section>
 
 <section class="commit" id="c-e7bc5a1">
@@ -1358,7 +1358,7 @@
 
 <section class="commit" id="c-28ee06b">
   <header>
-    <h2><span class="num">109.</span> Initial commit: Claude Codex Black Edition VSCode extension</h2>
+    <h2><span class="num">109.</span> Initial commit: Codex Black Ed. VSCode extension</h2>
     <div class="meta">
       <code class="sha" title="28ee06bce1092d80e19bcd309d807e1bc0a78bb5">28ee06b</code>
       <span class="author">Trent Tompkins</span>

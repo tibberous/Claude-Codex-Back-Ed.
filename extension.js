@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   Claude Codex Black Edition
+   Codex Black Ed.
    Trenton Tompkins <trenttompkins@gmail.com>
    (c) 2006 — Released under the MIT license. See license.txt.
    https://trentontompkins.com    https://github.com/tibberous
@@ -439,7 +439,7 @@ function pushUpdateToServer(context) {
     /* Commands go in a SCRIPT FILE (/script=), NOT /command. With /command,
        each command is a separate spawn argv, and Node's Windows arg-escaping
        mangles the nested quotes around a localPath that contains a SPACE
-       ("…\Claude Codex Black") — WinSCP then truncates the path at the space
+       ("…\Codex Black") — WinSCP then truncates the path at the space
        ("…\Claude\*.*") and aborts with exit 1 (the push silently failed for a
        week this way). A script file is read by WinSCP directly, so quoted
        spaced paths survive intact. CRLF line endings; one command per line. */
@@ -1416,7 +1416,7 @@ async function promptForKey(context, providerId) {
     const provider = PROVIDERS[providerId];
     const entered = await vscode.window.showInputBox({
         title: `API Key for ${provider.label}`,
-        prompt: 'Stored encrypted in VS Code secrets. Cleared via "Claude Codex Black: Clear API Key".',
+        prompt: 'Stored encrypted in VS Code secrets. Cleared via "Codex Black: Clear API Key".',
         password: true,
         ignoreFocusOut: true,
     });
@@ -3319,7 +3319,7 @@ const ANTHROPIC_STT_KEYTERMS = [
     'regex', 'localhost', 'codebase', 'TypeScript', 'JSON', 'OAuth', 'webhook',
     'gRPC', 'dotfiles', 'subagent', 'worktree',
     /* CBE-specific additions — this extension is about Claude tooling. */
-    'CBE', 'Claude Codex', 'whisper.cpp', 'Deepgram', 'Anthropic',
+    'CBE', 'Codex Black', 'whisper.cpp', 'Deepgram', 'Anthropic',
 ];
 
 /* Split a user-supplied custom-dictionary string into individual terms. Accepts
@@ -5329,7 +5329,7 @@ async function _ensurePrerequisites(context) {
     // ── Build a single unified toast ───────────────────────────────────
     const summary = missing.map(m => '• ' + m.what).join('  ');
     const action = await vscode.window.showWarningMessage(
-        'Claude Codex Black: missing prerequisites — ' + summary,
+        'Codex Black: missing prerequisites — ' + summary,
         { modal: false },
         'Install all',
         'Later',
@@ -5627,7 +5627,7 @@ async function activate(context) {
     // terminal. Cached for 24h so we don't probe on every reload.
     try { await _ensurePrerequisites(context); }
     catch (e) { console.warn('[CBE prereq] top-level fail:', e); }
-    outChan = vscode.window.createOutputChannel('Claude Codex Black');
+    outChan = vscode.window.createOutputChannel('Codex Black');
     /* Clear stale entries from a previous activation so each run's timing
        is readable on its own. (VS Code keeps the OutputChannel alive across
        window reloads, so without this the log just keeps appending.) */
@@ -5635,7 +5635,7 @@ async function activate(context) {
     /* Print the clean banner — this is ALL the user sees in the Output
        Channel. Granular timing/traces go to debug.log on disk. */
     try {
-        outChan.appendLine('Claude Codex Black Ed. Loaded');
+        outChan.appendLine('Codex Black Ed. Loaded');
         outChan.appendLine('Trenton Tompkins <trenttompkins@gmail.com> (c) 2006 Released under the MIT license.');
         outChan.appendLine('See license.txt or type /license');
         outChan.appendLine('Call (724) 431-5207 to discuss your next project! (PHP, Python, node.js - desktop, web and mobile)');
@@ -5735,7 +5735,7 @@ async function activate(context) {
     // resolver collision. Stating it directly here means hover text matches
     // what actually works on the user's keymap. The string is treated as
     // Markdown; backticks render the chord as code.
-    statusBar.tooltip = 'Claude Codex Black — click to open · `Ctrl+Alt+B`';
+    statusBar.tooltip = 'Codex Black — click to open · `Ctrl+Alt+B`';
     setStatus('idle', false, getActiveProvider(context));
     context.subscriptions.push(statusBar);
     /* Second status-bar item: standalone "Web Browser" button that opens
@@ -6230,7 +6230,7 @@ function maybeShowFirstRun(context) {
         if (context.globalState.get(FIRST_RUN_KEY) === true) return;
     } catch (_) { return; }
     const msg =
-        'Welcome to Claude Codex — Black Edition.\n\n' +
+        'Welcome to Codex Black Ed..\n\n' +
         'Works out of the box: voice is keyless (WebSpeech for TTS, whisper.cpp realtime for STT — ~75MB first-run download).\n\n' +
         'For higher-quality chat/voice, add keys in config.ini:\n' +
         '  • ElevenLabs / OpenAI / Anthropic for premium voice + chat\n' +
@@ -6718,7 +6718,7 @@ function skinPreviewInfo(context, id) {
    service ACL is widened so the current user can start/stop without UAC.
    Subsequent toggles are zero-prompt. */
 const SUPERVISOR_SERVICE_NAME = 'CBEVSCodeSupervisor';
-const SUPERVISOR_DISPLAY_NAME = 'Claude Codex Black — VSCode Supervisor';
+const SUPERVISOR_DISPLAY_NAME = 'Codex Black — VSCode Supervisor';
 /* The supervisor.ps1 script binds its liveness HTTP listener here. Single
    source of truth so the probe, the announcements, and the script stay in
    sync. Override with the CBE_SUPERVISOR_PORT env var if 3434 is taken. */
@@ -6857,7 +6857,7 @@ async function installSupervisorService(context) {
     const sq = (s) => `'${String(s).replace(/'/g, "''")}'`;
     const psExe = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
     // ── The space-free-path strategy ──────────────────────────────────────
-    // The extension lives under "...\Claude Codex Black\tools\" — a path WITH
+    // The extension lives under "...\Codex Black\tools\" — a path WITH
     // SPACES. Every prior attempt to pass `-File "<spaced path>" -CodePath
     // "<spaced path>"` through NSSM's AppParameters had the embedded quotes
     // mangled (PowerShell argv handling + nssm re-parse + reg.exe). The fix:
@@ -6889,7 +6889,7 @@ async function installSupervisorService(context) {
         `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppParameters     ${sq(appParams)}`,
         `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppDirectory      ${sq(deployDir)}`,
         `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} DisplayName       ${sq(SUPERVISOR_DISPLAY_NAME)}`,
-        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} Description       ${sq('Keeps VSCode (Code.exe) alive - relaunches on crash. Serves /status on :3434. Managed by Claude Codex Black.')}`,
+        `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} Description       ${sq('Keeps VSCode (Code.exe) alive - relaunches on crash. Serves /status on :3434. Managed by Codex Black.')}`,
         `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} Start             SERVICE_AUTO_START`,
         // AppNoConsole 1 — no console window flashes when the service starts.
         `& ${sq(nssm)} set    ${SUPERVISOR_SERVICE_NAME} AppNoConsole      1`,
@@ -7778,7 +7778,7 @@ function openPanel(context) {
     const endCreate = timeStep('  createWebviewPanel');
     const panel = vscode.window.createWebviewPanel(
         'codexBlackEd.panel',
-        'Claude Codex Black',
+        'Codex Black',
         { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
         {
             enableScripts: true,
@@ -9735,7 +9735,7 @@ function bindPanel(context, panel) {
                     break;
                 }
                 case 'openTerminal': {
-                    /* Open our named "Claude Codex Black" terminal so the user
+                    /* Open our named "Codex Black" terminal so the user
                        can run shell commands. cwd resolution, in order:
                          1. The active project folder if one is set
                          2. The user's Desktop as the universal fallback
@@ -9758,7 +9758,7 @@ function bindPanel(context, panel) {
                         existing.show(false);
                     } else {
                         cbeTerm = vscode.window.createTerminal({
-                            name: 'Claude Codex Black',
+                            name: 'Codex Black',
                             cwd: cwd || undefined,
                         });
                         cbeTerm.show(false);
@@ -10346,7 +10346,7 @@ function buildDirTree(rootPath, maxDepth = AUTO_CTX_TREE_DEPTH) {
 
 function buildAutoContextPrompt(folder, treeText, handbookText) {
     return [
-        '[Claude Codex — Black Edition · automatic session context]',
+        '[Codex Black Ed. · automatic session context]',
         '',
         `PROJECT DIRECTORY: ${folder}`,
         '',
@@ -12057,7 +12057,7 @@ async function* chatStream(context, providerId, model, messages, maxTokens, onPr
     }
 
     const key = getProviderKey(context, providerId);
-    if (!key) throw new Error(`No API key for ${providerId}. Run "Claude Codex Black: Set API Key" or add it to config.ini under [api_keys] (or [azure]).`);
+    if (!key) throw new Error(`No API key for ${providerId}. Run "Codex Black: Set API Key" or add it to config.ini under [api_keys] (or [azure]).`);
 
     if (providerId === 'anthropic') {
         yield* streamAnthropic(key, model, messages, maxTokens, NATIVE_TOOL_SCHEMAS);

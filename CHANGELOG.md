@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to **Claude Codex — Black Edition** are documented here.
+All notable changes to **Codex Black Ed.** are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]

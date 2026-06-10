@@ -1,6 +1,6 @@
 # CBE Lint & Dead-Code Triage Report
 
-**Repo:** `C:\Users\moren\Desktop\Claude Codex Black\`
+**Repo:** `C:\Users\moren\Desktop\Codex Black\`
 **Date:** 2026-05-31
 **Mode:** READ-ONLY analysis. No source modified, no auto-fix applied.
 **Toolchain (all pre-installed):** Biome 2.4.15, ESLint 10.3, Knip 6.13, Ruff 0.15.13, Vulture 2.16.

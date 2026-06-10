@@ -41,7 +41,7 @@ What it does **not** do yet — pickup items for the next agent:
 ```powershell
 # From the repo root. Use high (1xxxx) ports so we don't fight the live C++ tray.
 py -3 -m bridges_py.bridge_service `
-    --providers "C:/Users/moren/Desktop/Claude Codex Black/providers" `
+    --providers "C:/Users/moren/Desktop/Codex Black/providers" `
     --port-chatgpt 18788 `
     --port-claude  18792 `
     --port-qwen    18794
@@ -51,8 +51,8 @@ Expected boot log:
 
 ```
 [bridges_py] v2.0.0 booting
-[bridges_py] providers dir: C:\Users\moren\Desktop\Claude Codex Black\providers
-[bridges_py] repo root:     C:\Users\moren\Desktop\Claude Codex Black
+[bridges_py] providers dir: C:\Users\moren\Desktop\Codex Black\providers
+[bridges_py] repo root:     C:\Users\moren\Desktop\Codex Black
 [bridges_py] providers parsed: azure (ext), chatgpt (core), claude (ext), copilot (ext), ...
 [bridges_py] [chatgpt] listening on 127.0.0.1:18788
 [bridges_py] [claude]  listening on 127.0.0.1:18792

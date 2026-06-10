@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   Claude Codex Black Edition
+   Codex Black Ed.
    Trenton Tompkins <trenttompkins@gmail.com>
    (c) 2006 — Released under the MIT license. See license.txt.
    https://trentontompkins.com    https://github.com/tibberous
@@ -3496,7 +3496,7 @@ function openSettings(payload) {
   applyBtn.type = 'button'; applyBtn.className = 'cbe-btn cbe-save';
   applyBtn.setAttribute('data-act', 'apply');
   // Label comes from the localization table now — user can rename in
-  // C:/Users/moren/Desktop/Claude Codex Black/languages/en.xml under
+  // C:/Users/moren/Desktop/Codex Black/languages/en.xml under
   // <s id="label.apply">…</s>. If they change it to "FOO" and reopen
   // settings, my button will say "FOO" — proving this createElement path
   // IS what's rendering. If they change it and my button still says
@@ -5715,7 +5715,7 @@ function openHelp() {
   modal.innerHTML = `
     <div class="cbe-box" role="dialog" aria-modal="true" aria-label="Help">
       <div class="cbe-hdr" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-        <span data-i18n="title.help">Claude Codex — Black Edition · Help</span>
+        <span data-i18n="title.help">Codex Black Ed. · Help</span>
         <div style="display:flex;align-items:center;gap:8px;">
           <button id="cbe-help-changelog-btn" type="button"
                   data-i18n="label.change_log"
@@ -5768,7 +5768,7 @@ const CBE_NAGS = [
   {
     icon: __nagSvgHeart,
     title: 'Help keep this open-source',
-    body:  'Claude Codex Black is free, open source, and built solo. If it makes your day better, a one-time tip on GoFundMe lets me keep shipping features and fixing bugs.',
+    body:  'Codex Black is free, open source, and built solo. If it makes your day better, a one-time tip on GoFundMe lets me keep shipping features and fixing bugs.',
     cta:   'Open GoFundMe',
     url:   'https://www.gofundme.com/manage/donate-today-to-support-the-creation-of-open-source-tools',
   },
@@ -5866,7 +5866,7 @@ function openAuthPicker() {
           'style="color:var(--cbe-modal-title-fg);"></button>' +
       '</div>' +
       '<div style="padding:18px 22px;color:var(--cbe-modal-fg,#e7eaef);font:14px/1.55 system-ui,sans-serif;">' +
-        '<div style="margin-bottom:6px;">Claude Codex Black Ed. can be used with your Claude subscription or billed based on API usage through your Console account.</div>' +
+        '<div style="margin-bottom:6px;">Codex Black Ed. can be used with your Claude subscription or billed based on API usage through your Console account.</div>' +
         '<div style="' + subStyle + '">How do you want to log in?</div>' +
         '<button class="cbe-ap-claude"    type="button" style="' + btnStyle + '">Claude Subscription (logged in)</button>' +
         '<div style="' + subStyle + '">Run the real Claude Code agent on your Claude Pro/Max/Team subscription — same login &amp; billing as Claude Code, no API key.</div>' +
@@ -6125,7 +6125,7 @@ function renderExtensionsCatalog(items, error) {
   }).join('');
   body.innerHTML =
     '<div style="opacity:.75;margin-bottom:14px;">Browse and install third-party ' +
-    'extensions for the Claude Codex Black panel. Each is a single <code>.ext</code> ' +
+    'extensions for the Codex Black panel. Each is a single <code>.ext</code> ' +
     'bundle, downloaded + MD5-verified + extracted by the host.</div>' +
     '<div style="display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));">' +
     cards + '</div>';
@@ -8067,11 +8067,11 @@ window.addEventListener('resize', fitProjectPath);
     overlay.innerHTML =
       '<div class="cbe-box" style="max-width:520px;">' +
         '<div class="cbe-hdr">' +
-          '<span class="cbe-title">About Claude Codex Black</span>' +
+          '<span class="cbe-title">About Codex Black</span>' +
           '<div class="cbe-actions"><button class="cbe-close cbe-x" type="button" aria-label="Close"></button></div>' +
         '</div>' +
         '<div class="cbe-body" style="padding:18px 22px;font-family:inherit;font-size:13.5px;line-height:1.6;">' +
-          '<p style="margin:0 0 10px;font-size:15px;"><b>Claude Codex — Black Edition</b></p>' +
+          '<p style="margin:0 0 10px;font-size:15px;"><b>Codex Black Ed.</b></p>' +
           '<p style="margin:0 0 6px;">Standalone VSCode panel for multi-provider AI chat (Claude / GPT / Grok / Gemini / Copilot / DeepSeek / Azure) with direct API + browser bridges, TTS/STT, multi-account, skinning, and a Tamagotchi pet.</p>' +
           '<table style="margin:14px 0;border-collapse:collapse;width:100%;font-size:13px;">' +
             '<tr><td style="padding:3px 0;color:var(--cbe-modal-fg);opacity:0.7;width:90px;">Version</td><td>1.0.1</td></tr>' +

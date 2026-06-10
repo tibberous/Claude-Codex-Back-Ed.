@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* ─────────────────────────────────────────────────────────────────────────
-   cbe — Claude Codex Black Ed. command-line interface
+   cbe — Codex Black Ed. command-line interface
    Trenton Tompkins <trenttompkins@gmail.com> — MIT (see license.txt)
 
    "Everything you can do through the UI, doable through the CLI."
@@ -152,7 +152,7 @@ function controlStream(urlPath, bodyObj, onLine) {
 function extensionNotRunningHint() {
     return 'the CBE extension is not running (or its control server on '
         + `${CONTROL_HOST}:${CONTROL_PORT} is unreachable). Open VS Code with the `
-        + 'Claude Codex Black extension active, then retry. '
+        + 'Codex Black extension active, then retry. '
         + '(Set $CBE_CONTROL_PORT if you changed the port.)';
 }
 
@@ -238,7 +238,7 @@ function nativeSaveDialog(suggestedName) {
 
 /* version — STANDALONE (reads package.json). */
 async function cmdVersion() {
-    outln('cbe (Claude Codex Black Ed.) ' + readPackageVersion());
+    outln('cbe (Codex Black Ed.) ' + readPackageVersion());
 }
 
 /* help / usage — STANDALONE. `man` prints the longer manual. */
@@ -522,7 +522,7 @@ async function cmdRecv(argv) {
 }
 
 /* ── Help text (kept at the bottom so handlers read top-down) ──────────────── */
-const USAGE_TEXT = `cbe — Claude Codex Black Ed. command-line interface
+const USAGE_TEXT = `cbe — Codex Black Ed. command-line interface
 
 Usage: cbe <command> [args]
 
@@ -549,10 +549,10 @@ Usage: cbe <command> [args]
 Most commands run standalone; status/chat/reset/update/send talk to the
 running extension on 127.0.0.1:${CONTROL_PORT}. Run \`cbe man\` for details.`;
 
-const MAN_TEXT = `CBE(1)                  Claude Codex Black Ed. Manual                  CBE(1)
+const MAN_TEXT = `CBE(1)                  Codex Black Ed. Manual                  CBE(1)
 
 NAME
-  cbe — drive every Claude Codex Black UI action from the command line.
+  cbe — drive every Codex Black UI action from the command line.
 
 DESIGN
   Some commands are STANDALONE (no VS Code needed): --version, bridges,
