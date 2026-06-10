@@ -177,3 +177,11 @@ resources/banner_backdrop.png
 
 .openai_key_tmp
 *.key_tmp
+
+# -- Local Whisper STT dev env + models (per-machine, ~380MB; never ship --
+#    STT runs server-side / models fetch at runtime). Added 2026-06-10. --
+venv-whisper/
+**/venv-whisper/
+faster-whisper-models/
+**/faster-whisper-models/
+*whisper-models/
